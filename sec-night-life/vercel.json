@@ -1,6 +1,4 @@
 {
-  "version": 2,
-  "buildCommand": "cd sec-night-life && npm install && npm run build",
-  "outputDirectory": "sec-night-life/dist"
+  "version": 2
 }
 
