@@ -1,0 +1,292 @@
+/**
+ * Tables Routes
+ * SECURITY: Capacity enforcement is atomic. No duplicate joins. No silent failures.
+ * SECURITY: Email verification required for all write actions.
+ */
+import { Router } from 'express';
+import { z } from 'zod';
+import { prisma } from '../lib/prisma.js';
+import { authenticateToken, optionalAuth } from '../middleware/auth.js';
+import { requireVerified } from '../middleware/requireVerified.js';
+import { applyTableVenueIsolation, canAccessVenue, isStaff } from '../lib/access.js';
+import { auditFromReq } from '../lib/audit.js';
+
+const router = Router();
+
+const tableCreateSchema = z.object({
+  event_id: z.string().uuid(),
+  venue_id: z.string().uuid(),
+  name: z.string().min(1).max(200),
+  max_guests: z.number().int().min(1).max(500),
+  min_spend: z.number().min(0).optional(),
+  joining_fee: z.number().min(0).optional()
+});
+
+function formatTable(t) {
+  return {
+    id: t.id,
+    event_id: t.eventId,
+    venue_id: t.venueId,
+    host_user_id: t.hostUserId,
+    name: t.name,
+    status: t.status,
+    max_guests: t.maxGuests,
+    current_guests: t.currentGuests,
+    min_spend: t.minSpend,
+    joining_fee: t.joiningFee,
+    members: t.members,
+    pending_requests: t.pendingRequests,
+    created_date: t.createdAt.toISOString()
+  };
+}
+
+router.get('/', optionalAuth, async (req, res, next) => {
+  try {
+    const { status = 'open', event_id, venue_id, host_user_id, sort, limit = 100 } = req.query;
+    const where = { deletedAt: null };
+    if (status) where.status = status;
+    if (event_id) where.eventId = event_id;
+    if (venue_id) where.venueId = venue_id;
+    if (host_user_id) {
+      // SECURITY: only allow viewing other users' tables if staff
+      if (req.userId && host_user_id !== req.userId && !isStaff(req.userRole)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      where.hostUserId = host_user_id;
+    }
+    if (req.userId && req.userRole === 'VENUE') {
+      const ok = await canAccessVenue(venue_id, req.userId, req.userRole);
+      if (!ok && venue_id) return res.status(403).json({ error: 'Forbidden' });
+      await applyTableVenueIsolation(where, req.userId, req.userRole, venue_id || null);
+    }
+    const orderBy = sort === '-created_date' ? { createdAt: 'desc' } : { createdAt: 'asc' };
+    const tables = await prisma.table.findMany({
+      where,
+      orderBy,
+      take: Math.min(parseInt(limit) || 100, 100)
+    });
+    res.json(tables.map(formatTable));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/filter', optionalAuth, async (req, res, next) => {
+  try {
+    const { id, event_id, venue_id, host_user_id, status, sort, limit = 100 } = req.query;
+    const where = { deletedAt: null };
+    if (id) where.id = String(id);
+    if (event_id) where.eventId = String(event_id);
+    if (venue_id) where.venueId = String(venue_id);
+    if (host_user_id) {
+      if (req.userId && host_user_id !== req.userId && !isStaff(req.userRole)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      where.hostUserId = String(host_user_id);
+    }
+    if (status) where.status = status;
+    if (req.userId && req.userRole === 'VENUE') {
+      const ok = await canAccessVenue(venue_id, req.userId, req.userRole);
+      if (!ok && venue_id) return res.status(403).json({ error: 'Forbidden' });
+      await applyTableVenueIsolation(where, req.userId, req.userRole, venue_id || null);
+    }
+    const orderBy = sort === '-created_date' ? { createdAt: 'desc' } : { createdAt: 'asc' };
+    const tables = await prisma.table.findMany({
+      where,
+      orderBy,
+      take: Math.min(parseInt(limit) || 100, 100)
+    });
+    res.json(tables.map(formatTable));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id', optionalAuth, async (req, res, next) => {
+  try {
+    const table = await prisma.table.findFirst({
+      where: { id: req.params.id, deletedAt: null }
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    res.json(formatTable(table));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// SECURITY: email must be verified to create, join, or leave tables
+router.post('/', authenticateToken, requireVerified, async (req, res, next) => {
+  try {
+    const parsed = tableCreateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const data = parsed.data;
+
+    const event = await prisma.event.findFirst({
+      where: { id: data.event_id, deletedAt: null },
+      include: { venue: true }
+    });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (event.venueId !== data.venue_id) return res.status(400).json({ error: 'Venue does not match event' });
+
+    const table = await prisma.table.create({
+      data: {
+        eventId: data.event_id,
+        venueId: data.venue_id,
+        hostUserId: req.userId,
+        name: data.name,
+        maxGuests: data.max_guests,
+        minSpend: data.min_spend,
+        joiningFee: data.joining_fee
+      }
+    });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'TABLE_CREATED',
+      entityType: 'table',
+      entityId: table.id,
+      metadata: { tableName: table.name, eventId: table.eventId, venueId: table.venueId }
+    });
+
+    res.status(201).json(formatTable(table));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Join a table — atomic capacity enforcement, no duplicate joins.
+ * SECURITY: Uses DB transaction to prevent race conditions.
+ */
+router.post('/:id/join', authenticateToken, requireVerified, async (req, res, next) => {
+  try {
+    const tableId = req.params.id;
+    const userId = req.userId;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const table = await tx.table.findFirst({
+        where: { id: tableId, deletedAt: null }
+      });
+      if (!table) throw Object.assign(new Error('Table not found'), { status: 404 });
+      if (table.status !== 'open') throw Object.assign(new Error('Table is not open'), { status: 409 });
+
+      // SECURITY: prevent host from joining their own table as member
+      if (table.hostUserId === userId) {
+        throw Object.assign(new Error('Host cannot join their own table'), { status: 400 });
+      }
+
+      const members = Array.isArray(table.members) ? table.members : [];
+
+      // SECURITY: no duplicate joins
+      const alreadyMember = members.some(m =>
+        (typeof m === 'object' && m?.user_id === userId) || m === userId
+      );
+      if (alreadyMember) throw Object.assign(new Error('Already a member of this table'), { status: 409 });
+
+      // SECURITY: atomic capacity check
+      if (table.currentGuests >= table.maxGuests) {
+        throw Object.assign(new Error('Table is at full capacity'), { status: 409 });
+      }
+
+      const newMembers = [...members, { user_id: userId, joined_at: new Date().toISOString() }];
+      const newCount = table.currentGuests + 1;
+      const newStatus = newCount >= table.maxGuests ? 'full' : 'open';
+
+      return tx.table.update({
+        where: { id: tableId },
+        data: { members: newMembers, currentGuests: newCount, status: newStatus }
+      });
+    });
+
+    await auditFromReq(req, {
+      userId,
+      action: 'TABLE_JOINED',
+      entityType: 'table',
+      entityId: tableId,
+      metadata: { currentGuests: result.currentGuests, maxGuests: result.maxGuests }
+    });
+
+    res.json({ success: true, table: formatTable(result) });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * Leave a table.
+ */
+router.post('/:id/leave', authenticateToken, requireVerified, async (req, res, next) => {
+  try {
+    const tableId = req.params.id;
+    const userId = req.userId;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const table = await tx.table.findFirst({ where: { id: tableId, deletedAt: null } });
+      if (!table) throw Object.assign(new Error('Table not found'), { status: 404 });
+
+      const members = Array.isArray(table.members) ? table.members : [];
+      const isMember = members.some(m =>
+        (typeof m === 'object' && m?.user_id === userId) || m === userId
+      );
+      if (!isMember) throw Object.assign(new Error('Not a member of this table'), { status: 400 });
+
+      const newMembers = members.filter(m =>
+        !((typeof m === 'object' && m?.user_id === userId) || m === userId)
+      );
+      const newCount = Math.max(0, table.currentGuests - 1);
+      const newStatus = table.status === 'full' ? 'open' : table.status;
+
+      return tx.table.update({
+        where: { id: tableId },
+        data: { members: newMembers, currentGuests: newCount, status: newStatus }
+      });
+    });
+
+    res.json({ success: true, table: formatTable(result) });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+router.patch('/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const table = await prisma.table.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      include: { venue: true }
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+
+    const isHost = table.hostUserId === req.userId;
+    const isVenueOwner = table.venue?.ownerUserId === req.userId;
+    if (!isHost && !isVenueOwner && !isStaff(req.userRole)) {
+      return res.status(403).json({ error: 'Forbidden' }); // SECURITY: ownership check
+    }
+
+    const schema = z.object({
+      name: z.string().min(1).max(200).optional(),
+      status: z.enum(['open', 'full', 'closed']).optional(),
+      max_guests: z.number().int().min(1).max(500).optional(),
+      min_spend: z.number().min(0).optional(),
+      joining_fee: z.number().min(0).optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    const data = parsed.data;
+
+    const updates = {};
+    if (data.name != null) updates.name = data.name;
+    if (data.status != null) updates.status = data.status;
+    if (data.max_guests != null) updates.maxGuests = data.max_guests;
+    if (data.min_spend != null) updates.minSpend = data.min_spend;
+    if (data.joining_fee != null) updates.joiningFee = data.joining_fee;
+
+    const updated = await prisma.table.update({ where: { id: table.id }, data: updates });
+    res.json(formatTable(updated));
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;

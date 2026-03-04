@@ -1,0 +1,585 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@import './styles/design-system.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* shadcn/ui HSL tokens — mapped to SEC palette */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 85%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 0 0% 12%;
+    --accent-foreground: 0 0% 90%;
+    --destructive: 0 55% 52%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 13%;
+    --input: 0 0% 11%;
+    --ring: 0 0% 65%;
+    --radius: 0.5rem;
+    --sidebar-background: 0 0% 3%;
+    --sidebar-foreground: 0 0% 78%;
+    --sidebar-primary: 0 0% 75%;
+    --sidebar-primary-foreground: 0 0% 4%;
+    --sidebar-accent: 0 0% 10%;
+    --sidebar-accent-foreground: 0 0% 85%;
+    --sidebar-border: 0 0% 12%;
+    --sidebar-ring: 0 0% 65%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    background-color: var(--sec-bg-base);
+    color: var(--sec-text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--sec-text-primary);
+    line-height: 1.25;
+  }
+}
+
+@layer components {
+
+  /* ─── Typography ─── */
+  .sec-display {
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--sec-text-primary);
+  }
+
+  .sec-label {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--sec-text-muted);
+    display: block;
+  }
+
+  /* ─── Section header — Airbnb/Uber pattern ─── */
+  /* Usage: <div class="sec-section-header"> <div class="sec-section-header-left"> ... </div> <a class="sec-see-all">See all</a> </div> */
+  .sec-section-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .sec-see-all {
+    font-size: var(--text-sm);
+    color: var(--sec-text-muted);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    transition: color var(--transition-fast);
+    white-space: nowrap;
+    padding-bottom: 2px;
+  }
+  .sec-see-all:hover { color: var(--sec-text-secondary); }
+
+  /* ─── Cards ─── */
+  .sec-card {
+    background-color: var(--sec-bg-card);
+    border: 1px solid var(--sec-border);
+    border-radius: var(--radius-lg);
+    transition: border-color var(--transition-base), background-color var(--transition-base);
+  }
+  .sec-card:hover {
+    border-color: var(--sec-border-hover);
+    background-color: var(--sec-bg-hover);
+  }
+
+  .glass-card {
+    background-color: var(--sec-bg-card);
+    border: 1px solid var(--sec-border);
+    border-radius: var(--radius-lg);
+  }
+
+  /* ─── Badges ─── */
+  .sec-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: var(--radius-xs);
+    white-space: nowrap;
+  }
+
+  .sec-badge-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+
+  .sec-badge-silver {
+    background-color: var(--sec-silver-muted);
+    color: var(--sec-silver);
+    border: 1px solid var(--sec-accent-border);
+  }
+  .sec-badge-gold {
+    background-color: var(--sec-accent-muted);
+    color: var(--sec-accent-bright);
+    border: 1px solid var(--sec-accent-border);
+  }
+  .sec-badge-success {
+    background-color: var(--sec-success-muted);
+    color: var(--sec-success);
+    border: 1px solid rgba(61, 186, 107, 0.2);
+  }
+  .sec-badge-danger {
+    background-color: var(--sec-error-muted);
+    color: var(--sec-error);
+    border: 1px solid rgba(217, 85, 85, 0.2);
+  }
+  .sec-badge-muted {
+    background-color: rgba(107, 107, 107, 0.12);
+    color: var(--sec-text-muted);
+    border: 1px solid rgba(107, 107, 107, 0.18);
+  }
+
+  /* ─── Filter chip pills — Airbnb horizontal scroll pattern ─── */
+  .sec-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 1px solid var(--sec-border);
+    background-color: var(--sec-bg-card);
+    color: var(--sec-text-secondary);
+    transition: border-color var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast);
+    outline: none;
+  }
+  .sec-chip:hover {
+    border-color: var(--sec-border-hover);
+    background-color: var(--sec-bg-hover);
+    color: var(--sec-text-primary);
+  }
+  .sec-chip.active {
+    background-color: var(--sec-text-primary);
+    border-color: var(--sec-text-primary);
+    color: var(--sec-bg-base);
+  }
+
+  /* ─── Date selection tile — Eventbrite circular-number pattern ─── */
+  .sec-date-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 12px 12px;
+    border-radius: var(--radius-lg);
+    background-color: var(--sec-bg-card);
+    border: 1px solid var(--sec-border);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    min-width: 62px;
+    outline: none;
+  }
+  .sec-date-tile:hover {
+    border-color: var(--sec-border-hover);
+    background-color: var(--sec-bg-hover);
+  }
+  .sec-date-tile.active {
+    background-color: var(--sec-text-primary);
+    border-color: var(--sec-text-primary);
+  }
+  .sec-date-tile__day {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sec-text-muted);
+    margin-bottom: 6px;
+  }
+  .sec-date-tile.active .sec-date-tile__day { color: rgba(0,0,0,0.55); }
+  .sec-date-tile__number {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--sec-text-primary);
+    background-color: transparent;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+  }
+  .sec-date-tile.active .sec-date-tile__number {
+    background-color: var(--sec-bg-base);
+    color: var(--sec-text-primary);
+  }
+  .sec-date-tile__dots {
+    display: flex;
+    gap: 3px;
+    margin-top: 6px;
+    height: 4px;
+    align-items: center;
+  }
+  .sec-date-tile__dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: var(--sec-accent);
+  }
+  .sec-date-tile.active .sec-date-tile__dot { background-color: rgba(0,0,0,0.3); }
+
+  /* ─── Buttons — stadium/pill CTAs ─── */
+  .sec-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-radius: var(--radius-pill);
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    transition: opacity var(--transition-fast), background-color var(--transition-fast);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .sec-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .sec-btn-sm  { padding: 8px 16px; font-size: var(--text-xs); }
+  .sec-btn-md  { padding: 11px 22px; }
+  .sec-btn-lg  { padding: 14px 28px; font-size: var(--text-base); }
+  .sec-btn-full { width: 100%; padding: 14px 24px; }
+
+  .sec-btn-primary {
+    background-color: var(--sec-text-primary);
+    color: var(--sec-bg-base);
+  }
+  .sec-btn-primary:hover { opacity: 0.88; }
+
+  .sec-btn-accent {
+    background: var(--sec-gradient-silver);
+    color: var(--sec-bg-base);
+  }
+  .sec-btn-accent:hover { opacity: 0.90; }
+
+  .sec-btn-secondary {
+    background-color: var(--sec-bg-card);
+    color: var(--sec-text-primary);
+    border: 1px solid var(--sec-border);
+  }
+  .sec-btn-secondary:hover {
+    background-color: var(--sec-bg-hover);
+    border-color: var(--sec-border-hover);
+  }
+
+  .sec-btn-ghost {
+    background-color: transparent;
+    color: var(--sec-text-secondary);
+    border: 1px solid var(--sec-border);
+  }
+  .sec-btn-ghost:hover {
+    color: var(--sec-text-primary);
+    border-color: var(--sec-border-hover);
+    background-color: var(--sec-bg-card);
+  }
+
+  /* ─── Sticky bottom CTA bar — price left / button right ─── */
+  .sec-bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background-color: rgba(0, 0, 0, 0.96);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--sec-border);
+    padding: 14px 20px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .sec-bottom-bar__price {
+    flex-shrink: 0;
+  }
+  .sec-bottom-bar__price-label {
+    font-size: 11px;
+    color: var(--sec-text-muted);
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+  .sec-bottom-bar__price-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--sec-text-primary);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .sec-bottom-bar__cta {
+    flex: 1;
+  }
+
+  /* ─── Bottom sheet — PlayStation/Shelf pattern ─── */
+  .sec-bottom-sheet {
+    background-color: var(--sec-bg-sheet);
+    border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+    box-shadow: var(--shadow-sheet);
+    padding: 24px 20px;
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+  .sec-bottom-sheet__drag {
+    width: 36px;
+    height: 4px;
+    background-color: var(--sec-border-strong);
+    border-radius: var(--radius-pill);
+    margin: 0 auto 20px;
+  }
+  .sec-sheet-overlay {
+    background-color: var(--overlay-heavy);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  /* ─── Navigation ─── */
+  .sec-nav-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    color: var(--sec-text-muted);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    transition: color var(--transition-fast), background-color var(--transition-fast);
+    text-decoration: none;
+    border: 1px solid transparent;
+  }
+  .sec-nav-item:hover {
+    color: var(--sec-text-secondary);
+    background-color: var(--sec-bg-card);
+  }
+  .sec-nav-item.active {
+    color: var(--sec-text-primary);
+    background-color: var(--sec-bg-card);
+    border-color: var(--sec-border);
+  }
+
+  .sec-nav-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    background-color: var(--sec-bg-card);
+    border: 1px solid var(--sec-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+    color: var(--sec-text-secondary);
+  }
+  .sec-nav-icon:hover {
+    border-color: var(--sec-border-hover);
+    background-color: var(--sec-bg-hover);
+    color: var(--sec-text-primary);
+  }
+
+  /* ─── Inputs ─── */
+  .sec-input {
+    background-color: var(--sec-bg-elevated);
+    border: 1px solid var(--sec-border);
+    color: var(--sec-text-primary);
+    border-radius: var(--radius-pill);
+    padding: 10px 16px;
+    font-size: var(--text-sm);
+    font-family: inherit;
+    transition: border-color var(--transition-fast);
+    width: 100%;
+    outline: none;
+    height: 44px;
+  }
+  .sec-input:focus { border-color: var(--sec-border-strong); }
+  .sec-input::placeholder { color: var(--sec-text-muted); }
+
+  .sec-input-rect {
+    background-color: var(--sec-bg-elevated);
+    border: 1px solid var(--sec-border);
+    color: var(--sec-text-primary);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    font-size: var(--text-sm);
+    font-family: inherit;
+    transition: border-color var(--transition-fast);
+    width: 100%;
+    outline: none;
+  }
+  .sec-input-rect:focus { border-color: var(--sec-border-strong); }
+  .sec-input-rect::placeholder { color: var(--sec-text-muted); }
+
+  /* ─── Progress / capacity bar ─── */
+  .sec-progress {
+    height: 3px;
+    background-color: var(--sec-border);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+  }
+  .sec-progress-fill {
+    height: 100%;
+    background-color: var(--sec-text-secondary);
+    border-radius: var(--radius-pill);
+    transition: width 0.3s ease;
+  }
+  .sec-progress-fill-gold { background: var(--sec-gradient-silver); }
+  .sec-progress-fill-danger { background-color: var(--sec-error); }
+  .sec-progress-fill-success { background-color: var(--sec-success); }
+
+  /* ─── Capacity colour helpers ─── */
+  .capacity-open { color: var(--sec-success); }
+  .capacity-filling { color: var(--sec-accent); }
+  .capacity-full { color: var(--sec-error); }
+
+  /* ─── Image overlays ─── */
+  .sec-overlay {
+    background: linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.35) 55%, transparent 100%);
+  }
+  .sec-overlay-top {
+    background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+  }
+
+  /* ─── Utility ─── */
+  .sec-logo-wrap {
+    background-color: transparent;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+
+  .sec-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--sec-border);
+    border-top-color: var(--sec-text-secondary);
+    border-radius: 50%;
+    animation: sec-spin 0.7s linear infinite;
+  }
+  @keyframes sec-spin { to { transform: rotate(360deg); } }
+
+  .sec-link {
+    font-size: var(--text-sm);
+    color: var(--sec-text-muted);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+  .sec-link:hover { color: var(--sec-text-secondary); }
+
+  /* ─── List row — avatar + title + subtitle + right action ─── */
+  .sec-list-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 13px 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+    text-decoration: none;
+    color: inherit;
+  }
+  .sec-list-row:hover {
+    background-color: var(--sec-bg-card);
+    border-color: var(--sec-border);
+  }
+  .sec-list-row__avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background-color: var(--sec-bg-elevated);
+    border: 1px solid var(--sec-border);
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--sec-text-secondary);
+  }
+  .sec-list-row__avatar-sq {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-sm);
+    background-color: var(--sec-bg-elevated);
+    border: 1px solid var(--sec-border);
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sec-list-row__body { flex: 1; min-width: 0; }
+  .sec-list-row__title {
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--sec-text-primary);
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sec-list-row__subtitle {
+    font-size: var(--text-sm);
+    color: var(--sec-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sec-list-row__action {
+    flex-shrink: 0;
+    color: var(--sec-text-muted);
+  }
+
+  /* Kill all legacy neon/gradient helpers */
+  .gradient-text, .glow-effect, .nav-glow, .pulse-glow { background: none; box-shadow: none; animation: none; color: inherit; }
+  .gradient-border::before { display: none; }
+}

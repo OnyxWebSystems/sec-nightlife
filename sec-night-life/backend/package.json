@@ -1,0 +1,43 @@
+{
+  "name": "sec-nightlife-api",
+  "version": "1.0.0",
+  "description": "SEC Nightlife marketplace backend API",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "NODE_ENV=production node src/index.js",
+    "db:create": "node scripts/create-db.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:neon-schema": "node scripts/run-neon-schema.js",
+    "db:migrate-hardening": "node scripts/run-hardening-migration.js",
+    "db:migrate-preprod": "node scripts/run-preprod-migration.js"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.0",
+    "@prisma/adapter-neon": "^5.22.0",
+    "@prisma/client": "^5.22.0",
+    "bcrypt": "^5.1.1",
+    "cloudinary": "^2.5.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "express-validator": "^7.2.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.16",
+    "resend": "^4.0.0",
+    "uuid": "^11.0.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "pg": "^8.18.0",
+    "prisma": "^5.22.0",
+    "ws": "^8.18.0"
+  }
+}
