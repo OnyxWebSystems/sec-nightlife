@@ -192,8 +192,9 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // STEP 5.4: Block login if email not verified
-    if (!user.emailVerified) {
+    // STEP 5.4: Block login if email not verified (unless ALLOW_UNVERIFIED_LOGIN for preview/dev)
+    const allowUnverified = process.env.ALLOW_UNVERIFIED_LOGIN === 'true' || process.env.ALLOW_UNVERIFIED_LOGIN === '1';
+    if (!user.emailVerified && !allowUnverified) {
       await audit({
         userId: user.id,
         action: 'LOGIN_BLOCKED_UNVERIFIED',

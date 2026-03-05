@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
-import { clearTokens } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -28,9 +27,9 @@ export default function Register() {
     setLoading(true);
     try {
       await authService.register(email, password, fullName || undefined, 'USER');
-      clearTokens();
-      toast.success('Account created! Please sign in.');
-      navigate(createPageUrl('Login'), { replace: true });
+      toast.success('Account created! You are now signed in.');
+      navigate(createPageUrl('Home'), { replace: true });
+      window.location.reload();
     } catch (err) {
       toast.error(err?.data?.error || err?.message || 'Registration failed');
     } finally {

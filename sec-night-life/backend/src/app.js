@@ -58,6 +58,8 @@ app.use(cors({
     }
     const normalizedOrigin = origin.replace(/\/+$/, '');
     if (allowedOrigins.includes(normalizedOrigin)) return cb(null, true);
+    // Allow any Vercel preview URL (*.vercel.app) for preview deployments
+    if (normalizedOrigin.endsWith('.vercel.app')) return cb(null, true);
     cb(new Error('CORS: origin not allowed'), false);
   },
   credentials: true,

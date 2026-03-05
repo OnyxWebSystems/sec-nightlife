@@ -27,6 +27,7 @@ export async function api(method, path, body = null, opts = {}) {
   const options = {
     method,
     headers: getHeaders(opts.skipAuth !== true),
+    credentials: 'include',
     ...opts
   };
   if (body && method !== 'GET') {
