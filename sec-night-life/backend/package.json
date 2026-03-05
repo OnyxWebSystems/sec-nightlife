@@ -5,6 +5,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "build": "prisma generate",
     "dev": "node --watch src/index.js",
     "start": "NODE_ENV=production node src/index.js",
     "db:create": "node scripts/create-db.js",
@@ -33,11 +34,11 @@
     "nodemailer": "^6.9.16",
     "resend": "^4.0.0",
     "uuid": "^11.0.3",
+    "ws": "^8.18.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "pg": "^8.18.0",
-    "prisma": "^5.22.0",
-    "ws": "^8.18.0"
+    "prisma": "^5.22.0"
   }
 }
