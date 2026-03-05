@@ -56,6 +56,7 @@ import Events from './pages/Events';
 import Explore from './pages/Explore';
 import FeedbackInsights from './pages/FeedbackInsights';
 import Friends from './pages/Friends';
+import HelpCenter from './pages/HelpCenter';
 import Home from './pages/Home';
 import HostDashboard from './pages/HostDashboard';
 import JobDetails from './pages/JobDetails';
@@ -68,8 +69,10 @@ import Map from './pages/Map';
 import Messages from './pages/Messages';
 import Notifications from './pages/Notifications';
 import Onboarding from './pages/Onboarding';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import TermsOfService from './pages/TermsOfService';
 import TableDetails from './pages/TableDetails';
 import TableJoinOnboarding from './pages/TableJoinOnboarding';
 import TablePayment from './pages/TablePayment';
@@ -104,8 +107,10 @@ export const PAGES = {
     "Messages": Messages,
     "Notifications": Notifications,
     "Onboarding": Onboarding,
+    "PrivacyPolicy": PrivacyPolicy,
     "Profile": Profile,
     "Settings": Settings,
+    "TermsOfService": TermsOfService,
     "TableDetails": TableDetails,
     "TableJoinOnboarding": TableJoinOnboarding,
     "TablePayment": TablePayment,

@@ -4,7 +4,8 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useAuth } from '@/lib/AuthContext';
-import { 
+import { usePreferences } from '@/context/PreferencesContext';
+import {
   ChevronLeft,
   ChevronRight,
   User,
@@ -15,11 +16,11 @@ import {
   FileText,
   LogOut,
   Moon,
+  Sun,
   Globe,
   Smartphone,
   Building,
   BadgeCheck,
-  ExternalLink
 } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button";
 export default function Settings() {
   const navigate = useNavigate();
   const { logout } = useAuth();
+  const { theme, toggleTheme, t, language } = usePreferences();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [venues, setVenues] = useState([]);
@@ -39,59 +41,88 @@ export default function Settings() {
     try {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
-      
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) {
-        setUserProfile(profiles[0]);
+
+      let profiles = [];
+      try {
+        profiles = await dataService.User.filter({ created_by: currentUser.email });
+        if (profiles.length > 0) setUserProfile(profiles[0]);
+      } catch {
+        profiles = [];
       }
 
-      const userVenues = await dataService.Venue.filter({ owner_user_id: profiles[0]?.id });
+      let userVenues = [];
+      try {
+        const ownerId = currentUser?.id ?? profiles[0]?.id;
+        if (ownerId) {
+          userVenues = await dataService.Venue.filter({ owner_user_id: ownerId });
+        }
+      } catch {
+        userVenues = [];
+      }
       setVenues(userVenues);
-    } catch (e) {
+    } catch {
       authService.redirectToLogin();
     }
   };
 
+  const languageLabel = language === 'en' ? 'English' : language;
+
   const settingsSections = [
     {
-      title: 'Account',
+      title: t('account'),
       items: [
-        { icon: User, label: 'Edit Profile', page: 'EditProfile' },
-        { icon: Bell, label: 'Notifications', description: 'Manage push notifications', toggle: true },
-        { icon: Shield, label: 'Privacy & Security', page: 'Privacy' },
-        { icon: CreditCard, label: 'Payment Methods', page: 'Payments' },
-      ]
+        { icon: User, label: t('editProfile'), page: 'EditProfile' },
+        { icon: Bell, label: t('notifications'), description: t('managePushNotifications'), toggle: true },
+        { icon: Shield, label: t('privacySecurity'), page: 'Privacy' },
+        { icon: CreditCard, label: t('paymentMethods'), page: 'Payments' },
+      ],
     },
     {
-      title: 'Preferences',
+      title: t('preferences'),
       items: [
-        { icon: Moon, label: 'Dark Mode', description: 'Always on', toggle: true, defaultOn: true },
-        { icon: Globe, label: 'Language', description: 'English', page: 'Language' },
-        { icon: Smartphone, label: 'App Preferences', page: 'AppPreferences' },
-      ]
+        {
+          icon: theme === 'dark' ? Moon : Sun,
+          label: t('theme'),
+          description: theme === 'dark' ? t('darkMode') : t('lightMode'),
+          themeToggle: true,
+        },
+        {
+          icon: Globe,
+          label: t('language'),
+          description: languageLabel,
+          languageRow: true,
+        },
+        { icon: Smartphone, label: t('appPreferences'), page: 'AppPreferences' },
+      ],
     },
     {
-      title: 'Support',
+      title: t('support'),
       items: [
-        { icon: HelpCircle, label: 'Help Center', external: true },
-        { icon: FileText, label: 'Terms of Service', external: true },
-        { icon: FileText, label: 'Privacy Policy', external: true },
-      ]
-    }
+        { icon: HelpCircle, label: t('helpCenter'), page: 'HelpCenter' },
+        { icon: FileText, label: t('termsOfService'), page: 'TermsOfService' },
+        { icon: FileText, label: t('privacyPolicy'), page: 'PrivacyPolicy' },
+      ],
+    },
   ];
 
   return (
     <div className="min-h-screen pb-8">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-[#0A0A0B]/80 backdrop-blur-xl border-b border-[#262629]">
+      <header
+        className="sticky top-0 z-40 border-b"
+        style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+      >
         <div className="px-4 py-4 flex items-center gap-4">
           <button
             onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full bg-[#141416] flex items-center justify-center"
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: 'var(--sec-bg-card)' }}
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
           </button>
-          <h1 className="text-xl font-bold">Settings</h1>
+          <h1 className="text-xl font-bold" style={{ color: 'var(--sec-text-primary)' }}>
+            {t('settings')}
+          </h1>
         </div>
       </header>
 
@@ -119,35 +150,46 @@ export default function Settings() {
 
         {/* Venue Management */}
         {venues.length > 0 && (
-          <div className="glass-card rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#262629]">
-              <p className="text-sm font-semibold text-gray-400">Your Venues</p>
+          <div
+            className="rounded-2xl overflow-hidden"
+            style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
+          >
+            <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--sec-border)' }}>
+              <p className="text-sm font-semibold" style={{ color: 'var(--sec-text-muted)' }}>
+                Your Venues
+              </p>
             </div>
             {venues.map((venue) => (
               <Link
                 key={venue.id}
                 to={createPageUrl(`VenueDashboard?id=${venue.id}`)}
-                className="flex items-center gap-4 p-4 hover:bg-white/5 transition-colors"
+                className="flex items-center gap-4 p-4 transition-colors"
+                style={{ borderBottom: '1px solid var(--sec-border)' }}
               >
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#FFD700]/20 to-[#FF8C00]/20 flex items-center justify-center overflow-hidden">
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden"
+                  style={{ backgroundColor: 'var(--sec-bg-hover)' }}
+                >
                   {venue.logo_url ? (
                     <img src={venue.logo_url} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <Building className="w-5 h-5 text-[#FFD700]" />
+                    <Building className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
                   )}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium">{venue.name}</p>
+                    <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>
+                      {venue.name}
+                    </p>
                     {venue.is_verified && (
-                      <BadgeCheck className="w-4 h-4 text-[#FFD700]" />
+                      <BadgeCheck className="w-4 h-4" style={{ color: 'var(--sec-accent)' }} />
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 capitalize">
+                  <p className="text-xs capitalize" style={{ color: 'var(--sec-text-muted)' }}>
                     {venue.compliance_status === 'approved' ? 'Verified' : venue.compliance_status}
                   </p>
                 </div>
-                <ChevronRight className="w-5 h-5 text-gray-600" />
+                <ChevronRight className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
               </Link>
             ))}
           </div>
@@ -170,54 +212,85 @@ export default function Settings() {
 
         {/* Settings Sections */}
         {settingsSections.map((section) => (
-          <div key={section.title} className="glass-card rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#262629]">
-              <p className="text-sm font-semibold text-gray-400">{section.title}</p>
+          <div
+            key={section.title}
+            className="rounded-2xl overflow-hidden"
+            style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
+          >
+            <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--sec-border)' }}>
+              <p className="text-sm font-semibold" style={{ color: 'var(--sec-text-muted)' }}>
+                {section.title}
+              </p>
             </div>
             {section.items.map((item, index) => (
               <div
                 key={item.label}
-                className={`flex items-center gap-4 p-4 ${
-                  index !== section.items.length - 1 ? 'border-b border-[#262629]' : ''
-                }`}
+                className="flex items-center gap-4 p-4"
+                style={
+                  index !== section.items.length - 1
+                    ? { borderBottom: '1px solid var(--sec-border)' }
+                    : {}
+                }
               >
-                {item.page ? (
+                {item.themeToggle ? (
+                  <>
+                    <item.icon className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
+                    <div className="flex-1">
+                      <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>
+                        {item.label}
+                      </p>
+                      {item.description && (
+                        <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+                    <Switch checked={theme === 'dark'} onCheckedChange={toggleTheme} />
+                  </>
+                ) : item.languageRow ? (
+                  <div className="flex items-center gap-4 flex-1">
+                    <item.icon className="w-5 h-5 shrink-0" style={{ color: 'var(--sec-text-muted)' }} />
+                    <div className="flex-1">
+                      <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>
+                        {item.label}
+                      </p>
+                      <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                        {item.description}
+                      </p>
+                    </div>
+                  </div>
+                ) : item.page ? (
                   <Link
                     to={createPageUrl(item.page)}
                     className="flex items-center gap-4 flex-1"
                   >
-                    <item.icon className="w-5 h-5 text-gray-400" />
+                    <item.icon className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
                     <div className="flex-1">
-                      <p className="font-medium">{item.label}</p>
+                      <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>
+                        {item.label}
+                      </p>
                       {item.description && (
-                        <p className="text-sm text-gray-500">{item.description}</p>
+                        <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                          {item.description}
+                        </p>
                       )}
                     </div>
-                    <ChevronRight className="w-5 h-5 text-gray-600" />
+                    <ChevronRight className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
                   </Link>
-                ) : item.external ? (
-                  <a
-                    href="#"
-                    className="flex items-center gap-4 flex-1"
-                  >
-                    <item.icon className="w-5 h-5 text-gray-400" />
-                    <div className="flex-1">
-                      <p className="font-medium">{item.label}</p>
-                    </div>
-                    <ExternalLink className="w-4 h-4 text-gray-600" />
-                  </a>
                 ) : (
                   <>
-                    <item.icon className="w-5 h-5 text-gray-400" />
+                    <item.icon className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
                     <div className="flex-1">
-                      <p className="font-medium">{item.label}</p>
+                      <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>
+                        {item.label}
+                      </p>
                       {item.description && (
-                        <p className="text-sm text-gray-500">{item.description}</p>
+                        <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                          {item.description}
+                        </p>
                       )}
                     </div>
-                    {item.toggle && (
-                      <Switch defaultChecked={item.defaultOn} />
-                    )}
+                    {item.toggle && <Switch defaultChecked={false} />}
                   </>
                 )}
               </div>
@@ -229,14 +302,15 @@ export default function Settings() {
         <Button
           onClick={() => logout(false)}
           variant="ghost"
-          className="w-full text-red-500 hover:text-red-400 hover:bg-red-500/10"
+          className="w-full"
+          style={{ color: 'var(--sec-error)' }}
         >
           <LogOut className="w-5 h-5 mr-2" />
-          Sign Out
+          {t('signOut')}
         </Button>
 
         {/* Version */}
-        <p className="text-center text-xs text-gray-600">
+        <p className="text-center text-xs" style={{ color: 'var(--sec-text-muted)' }}>
           Sec v1.0.0
         </p>
       </div>
