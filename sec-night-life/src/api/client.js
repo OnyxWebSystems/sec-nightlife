@@ -2,7 +2,7 @@
  * API client for SEC Nightlife backend.
  * All requests go to VITE_API_URL (default http://localhost:4000).
  */
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
 function getToken() {
   try {
@@ -22,7 +22,8 @@ function getHeaders(includeAuth = true) {
 }
 
 export async function api(method, path, body = null, opts = {}) {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path.startsWith('/') ? path : '/' + path}`;
+  const p = path.startsWith('/') ? path : '/' + path;
+  const url = path.startsWith('http') ? path : `${API_BASE}${p}`;
   const options = {
     method,
     headers: getHeaders(opts.skipAuth !== true),

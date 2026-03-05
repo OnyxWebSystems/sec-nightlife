@@ -44,10 +44,10 @@ app.use(helmet({
   hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false
 }));
 
-// Strict CORS
+// Strict CORS (normalize origins: trim trailing slashes for comparison)
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:4173')
   .split(',')
-  .map(o => o.trim())
+  .map(o => o.trim().replace(/\/+$/, ''))
   .filter(Boolean);
 
 app.use(cors({
@@ -56,7 +56,8 @@ app.use(cors({
       if (isProd) return cb(new Error('CORS: requests without Origin are not allowed in production'), false);
       return cb(null, true);
     }
-    if (allowedOrigins.includes(origin)) return cb(null, true);
+    const normalizedOrigin = origin.replace(/\/+$/, '');
+    if (allowedOrigins.includes(normalizedOrigin)) return cb(null, true);
     cb(new Error('CORS: origin not allowed'), false);
   },
   credentials: true,
