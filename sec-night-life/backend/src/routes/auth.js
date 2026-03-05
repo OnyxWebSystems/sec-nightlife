@@ -115,7 +115,7 @@ router.post('/register', async (req, res, next) => {
 
     const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (existing) {
-      return res.status(409).json({ error: 'Email already registered' });
+      return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
     }
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
