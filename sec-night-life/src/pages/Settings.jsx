@@ -229,25 +229,6 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Register Venue Link — SEC logo colors */}
-        <Link
-          to={createPageUrl('VenueOnboarding')}
-          className="flex items-center gap-4 p-4 rounded-2xl transition-colors"
-          style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
-        >
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center"
-            style={{ backgroundColor: '#000000', border: '2px solid var(--sec-accent)' }}
-          >
-            <Building className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
-          </div>
-          <div className="flex-1">
-            <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>Register a Venue</p>
-            <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>List your nightclub or event company</p>
-          </div>
-          <ChevronRight className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
-        </Link>
-
         {/* Settings Sections */}
         {settingsSections.map((section) => (
           <div

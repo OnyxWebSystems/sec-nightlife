@@ -5,7 +5,6 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
 import { 
-  Sparkles,
   Building,
   FileText,
   Upload,
@@ -31,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { motion, AnimatePresence } from 'framer-motion';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import GoogleMapDisplay from '@/components/GoogleMapDisplay';
+import SecLogo from '@/components/ui/SecLogo';
 
 const VENUE_TYPES = [
   { value: 'nightclub', label: 'Nightclub' },
@@ -152,22 +152,24 @@ export default function VenueOnboarding() {
       </Label>
       <div className="mt-2">
         <label className="cursor-pointer">
-          <div className={`flex items-center justify-between p-4 rounded-xl border border-dashed transition-colors ${
-            formData[field] 
-              ? 'bg-[#00D4AA]/10 border-[#00D4AA]'
-              : 'bg-[#141416] border-[#262629] hover:border-[#FF3366]'
-          }`}>
+          <div
+            className="flex items-center justify-between p-4 rounded-xl border border-dashed transition-colors"
+            style={{
+              backgroundColor: formData[field] ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
+              borderColor: formData[field] ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+            }}
+          >
             <div className="flex items-center gap-3">
               {uploadProgress[field] === 'uploading' ? (
-                <div className="w-8 h-8 rounded-full border-2 border-[#FF3366] border-t-transparent animate-spin" />
+                <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--sec-accent)', borderTopColor: 'transparent' }} />
               ) : formData[field] ? (
-                <div className="w-8 h-8 rounded-full bg-[#00D4AA] flex items-center justify-center">
-                  <Check className="w-4 h-4 text-white" />
+                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--sec-accent)' }}>
+                  <Check className="w-4 h-4" style={{ color: '#000' }} />
                 </div>
               ) : (
-                <Upload className="w-5 h-5 text-gray-500" />
+                <Upload className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
               )}
-              <span className="text-sm">
+              <span className="text-sm" style={{ color: 'var(--sec-text-secondary)' }}>
                 {formData[field] ? 'Document uploaded' : 'Upload document'}
               </span>
             </div>
@@ -195,31 +197,34 @@ export default function VenueOnboarding() {
   );
 
   return (
-    <div className="min-h-screen bg-[#0A0A0B] p-4 flex flex-col">
-      {/* Header */}
+    <div className="min-h-screen p-4 flex flex-col" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+      {/* Header — SEC logo + Sec for Business */}
       <div className="flex items-center justify-center pt-8 pb-6 max-w-md mx-auto w-full">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF3366] to-[#7C3AED] flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-xl sm:text-2xl font-bold gradient-text">Sec for Business</span>
+          <SecLogo size={40} variant="full" />
+          <span className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--sec-text-primary)' }}>Sec for Business</span>
         </div>
       </div>
 
-      {/* Progress Steps */}
+      {/* Progress Steps — SEC theme: black + silver, no gradients */}
       <div className="flex items-center justify-center gap-1 sm:gap-2 mb-8 px-2">
         {steps.map((s, index) => (
           <React.Fragment key={s.number}>
-            <div className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-full ${
-              step >= s.number 
-                ? 'bg-gradient-to-r from-[#FF3366] to-[#7C3AED]' 
-                : 'bg-[#141416]'
-            }`}>
-              <s.icon className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
-              <span className="text-xs sm:text-sm font-medium">{s.title}</span>
+            <div
+              className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-full"
+              style={{
+                backgroundColor: step >= s.number ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
+                border: `1px solid ${step >= s.number ? 'var(--sec-accent-border)' : 'var(--sec-border)'}`,
+              }}
+            >
+              <s.icon className="w-3.5 sm:w-4 h-3.5 sm:h-4" style={{ color: step >= s.number ? 'var(--sec-accent)' : 'var(--sec-text-muted)' }} />
+              <span className="text-xs sm:text-sm font-medium" style={{ color: step >= s.number ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)' }}>{s.title}</span>
             </div>
             {index < steps.length - 1 && (
-              <div className={`w-4 sm:w-8 h-0.5 ${step > s.number ? 'bg-[#FF3366]' : 'bg-[#262629]'}`} />
+              <div
+                className="w-4 sm:w-8 h-0.5"
+                style={{ backgroundColor: step > s.number ? 'var(--sec-accent)' : 'var(--sec-border)' }}
+              />
             )}
           </React.Fragment>
         ))}
@@ -440,14 +445,14 @@ export default function VenueOnboarding() {
               className="space-y-6"
             >
               <div className="text-center mb-6">
-                <h1 className="text-2xl font-bold mb-2">Compliance Documents</h1>
-                <p className="text-gray-500">Required for verification</p>
+                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Compliance Documents</h1>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Required for verification</p>
               </div>
 
-              <div className="glass-card rounded-2xl p-4 mb-6">
+              <div className="rounded-2xl p-4 mb-6" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-full bg-[#FFD700]/20 flex items-center justify-center flex-shrink-0">
-                    <Shield className="w-5 h-5 text-[#FFD700]" />
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
+                    <Shield className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                   </div>
                   <div>
                     <p className="font-medium text-sm">Why we need these documents</p>
@@ -495,38 +500,38 @@ export default function VenueOnboarding() {
              className="space-y-6"
            >
              <div className="text-center mb-8">
-               <h1 className="text-2xl font-bold mb-2">Choose Your Plan</h1>
-               <p className="text-gray-500">Select a subscription to get started</p>
+               <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Choose Your Plan</h1>
+               <p style={{ color: 'var(--sec-text-muted)' }}>Payment via Paystack coming soon</p>
              </div>
 
-             <div className="glass-card rounded-2xl p-6">
+             <div className="rounded-2xl p-6" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
                <div className="flex items-start gap-3 mb-6">
-                 <div className="w-10 h-10 rounded-full bg-[#FFD700]/20 flex items-center justify-center flex-shrink-0">
-                   <Shield className="w-5 h-5 text-[#FFD700]" />
+                 <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
+                   <CreditCard className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                  </div>
                  <div>
-                   <p className="font-medium text-sm">Subscription Required</p>
-                   <p className="text-xs text-gray-500 mt-1">
-                     All venues require a subscription to list events and access Sec's platform features.
+                   <p className="font-medium text-sm" style={{ color: 'var(--sec-text-primary)' }}>Payment Integration</p>
+                   <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)' }}>
+                     Paystack payment gateway will be integrated soon. For now, you can complete the venue registration — payment setup will follow.
                    </p>
                  </div>
                </div>
 
                <div className="space-y-3">
-                 <div className="p-4 rounded-xl border-2 border-[#FF3366] bg-[#FF3366]/10">
-                   <h3 className="font-semibold mb-2">Basic Plan</h3>
-                   <p className="text-2xl font-bold mb-1">R 299<span className="text-sm text-gray-500">/month</span></p>
-                   <ul className="text-xs text-gray-400 space-y-1 mt-3">
+                 <div className="p-4 rounded-xl" style={{ border: '2px solid var(--sec-accent-border)', backgroundColor: 'var(--sec-accent-muted)' }}>
+                   <h3 className="font-semibold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Basic Plan</h3>
+                   <p className="text-2xl font-bold mb-1" style={{ color: 'var(--sec-text-primary)' }}>R 299<span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>/month</span></p>
+                   <ul className="text-xs space-y-1 mt-3" style={{ color: 'var(--sec-text-secondary)' }}>
                      <li>✓ List up to 5 events</li>
                      <li>✓ Basic analytics</li>
                      <li>✓ Customer support</li>
                    </ul>
                  </div>
 
-                 <div className="p-4 rounded-xl border-2 border-[#262629] bg-[#141416]">
-                   <h3 className="font-semibold mb-2">Premium Plan</h3>
-                   <p className="text-2xl font-bold mb-1">R 799<span className="text-sm text-gray-500">/month</span></p>
-                   <ul className="text-xs text-gray-400 space-y-1 mt-3">
+                 <div className="p-4 rounded-xl" style={{ border: '2px solid var(--sec-border)', backgroundColor: 'var(--sec-bg-card)' }}>
+                   <h3 className="font-semibold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Premium Plan</h3>
+                   <p className="text-2xl font-bold mb-1" style={{ color: 'var(--sec-text-primary)' }}>R 799<span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>/month</span></p>
+                   <ul className="text-xs space-y-1 mt-3" style={{ color: 'var(--sec-text-secondary)' }}>
                      <li>✓ Unlimited events</li>
                      <li>✓ Advanced analytics</li>
                      <li>✓ Priority support</li>
@@ -535,8 +540,8 @@ export default function VenueOnboarding() {
                  </div>
                </div>
 
-               <p className="text-xs text-gray-500 text-center mt-6">
-                 Your first month is free. Cancel anytime.
+               <p className="text-xs text-center mt-6" style={{ color: 'var(--sec-text-muted)' }}>
+                 Paystack integration coming soon. Your first month will be free.
                </p>
              </div>
            </motion.div>
@@ -558,7 +563,8 @@ export default function VenueOnboarding() {
             <Button
               onClick={() => setStep(step + 1)}
               disabled={!canProceed()}
-              className="flex-1 h-14 rounded-xl bg-gradient-to-r from-[#FF3366] to-[#7C3AED] font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+              className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
+              style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
               Continue
               <ChevronRight className="w-5 h-5 ml-2" />
@@ -567,7 +573,8 @@ export default function VenueOnboarding() {
             <Button
               onClick={handleSubmit}
               disabled={!canProceed() || isSubmitting}
-              className="flex-1 h-14 rounded-xl bg-gradient-to-r from-[#FF3366] to-[#7C3AED] font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+              className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
+              style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
               {isSubmitting ? 'Submitting...' : 'Submit for Review'}
               {!isSubmitting && <Check className="w-5 h-5 ml-2" />}

@@ -3,8 +3,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
   ChevronLeft,
   ChevronRight,
-  Moon,
-  Sun,
   Globe,
   Bell,
   MapPin,
@@ -56,8 +54,6 @@ function SettingRow({ icon: Icon, label, description, children }) {
 export default function AppPreferences() {
   const navigate = useNavigate();
   const {
-    theme,
-    toggleTheme,
     language,
     setLanguage,
     t,
@@ -86,17 +82,6 @@ export default function AppPreferences() {
       </header>
 
       <div className="px-4 py-6 max-w-xl mx-auto space-y-6">
-        {/* Appearance */}
-        <SectionCard title={t('appearance')}>
-          <SettingRow
-            icon={theme === 'dark' ? Moon : Sun}
-            label={t('theme')}
-            description={theme === 'dark' ? t('darkMode') : t('lightMode')}
-          >
-            <Switch checked={theme === 'dark'} onCheckedChange={toggleTheme} />
-          </SettingRow>
-        </SectionCard>
-
         {/* Language */}
         <SectionCard title={t('language')}>
           <SettingRow

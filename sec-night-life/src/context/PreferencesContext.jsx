@@ -105,8 +105,8 @@ export function PreferencesProvider({ children }) {
   const [hydrated, setHydrated] = useState(false);
 
   useLayoutEffect(() => {
-    applyThemeToDocument(prefs.theme);
-  }, [prefs.theme]);
+    applyThemeToDocument('dark');
+  }, []);
 
   useEffect(() => {
     setHydrated(true);

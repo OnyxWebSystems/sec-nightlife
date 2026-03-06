@@ -4,7 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Users, Settings, MessageCircle, ChevronRight, Calendar, Clock, TrendingUp, AlertCircle, Plus } from 'lucide-react';
+import { Users, Settings, MessageCircle, ChevronRight, Calendar, Clock, TrendingUp, AlertCircle, Plus, Building } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -186,6 +186,24 @@ export default function HostDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Register Venue — for hosts who want to list venues and create events */}
+        <Link
+          to={createPageUrl('VenueOnboarding')}
+          className="sec-card"
+          style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 20, marginTop: 24, textDecoration: 'none' }}
+        >
+          <div
+            style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: '#000000', border: '2px solid var(--sec-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Building size={24} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontWeight: 600, fontSize: 16, color: 'var(--sec-text-primary)', marginBottom: 4 }}>Register a Venue</p>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>List your nightclub or event company on Sec</p>
+          </div>
+          <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
+        </Link>
 
         {totalPendingRequests > 0 && (
           <div className="sec-card" style={{ padding: 16, marginTop: 24, borderColor: 'var(--sec-accent-border)', backgroundColor: 'var(--sec-accent-muted)' }}>
