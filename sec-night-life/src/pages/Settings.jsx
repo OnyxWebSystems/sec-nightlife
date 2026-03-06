@@ -19,9 +19,21 @@ import {
   Smartphone,
   Building,
   BadgeCheck,
+  Mail,
+  Key,
+  Trash2,
 } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -30,6 +42,8 @@ export default function Settings() {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [venues, setVenues] = useState([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -65,14 +79,28 @@ export default function Settings() {
 
   const languageLabel = language === 'en' ? 'English' : language;
 
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      await authService.deleteAccount();
+      // deleteAccount clears tokens and redirects on success
+    } catch {
+      setDeleting(false);
+      setDeleteDialogOpen(false);
+    }
+  };
+
   const settingsSections = [
     {
       title: t('account'),
       items: [
         { icon: User, label: t('editProfile'), page: 'EditProfile' },
-        { icon: Bell, label: t('notifications'), description: t('managePushNotifications'), toggle: true },
+        { icon: Bell, label: t('notifications'), description: t('managePushNotifications'), page: 'AppPreferences' },
         { icon: Shield, label: t('privacySecurity'), page: 'Privacy' },
         { icon: CreditCard, label: t('paymentMethods'), page: 'Payments' },
+        { icon: Mail, label: t('changeEmail'), page: 'ChangeEmail' },
+        { icon: Key, label: t('changePassword'), page: 'ChangePassword' },
+        { icon: Trash2, label: t('deleteAccount'), deleteAction: true },
       ],
     },
     {
@@ -201,19 +229,23 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Register Venue Link */}
+        {/* Register Venue Link — SEC logo colors */}
         <Link
           to={createPageUrl('VenueOnboarding')}
-          className="flex items-center gap-4 p-4 glass-card rounded-2xl hover:bg-white/5 transition-colors"
+          className="flex items-center gap-4 p-4 rounded-2xl transition-colors"
+          style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
         >
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#FF3366]/20 to-[#7C3AED]/20 flex items-center justify-center">
-            <Building className="w-5 h-5 text-[#FF3366]" />
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center"
+            style={{ backgroundColor: '#000000', border: '2px solid var(--sec-accent)' }}
+          >
+            <Building className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
           </div>
           <div className="flex-1">
-            <p className="font-medium">Register a Venue</p>
-            <p className="text-sm text-gray-500">List your nightclub or event company</p>
+            <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>Register a Venue</p>
+            <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>List your nightclub or event company</p>
           </div>
-          <ChevronRight className="w-5 h-5 text-gray-600" />
+          <ChevronRight className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
         </Link>
 
         {/* Settings Sections */}
@@ -250,6 +282,18 @@ export default function Settings() {
                       </p>
                     </div>
                   </div>
+                ) : item.deleteAction ? (
+                  <button
+                    onClick={() => setDeleteDialogOpen(true)}
+                    className="flex items-center gap-4 flex-1 w-full text-left"
+                    style={{ color: 'var(--sec-error)' }}
+                  >
+                    <item.icon className="w-5 h-5" style={{ color: 'var(--sec-error)' }} />
+                    <div className="flex-1">
+                      <p className="font-medium">{item.label}</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
+                  </button>
                 ) : item.page ? (
                   <Link
                     to={createPageUrl(item.page)}
@@ -305,6 +349,26 @@ export default function Settings() {
           Sec v1.0.0
         </p>
       </div>
+
+      {/* Delete Account Confirmation */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogTitle>{t('deleteAccount')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('deleteAccountWarning')} {t('deleteAccountConfirm')}
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{t('cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeleteAccount(); }}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleting ? 'Deleting…' : t('delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

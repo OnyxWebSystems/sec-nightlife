@@ -29,6 +29,13 @@ export function logout(shouldRedirect) {
   if (shouldRedirect !== false) window.location.href = window.location.origin + '/';
 }
 
+export async function deleteAccount() {
+  const { apiDelete } = await import('@/api/client');
+  await apiDelete('/api/auth/account');
+  clearTokens();
+  window.location.href = window.location.origin + '/';
+}
+
 export async function register(email, password, fullName, role) {
   const data = await apiPost('/api/auth/register', { email, password, full_name: fullName, role: role || 'USER' });
   setTokens(data.accessToken, data.refreshToken);
