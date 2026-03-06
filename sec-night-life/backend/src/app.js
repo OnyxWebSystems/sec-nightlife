@@ -32,10 +32,8 @@ import { requestLogger } from './middleware/requestLogger.js';
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
 
-// Trust proxy in production (required behind Vercel/other proxies)
-if (isProd) {
-  app.set('trust proxy', 1);
-}
+// Trust proxy (required behind Vercel/other proxies for rate limiting and correct IP)
+app.set('trust proxy', 1);
 
 // Security headers
 app.use(helmet({

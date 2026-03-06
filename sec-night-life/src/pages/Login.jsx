@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,6 @@ function getBackendRole() {
 }
 
 export default function Login() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('returnUrl') || createPageUrl('Home');
   const roleParam = searchParams.get('role'); // PARTY_GOER or BUSINESS_OWNER from Onboarding
@@ -45,8 +44,8 @@ export default function Login() {
       const role = roleParam === 'BUSINESS_OWNER' ? 'VENUE' : roleParam === 'PARTY_GOER' ? 'USER' : getBackendRole();
       await authService.login(email, password, role);
       toast.success('Signed in successfully');
-      navigate(returnUrl.startsWith('/') ? returnUrl : '/' + returnUrl);
-      window.location.reload();
+      const target = (returnUrl.startsWith('/') ? returnUrl : '/' + returnUrl);
+      window.location.href = target.startsWith('http') ? target : window.location.origin + target;
     } catch (err) {
       toast.error(err?.data?.error || err?.message || 'Sign in failed');
     } finally {

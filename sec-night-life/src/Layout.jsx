@@ -28,6 +28,8 @@ export default function Layout({ children, currentPageName }) {
   useEffect(() => { loadUser(); }, []);
 
   const loadUser = async () => {
+    const token = localStorage?.getItem('access_token') || sessionStorage?.getItem('access_token');
+    if (!token) return;
     try {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);

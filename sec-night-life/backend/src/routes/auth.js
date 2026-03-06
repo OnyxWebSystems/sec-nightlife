@@ -114,9 +114,11 @@ router.post('/register', async (req, res, next) => {
     }
     const { email, password, full_name, role } = parsed.data;
 
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    const existing = await prisma.user.findFirst({
+      where: { email: email.toLowerCase(), role, deletedAt: null }
+    });
     if (existing) {
-      return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
+      return res.status(409).json({ error: 'An account with this email already exists for this account type. Please sign in.' });
     }
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
@@ -295,7 +297,7 @@ router.post('/resend-verification', async (req, res, next) => {
     }
     const { email } = parsed.data;
 
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: { email: email.toLowerCase(), deletedAt: null }
     });
 
