@@ -83,7 +83,8 @@ const registerSchema = z.object({
 
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(1).max(256)
+  password: z.string().min(1).max(256),
+  role: z.enum(['USER', 'VENUE', 'FREELANCER']).optional()
 });
 
 const refreshSchema = z.object({
@@ -120,7 +121,7 @@ router.post('/register', async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // STEP 5: Generate secure verification token, store only the hash
+    const skipVerification = process.env.SKIP_EMAIL_VERIFICATION === 'true' || process.env.SKIP_EMAIL_VERIFICATION === '1';
     const rawVerificationToken = generateSecureToken();
     const verificationTokenHash = hashTokenSha256(rawVerificationToken);
 
@@ -130,17 +131,18 @@ router.post('/register', async (req, res, next) => {
         passwordHash,
         fullName: full_name || null,
         role,
-        emailVerified: false,
-        verificationTokenHash,
-        verificationExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000)
+        emailVerified: skipVerification,
+        verificationTokenHash: skipVerification ? null : verificationTokenHash,
+        verificationExpiry: skipVerification ? null : new Date(Date.now() + 24 * 60 * 60 * 1000)
       },
       select: { id: true, email: true, fullName: true, role: true, emailVerified: true }
     });
 
-    // Send verification email (non-blocking — don't fail registration if email fails)
-    sendVerificationEmail(user.email, rawVerificationToken).catch(err => {
-      logger.error('Failed to send verification email', { userId: user.id, message: err.message });
-    });
+    if (!skipVerification) {
+      sendVerificationEmail(user.email, rawVerificationToken).catch(err => {
+        logger.error('Failed to send verification email', { userId: user.id, message: err.message });
+      });
+    }
 
     const { accessToken, refreshToken } = await issueTokens(user);
 
@@ -158,7 +160,7 @@ router.post('/register', async (req, res, next) => {
       accessToken,
       refreshToken,
       expiresIn: 900,
-      emailVerificationRequired: true
+      emailVerificationRequired: !skipVerification
     });
   } catch (err) {
     next(err);
@@ -173,10 +175,12 @@ router.post('/login', async (req, res, next) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid email or password' });
     }
-    const { email, password } = parsed.data;
+    const { email, password, role: loginRole } = parsed.data;
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase(), deletedAt: null }
+    // Require role so Party Goer and Business Owner stay separate (same email = different accounts)
+    const role = loginRole || 'USER';
+    const user = await prisma.user.findFirst({
+      where: { email: email.toLowerCase(), role, deletedAt: null }
     });
 
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
@@ -418,7 +422,7 @@ router.post('/forgot-password', async (req, res, next) => {
     }
     const { email } = parsed.data;
 
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: { email: email.toLowerCase(), deletedAt: null }
     });
     if (user) {

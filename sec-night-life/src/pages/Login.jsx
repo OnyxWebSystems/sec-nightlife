@@ -7,13 +7,32 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
+const ROLE_INTENT_KEY = 'sec-role-intent';
+function getBackendRole() {
+  try {
+    const intent = localStorage.getItem(ROLE_INTENT_KEY);
+    if (intent === 'BUSINESS_OWNER') return 'VENUE';
+  } catch {}
+  return 'USER';
+}
+
 export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('returnUrl') || createPageUrl('Home');
+  const roleParam = searchParams.get('role'); // PARTY_GOER or BUSINESS_OWNER from Onboarding
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Persist role from URL to localStorage for consistency
+  React.useEffect(() => {
+    if (roleParam && ['PARTY_GOER', 'BUSINESS_OWNER'].includes(roleParam)) {
+      try {
+        localStorage.setItem(ROLE_INTENT_KEY, roleParam);
+      } catch {}
+    }
+  }, [roleParam]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,7 +42,8 @@ export default function Login() {
     }
     setLoading(true);
     try {
-      await authService.login(email, password);
+      const role = roleParam === 'BUSINESS_OWNER' ? 'VENUE' : roleParam === 'PARTY_GOER' ? 'USER' : getBackendRole();
+      await authService.login(email, password, role);
       toast.success('Signed in successfully');
       navigate(returnUrl.startsWith('/') ? returnUrl : '/' + returnUrl);
       window.location.reload();

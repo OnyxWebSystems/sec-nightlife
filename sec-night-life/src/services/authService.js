@@ -18,7 +18,11 @@ export function redirectToLogin(returnUrl) {
   clearTokens();
   const base = window.location.origin;
   const loginPath = '/Login'; // Must match route in pages.config
-  const target = returnUrl ? base + loginPath + '?returnUrl=' + encodeURIComponent(returnUrl) : base + loginPath;
+  let target = returnUrl ? base + loginPath + '?returnUrl=' + encodeURIComponent(returnUrl) : base + loginPath;
+  try {
+    const intent = localStorage.getItem('sec-role-intent');
+    if (intent) target += (target.includes('?') ? '&' : '?') + 'role=' + encodeURIComponent(intent);
+  } catch {}
   window.location.href = target;
 }
 
@@ -42,8 +46,10 @@ export async function register(email, password, fullName, role) {
   return data.user;
 }
 
-export async function login(email, password) {
-  const data = await apiPost('/api/auth/login', { email, password });
+export async function login(email, password, role) {
+  const body = { email, password };
+  if (role) body.role = role;
+  const data = await apiPost('/api/auth/login', body);
   setTokens(data.accessToken, data.refreshToken);
   return data.user;
 }

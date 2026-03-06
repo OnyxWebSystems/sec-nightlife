@@ -41,9 +41,10 @@ enum ReportStatus {
 }
 
 // ─── Users & Auth ─────────────────────────────────────────────────────────
+// Party Goers (USER) and Business Owners (VENUE) can share the same email as separate accounts
 model User {
   id                String    @id @default(uuid())
-  email             String    @unique
+  email             String
   passwordHash      String    @map("password_hash")
   role              UserRole  @default(USER)
   fullName          String?   @map("full_name")
@@ -69,6 +70,7 @@ model User {
   auditLogs         AuditLog[]
   refreshTokens     RefreshToken[]
 
+  @@unique([email, role])
   @@index([email])
   @@index([role])
   @@map("users")
