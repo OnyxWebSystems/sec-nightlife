@@ -9,7 +9,7 @@
   </head>
   <body style="margin:0;background:#000000">
     <script>
-      (function(){try{var s=localStorage.getItem('sec-preferences');if(s){var p=JSON.parse(s);if(p.theme==='light'){document.documentElement.classList.add('light');document.documentElement.style.colorScheme='light';}else{document.documentElement.classList.add('dark');document.documentElement.style.colorScheme='dark';}}}catch(e){document.documentElement.classList.add('dark');document.documentElement.style.colorScheme='dark';}})();
+      (function(){document.documentElement.classList.add('dark');document.documentElement.style.colorScheme='dark';})();
     </script>
     <div id="root" style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:#FAFAFA;font-family:system-ui;font-size:16px">Loading…</div>
     <script type="module" src="/src/main.jsx"></script>

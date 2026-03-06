@@ -219,13 +219,13 @@ export default function Profile() {
           <div className="flex flex-col items-center text-center mb-6">
             {/* Avatar */}
             <div style={{ position: 'relative', marginBottom: 16 }}>
-              <div style={{ width: 96, height: 96, borderRadius: '50%', padding: 2, backgroundColor: 'var(--sec-accent)', border: '2px solid var(--sec-bg-card)' }}>
-                <div style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden', backgroundColor: 'var(--sec-bg-card)' }}>
+              <div style={{ width: 96, height: 96, borderRadius: '50%', padding: 2, backgroundColor: '#000', border: '2px solid var(--sec-accent)' }}>
+                <div style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden', backgroundColor: displayProfile.avatar_url ? 'var(--sec-bg-card)' : '#000' }}>
                   {displayProfile.avatar_url ? (
                     <img src={displayProfile.avatar_url} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-3xl font-bold">
-                      {displayProfile.username?.[0] || 'U'}
+                    <div className="w-full h-full flex items-center justify-center text-3xl font-bold" style={{ color: 'var(--sec-accent)' }}>
+                      {(displayProfile.full_name || displayProfile.username || user?.full_name)?.[0]?.toUpperCase() || 'U'}
                     </div>
                   )}
                 </div>
@@ -372,8 +372,8 @@ export default function Profile() {
                     {friend.avatar_url ? (
                       <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] flex items-center justify-center text-xs font-bold">
-                        {friend.username?.[0] || 'U'}
+                      <div className="w-full h-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: '#000', border: '1px solid var(--sec-accent)', color: 'var(--sec-accent)' }}>
+                        {(friend.full_name || friend.username)?.[0]?.toUpperCase() || 'U'}
                       </div>
                     )}
                   </Link>

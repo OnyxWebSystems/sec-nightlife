@@ -66,11 +66,16 @@ export default function FriendRequestCard({ request }) {
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B]">
       <Link to={createPageUrl(`Profile?id=${fromUser.id}`)} className="flex items-center gap-3 flex-1 min-w-0">
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] flex items-center justify-center overflow-hidden flex-shrink-0">
+        <div
+          className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0"
+          style={{ backgroundColor: '#000', border: '2px solid var(--sec-accent)' }}
+        >
           {fromUser.avatar_url ? (
             <img src={fromUser.avatar_url} alt="" className="w-full h-full object-cover" />
           ) : (
-            <span className="text-sm font-bold">{fromUser.username?.[0] || 'U'}</span>
+            <span className="text-sm font-bold uppercase" style={{ color: 'var(--sec-accent)' }}>
+              {(fromUser.full_name || fromUser.username)?.[0] || 'U'}
+            </span>
           )}
         </div>
         <div className="flex-1 min-w-0">

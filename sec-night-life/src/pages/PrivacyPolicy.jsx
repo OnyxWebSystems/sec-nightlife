@@ -20,13 +20,22 @@ export default function PrivacyPolicy() {
         </div>
       </header>
 
-      <div className="px-4 py-6 max-w-xl mx-auto">
+      <div className="px-4 py-6 max-w-xl mx-auto space-y-4">
         <div
-          className="rounded-2xl p-6"
+          className="rounded-2xl p-6 space-y-4"
           style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
         >
-          <p style={{ color: 'var(--sec-text-secondary)' }}>
-            Our Privacy Policy will be available soon.
+          <p style={{ color: 'var(--sec-text-secondary)', lineHeight: 1.6 }}>
+            SEC Nightlife ("we") respects your privacy. This policy describes how we collect, use, and protect your information when you use our app and services.
+          </p>
+          <p style={{ color: 'var(--sec-text-secondary)', lineHeight: 1.6 }}>
+            We collect information you provide when you register, create a profile, book tables, or contact us. We use this to provide our services, improve your experience, and communicate with you. We do not sell your personal information.
+          </p>
+          <p style={{ color: 'var(--sec-text-secondary)', lineHeight: 1.6 }}>
+            We use industry-standard security measures to protect your data. Your payment information is processed by secure third-party providers.
+          </p>
+          <p style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>
+            This is a summary. Our full Privacy Policy will be published shortly. For questions, contact us at support@secnightlife.com.
           </p>
         </div>
       </div>

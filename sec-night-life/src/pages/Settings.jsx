@@ -15,8 +15,6 @@ import {
   HelpCircle,
   FileText,
   LogOut,
-  Moon,
-  Sun,
   Globe,
   Smartphone,
   Building,
@@ -28,7 +26,7 @@ import { Button } from "@/components/ui/button";
 export default function Settings() {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const { theme, toggleTheme, t, language } = usePreferences();
+  const { t, language } = usePreferences();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [venues, setVenues] = useState([]);
@@ -81,12 +79,6 @@ export default function Settings() {
       title: t('preferences'),
       items: [
         {
-          icon: theme === 'dark' ? Moon : Sun,
-          label: t('theme'),
-          description: theme === 'dark' ? t('darkMode') : t('lightMode'),
-          themeToggle: true,
-        },
-        {
           icon: Globe,
           label: t('language'),
           description: languageLabel,
@@ -127,25 +119,39 @@ export default function Settings() {
       </header>
 
       <div className="px-4 lg:px-8 py-6 space-y-6">
-        {/* Profile Summary */}
-        <Link 
+        {/* Profile Summary — SEC logo colors: black + metallic silver */}
+        <Link
           to={createPageUrl('Profile')}
-          className="flex items-center gap-4 p-4 glass-card rounded-2xl"
+          className="flex items-center gap-4 p-4 rounded-2xl transition-colors"
+          style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
         >
-          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] overflow-hidden">
+          <div
+            className="w-14 h-14 rounded-full overflow-hidden flex items-center justify-center"
+            style={{
+              backgroundColor: '#000000',
+              border: '2px solid var(--sec-accent)',
+            }}
+          >
             {userProfile?.avatar_url ? (
               <img src={userProfile.avatar_url} alt="" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-xl font-bold">
-                {user?.full_name?.[0] || 'U'}
-              </div>
+              <span
+                className="text-xl font-bold uppercase"
+                style={{ color: 'var(--sec-accent)' }}
+              >
+                {user?.full_name?.[0] || userProfile?.username?.[0] || userProfile?.full_name?.[0] || 'U'}
+              </span>
             )}
           </div>
           <div className="flex-1">
-            <p className="font-semibold">{userProfile?.username || user?.full_name}</p>
-            <p className="text-sm text-gray-500">{user?.email}</p>
+            <p className="font-semibold" style={{ color: 'var(--sec-text-primary)' }}>
+              {userProfile?.username || user?.full_name}
+            </p>
+            <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+              {user?.email}
+            </p>
           </div>
-          <ChevronRight className="w-5 h-5 text-gray-600" />
+          <ChevronRight className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
         </Link>
 
         {/* Venue Management */}
@@ -232,22 +238,7 @@ export default function Settings() {
                     : {}
                 }
               >
-                {item.themeToggle ? (
-                  <>
-                    <item.icon className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
-                    <div className="flex-1">
-                      <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>
-                        {item.label}
-                      </p>
-                      {item.description && (
-                        <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
-                          {item.description}
-                        </p>
-                      )}
-                    </div>
-                    <Switch checked={theme === 'dark'} onCheckedChange={toggleTheme} />
-                  </>
-                ) : item.languageRow ? (
+                {item.languageRow ? (
                   <div className="flex items-center gap-4 flex-1">
                     <item.icon className="w-5 h-5 shrink-0" style={{ color: 'var(--sec-text-muted)' }} />
                     <div className="flex-1">
