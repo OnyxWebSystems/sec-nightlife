@@ -38,7 +38,7 @@ export default function Layout({ children, currentPageName }) {
     } catch (e) {}
   };
 
-  const hideNav = ['Onboarding', 'VenueOnboarding', 'Welcome'].includes(currentPageName);
+  const hideNav = ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome'].includes(currentPageName);
 
   if (hideNav) {
     return (

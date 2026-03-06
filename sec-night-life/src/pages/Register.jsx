@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { clearTokens } from '@/api/client';
@@ -8,8 +8,20 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
+const ROLE_INTENT_KEY = 'sec-role-intent';
+
+function getBackendRole() {
+  try {
+    const intent = localStorage.getItem(ROLE_INTENT_KEY);
+    if (intent === 'BUSINESS_OWNER') return 'VENUE';
+  } catch {}
+  return 'USER';
+}
+
 export default function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnUrl = searchParams.get('returnUrl') || createPageUrl('Home');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -27,10 +39,12 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      await authService.register(email, password, fullName || undefined, 'USER');
+      const role = getBackendRole();
+      await authService.register(email, password, fullName || undefined, role);
       clearTokens();
       toast.success('Account created! Please sign in.');
-      navigate(createPageUrl('Login'), { replace: true });
+      const loginUrl = returnUrl ? createPageUrl('Login') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Login');
+      navigate(loginUrl.startsWith('/') ? loginUrl : '/' + loginUrl, { replace: true });
     } catch (err) {
       toast.error(err?.data?.error || err?.message || 'Registration failed');
     } finally {
@@ -83,7 +97,7 @@ export default function Register() {
         </form>
         <p className="mt-6 text-center text-gray-500 text-sm">
           Already have an account?{' '}
-          <Link to={createPageUrl('Login')} className="text-[#FF3366] hover:underline">
+          <Link to={returnUrl ? createPageUrl('Login') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Login')} className="text-[var(--sec-accent)] hover:underline">
             Sign in
           </Link>
         </p>

@@ -71,6 +71,7 @@ import Map from './pages/Map';
 import Messages from './pages/Messages';
 import Notifications from './pages/Notifications';
 import Onboarding from './pages/Onboarding';
+import ProfileSetup from './pages/ProfileSetup';
 import AppPreferences from './pages/AppPreferences';
 import Privacy from './pages/Privacy';
 import PrivacyPolicy from './pages/PrivacyPolicy';
@@ -113,6 +114,7 @@ export const PAGES = {
     "Messages": Messages,
     "Notifications": Notifications,
     "Onboarding": Onboarding,
+    "ProfileSetup": ProfileSetup,
     "AppPreferences": AppPreferences,
     "Privacy": Privacy,
     "PrivacyPolicy": PrivacyPolicy,

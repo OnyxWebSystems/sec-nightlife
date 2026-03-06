@@ -141,7 +141,7 @@ export default function VenueOnboarding() {
     if (step === 1) return formData.name && formData.venue_type && formData.city;
     if (step === 2) return true;
     if (step === 3) return formData.cipc_document_url && formData.director_id_url && formData.sars_document_url && formData.annual_returns_url && formData.liquor_license_url && formData.liquor_license_expiry;
-    if (step === 4) return false; // Payment handled separately
+    if (step === 4) return true; // Payment step: user can skip and submit
     return true;
   };
 

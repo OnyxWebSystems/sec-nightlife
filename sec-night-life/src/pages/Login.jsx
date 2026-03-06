@@ -66,7 +66,7 @@ export default function Login() {
         </form>
         <p className="mt-6 text-center text-gray-500 text-sm">
           Don&apos;t have an account?{' '}
-          <Link to={createPageUrl('Register')} className="text-[#FF3366] hover:underline">
+          <Link to={returnUrl ? createPageUrl('Register') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Register')} className="text-[var(--sec-accent)] hover:underline">
             Sign up
           </Link>
         </p>

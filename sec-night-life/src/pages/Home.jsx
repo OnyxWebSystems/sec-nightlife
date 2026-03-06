@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -17,6 +17,7 @@ import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
 
 export default function Home() {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -96,7 +97,7 @@ export default function Home() {
             Discover events, book and join tables, and connect with the nightlife community.
           </p>
           <button
-            onClick={() => authService.redirectToLogin(createPageUrl('Home'))}
+            onClick={() => navigate(createPageUrl('Onboarding'))}
             className="sec-btn sec-btn-primary sec-btn-full"
             style={{ fontSize: 15 }}
           >

@@ -60,7 +60,7 @@ export default function Profile() {
       if (profiles.length > 0) {
         setUserProfile(profiles[0]);
       } else {
-        navigate(createPageUrl('Onboarding'));
+        navigate(createPageUrl('ProfileSetup'));
       }
     } catch (e) {
       authService.redirectToLogin(createPageUrl('Profile'));
