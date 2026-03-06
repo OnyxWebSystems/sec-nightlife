@@ -43,7 +43,6 @@ export default function Register() {
       await authService.register(email, password, fullName || undefined, role);
       clearTokens();
       toast.success('Account created! Please sign in.');
-      const role = getBackendRole();
       const roleIntent = role === 'VENUE' ? 'BUSINESS_OWNER' : 'PARTY_GOER';
       let loginUrl = returnUrl ? createPageUrl('Login') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Login');
       loginUrl += (loginUrl.includes('?') ? '&' : '?') + 'role=' + encodeURIComponent(roleIntent);
