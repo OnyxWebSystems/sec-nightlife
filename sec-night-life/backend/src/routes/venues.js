@@ -10,18 +10,18 @@ const venueCreateSchema = z.object({
   name: z.string().min(1).max(200),
   venue_type: z.string().min(1),
   city: z.string().min(1),
-  address: z.string().optional(),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
-  bio: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  website: z.string().url().optional().nullable(),
-  instagram: z.string().optional(),
-  capacity: z.number().int().min(0).optional(),
-  age_limit: z.number().int().min(0).optional(),
-  logo_url: z.string().url().optional().nullable(),
-  cover_image_url: z.string().url().optional().nullable()
+  address: z.string().optional().nullable(),
+  latitude: z.number().optional().nullable(),
+  longitude: z.number().optional().nullable(),
+  bio: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable().or(z.literal('')),
+  website: z.string().url().optional().nullable().or(z.literal('')),
+  instagram: z.string().optional().nullable(),
+  capacity: z.number().int().min(0).optional().nullable(),
+  age_limit: z.number().int().min(0).optional().nullable(),
+  logo_url: z.string().url().optional().nullable().or(z.literal('')),
+  cover_image_url: z.string().url().optional().nullable().or(z.literal(''))
 });
 
 router.get('/', optionalAuth, async (req, res, next) => {

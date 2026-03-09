@@ -114,15 +114,26 @@ export default function VenueOnboarding() {
 
     try {
       const venueData = {
-        ...formData,
-        owner_user_id: user.id,
-        compliance_status: 'pending',
+        name: formData.name,
+        venue_type: formData.venue_type,
+        city: formData.city,
         capacity: parseInt(formData.capacity) || 0,
-        age_limit: parseInt(formData.age_limit) || 18
+        age_limit: parseInt(formData.age_limit) || 18,
       };
 
+      if (formData.bio) venueData.bio = formData.bio;
+      if (formData.address) venueData.address = formData.address;
+      if (formData.latitude) venueData.latitude = formData.latitude;
+      if (formData.longitude) venueData.longitude = formData.longitude;
+      if (formData.phone) venueData.phone = formData.phone;
+      if (formData.email) venueData.email = formData.email;
+      if (formData.website) venueData.website = formData.website;
+      if (formData.instagram) venueData.instagram = formData.instagram;
+      if (formData.logo_url) venueData.logo_url = formData.logo_url;
+      if (formData.cover_image_url) venueData.cover_image_url = formData.cover_image_url;
+
       await dataService.Venue.create(venueData);
-      navigate(createPageUrl('VenueDashboard'));
+      navigate(createPageUrl('BusinessDashboard'));
     } catch (error) {
       setError('Failed to create venue. Please try again.');
     } finally {
@@ -140,9 +151,13 @@ export default function VenueOnboarding() {
   const canProceed = () => {
     if (step === 1) return formData.name && formData.venue_type && formData.city;
     if (step === 2) return true;
-    if (step === 3) return formData.cipc_document_url && formData.director_id_url && formData.sars_document_url && formData.annual_returns_url && formData.liquor_license_url && formData.liquor_license_expiry;
-    if (step === 4) return true; // Payment step: user can skip and submit
+    if (step === 3) return true;
+    if (step === 4) return true;
     return true;
+  };
+
+  const hasComplianceDocs = () => {
+    return formData.cipc_document_url && formData.director_id_url && formData.sars_document_url && formData.annual_returns_url && formData.liquor_license_url && formData.liquor_license_expiry;
   };
 
   const renderFileUpload = (field, label, required = false) => (
@@ -449,7 +464,7 @@ export default function VenueOnboarding() {
                 <p style={{ color: 'var(--sec-text-muted)' }}>Required for verification</p>
               </div>
 
-              <div className="rounded-2xl p-4 mb-6" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+              <div className="rounded-2xl p-4 mb-4" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
                     <Shield className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
@@ -461,6 +476,12 @@ export default function VenueOnboarding() {
                     </p>
                   </div>
                 </div>
+              </div>
+
+              <div className="rounded-2xl p-4 mb-6" style={{ backgroundColor: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
+                <p className="text-xs" style={{ color: 'rgb(234, 179, 8)' }}>
+                  You can skip this step for now and upload compliance documents later from your dashboard. Your venue will remain in "pending" status until documents are submitted.
+                </p>
               </div>
 
               <div className="space-y-4">
@@ -540,9 +561,11 @@ export default function VenueOnboarding() {
                  </div>
                </div>
 
-               <p className="text-xs text-center mt-6" style={{ color: 'var(--sec-text-muted)' }}>
-                 Paystack integration coming soon. Your first month will be free.
-               </p>
+               <div className="rounded-xl p-3 mt-6" style={{ backgroundColor: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
+                 <p className="text-xs text-center" style={{ color: 'rgb(234, 179, 8)' }}>
+                   Paystack integration coming soon. You can skip this step and register your venue now. Your first month will be free.
+                 </p>
+               </div>
              </div>
            </motion.div>
           )}
@@ -566,17 +589,17 @@ export default function VenueOnboarding() {
               className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
               style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
-              Continue
+              {step === 3 && !hasComplianceDocs() ? 'Skip for now' : 'Continue'}
               <ChevronRight className="w-5 h-5 ml-2" />
             </Button>
           ) : (
             <Button
               onClick={handleSubmit}
-              disabled={!canProceed() || isSubmitting}
+              disabled={isSubmitting}
               className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
               style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
-              {isSubmitting ? 'Submitting...' : 'Submit for Review'}
+              {isSubmitting ? 'Submitting...' : 'Skip & Register Venue'}
               {!isSubmitting && <Check className="w-5 h-5 ml-2" />}
             </Button>
           )}
