@@ -15,6 +15,12 @@ const profileUpdateSchema = z.object({
   bio: z.string().max(2000).optional(),
   city: z.string().max(100).optional(),
   avatar_url: z.string().url().optional().nullable(),
+  favorite_drink: z.string().max(100).optional(),
+  date_of_birth: z.string().max(20).optional(),
+  id_document_url: z.string().url().optional().nullable(),
+  age_verified: z.boolean().optional(),
+  verification_status: z.enum(['pending', 'submitted', 'verified', 'rejected']).optional(),
+  payment_setup_complete: z.boolean().optional(),
   interests: z.array(z.string()).optional(),
   music_preferences: z.array(z.string()).optional(),
   friends: z.array(z.string()).optional(),
@@ -40,7 +46,12 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       bio: profile?.bio,
       city: profile?.city,
       avatar_url: profile?.avatarUrl,
+      favorite_drink: profile?.favoriteDrink,
+      date_of_birth: profile?.dateOfBirth,
+      id_document_url: profile?.idDocumentUrl,
       age_verified: profile?.ageVerified ?? false,
+      verification_status: profile?.verificationStatus ?? 'pending',
+      payment_setup_complete: profile?.paymentSetupComplete ?? false,
       is_verified_promoter: profile?.isVerifiedPromoter ?? false,
       interests: profile?.interests ?? [],
       music_preferences: profile?.musicPreferences ?? [],
@@ -81,7 +92,12 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       bio: profile?.bio,
       city: profile?.city,
       avatar_url: profile?.avatarUrl,
+      favorite_drink: profile?.favoriteDrink,
+      date_of_birth: profile?.dateOfBirth,
+      id_document_url: profile?.idDocumentUrl,
       age_verified: profile?.ageVerified ?? false,
+      verification_status: profile?.verificationStatus ?? 'pending',
+      payment_setup_complete: profile?.paymentSetupComplete ?? false,
       is_verified_promoter: profile?.isVerifiedPromoter ?? false,
       interests: profile?.interests ?? [],
       music_preferences: profile?.musicPreferences ?? [],
@@ -179,10 +195,17 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
         bio: p?.bio,
         city: p?.city,
         avatar_url: p?.avatarUrl,
+        favorite_drink: p?.favoriteDrink,
+        date_of_birth: p?.dateOfBirth,
+        id_document_url: p?.idDocumentUrl,
+        age_verified: p?.ageVerified ?? false,
+        verification_status: p?.verificationStatus ?? 'pending',
+        payment_setup_complete: p?.paymentSetupComplete ?? false,
         is_verified_promoter: p?.isVerifiedPromoter ?? false,
         interests: p?.interests ?? [],
         music_preferences: p?.musicPreferences ?? [],
-        friends: p?.friends ?? []
+        friends: p?.friends ?? [],
+        onboarding_complete: p?.onboardingComplete ?? false
       };
     });
     if (is_verified_promoter === 'true') {
@@ -195,8 +218,7 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
   }
 });
 
-// SECURITY: email must be verified to update profile
-router.patch('/profile', authenticateToken, requireVerified, async (req, res, next) => {
+router.patch('/profile', authenticateToken, async (req, res, next) => {
   try {
     const parsed = profileUpdateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
@@ -214,6 +236,13 @@ router.patch('/profile', authenticateToken, requireVerified, async (req, res, ne
       ...(data.bio != null && { bio: data.bio }),
       ...(data.city != null && { city: data.city }),
       ...(data.avatar_url !== undefined && { avatarUrl: data.avatar_url }),
+      ...(data.favorite_drink != null && { favoriteDrink: data.favorite_drink }),
+      ...(data.date_of_birth != null && { dateOfBirth: data.date_of_birth }),
+      ...(data.id_document_url !== undefined && { idDocumentUrl: data.id_document_url }),
+      ...(data.age_verified != null && { ageVerified: data.age_verified }),
+      ...(data.verification_status != null && { verificationStatus: data.verification_status }),
+      ...(data.payment_setup_complete != null && { paymentSetupComplete: data.payment_setup_complete }),
+      ...(data.onboarding_complete != null && { onboardingComplete: data.onboarding_complete }),
       ...(data.interests != null && { interests: data.interests }),
       ...(data.music_preferences != null && { musicPreferences: data.music_preferences }),
       ...(data.friends != null && { friends: data.friends })
@@ -231,9 +260,14 @@ router.patch('/profile', authenticateToken, requireVerified, async (req, res, ne
       bio: profile.bio,
       city: profile.city,
       avatar_url: profile.avatarUrl,
+      favorite_drink: profile.favoriteDrink,
+      date_of_birth: profile.dateOfBirth,
+      verification_status: profile.verificationStatus,
+      payment_setup_complete: profile.paymentSetupComplete,
       interests: profile.interests,
       music_preferences: profile.musicPreferences,
-      friends: profile.friends ?? []
+      friends: profile.friends ?? [],
+      onboarding_complete: profile.onboardingComplete
     });
   } catch (err) {
     next(err);
@@ -264,6 +298,12 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.bio != null) updates.bio = data.bio;
     if (data.city != null) updates.city = data.city;
     if (data.avatar_url !== undefined) updates.avatarUrl = data.avatar_url;
+    if (data.favorite_drink != null) updates.favoriteDrink = data.favorite_drink;
+    if (data.date_of_birth != null) updates.dateOfBirth = data.date_of_birth;
+    if (data.id_document_url !== undefined) updates.idDocumentUrl = data.id_document_url;
+    if (data.age_verified != null) updates.ageVerified = data.age_verified;
+    if (data.verification_status != null) updates.verificationStatus = data.verification_status;
+    if (data.payment_setup_complete != null) updates.paymentSetupComplete = data.payment_setup_complete;
     if (data.interests != null) updates.interests = data.interests;
     if (data.music_preferences != null) updates.musicPreferences = data.music_preferences;
     if (data.friends != null) updates.friends = data.friends;
@@ -282,9 +322,14 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       bio: updated.bio,
       city: updated.city,
       avatar_url: updated.avatarUrl,
+      favorite_drink: updated.favoriteDrink,
+      date_of_birth: updated.dateOfBirth,
+      verification_status: updated.verificationStatus,
+      payment_setup_complete: updated.paymentSetupComplete,
       interests: updated.interests,
       music_preferences: updated.musicPreferences,
-      friends: updated.friends ?? []
+      friends: updated.friends ?? [],
+      onboarding_complete: updated.onboardingComplete
     });
   } catch (err) {
     next(err);

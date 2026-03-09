@@ -287,22 +287,33 @@ export default function ProfileSetup() {
   const canProceed = () => {
     if (step === 1) return formData.username && formData.bio.trim().length > 0;
     if (step === 2) return formData.city && formData.favorite_drink;
-    if (step === 3) {
-      if (!formData.date_of_birth || !formData.id_document_url) return false;
-      if (!idVerifyResult) return false;
-      return idVerifyResult.is_valid_document && idVerifyResult.is_18_plus && idVerifyResult.dob_matches;
-    }
+    if (step === 3) return true;
     if (step === 4) return false;
     return true;
   };
 
-  const handlePaymentSuccess = async () => {
+  const isVerificationComplete = () => {
+    if (!idVerifyResult) return false;
+    return idVerifyResult.is_valid_document && idVerifyResult.is_18_plus && idVerifyResult.dob_matches;
+  };
+
+  const completeOnboarding = async (options = {}) => {
+    const { paymentCompleted = false } = options;
     setIsSubmitting(true);
     setError('');
     try {
+      const verified = isVerificationComplete();
       const payload = {
-        ...formData,
-        created_by: user.email,
+        username: formData.username,
+        bio: formData.bio,
+        avatar_url: formData.avatar_url || null,
+        city: formData.city,
+        favorite_drink: formData.favorite_drink,
+        date_of_birth: formData.date_of_birth || null,
+        id_document_url: formData.id_document_url || null,
+        age_verified: verified,
+        verification_status: verified ? 'verified' : 'pending',
+        payment_setup_complete: paymentCompleted,
         onboarding_complete: true,
       };
       if (userProfile) {
@@ -316,6 +327,14 @@ export default function ProfileSetup() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handlePaymentSuccess = async () => {
+    await completeOnboarding({ paymentCompleted: true });
+  };
+
+  const handleSkipPayment = async () => {
+    await completeOnboarding({ paymentCompleted: false });
   };
 
   const renderFileUpload = (field, label, accept = 'image/*') => (
@@ -725,6 +744,23 @@ export default function ProfileSetup() {
                 </div>
               )}
 
+              <div
+                style={{
+                  padding: 14,
+                  borderRadius: 'var(--radius-lg)',
+                  backgroundColor: 'var(--sec-bg-card)',
+                  border: '1px solid var(--sec-border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                <Calendar size={16} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
+                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: 0 }}>
+                  Verification can be completed later from your profile settings. Some features may be limited until verified.
+                </p>
+              </div>
+
               {error && (
                 <div
                   style={{
@@ -776,7 +812,7 @@ export default function ProfileSetup() {
 
               <button
                 type="button"
-                onClick={() => handlePaymentSuccess()}
+                onClick={handleSkipPayment}
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
@@ -857,7 +893,7 @@ export default function ProfileSetup() {
                 gap: 8,
               }}
             >
-              Continue
+              {step === 3 ? (isVerificationComplete() ? 'Continue' : 'Verify later') : 'Continue'}
               <ChevronRight size={20} strokeWidth={2} />
             </button>
           </div>
