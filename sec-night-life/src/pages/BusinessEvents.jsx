@@ -161,14 +161,15 @@ export default function BusinessEvents() {
             placeholder="Search events..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="h-10 bg-[#141416] border-[#262629] rounded-xl pl-9"
+            style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+            className="h-10 rounded-xl pl-9"
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[140px] h-10 bg-[#141416] border-[#262629] rounded-xl">
+          <SelectTrigger className="w-[140px] h-10 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="bg-[#141416] border-[#262629] text-white">
+          <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }} className="text-white">
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="draft">Draft</SelectItem>
             <SelectItem value="published">Published</SelectItem>
@@ -191,7 +192,7 @@ export default function BusinessEvents() {
             {search ? 'No matching events found' : 'No events yet'}
           </p>
           {!search && (
-            <Button onClick={openCreate} variant="outline" className="rounded-xl border-[#262629]">
+            <Button onClick={openCreate} variant="outline" className="rounded-xl" style={{ borderColor: 'var(--sec-border)' }}>
               <Plus size={15} className="mr-1.5" /> Create your first event
             </Button>
           )}
@@ -211,7 +212,7 @@ export default function BusinessEvents() {
               ) : (
                 <div style={{
                   width: 56, height: 56, borderRadius: 10, flexShrink: 0,
-                  backgroundColor: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)',
+                  backgroundColor: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 }}>
                   <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--sec-accent)', lineHeight: 1 }}>
@@ -232,11 +233,7 @@ export default function BusinessEvents() {
                 </div>
               </div>
 
-              <span style={{
-                fontSize: 10, padding: '4px 10px', borderRadius: 6, fontWeight: 600,
-                backgroundColor: evt.status === 'published' ? 'rgba(34,197,94,0.12)' : 'rgba(234,179,8,0.12)',
-                color: evt.status === 'published' ? '#22c55e' : 'rgb(234,179,8)',
-              }}>
+              <span className={`sec-badge ${evt.status === 'published' ? 'sec-badge-success' : 'sec-badge-gold'}`}>
                 {evt.status}
               </span>
 
@@ -257,7 +254,7 @@ export default function BusinessEvents() {
                 </button>
                 <button
                   onClick={() => setDeleteId(evt.id)}
-                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: '#ef4444' }}
+                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-error)' }}
                   title="Delete"
                 >
                   <Trash2 size={16} />
@@ -270,7 +267,7 @@ export default function BusinessEvents() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="bg-[#141416] border-[#262629] text-white sm:max-w-[520px]">
+        <DialogContent className="text-white sm:max-w-[520px]" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
           <DialogHeader>
             <DialogTitle>{editingEvent ? 'Edit Event' : 'Create Event'}</DialogTitle>
           </DialogHeader>
@@ -281,7 +278,8 @@ export default function BusinessEvents() {
                 value={form.title}
                 onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
                 placeholder="Friday Night Live"
-                className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl"
+                className="mt-1.5 h-11 rounded-xl"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -291,7 +289,8 @@ export default function BusinessEvents() {
                   type="date"
                   value={form.date}
                   onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
-                  className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl"
+                  className="mt-1.5 h-11 rounded-xl"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 />
               </div>
               <div>
@@ -300,7 +299,8 @@ export default function BusinessEvents() {
                   value={form.city}
                   onChange={e => setForm(p => ({ ...p, city: e.target.value }))}
                   placeholder="Johannesburg"
-                  className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl"
+                  className="mt-1.5 h-11 rounded-xl"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 />
               </div>
             </div>
@@ -310,7 +310,8 @@ export default function BusinessEvents() {
                 value={form.description}
                 onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
                 placeholder="Event details..."
-                className="mt-1.5 bg-[#0A0A0B] border-[#262629] rounded-xl resize-none"
+                className="mt-1.5 rounded-xl resize-none"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 rows={3}
               />
             </div>
@@ -320,23 +321,24 @@ export default function BusinessEvents() {
                 value={form.cover_image_url}
                 onChange={e => setForm(p => ({ ...p, cover_image_url: e.target.value }))}
                 placeholder="https://..."
-                className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl"
+                className="mt-1.5 h-11 rounded-xl"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
               />
             </div>
             <div>
               <Label className="text-gray-400 text-sm">Status</Label>
               <Select value={form.status} onValueChange={v => setForm(p => ({ ...p, status: v }))}>
-                <SelectTrigger className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl">
+                <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }} className="text-white">
                   <SelectItem value="draft">Draft</SelectItem>
                   <SelectItem value="published">Published</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="flex gap-3 pt-2">
-              <Button variant="outline" onClick={closeDialog} className="flex-1 h-11 rounded-xl border-[#262629]">
+              <Button variant="outline" onClick={closeDialog} className="flex-1 h-11 rounded-xl" style={{ borderColor: 'var(--sec-border)' }}>
                 Cancel
               </Button>
               <Button
@@ -355,19 +357,20 @@ export default function BusinessEvents() {
 
       {/* Delete Confirmation */}
       <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <DialogContent className="bg-[#141416] border-[#262629] text-white sm:max-w-[380px]">
+        <DialogContent className="text-white sm:max-w-[380px]" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
           <DialogHeader>
             <DialogTitle>Delete Event</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-gray-400 mt-1">Are you sure you want to delete this event? This action cannot be undone.</p>
           <div className="flex gap-3 mt-4">
-            <Button variant="outline" onClick={() => setDeleteId(null)} className="flex-1 h-10 rounded-xl border-[#262629]">
+            <Button variant="outline" onClick={() => setDeleteId(null)} className="flex-1 h-10 rounded-xl" style={{ borderColor: 'var(--sec-border)' }}>
               Cancel
             </Button>
             <Button
               onClick={() => deleteMutation.mutate(deleteId)}
               disabled={deleteMutation.isPending}
-              className="flex-1 h-10 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold"
+              className="flex-1 h-10 rounded-xl text-white font-semibold"
+              style={{ backgroundColor: 'var(--sec-error)' }}
             >
               {deleteMutation.isPending ? <Loader2 size={16} className="animate-spin mr-1.5" /> : null}
               Delete

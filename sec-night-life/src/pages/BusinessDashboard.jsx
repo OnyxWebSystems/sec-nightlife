@@ -6,25 +6,21 @@ import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
 import {
-  LayoutDashboard, Calendar, BookOpen, Megaphone, BarChart3,
-  Star, Users, TrendingUp, ArrowRight, Building2, Plus, Clock,
-  ChevronRight, AlertCircle
+  Calendar, BookOpen, Megaphone, BarChart3,
+  Star, Users, ArrowRight, Building2, Plus,
+  ChevronRight, AlertCircle, Briefcase
 } from 'lucide-react';
 
-function StatCard({ icon: Icon, label, value, sub, color = 'var(--sec-accent)' }) {
+function StatCard({ icon: Icon, label, value, sub }) {
   return (
-    <div style={{
-      padding: 20, borderRadius: 14,
-      backgroundColor: 'var(--sec-bg-card)',
-      border: '1px solid var(--sec-border)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+    <div className="sec-card" style={{ padding: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <div style={{
           width: 38, height: 38, borderRadius: 10,
-          backgroundColor: `${color}15`,
+          backgroundColor: 'var(--sec-accent-muted)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <Icon size={18} style={{ color }} />
+          <Icon size={18} style={{ color: 'var(--sec-accent)' }} />
         </div>
       </div>
       <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--sec-text-primary)', lineHeight: 1.1 }}>
@@ -40,14 +36,12 @@ function QuickAction({ icon: Icon, label, page }) {
   return (
     <Link
       to={createPageUrl(page)}
+      className="sec-card"
       style={{
         display: 'flex', alignItems: 'center', gap: 12,
-        padding: '14px 16px', borderRadius: 12, textDecoration: 'none',
-        backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
+        padding: '14px 16px', textDecoration: 'none',
         color: 'var(--sec-text-primary)', transition: 'border-color 0.15s',
       }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--sec-accent-border)'}
-      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--sec-border)'}
     >
       <div style={{
         width: 36, height: 36, borderRadius: 10,
@@ -108,7 +102,7 @@ export default function BusinessDashboard() {
   if (venuesLoading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <div style={{ width: 32, height: 32, border: '3px solid var(--sec-border)', borderTopColor: 'var(--sec-accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <div className="sec-spinner" />
       </div>
     );
   }
@@ -123,14 +117,13 @@ export default function BusinessDashboard() {
         }}>
           <Building2 size={28} style={{ color: 'var(--sec-accent)' }} />
         </div>
-        <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>No Venue Registered</h2>
+        <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No Venue Registered</h2>
         <p style={{ color: 'var(--sec-text-muted)', fontSize: 14, marginBottom: 24 }}>
           Register your venue to access the full business dashboard with analytics, event management, and more.
         </p>
         <Button
           onClick={() => navigate(createPageUrl('VenueOnboarding'))}
-          style={{ backgroundColor: 'var(--sec-accent)', color: '#000', fontWeight: 600 }}
-          className="h-12 px-8 rounded-xl"
+          className="sec-btn sec-btn-primary h-12 px-8 rounded-xl"
         >
           Register Your Venue
           <ArrowRight size={16} className="ml-2" />
@@ -152,7 +145,7 @@ export default function BusinessDashboard() {
   const totalGuests = tables.reduce((s, t) => s + (t.current_guests || 0), 0);
 
   return (
-    <div style={{ padding: '24px 20px', maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: 'var(--space-6) var(--space-5)', maxWidth: 1100, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
@@ -164,8 +157,13 @@ export default function BusinessDashboard() {
               {venue.name}
             </h1>
             <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
-              {venue.city} &middot; {venue.venue_type?.replace('_', ' ')} &middot;{' '}
-              <span style={{ color: venue.compliance_status === 'approved' ? '#22c55e' : 'rgb(234,179,8)' }}>
+              {venue.city} &middot; {venue.venue_type?.replace('_', ' ')}
+              {' '}&middot;{' '}
+              <span style={{
+                color: venue.compliance_status === 'approved'
+                  ? 'var(--sec-success)'
+                  : 'var(--sec-warning)',
+              }}>
                 {venue.compliance_status || 'Pending'}
               </span>
             </p>
@@ -178,10 +176,10 @@ export default function BusinessDashboard() {
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
           borderRadius: 12, marginBottom: 20,
-          backgroundColor: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)',
+          backgroundColor: 'var(--sec-warning-muted)', border: '1px solid rgba(212,160,23,0.2)',
         }}>
-          <AlertCircle size={18} style={{ color: 'rgb(234,179,8)', flexShrink: 0 }} />
-          <span style={{ fontSize: 13, color: 'rgb(234,179,8)' }}>
+          <AlertCircle size={18} style={{ color: 'var(--sec-warning)', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: 'var(--sec-warning)' }}>
             Your venue compliance is pending review. Some features may be limited until documents are submitted and approved.
           </span>
         </div>
@@ -189,10 +187,10 @@ export default function BusinessDashboard() {
 
       {/* Stat Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>
-        <StatCard icon={Calendar} label="Total Events" value={events.length} sub={`${upcomingEvents.length} upcoming`} color="#818cf8" />
-        <StatCard icon={BookOpen} label="Table Bookings" value={totalBookings} sub={`${activeBookings} active`} color="#34d399" />
-        <StatCard icon={Star} label="Average Rating" value={avgRating} sub={`${reviews.length} reviews`} color="#fbbf24" />
-        <StatCard icon={Users} label="Total Guests" value={totalGuests} color="#f472b6" />
+        <StatCard icon={Calendar} label="Total Events" value={events.length} sub={`${upcomingEvents.length} upcoming`} />
+        <StatCard icon={BookOpen} label="Table Bookings" value={totalBookings} sub={`${activeBookings} active`} />
+        <StatCard icon={Star} label="Average Rating" value={avgRating} sub={`${reviews.length} reviews`} />
+        <StatCard icon={Users} label="Total Guests" value={totalGuests} />
       </div>
 
       {/* Quick Actions */}
@@ -203,18 +201,16 @@ export default function BusinessDashboard() {
           <QuickAction icon={BookOpen} label="Manage Bookings" page="BusinessBookings" />
           <QuickAction icon={BarChart3} label="View Analytics" page="VenueAnalytics" />
           <QuickAction icon={Megaphone} label="Promotions & AI" page="BusinessPromotions" />
+          <QuickAction icon={Briefcase} label="Post Jobs" page="Jobs" />
         </div>
       </div>
 
       {/* Two-Column Layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="biz-grid-responsive">
         {/* Upcoming Events */}
-        <div style={{
-          padding: 20, borderRadius: 14,
-          backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-        }}>
+        <div className="sec-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600 }}>Upcoming Events</h3>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Upcoming Events</h3>
             <Link to={createPageUrl('BusinessEvents')} style={{ fontSize: 12, color: 'var(--sec-accent)', textDecoration: 'none' }}>View all</Link>
           </div>
           {upcomingEvents.length === 0 ? (
@@ -230,7 +226,7 @@ export default function BusinessDashboard() {
               {upcomingEvents.map(evt => (
                 <div key={evt.id} style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
-                  borderRadius: 10, backgroundColor: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)',
+                  borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)',
                 }}>
                   <div style={{
                     width: 40, height: 40, borderRadius: 8, flexShrink: 0,
@@ -245,16 +241,12 @@ export default function BusinessDashboard() {
                     </span>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {evt.title}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{evt.city}</div>
                   </div>
-                  <span style={{
-                    fontSize: 10, padding: '3px 8px', borderRadius: 6, fontWeight: 600,
-                    backgroundColor: evt.status === 'published' ? 'rgba(34,197,94,0.12)' : 'rgba(234,179,8,0.12)',
-                    color: evt.status === 'published' ? '#22c55e' : 'rgb(234,179,8)',
-                  }}>
+                  <span className={`sec-badge ${evt.status === 'published' ? 'sec-badge-success' : 'sec-badge-gold'}`}>
                     {evt.status}
                   </span>
                 </div>
@@ -264,12 +256,9 @@ export default function BusinessDashboard() {
         </div>
 
         {/* Recent Bookings */}
-        <div style={{
-          padding: 20, borderRadius: 14,
-          backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-        }}>
+        <div className="sec-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600 }}>Recent Bookings</h3>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Recent Bookings</h3>
             <Link to={createPageUrl('BusinessBookings')} style={{ fontSize: 12, color: 'var(--sec-accent)', textDecoration: 'none' }}>View all</Link>
           </div>
           {tables.length === 0 ? (
@@ -282,28 +271,24 @@ export default function BusinessDashboard() {
               {tables.slice(0, 5).map(t => (
                 <div key={t.id} style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
-                  borderRadius: 10, backgroundColor: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)',
+                  borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)',
                 }}>
                   <div style={{
                     width: 40, height: 40, borderRadius: 8, flexShrink: 0,
-                    backgroundColor: 'rgba(34,197,94,0.1)',
+                    backgroundColor: 'var(--sec-accent-muted)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <Users size={16} style={{ color: '#34d399' }} />
+                    <Users size={16} style={{ color: 'var(--sec-accent)' }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
                       {t.current_guests || 0}/{t.max_guests || '—'} guests
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>
                       Min spend: R{t.min_spend || 0}
                     </div>
                   </div>
-                  <span style={{
-                    fontSize: 10, padding: '3px 8px', borderRadius: 6, fontWeight: 600,
-                    backgroundColor: t.status === 'open' ? 'rgba(34,197,94,0.12)' : 'rgba(107,114,128,0.12)',
-                    color: t.status === 'open' ? '#34d399' : '#9ca3af',
-                  }}>
+                  <span className={`sec-badge ${t.status === 'open' ? 'sec-badge-success' : 'sec-badge-muted'}`}>
                     {t.status}
                   </span>
                 </div>

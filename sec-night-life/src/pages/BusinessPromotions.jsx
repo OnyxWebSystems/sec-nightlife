@@ -69,6 +69,12 @@ export default function BusinessPromotions() {
   const [descForm, setDescForm] = useState({ keywords: '', venue_type: 'nightclub', atmosphere: '' });
   const [promoForm, setPromoForm] = useState({ event_type: 'nightclub', target_audience: 'young professionals', season: 'summer', budget_level: 'medium' });
 
+  const sty = {
+    input: { backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' },
+    select: { backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' },
+    dropdown: { backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' },
+  };
+
   useEffect(() => {
     (async () => {
       try { setUser(await authService.getCurrentUser()); }
@@ -118,10 +124,10 @@ export default function BusinessPromotions() {
         }}>
           <Label className="text-gray-400 text-sm">Select Venue</Label>
           <Select value={selectedVenue} onValueChange={setSelectedVenue}>
-            <SelectTrigger className="mt-1.5 h-10 bg-[#0A0A0B] border-[#262629] rounded-xl">
+            <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}>
               <SelectValue placeholder="Choose a venue" />
             </SelectTrigger>
-            <SelectContent className="bg-[#141416] border-[#262629] text-white">
+            <SelectContent style={sty.dropdown} className="text-white">
               {venues.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -167,15 +173,15 @@ export default function BusinessPromotions() {
               placeholder="upscale, modern, rooftop, cocktails"
               value={descForm.keywords}
               onChange={e => setDescForm(p => ({ ...p, keywords: e.target.value }))}
-              className="mt-1.5 h-10 bg-[#0A0A0B] border-[#262629] rounded-xl"
+              className="mt-1.5 h-10 rounded-xl" style={sty.input}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-gray-400 text-sm">Venue Type</Label>
               <Select value={descForm.venue_type} onValueChange={v => setDescForm(p => ({ ...p, venue_type: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 bg-[#0A0A0B] border-[#262629] rounded-xl"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
+                <SelectContent style={sty.dropdown} className="text-white">
                   <SelectItem value="nightclub">Nightclub</SelectItem>
                   <SelectItem value="lounge">Lounge</SelectItem>
                   <SelectItem value="bar">Bar</SelectItem>
@@ -190,7 +196,7 @@ export default function BusinessPromotions() {
                 placeholder="vibrant, intimate, upscale"
                 value={descForm.atmosphere}
                 onChange={e => setDescForm(p => ({ ...p, atmosphere: e.target.value }))}
-                className="mt-1.5 h-10 bg-[#0A0A0B] border-[#262629] rounded-xl"
+                className="mt-1.5 h-10 rounded-xl" style={sty.input}
               />
             </div>
           </div>
@@ -222,7 +228,7 @@ export default function BusinessPromotions() {
         backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <TrendingUp size={18} style={{ color: '#34d399' }} />
+          <TrendingUp size={18} style={{ color: 'var(--sec-accent)' }} />
           <h3 style={{ fontSize: 15, fontWeight: 600 }}>AI Promotion Ideas</h3>
         </div>
         <div className="space-y-3">
@@ -230,8 +236,8 @@ export default function BusinessPromotions() {
             <div>
               <Label className="text-gray-400 text-sm">Event Type</Label>
               <Select value={promoForm.event_type} onValueChange={v => setPromoForm(p => ({ ...p, event_type: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 bg-[#0A0A0B] border-[#262629] rounded-xl"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
+                <SelectContent style={sty.dropdown} className="text-white">
                   <SelectItem value="nightclub">Nightclub Event</SelectItem>
                   <SelectItem value="concert">Concert</SelectItem>
                   <SelectItem value="festival">Festival</SelectItem>
@@ -242,8 +248,8 @@ export default function BusinessPromotions() {
             <div>
               <Label className="text-gray-400 text-sm">Target Audience</Label>
               <Select value={promoForm.target_audience} onValueChange={v => setPromoForm(p => ({ ...p, target_audience: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 bg-[#0A0A0B] border-[#262629] rounded-xl"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
+                <SelectContent style={sty.dropdown} className="text-white">
                   <SelectItem value="young professionals">Young Professionals</SelectItem>
                   <SelectItem value="students">Students</SelectItem>
                   <SelectItem value="couples">Couples</SelectItem>
@@ -254,8 +260,8 @@ export default function BusinessPromotions() {
             <div>
               <Label className="text-gray-400 text-sm">Season</Label>
               <Select value={promoForm.season} onValueChange={v => setPromoForm(p => ({ ...p, season: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 bg-[#0A0A0B] border-[#262629] rounded-xl"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
+                <SelectContent style={sty.dropdown} className="text-white">
                   <SelectItem value="summer">Summer</SelectItem>
                   <SelectItem value="winter">Winter</SelectItem>
                   <SelectItem value="spring">Spring</SelectItem>
@@ -266,8 +272,8 @@ export default function BusinessPromotions() {
             <div>
               <Label className="text-gray-400 text-sm">Budget Level</Label>
               <Select value={promoForm.budget_level} onValueChange={v => setPromoForm(p => ({ ...p, budget_level: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 bg-[#0A0A0B] border-[#262629] rounded-xl"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
+                <SelectContent style={sty.dropdown} className="text-white">
                   <SelectItem value="low">Low Budget</SelectItem>
                   <SelectItem value="medium">Medium Budget</SelectItem>
                   <SelectItem value="high">High Budget</SelectItem>
@@ -279,7 +285,7 @@ export default function BusinessPromotions() {
             onClick={handleGeneratePromotions}
             disabled={isGeneratingPromo}
             className="w-full h-10 rounded-xl font-semibold"
-            style={{ backgroundColor: '#34d399', color: '#000' }}
+            style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
           >
             {isGeneratingPromo ? <Loader2 size={15} className="animate-spin mr-1.5" /> : <TrendingUp size={15} className="mr-1.5" />}
             Generate Promotion Ideas
@@ -287,10 +293,10 @@ export default function BusinessPromotions() {
           {promotions.length > 0 && (
             <div className="space-y-2 mt-3">
               {promotions.map((p, i) => (
-                <div key={i} style={{ padding: 14, borderRadius: 10, backgroundColor: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)' }}>
+                <div key={i} style={{ padding: 14, borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 8 }}>
                     <div>
-                      <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{p.title}</h4>
+                      <h4 style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 4 }}>{p.title}</h4>
                       <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>{p.description}</p>
                     </div>
                     <button onClick={() => copy(`${p.title}\n${p.description}`)} style={{ padding: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--sec-text-muted)', flexShrink: 0 }}>
@@ -298,8 +304,8 @@ export default function BusinessPromotions() {
                     </button>
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, backgroundColor: 'rgba(129,140,248,0.12)', color: '#818cf8' }}>{p.target}</span>
-                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, backgroundColor: 'rgba(52,211,153,0.12)', color: '#34d399' }}>{p.impact}</span>
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, backgroundColor: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}>{p.target}</span>
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, backgroundColor: 'var(--sec-silver-muted)', color: 'var(--sec-silver-bright)' }}>{p.impact}</span>
                   </div>
                 </div>
               ))}

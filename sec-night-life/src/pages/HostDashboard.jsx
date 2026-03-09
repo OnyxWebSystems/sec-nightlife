@@ -234,7 +234,7 @@ export default function HostDashboard() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className="glass-card rounded-2xl p-4"
+                    className="sec-card p-4"
                   >
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex-1">
@@ -328,7 +328,7 @@ export default function HostDashboard() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className="glass-card rounded-2xl p-4"
+                    className="sec-card p-4"
                   >
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">

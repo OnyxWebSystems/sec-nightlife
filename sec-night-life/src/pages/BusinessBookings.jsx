@@ -15,18 +15,14 @@ import {
 import { toast } from 'sonner';
 
 function StatusBadge({ status }) {
-  const colors = {
-    open: { bg: 'rgba(34,197,94,0.12)', text: '#22c55e' },
-    active: { bg: 'rgba(59,130,246,0.12)', text: '#3b82f6' },
-    full: { bg: 'rgba(234,179,8,0.12)', text: 'rgb(234,179,8)' },
-    closed: { bg: 'rgba(107,114,128,0.12)', text: '#9ca3af' },
+  const classMap = {
+    open: 'sec-badge-success',
+    active: 'sec-badge-gold',
+    full: 'sec-badge-gold',
+    closed: 'sec-badge-muted',
   };
-  const c = colors[status] || colors.closed;
   return (
-    <span style={{
-      fontSize: 10, padding: '3px 10px', borderRadius: 6, fontWeight: 600,
-      backgroundColor: c.bg, color: c.text,
-    }}>
+    <span className={`sec-badge ${classMap[status] || 'sec-badge-muted'}`}>
       {status}
     </span>
   );
@@ -145,17 +141,14 @@ export default function BusinessBookings() {
       {/* Stats Strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 20 }}>
         {[
-          { label: 'Total Tables', value: stats.total, color: '#818cf8' },
-          { label: 'Open', value: stats.open, color: '#34d399' },
-          { label: 'Full', value: stats.full, color: '#fbbf24' },
-          { label: 'Total Guests', value: stats.totalGuests, color: '#f472b6' },
-          { label: 'Pending Requests', value: stats.pendingRequests, color: '#fb923c' },
+          { label: 'Total Tables', value: stats.total },
+          { label: 'Open', value: stats.open },
+          { label: 'Full', value: stats.full },
+          { label: 'Total Guests', value: stats.totalGuests },
+          { label: 'Pending Requests', value: stats.pendingRequests },
         ].map(s => (
-          <div key={s.label} style={{
-            padding: '14px 16px', borderRadius: 12,
-            backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-          }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
+          <div key={s.label} className="sec-card" style={{ padding: '14px 16px' }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-accent)' }}>{s.value}</div>
             <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{s.label}</div>
           </div>
         ))}
@@ -169,14 +162,15 @@ export default function BusinessBookings() {
             placeholder="Search by event name..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="h-10 bg-[#141416] border-[#262629] rounded-xl pl-9"
+            className="h-10 rounded-xl pl-9"
+            style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[130px] h-10 bg-[#141416] border-[#262629] rounded-xl">
+          <SelectTrigger className="w-[130px] h-10 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="bg-[#141416] border-[#262629] text-white">
+          <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }} className="text-white">
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="open">Open</SelectItem>
             <SelectItem value="active">Active</SelectItem>
@@ -244,9 +238,9 @@ export default function BusinessBookings() {
                 {pendingCount > 0 && (
                   <div style={{
                     marginTop: 10, padding: '10px 12px', borderRadius: 10,
-                    backgroundColor: 'rgba(251,146,60,0.06)', border: '1px solid rgba(251,146,60,0.15)',
+                    backgroundColor: 'var(--sec-warning-muted)', border: '1px solid rgba(212,160,23,0.2)',
                   }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#fb923c', marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--sec-warning)', marginBottom: 6 }}>
                       {pendingCount} pending request{pendingCount > 1 ? 's' : ''}
                     </div>
                     {(t.pending_requests || []).slice(0, 3).map((req, i) => {
@@ -261,7 +255,7 @@ export default function BusinessBookings() {
                             disabled={updateMutation.isPending}
                             style={{
                               padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                              backgroundColor: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: 11, fontWeight: 600,
+                              backgroundColor: 'var(--sec-success-muted)', color: 'var(--sec-success)', fontSize: 11, fontWeight: 600,
                             }}
                           >
                             <Check size={12} style={{ display: 'inline', marginRight: 3 }} />
@@ -272,7 +266,7 @@ export default function BusinessBookings() {
                             disabled={updateMutation.isPending}
                             style={{
                               padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                              backgroundColor: 'rgba(239,68,68,0.12)', color: '#ef4444', fontSize: 11, fontWeight: 600,
+                              backgroundColor: 'var(--sec-error-muted)', color: 'var(--sec-error)', fontSize: 11, fontWeight: 600,
                             }}
                           >
                             <X size={12} style={{ display: 'inline', marginRight: 3 }} />
@@ -291,7 +285,7 @@ export default function BusinessBookings() {
 
       {/* Detail Dialog */}
       <Dialog open={!!detailTable} onOpenChange={() => setDetailTable(null)}>
-        <DialogContent className="bg-[#141416] border-[#262629] text-white sm:max-w-[440px]">
+        <DialogContent className="text-white sm:max-w-[440px]" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
           <DialogHeader>
             <DialogTitle>Booking Details</DialogTitle>
           </DialogHeader>

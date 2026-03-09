@@ -79,10 +79,11 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Dashboard', icon: LayoutDashboard, page: 'HostDashboard' },
         { name: 'Create Table', icon: Plus, page: 'CreateTable', isCreate: true },
         { name: 'Events', icon: Calendar, page: 'Events' },
+        { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
-        { name: 'Profile', icon: User, page: 'Profile' },
       ],
       secondary: [
+        { name: 'Profile', icon: User, page: 'Profile' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
         { name: 'Settings', icon: Settings, page: 'Settings' },
@@ -97,6 +98,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Bookings', icon: BookOpen, page: 'BusinessBookings' },
       ],
       secondary: [
+        { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
         { name: 'Promotions', icon: Megaphone, page: 'BusinessPromotions' },
         { name: 'Insights', icon: Users, page: 'FeedbackInsights' },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
