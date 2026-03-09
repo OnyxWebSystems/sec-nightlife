@@ -1,0 +1,380 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import * as authService from '@/services/authService';
+import { dataService } from '@/services/dataService';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Calendar, Plus, Edit2, Trash2, Eye, Search, Filter, X, Loader2,
+  ArrowLeft, ChevronRight, AlertCircle
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+const EMPTY_EVENT = {
+  title: '', description: '', date: '', city: '', status: 'draft',
+  cover_image_url: '', ticket_tiers: [],
+};
+
+export default function BusinessEvents() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [user, setUser] = useState(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [form, setForm] = useState({ ...EMPTY_EVENT });
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [deleteId, setDeleteId] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try { setUser(await authService.getCurrentUser()); }
+      catch { authService.redirectToLogin(); }
+    })();
+  }, []);
+
+  const { data: venues = [] } = useQuery({
+    queryKey: ['biz-venues', user?.id],
+    queryFn: () => dataService.Venue.filter({ owner_user_id: user.id }),
+    enabled: !!user,
+  });
+  const venue = venues[0];
+
+  const { data: events = [], isLoading } = useQuery({
+    queryKey: ['biz-events', venue?.id],
+    queryFn: () => dataService.Event.filter({ venue_id: venue.id }),
+    enabled: !!venue,
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (data) => {
+      if (editingEvent) {
+        return dataService.Event.update(editingEvent.id, data);
+      }
+      return dataService.Event.create({ ...data, venue_id: venue.id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['biz-events'] });
+      toast.success(editingEvent ? 'Event updated' : 'Event created');
+      closeDialog();
+    },
+    onError: () => toast.error('Failed to save event'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => dataService.Event.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['biz-events'] });
+      toast.success('Event deleted');
+      setDeleteId(null);
+    },
+    onError: () => toast.error('Failed to delete event'),
+  });
+
+  const openCreate = () => {
+    setEditingEvent(null);
+    setForm({ ...EMPTY_EVENT, city: venue?.city || '' });
+    setDialogOpen(true);
+  };
+
+  const openEdit = (evt) => {
+    setEditingEvent(evt);
+    setForm({
+      title: evt.title || '',
+      description: evt.description || '',
+      date: evt.date || '',
+      city: evt.city || '',
+      status: evt.status || 'draft',
+      cover_image_url: evt.cover_image_url || '',
+      ticket_tiers: evt.ticket_tiers || [],
+    });
+    setDialogOpen(true);
+  };
+
+  const closeDialog = () => {
+    setDialogOpen(false);
+    setEditingEvent(null);
+    setForm({ ...EMPTY_EVENT });
+  };
+
+  const handleSave = () => {
+    if (!form.title || !form.date || !form.city) {
+      toast.error('Please fill in title, date, and city');
+      return;
+    }
+    const payload = {
+      title: form.title,
+      date: form.date,
+      city: form.city,
+      status: form.status,
+    };
+    if (form.description) payload.description = form.description;
+    if (form.cover_image_url) payload.cover_image_url = form.cover_image_url;
+    if (form.ticket_tiers?.length) payload.ticket_tiers = form.ticket_tiers;
+    saveMutation.mutate(payload);
+  };
+
+  const filtered = events
+    .filter(e => statusFilter === 'all' || e.status === statusFilter)
+    .filter(e => !search || e.title?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  if (!user) return null;
+
+  if (!venue) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
+        <Calendar size={32} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 12px' }} />
+        <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No Venue Found</h2>
+        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>Register a venue first to manage events.</p>
+        <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))} style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}>
+          Register Venue
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '24px 20px', maxWidth: 900, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700 }}>Events Manager</h1>
+          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{venue.name} &middot; {events.length} events</p>
+        </div>
+        <Button onClick={openCreate} style={{ backgroundColor: 'var(--sec-accent)', color: '#000', fontWeight: 600 }} className="h-10 rounded-xl">
+          <Plus size={16} className="mr-1.5" /> Create Event
+        </Button>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+          <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
+          <Input
+            placeholder="Search events..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="h-10 bg-[#141416] border-[#262629] rounded-xl pl-9"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[140px] h-10 bg-[#141416] border-[#262629] rounded-xl">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#141416] border-[#262629] text-white">
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="published">Published</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Events List */}
+      {isLoading ? (
+        <div style={{ textAlign: 'center', padding: 40 }}>
+          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--sec-accent)', margin: '0 auto' }} />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{
+          textAlign: 'center', padding: 40, borderRadius: 14,
+          backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
+        }}>
+          <Calendar size={28} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 10px' }} />
+          <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 14 }}>
+            {search ? 'No matching events found' : 'No events yet'}
+          </p>
+          {!search && (
+            <Button onClick={openCreate} variant="outline" className="rounded-xl border-[#262629]">
+              <Plus size={15} className="mr-1.5" /> Create your first event
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map(evt => (
+            <div
+              key={evt.id}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
+                borderRadius: 14, backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
+              }}
+            >
+              {evt.cover_image_url ? (
+                <img src={evt.cover_image_url} alt="" style={{ width: 56, height: 56, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+              ) : (
+                <div style={{
+                  width: 56, height: 56, borderRadius: 10, flexShrink: 0,
+                  backgroundColor: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--sec-accent)', lineHeight: 1 }}>
+                    {evt.date ? new Date(evt.date + 'T00:00').getDate() : '—'}
+                  </span>
+                  <span style={{ fontSize: 9, color: 'var(--sec-text-muted)', textTransform: 'uppercase' }}>
+                    {evt.date ? new Date(evt.date + 'T00:00').toLocaleDateString('en', { month: 'short' }) : ''}
+                  </span>
+                </div>
+              )}
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {evt.title}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2 }}>
+                  {evt.date} &middot; {evt.city}
+                </div>
+              </div>
+
+              <span style={{
+                fontSize: 10, padding: '4px 10px', borderRadius: 6, fontWeight: 600,
+                backgroundColor: evt.status === 'published' ? 'rgba(34,197,94,0.12)' : 'rgba(234,179,8,0.12)',
+                color: evt.status === 'published' ? '#22c55e' : 'rgb(234,179,8)',
+              }}>
+                {evt.status}
+              </span>
+
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  onClick={() => navigate(createPageUrl('EventDetails') + '?id=' + evt.id)}
+                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
+                  title="View"
+                >
+                  <Eye size={16} />
+                </button>
+                <button
+                  onClick={() => openEdit(evt)}
+                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
+                  title="Edit"
+                >
+                  <Edit2 size={16} />
+                </button>
+                <button
+                  onClick={() => setDeleteId(evt.id)}
+                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: '#ef4444' }}
+                  title="Delete"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="bg-[#141416] border-[#262629] text-white sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>{editingEvent ? 'Edit Event' : 'Create Event'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label className="text-gray-400 text-sm">Event Title *</Label>
+              <Input
+                value={form.title}
+                onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+                placeholder="Friday Night Live"
+                className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-gray-400 text-sm">Date *</Label>
+                <Input
+                  type="date"
+                  value={form.date}
+                  onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
+                  className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl"
+                />
+              </div>
+              <div>
+                <Label className="text-gray-400 text-sm">City *</Label>
+                <Input
+                  value={form.city}
+                  onChange={e => setForm(p => ({ ...p, city: e.target.value }))}
+                  placeholder="Johannesburg"
+                  className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Description</Label>
+              <Textarea
+                value={form.description}
+                onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+                placeholder="Event details..."
+                className="mt-1.5 bg-[#0A0A0B] border-[#262629] rounded-xl resize-none"
+                rows={3}
+              />
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Cover Image URL</Label>
+              <Input
+                value={form.cover_image_url}
+                onChange={e => setForm(p => ({ ...p, cover_image_url: e.target.value }))}
+                placeholder="https://..."
+                className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl"
+              />
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Status</Label>
+              <Select value={form.status} onValueChange={v => setForm(p => ({ ...p, status: v }))}>
+                <SelectTrigger className="mt-1.5 h-11 bg-[#0A0A0B] border-[#262629] rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="published">Published</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={closeDialog} className="flex-1 h-11 rounded-xl border-[#262629]">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={saveMutation.isPending}
+                className="flex-1 h-11 rounded-xl font-semibold"
+                style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
+              >
+                {saveMutation.isPending ? <Loader2 size={16} className="animate-spin mr-1.5" /> : null}
+                {editingEvent ? 'Update' : 'Create'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <DialogContent className="bg-[#141416] border-[#262629] text-white sm:max-w-[380px]">
+          <DialogHeader>
+            <DialogTitle>Delete Event</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-400 mt-1">Are you sure you want to delete this event? This action cannot be undone.</p>
+          <div className="flex gap-3 mt-4">
+            <Button variant="outline" onClick={() => setDeleteId(null)} className="flex-1 h-10 rounded-xl border-[#262629]">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => deleteMutation.mutate(deleteId)}
+              disabled={deleteMutation.isPending}
+              className="flex-1 h-10 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold"
+            >
+              {deleteMutation.isPending ? <Loader2 size={16} className="animate-spin mr-1.5" /> : null}
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

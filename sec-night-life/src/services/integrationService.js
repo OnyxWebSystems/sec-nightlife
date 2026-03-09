@@ -26,5 +26,14 @@ export async function invokeFunction(name, params) {
     const { apiPost } = await import('@/api/client');
     return apiPost('/api/stripe/checkout', params);
   }
+  if (name === 'generateVenueDescription') {
+    return { data: { success: true, description: 'AI description generation is not yet configured. Please use the Promotions page for local content generation.' } };
+  }
+  if (name === 'generatePromotion') {
+    return { data: { success: true, promotions: [{ title: 'Promotion Stub', description: 'AI promotion generation is not yet configured. Please use the Promotions page.', target: 'All', impact: 'N/A' }] } };
+  }
+  if (name === 'analyzeFeedback') {
+    return { data: { success: true, summary: 'Feedback analysis is not yet configured.', positive_themes: [], negative_themes: [], recommendations: [] } };
+  }
   throw new Error(`Function "${name}" is not available.`);
 }

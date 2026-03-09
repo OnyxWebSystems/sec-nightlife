@@ -47,7 +47,10 @@
  *
  * The mainPage value must match a key in the PAGES object exactly.
  */
+import BusinessBookings from './pages/BusinessBookings';
 import BusinessDashboard from './pages/BusinessDashboard';
+import BusinessEvents from './pages/BusinessEvents';
+import BusinessPromotions from './pages/BusinessPromotions';
 import ChatRoom from './pages/ChatRoom';
 import ChangeEmail from './pages/ChangeEmail';
 import ChangePassword from './pages/ChangePassword';
@@ -91,7 +94,10 @@ import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
+    "BusinessBookings": BusinessBookings,
     "BusinessDashboard": BusinessDashboard,
+    "BusinessEvents": BusinessEvents,
+    "BusinessPromotions": BusinessPromotions,
     "ChatRoom": ChatRoom,
     "ChangeEmail": ChangeEmail,
     "ChangePassword": ChangePassword,

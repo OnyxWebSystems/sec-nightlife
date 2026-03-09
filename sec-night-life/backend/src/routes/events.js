@@ -139,4 +139,23 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
   }
 });
 
+router.delete('/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const event = await prisma.event.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      include: { venue: true }
+    });
+    if (!event || (event.venue.ownerUserId !== req.userId && !isStaff(req.userRole))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { deletedAt: new Date() }
+    });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
