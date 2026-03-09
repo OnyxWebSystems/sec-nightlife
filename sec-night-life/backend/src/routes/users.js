@@ -10,28 +10,31 @@ import { auditFromReq } from '../lib/audit.js';
 const router = Router();
 
 const profileUpdateSchema = z.object({
-  username: z.string().max(100).optional(),
-  full_name: z.string().max(200).optional(),
-  bio: z.string().max(2000).optional(),
-  city: z.string().max(100).optional(),
+  username: z.string().max(100).optional().nullable(),
+  full_name: z.string().max(200).optional().nullable(),
+  bio: z.string().max(2000).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
   avatar_url: z.string().url().optional().nullable(),
-  favorite_drink: z.string().max(100).optional(),
-  date_of_birth: z.string().max(20).optional(),
+  favorite_drink: z.string().max(100).optional().nullable(),
+  date_of_birth: z.string().max(20).optional().nullable(),
   id_document_url: z.string().url().optional().nullable(),
-  age_verified: z.boolean().optional(),
-  verification_status: z.enum(['pending', 'submitted', 'verified', 'rejected']).optional(),
-  payment_setup_complete: z.boolean().optional(),
-  interests: z.array(z.string()).optional(),
-  music_preferences: z.array(z.string()).optional(),
-  friends: z.array(z.string()).optional(),
-  onboarding_complete: z.boolean().optional()
+  age_verified: z.boolean().optional().nullable(),
+  verification_status: z.enum(['pending', 'submitted', 'verified', 'rejected']).optional().nullable(),
+  payment_setup_complete: z.boolean().optional().nullable(),
+  interests: z.array(z.string()).optional().nullable(),
+  music_preferences: z.array(z.string()).optional().nullable(),
+  friends: z.array(z.string()).optional().nullable(),
+  onboarding_complete: z.boolean().optional().nullable()
 });
 
 router.get('/profile', authenticateToken, async (req, res, next) => {
   try {
-    const profile = await prisma.userProfile.findUnique({
-      where: { userId: req.userId }
-    });
+    let profile = null;
+    try {
+      profile = await prisma.userProfile.findUnique({
+        where: { userId: req.userId }
+      });
+    } catch { profile = null; }
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
       select: { id: true, email: true, fullName: true, role: true }
@@ -67,9 +70,12 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
 router.get('/profile/:id', authenticateToken, async (req, res, next) => {
   try {
     const targetId = req.params.id;
-    const profile = await prisma.userProfile.findFirst({
-      where: { OR: [{ userId: targetId }, { id: targetId }] }
-    });
+    let profile = null;
+    try {
+      profile = await prisma.userProfile.findFirst({
+        where: { OR: [{ userId: targetId }, { id: targetId }] }
+      });
+    } catch { profile = null; }
     const user = await prisma.user.findFirst({
       where: { OR: [{ id: targetId }, { id: profile?.userId }], deletedAt: null },
       select: { id: true, email: true, fullName: true }
@@ -182,9 +188,16 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
     }
     if (id) where.id = id;
     const users = await prisma.user.findMany({ where });
-    const profiles = await prisma.userProfile.findMany({
-      where: { userId: { in: users.map(u => u.id) } }
-    });
+
+    let profiles = [];
+    try {
+      profiles = await prisma.userProfile.findMany({
+        where: { userId: { in: users.map(u => u.id) } }
+      });
+    } catch {
+      profiles = [];
+    }
+
     let results = users.map(u => {
       const p = profiles.find(pr => pr.userId === u.id);
       return {
@@ -213,6 +226,62 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
     }
     const limit = Math.min(parseInt(req.query.limit) || 100, 100);
     res.json(results.slice(0, limit));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = profileUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    const data = parsed.data;
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (data.full_name) {
+      await prisma.user.update({
+        where: { id: req.userId },
+        data: { fullName: data.full_name }
+      });
+    }
+    const profileData = {
+      ...(data.username != null && { username: data.username }),
+      ...(data.bio != null && { bio: data.bio }),
+      ...(data.city != null && { city: data.city }),
+      ...(data.avatar_url != null && { avatarUrl: data.avatar_url }),
+      ...(data.favorite_drink != null && { favoriteDrink: data.favorite_drink }),
+      ...(data.date_of_birth != null && { dateOfBirth: data.date_of_birth }),
+      ...(data.id_document_url != null && { idDocumentUrl: data.id_document_url }),
+      ...(data.age_verified != null && { ageVerified: data.age_verified }),
+      ...(data.verification_status != null && { verificationStatus: data.verification_status }),
+      ...(data.payment_setup_complete != null && { paymentSetupComplete: data.payment_setup_complete }),
+      ...(data.onboarding_complete != null && { onboardingComplete: data.onboarding_complete }),
+      ...(data.interests != null && { interests: data.interests }),
+      ...(data.music_preferences != null && { musicPreferences: data.music_preferences }),
+      ...(data.friends != null && { friends: data.friends })
+    };
+    const profile = await prisma.userProfile.upsert({
+      where: { userId: req.userId },
+      create: { userId: req.userId, ...profileData },
+      update: profileData
+    });
+    res.status(201).json({
+      id: profile.id,
+      created_by: user.email,
+      username: profile.username,
+      full_name: user.fullName || profile.username,
+      bio: profile.bio,
+      city: profile.city,
+      avatar_url: profile.avatarUrl,
+      favorite_drink: profile.favoriteDrink,
+      date_of_birth: profile.dateOfBirth,
+      verification_status: profile.verificationStatus,
+      payment_setup_complete: profile.paymentSetupComplete,
+      interests: profile.interests,
+      music_preferences: profile.musicPreferences,
+      friends: profile.friends ?? [],
+      onboarding_complete: profile.onboardingComplete
+    });
   } catch (err) {
     next(err);
   }

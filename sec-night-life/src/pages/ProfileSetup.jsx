@@ -306,16 +306,17 @@ export default function ProfileSetup() {
       const payload = {
         username: formData.username,
         bio: formData.bio,
-        avatar_url: formData.avatar_url || null,
         city: formData.city,
         favorite_drink: formData.favorite_drink,
-        date_of_birth: formData.date_of_birth || null,
-        id_document_url: formData.id_document_url || null,
         age_verified: verified,
         verification_status: verified ? 'verified' : 'pending',
         payment_setup_complete: paymentCompleted,
         onboarding_complete: true,
       };
+      if (formData.avatar_url) payload.avatar_url = formData.avatar_url;
+      if (formData.date_of_birth) payload.date_of_birth = formData.date_of_birth;
+      if (formData.id_document_url) payload.id_document_url = formData.id_document_url;
+
       if (userProfile) {
         await dataService.User.update(userProfile.id, payload);
       } else {
