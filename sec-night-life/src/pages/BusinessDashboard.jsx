@@ -201,7 +201,7 @@ export default function BusinessDashboard() {
           <QuickAction icon={BookOpen} label="Manage Bookings" page="BusinessBookings" />
           <QuickAction icon={BarChart3} label="View Analytics" page="VenueAnalytics" />
           <QuickAction icon={Megaphone} label="Promotions & AI" page="BusinessPromotions" />
-          <QuickAction icon={Briefcase} label="Post Jobs" page="Jobs" />
+          <QuickAction icon={Briefcase} label="Post a Job" page="CreateJob" />
         </div>
       </div>
 

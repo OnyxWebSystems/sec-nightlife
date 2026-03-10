@@ -5,7 +5,7 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
+import {
   Settings,
   MapPin,
   Calendar,
@@ -25,7 +25,9 @@ import {
   ChevronLeft,
   MessageCircle,
   Ticket,
-  Music
+  Music,
+  Crown,
+  Building2
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -41,6 +43,7 @@ import InterestsEditor from '@/components/profile/InterestsEditor';
 export default function Profile() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { logout } = useAuth();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [viewingUserId, setViewingUserId] = useState(null);
@@ -133,11 +136,32 @@ export default function Profile() {
 
   const { data: friendRequests = [] } = useQuery({
     queryKey: ['friend-requests', userProfile?.id],
-    queryFn: () => dataService.FriendRequest.filter({ 
-      to_user_id: userProfile?.id, 
-      status: 'pending' 
+    queryFn: () => dataService.FriendRequest.filter({
+      to_user_id: userProfile?.id,
+      status: 'pending'
     }),
     enabled: !!userProfile?.id && isOwnProfile,
+  });
+
+  const { data: userRoles = { host: false, business: false } } = useQuery({
+    queryKey: ['user-roles', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return { host: false, business: false };
+      let hasBusiness = user?.role === 'VENUE';
+      let hasHost = false;
+      if (!hasBusiness) {
+        try {
+          const venues = await dataService.Venue.filter({ owner_user_id: user.id });
+          hasBusiness = venues.length > 0;
+        } catch {}
+      }
+      try {
+        const tables = await dataService.Table.filter({ host_user_id: user.id });
+        hasHost = tables.length > 0;
+      } catch {}
+      return { host: hasHost, business: hasBusiness };
+    },
+    enabled: !!user?.id && isOwnProfile,
   });
 
   const sendFriendRequestMutation = useMutation({
@@ -324,6 +348,46 @@ export default function Profile() {
               <p className="text-xs text-gray-500">Friends</p>
             </Link>
           </div>
+
+          {/* Create additional roles - only on own profile */}
+          {isOwnProfile && (!userRoles.host || !userRoles.business) && (
+            <div className="pt-4 border-t border-[#262629]">
+              <h3 className="font-semibold mb-3 text-sm text-gray-400">Account Types</h3>
+              <p className="text-xs text-gray-500 mb-3">Create additional account types to unlock more features.</p>
+              <div className="flex flex-col gap-3">
+                {!userRoles.host && (
+                  <Link
+                    to={createPageUrl('CreateTable')}
+                    className="flex items-center gap-4 p-4 rounded-xl bg-[#0A0A0B] border border-[#262629] hover:border-[#FF3366]/40 hover:bg-white/[0.03] transition-all"
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-[#FF3366]/20 flex items-center justify-center flex-shrink-0">
+                      <Crown className="w-6 h-6 text-[#FF3366]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold">Create Host Account</p>
+                      <p className="text-xs text-gray-500">Host events and manage tables. Create and manage your own events.</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                  </Link>
+                )}
+                {!userRoles.business && (
+                  <Link
+                    to={createPageUrl('VenueOnboarding')}
+                    className="flex items-center gap-4 p-4 rounded-xl bg-[#0A0A0B] border border-[#262629] hover:border-[#7C3AED]/40 hover:bg-white/[0.03] transition-all"
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 flex items-center justify-center flex-shrink-0">
+                      <Building2 className="w-6 h-6 text-[#7C3AED]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold">Create Business Account</p>
+                      <p className="text-xs text-gray-500">Manage venues, promote events, post jobs, and handle bookings.</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                  </Link>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Interests */}
           {displayProfile.interests?.length > 0 && (

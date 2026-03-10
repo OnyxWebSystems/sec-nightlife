@@ -9,7 +9,7 @@ import {
   LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2
 } from 'lucide-react';
 
-const iconProps = { size: 20, strokeWidth: 1.5 };
+const iconProps = { size: 22, strokeWidth: 1.5 };
 
 const MODES = [
   { id: 'partygoer', label: 'Party Goer', icon: Music2 },
@@ -22,6 +22,7 @@ export default function Layout({ children, currentPageName }) {
   const [userProfile, setUserProfile] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [activeMode, setActiveMode] = useState(null);
+  const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
 
   useEffect(() => { loadUser(); }, []);
 
@@ -32,12 +33,34 @@ export default function Layout({ children, currentPageName }) {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) setUserProfile(profiles[0]);
+      let profile = profiles[0] || null;
+      if (profiles.length > 0) setUserProfile(profile);
+
       const notifs = await dataService.Notification.filter({ user_id: currentUser.id, is_read: false });
       setNotifications(notifs);
 
+      let hasBusiness = currentUser.role === 'VENUE';
+      let hasHost = false;
+      if (!hasBusiness) {
+        try {
+          const venues = await dataService.Venue.filter({ owner_user_id: currentUser.id });
+          hasBusiness = venues.length > 0;
+        } catch {}
+      }
+      try {
+        const tables = await dataService.Table.filter({ host_user_id: currentUser.id });
+        hasHost = tables.length > 0;
+      } catch {}
+
+      setUserRoles({ partygoer: true, host: hasHost, business: hasBusiness });
+
       const saved = localStorage.getItem('sec_active_mode');
-      setActiveMode(saved || (currentUser.role === 'VENUE' ? 'business' : 'partygoer'));
+      let defaultMode = 'partygoer';
+      if (saved && (saved === 'business' ? hasBusiness : saved === 'host' ? hasHost : true)) {
+        defaultMode = saved;
+      } else if (hasBusiness) defaultMode = 'business';
+      else if (hasHost) defaultMode = 'host';
+      setActiveMode(defaultMode);
     } catch (e) {}
   };
 
@@ -56,6 +79,7 @@ export default function Layout({ children, currentPageName }) {
   }
 
   const badge = notifications.length;
+  const availableModes = MODES.filter(m => userRoles[m.id]);
 
   const NAV = {
     partygoer: {
@@ -71,7 +95,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
-        { name: 'Host Dashboard', icon: Crown, page: 'HostDashboard' },
+        ...(userRoles.host ? [{ name: 'Host Dashboard', icon: Crown, page: 'HostDashboard' }] : []),
       ],
     },
     host: {
@@ -93,11 +117,12 @@ export default function Layout({ children, currentPageName }) {
       primary: [
         { name: 'Dashboard', icon: LayoutDashboard, page: 'BusinessDashboard' },
         { name: 'Analytics', icon: BarChart3, page: 'VenueAnalytics' },
-        { name: 'Venue Profile', icon: Building2, page: 'VenueProfile' },
+        { name: 'Venue', icon: Building2, page: 'VenueProfile' },
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
         { name: 'Bookings', icon: BookOpen, page: 'BusinessBookings' },
       ],
       secondary: [
+        { name: 'Post Job', icon: Briefcase, page: 'CreateJob' },
         { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
         { name: 'Promotions', icon: Megaphone, page: 'BusinessPromotions' },
         { name: 'Insights', icon: Users, page: 'FeedbackInsights' },
@@ -108,34 +133,38 @@ export default function Layout({ children, currentPageName }) {
     },
   };
 
-  const mode = activeMode || 'partygoer';
+  const mode = activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : userRoles.host ? 'host' : 'partygoer');
   const { primary: primaryNav, secondary: secondaryNav } = NAV[mode];
 
+  // Mobile: Instagram-style bottom nav - Home, Events, Create, Messages, Notifications, Profile
   const mobileNav = mode === 'business'
     ? [
-        { name: 'Dashboard', icon: LayoutDashboard, page: 'BusinessDashboard' },
+        { name: 'Home', icon: LayoutDashboard, page: 'BusinessDashboard' },
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
-        { name: 'Bookings', icon: BookOpen, page: 'BusinessBookings' },
-        { name: 'Analytics', icon: BarChart3, page: 'VenueAnalytics' },
-        { name: 'More', icon: Settings, page: 'Settings' },
+        { name: 'Post Job', icon: Plus, page: 'CreateJob', isCreate: true },
+        { name: 'Messages', icon: MessageCircle, page: 'Messages' },
+        { name: 'More', icon: Bell, page: 'Notifications' },
       ]
     : mode === 'host'
     ? [
-        { name: 'Dashboard', icon: LayoutDashboard, page: 'HostDashboard' },
-        { name: 'Create', icon: Plus, page: 'CreateTable', isCreate: true },
+        { name: 'Home', icon: LayoutDashboard, page: 'HostDashboard' },
         { name: 'Events', icon: Calendar, page: 'Events' },
+        { name: 'Create', icon: Plus, page: 'CreateTable', isCreate: true },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ]
     : [
         { name: 'Home', icon: Home, page: 'Home' },
-        { name: 'Friends', icon: Users, page: 'Friends' },
+        { name: 'Events', icon: Calendar, page: 'Events' },
         { name: 'Create', icon: Plus, page: 'CreateTable', isCreate: true },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ];
 
-  const isActive = (page) => currentPageName === page;
+  const isActive = (page) => {
+    if (page === 'CreateJob' && currentPageName === 'CreateJob') return true;
+    return currentPageName === page;
+  };
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
@@ -150,37 +179,29 @@ export default function Layout({ children, currentPageName }) {
           flexDirection: 'column', zIndex: 50,
         }}
       >
-        {/* Logo */}
         <div style={{ padding: '22px 20px 20px', borderBottom: '1px solid var(--sec-border)' }}>
           <Link to={createPageUrl('Home')} style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', color: 'inherit' }}>
             <SecLogo size={48} variant="full" />
           </Link>
         </div>
 
-        {/* Mode Switcher */}
-        {user && (
+        {user && availableModes.length > 1 && (
           <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid var(--sec-border)' }}>
-            <div style={{
-              fontSize: 10, fontWeight: 600, letterSpacing: '0.08em',
-              textTransform: 'uppercase', color: 'var(--sec-text-muted)',
-              marginBottom: 4, padding: '0 10px',
-            }}>
-              Account Mode
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 4, padding: '0 10px' }}>
+              Viewing As
             </div>
-            {MODES.map(m => {
+            {availableModes.map(m => {
               const active = mode === m.id;
               return (
                 <button
                   key={m.id}
                   onClick={() => switchMode(m.id)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    width: '100%', padding: '6px 10px', borderRadius: 8,
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 10px', borderRadius: 8,
                     backgroundColor: active ? 'var(--sec-accent-muted)' : 'transparent',
                     border: active ? '1px solid var(--sec-accent-border)' : '1px solid transparent',
                     color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
-                    cursor: 'pointer', fontSize: 13, fontWeight: active ? 600 : 400,
-                    transition: 'all 0.15s', textAlign: 'left',
+                    cursor: 'pointer', fontSize: 13, fontWeight: active ? 600 : 400, transition: 'all 0.15s', textAlign: 'left',
                   }}
                 >
                   <m.icon size={15} strokeWidth={1.5} />
@@ -191,54 +212,31 @@ export default function Layout({ children, currentPageName }) {
           </div>
         )}
 
-        {/* Navigation */}
         <nav style={{ flex: 1, padding: '14px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {primaryNav.map((item) => (
             <Link
-              key={item.page}
+              key={item.page + item.name}
               to={createPageUrl(item.page)}
               className="sec-nav-item"
-              style={isActive(item.page) ? {
-                color: 'var(--sec-text-primary)',
-                backgroundColor: 'var(--sec-bg-card)',
-                borderColor: 'var(--sec-border)',
-              } : {}}
+              style={isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}}
             >
               <item.icon {...iconProps} />
               <span>{item.name}</span>
-              {item.isCreate && (
-                <span className="sec-badge sec-badge-gold" style={{ marginLeft: 'auto' }}>New</span>
-              )}
+              {item.isCreate && <span className="sec-badge sec-badge-gold" style={{ marginLeft: 'auto' }}>New</span>}
             </Link>
           ))}
-
           <div style={{ margin: '10px 2px', height: 1, backgroundColor: 'var(--sec-border)' }} />
-
           {secondaryNav.map((item) => (
             <Link
-              key={item.page}
+              key={item.page + item.name}
               to={createPageUrl(item.page)}
               className="sec-nav-item"
-              style={{
-                position: 'relative',
-                ...(isActive(item.page) ? {
-                  color: 'var(--sec-text-primary)',
-                  backgroundColor: 'var(--sec-bg-card)',
-                  borderColor: 'var(--sec-border)',
-                } : {}),
-              }}
+              style={{ position: 'relative', ...(isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}) }}
             >
               <item.icon {...iconProps} />
               <span>{item.name}</span>
               {item.badge > 0 && (
-                <span style={{
-                  marginLeft: 'auto',
-                  minWidth: 18, height: 18, borderRadius: 9,
-                  backgroundColor: 'var(--sec-error)', color: '#fff',
-                  fontSize: 10, fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: '0 5px',
-                }}>
+                <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, borderRadius: 9, backgroundColor: 'var(--sec-error)', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
                   {item.badge}
                 </span>
               )}
@@ -246,123 +244,63 @@ export default function Layout({ children, currentPageName }) {
           ))}
         </nav>
 
-        {/* User Footer */}
         <div style={{ padding: 10, borderTop: '1px solid var(--sec-border)' }}>
           {userProfile ? (
-            <Link
-              to={createPageUrl('Profile')}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: 10, borderRadius: 8, textDecoration: 'none', color: 'inherit',
-                transition: 'background-color 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--sec-bg-card)'; }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-            >
-              <div style={{
-                width: 34, height: 34, borderRadius: '50%',
-                backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)',
-                overflow: 'hidden', flexShrink: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {userProfile.avatar_url ? (
-                  <img src={userProfile.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)' }}>
-                    {(userProfile.username || user?.full_name || 'U')[0].toUpperCase()}
-                  </span>
-                )}
+            <Link to={createPageUrl('Profile')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, borderRadius: 8, textDecoration: 'none', color: 'inherit', transition: 'background-color 0.15s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--sec-bg-card)'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
+              <div style={{ width: 34, height: 34, borderRadius: '50%', backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {userProfile.avatar_url ? <img src={userProfile.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)' }}>{(userProfile.username || user?.full_name || 'U')[0].toUpperCase()}</span>}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {userProfile.username || user?.full_name}
-                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{userProfile.username || user?.full_name}</div>
                 <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>View profile</div>
               </div>
             </Link>
           ) : (
-            <button onClick={() => authService.redirectToLogin()} className="sec-btn sec-btn-primary sec-btn-full">
-              Sign In
-            </button>
+            <button onClick={() => authService.redirectToLogin()} className="sec-btn sec-btn-primary sec-btn-full">Sign In</button>
           )}
         </div>
       </aside>
 
       {/* ── Main Content ── */}
-      <main className="lg:ml-[240px] min-h-screen pb-24 lg:pb-0">
+      <main className="lg:ml-[240px] min-h-screen pb-20 lg:pb-0" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {children}
       </main>
 
-      {/* ── Mobile Bottom Navigation ── */}
+      {/* ── Mobile Bottom Navigation (Instagram-style) ── */}
       <nav
         className="lg:hidden"
         style={{
           position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
-          backgroundColor: 'rgba(0,0,0,0.97)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
+          backgroundColor: 'rgba(0,0,0,0.97)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
           borderTop: '1px solid var(--sec-border)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-around',
-          height: 64,
-          paddingBottom: 'env(safe-area-inset-bottom)',
-          paddingLeft: 4, paddingRight: 4,
-        }}>
+        <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'space-around', height: 64, paddingLeft: 4, paddingRight: 4 }}>
           {mobileNav.map((item) => {
             const active = isActive(item.page);
             const isCreate = item.isCreate;
-
             return (
               <Link
                 key={item.page}
                 to={createPageUrl(item.page)}
                 style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                  padding: '8px 10px', borderRadius: 10, textDecoration: 'none',
-                  flex: 1, position: 'relative',
-                  color: isCreate
-                    ? 'var(--sec-bg-base)'
-                    : active
-                      ? 'var(--sec-text-primary)'
-                      : 'var(--sec-text-muted)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                  padding: '12px 8px', flex: 1, minWidth: 0, textDecoration: 'none',
+                  color: isCreate ? 'var(--sec-bg-base)' : active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
                 }}
               >
                 {active && !isCreate && (
-                  <div style={{
-                    position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
-                    width: 20, height: 2,
-                    background: 'var(--sec-gradient-silver)',
-                    borderRadius: 2,
-                  }} />
+                  <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 24, height: 2, background: 'var(--sec-gradient-silver)', borderRadius: 2 }} />
                 )}
-
                 {isCreate ? (
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 12,
-                    background: 'var(--sec-gradient-silver)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    boxShadow: '0 2px 12px rgba(192,192,192,0.22)',
-                  }}>
-                    <item.icon size={20} strokeWidth={2} />
+                  <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--sec-gradient-silver)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 12px rgba(192,192,192,0.22)' }}>
+                    <item.icon size={22} strokeWidth={2} />
                   </div>
                 ) : (
-                  <item.icon {...iconProps} />
+                  <item.icon size={24} strokeWidth={1.5} />
                 )}
-
-                <span style={{
-                  fontSize: 9, fontWeight: 600,
-                  letterSpacing: '0.07em',
-                  textTransform: 'uppercase',
-                  color: isCreate
-                    ? 'var(--sec-text-secondary)'
-                    : active
-                      ? 'var(--sec-text-primary)'
-                      : 'var(--sec-text-muted)',
-                }}>
-                  {item.name}
-                </span>
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'inherit' }}>{item.name}</span>
               </Link>
             );
           })}

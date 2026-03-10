@@ -35,12 +35,12 @@ export default function HostDashboard() {
   };
 
   const { data: hostedTables = [] } = useQuery({
-    queryKey: ['hosted-tables', userProfile?.id],
+    queryKey: ['hosted-tables', user?.id],
     queryFn: async () => {
-      const tables = await dataService.Table.filter({ host_user_id: userProfile.id });
+      const tables = await dataService.Table.filter({ host_user_id: user.id });
       return tables;
     },
-    enabled: !!userProfile?.id,
+    enabled: !!user?.id,
   });
 
   const { data: events = [] } = useQuery({
