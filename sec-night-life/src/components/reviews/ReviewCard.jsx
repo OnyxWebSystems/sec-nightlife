@@ -20,7 +20,7 @@ export default function ReviewCard({ review }) {
     <Card className="glass-card border-[#262629]">
       <CardContent className="pt-6">
         <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] flex items-center justify-center overflow-hidden flex-shrink-0">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--sec-accent)] to-[var(--sec-accent)] flex items-center justify-center overflow-hidden flex-shrink-0">
             {reviewer?.avatar_url ? (
               <img src={reviewer.avatar_url} alt="" className="w-full h-full object-cover" />
             ) : (
@@ -41,7 +41,7 @@ export default function ReviewCard({ review }) {
                   <Star
                     key={star}
                     className={`w-4 h-4 ${
-                      star <= review.rating ? 'fill-[#FFD700] text-[#FFD700]' : 'text-gray-600'
+                      star <= review.rating ? 'fill-[var(--sec-warning)] text-[var(--sec-warning)]' : 'text-gray-600'
                     }`}
                   />
                 ))}
@@ -65,7 +65,7 @@ export default function ReviewCard({ review }) {
             </div>
 
             {review.verified_attendance && (
-              <div className="mt-3 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[#00D4AA]/20 text-[#00D4AA] text-xs">
+              <div className="mt-3 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[var(--sec-success)]/20 text-[var(--sec-success)] text-xs">
                 ✓ Verified Attendance
               </div>
             )}

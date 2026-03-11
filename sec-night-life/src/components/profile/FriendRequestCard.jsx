@@ -90,7 +90,8 @@ export default function FriendRequestCard({ request }) {
           size="sm"
           onClick={() => acceptMutation.mutate()}
           disabled={acceptMutation.isPending}
-          className="bg-[#00D4AA] hover:bg-[#00D4AA]/80 h-8 w-8 p-0"
+          className="h-8 w-8 p-0"
+          style={{ backgroundColor: 'var(--sec-success)', color: '#000' }}
         >
           <Check className="w-4 h-4" />
         </Button>

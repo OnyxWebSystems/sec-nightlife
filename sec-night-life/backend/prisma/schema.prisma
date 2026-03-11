@@ -400,6 +400,43 @@ model FriendRequest {
   @@map("friend_requests")
 }
 
+// ─── Account roles (explicit: partygoer, host, business) — mapped to user_roles table ──
+model AccountRole {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  roleType  String   @map("role_type")  // partygoer | host | business
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, roleType])
+  @@index([userId])
+  @@index([roleType])
+  @@map("user_roles")
+}
+
+// ─── Host Events (informal: house parties, boat parties, etc.) ─────────────
+model HostEvent {
+  id                   String   @id @default(uuid())
+  hostUserId           String   @map("host_user_id")
+  title                String
+  description          String?  @db.Text
+  date                 DateTime
+  location             String?
+  city                 String?
+  capacity             Int?
+  entryCost            Float?   @map("entry_cost")
+  guestApprovalRequired Boolean @default(true) @map("guest_approval_required")
+  status               String   @default("draft")  // draft | published | cancelled
+  coverImageUrl        String?  @map("cover_image_url")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  @@index([hostUserId])
+  @@index([date])
+  @@index([status])
+  @@map("host_events")
+}
+
 // ─── Analytics ────────────────────────────────────────────────────────────
 model AnalyticsEvent {
   id         String   @id @default(uuid())

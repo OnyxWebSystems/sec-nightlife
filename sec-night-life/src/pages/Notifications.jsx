@@ -34,15 +34,15 @@ const NOTIFICATION_ICONS = {
 };
 
 const NOTIFICATION_COLORS = {
-  friend_request: 'bg-[#7C3AED]/20 text-[#7C3AED]',
-  table_invite: 'bg-[#00D4AA]/20 text-[#00D4AA]',
-  table_request: 'bg-[#00D4AA]/20 text-[#00D4AA]',
-  job_application: 'bg-[#FFD700]/20 text-[#FFD700]',
-  message: 'bg-[#FF3366]/20 text-[#FF3366]',
-  event_reminder: 'bg-[#FF3366]/20 text-[#FF3366]',
-  payment: 'bg-[#00D4AA]/20 text-[#00D4AA]',
-  compliance: 'bg-[#FFD700]/20 text-[#FFD700]',
-  system: 'bg-gray-500/20 text-gray-400'
+  friend_request: 'sec-badge-silver',
+  table_invite: 'sec-badge-success',
+  table_request: 'sec-badge-success',
+  job_application: 'sec-badge-gold',
+  message: 'sec-badge-silver',
+  event_reminder: 'sec-badge-silver',
+  payment: 'sec-badge-success',
+  compliance: 'sec-badge-gold',
+  system: 'sec-badge-muted'
 };
 
 export default function Notifications() {
@@ -101,7 +101,7 @@ export default function Notifications() {
               <Button
                 onClick={markAllAsRead}
                 variant="ghost"
-                className="text-[#FF3366] hover:text-[#FF3366]/80"
+                style={{ color: 'var(--sec-accent)' }}
               >
                 Mark all read
               </Button>
@@ -124,7 +124,8 @@ export default function Notifications() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, x: -100 }}
                 transition={{ delay: index * 0.03 }}
-                className={`mb-2 p-4 glass-card rounded-xl ${!notification.is_read ? 'border-l-2 border-[#FF3366]' : ''}`}
+                className={`mb-2 p-4 glass-card rounded-xl ${!notification.is_read ? 'border-l-2' : ''}`}
+                style={!notification.is_read ? { borderLeftColor: 'var(--sec-accent)' } : {}}
               >
                 <div className="flex items-start gap-3">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass}`}>
@@ -149,7 +150,7 @@ export default function Notifications() {
                     {/* Action Buttons for specific types */}
                     {notification.type === 'friend_request' && !notification.is_read && (
                       <div className="flex gap-2 mt-3">
-                        <Button size="sm" className="h-8 bg-[#FF3366] hover:bg-[#FF3366]/80">
+                        <Button size="sm" className="h-8 sec-btn-primary">
                           <Check className="w-4 h-4 mr-1" />
                           Accept
                         </Button>
@@ -162,7 +163,7 @@ export default function Notifications() {
 
                     {notification.type === 'table_request' && !notification.is_read && (
                       <div className="flex gap-2 mt-3">
-                        <Button size="sm" className="h-8 bg-[#00D4AA] hover:bg-[#00D4AA]/80">
+                        <Button size="sm" className="h-8" style={{ backgroundColor: 'var(--sec-success)', color: '#000' }}>
                           <Check className="w-4 h-4 mr-1" />
                           Approve
                         </Button>
@@ -176,7 +177,8 @@ export default function Notifications() {
                     {notification.action_url && !['friend_request', 'table_request'].includes(notification.type) && (
                       <Link
                         to={notification.action_url}
-                        className="inline-flex items-center gap-1 mt-2 text-sm text-[#FF3366]"
+                        className="inline-flex items-center gap-1 mt-2 text-sm sec-link"
+                    style={{ color: 'var(--sec-accent)' }}
                         onClick={() => markAsReadMutation.mutate(notification.id)}
                       >
                         View details <ChevronRight className="w-4 h-4" />

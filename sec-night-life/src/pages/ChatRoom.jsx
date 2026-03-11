@@ -215,7 +215,7 @@ export default function ChatRoom() {
           <Link
             key={idx}
             to={createPageUrl(`Profile?id=${mentioned?.id}`)}
-            className="text-[#00D4AA] font-semibold hover:underline"
+            className="text-[var(--sec-success)] font-semibold hover:underline"
           >
             {part}
           </Link>
@@ -228,7 +228,7 @@ export default function ChatRoom() {
   if (chatLoading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-2 border-[#00D4AA] border-t-transparent animate-spin" />
+        <div className="w-12 h-12 rounded-full border-2 border-[var(--sec-success)] border-t-transparent animate-spin" />
       </div>
     );
   }
@@ -292,7 +292,7 @@ export default function ChatRoom() {
             >
               {showAvatar && !isOwn ? (
                 <Link to={createPageUrl(`Profile?id=${sender?.id}`)} className="flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] overflow-hidden">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--sec-accent)] to-[var(--sec-accent)] overflow-hidden">
                     {sender?.avatar_url ? (
                       <img src={sender.avatar_url} alt="" className="w-full h-full object-cover" />
                     ) : (
@@ -313,7 +313,7 @@ export default function ChatRoom() {
                     onClick={() => setSelectedReaction(selectedReaction === msg.id ? null : msg.id)}
                     className={`px-4 py-2 rounded-2xl cursor-pointer ${
                       isOwn
-                        ? 'bg-gradient-to-r from-[#00D4AA] to-[#00D4AA]/80 text-white rounded-br-sm'
+                        ? 'bg-gradient-to-r from-[var(--sec-success)] to-[var(--sec-success)]/80 text-white rounded-br-sm'
                         : 'bg-[#141416] text-white rounded-bl-sm'
                     }`}
                   >
@@ -399,7 +399,7 @@ export default function ChatRoom() {
               className="h-12 w-12 p-0 border-[#262629]"
             >
               {uploadingMedia ? (
-                <div className="w-5 h-5 rounded-full border-2 border-[#00D4AA] border-t-transparent animate-spin" />
+                <div className="w-5 h-5 rounded-full border-2 border-[var(--sec-success)] border-t-transparent animate-spin" />
               ) : (
                 <Paperclip className="w-5 h-5" />
               )}
@@ -413,7 +413,7 @@ export default function ChatRoom() {
             <Button
               type="submit"
               disabled={!message.trim() || sendMessageMutation.isPending}
-              className="h-12 w-12 p-0 rounded-xl bg-gradient-to-r from-[#00D4AA] to-[#00D4AA]/80"
+              className="h-12 w-12 p-0 rounded-xl bg-gradient-to-r from-[var(--sec-success)] to-[var(--sec-success)]/80"
             >
               <Send className="w-5 h-5" />
             </Button>

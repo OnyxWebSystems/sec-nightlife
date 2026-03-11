@@ -127,7 +127,7 @@ export default function Friends() {
             <TabsTrigger value="requests">
               Requests
               {friendRequests.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 rounded-full bg-[#FF3366] text-xs">
+                <span className="ml-2 px-2 py-0.5 rounded-full bg-[var(--sec-accent)] text-xs">
                   {friendRequests.length}
                 </span>
               )}
@@ -182,7 +182,7 @@ export default function Friends() {
               friendsActivity.map((activity) => (
                 <div key={activity.friend.id} className="glass-card rounded-2xl p-4">
                   <Link to={createPageUrl(`Profile?id=${activity.friend.id}`)} className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] overflow-hidden">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[var(--sec-accent)] to-[var(--sec-accent)] overflow-hidden">
                       {activity.friend.avatar_url ? (
                         <img src={activity.friend.avatar_url} alt="" className="w-full h-full object-cover" />
                       ) : (
@@ -204,12 +204,12 @@ export default function Friends() {
                         to={createPageUrl(`EventDetails?id=${event.id}`)}
                         className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B] hover:bg-white/5 transition-colors"
                       >
-                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-gradient-to-br from-[#FF3366]/20 to-[#7C3AED]/20 flex-shrink-0">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-gradient-to-br from-[var(--sec-accent)]/20 to-[var(--sec-accent)]/20 flex-shrink-0">
                           {event.cover_image_url ? (
                             <img src={event.cover_image_url} alt="" className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
-                              <Calendar className="w-5 h-5 text-[#FF3366]" />
+                              <Calendar className="w-5 h-5 text-[var(--sec-accent)]" />
                             </div>
                           )}
                         </div>
@@ -242,7 +242,7 @@ function FriendCard({ friend }) {
       to={createPageUrl(`Profile?id=${friend.id}`)}
       className="flex items-center gap-4 p-4 glass-card rounded-2xl hover:bg-white/5 transition-colors"
     >
-      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] overflow-hidden flex-shrink-0">
+      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[var(--sec-accent)] to-[var(--sec-accent)] overflow-hidden flex-shrink-0">
         {friend.avatar_url ? (
           <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
         ) : (

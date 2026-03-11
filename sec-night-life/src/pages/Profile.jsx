@@ -358,10 +358,13 @@ export default function Profile() {
                 {!userRoles.host && (
                   <Link
                     to={createPageUrl('CreateTable')}
-                    className="flex items-center gap-4 p-4 rounded-xl bg-[#0A0A0B] border border-[#262629] hover:border-[#FF3366]/40 hover:bg-white/[0.03] transition-all"
+                    className="flex items-center gap-4 p-4 rounded-xl border transition-all"
+                    style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--sec-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-elevated)'; }}
                   >
-                    <div className="w-12 h-12 rounded-xl bg-[#FF3366]/20 flex items-center justify-center flex-shrink-0">
-                      <Crown className="w-6 h-6 text-[#FF3366]" />
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
+                      <Crown className="w-6 h-6" style={{ color: 'var(--sec-accent)' }} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold">Create Host Account</p>
@@ -373,10 +376,13 @@ export default function Profile() {
                 {!userRoles.business && (
                   <Link
                     to={createPageUrl('VenueOnboarding')}
-                    className="flex items-center gap-4 p-4 rounded-xl bg-[#0A0A0B] border border-[#262629] hover:border-[#7C3AED]/40 hover:bg-white/[0.03] transition-all"
+                    className="flex items-center gap-4 p-4 rounded-xl border transition-all"
+                    style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--sec-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-elevated)'; }}
                   >
-                    <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 flex items-center justify-center flex-shrink-0">
-                      <Building2 className="w-6 h-6 text-[#7C3AED]" />
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
+                      <Building2 className="w-6 h-6" style={{ color: 'var(--sec-accent)' }} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold">Create Business Account</p>
@@ -436,7 +442,7 @@ export default function Profile() {
                     {friend.avatar_url ? (
                       <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: '#000', border: '1px solid var(--sec-accent)', color: 'var(--sec-accent)' }}>
+                      <div className="w-full h-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: 'var(--sec-bg-base)', border: '1px solid var(--sec-accent)', color: 'var(--sec-accent)' }}>
                         {(friend.full_name || friend.username)?.[0]?.toUpperCase() || 'U'}
                       </div>
                     )}
@@ -463,7 +469,7 @@ export default function Profile() {
                 {activeTables.length > 0 && (
                   <div>
                     <h3 className="font-semibold mb-3 flex items-center gap-2">
-                      <Users className="w-5 h-5 text-[#FF3366]" />
+                      <Users className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                       Active Tables
                     </h3>
                     <div className="space-y-3">
@@ -473,8 +479,8 @@ export default function Profile() {
                           to={createPageUrl(`TableDetails?id=${table.id}`)}
                           className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B] hover:bg-white/5 transition-colors"
                         >
-                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF3366]/20 to-[#7C3AED]/20 flex items-center justify-center">
-                            <Users className="w-5 h-5 text-[#FF3366]" />
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
+                            <Users className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{table.name}</p>
@@ -491,7 +497,7 @@ export default function Profile() {
                 {interestedEvents.length > 0 && (
                   <div>
                     <h3 className="font-semibold mb-3 flex items-center gap-2">
-                      <Star className="w-5 h-5 text-[#FFD700]" />
+                      <Star className="w-5 h-5" style={{ color: 'var(--sec-warning)' }} />
                       Interested Events
                     </h3>
                     <div className="space-y-3">
@@ -524,7 +530,7 @@ export default function Profile() {
                 {/* Table History */}
                 <div>
                   <h3 className="font-semibold mb-3 flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-[#00D4AA]" />
+                    <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
                     Table History
                   </h3>
                   {tableHistory.length > 0 ? (
@@ -539,8 +545,8 @@ export default function Profile() {
                         >
                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                             history.role === 'host' 
-                              ? 'bg-[#FF3366]/20 text-[#FF3366]' 
-                              : 'bg-[#00D4AA]/20 text-[#00D4AA]'
+                              ? 'bg-[var(--sec-accent-muted)] text-[var(--sec-accent)]' 
+                              : 'bg-[var(--sec-success-muted)] text-[var(--sec-success)]'
                           }`}>
                             <Users className="w-5 h-5" />
                           </div>
@@ -552,8 +558,8 @@ export default function Profile() {
                           </div>
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
                             history.role === 'host'
-                              ? 'bg-[#FF3366]/20 text-[#FF3366]'
-                              : 'bg-[#00D4AA]/20 text-[#00D4AA]'
+                              ? 'bg-[var(--sec-accent-muted)] text-[var(--sec-accent)]'
+                              : 'bg-[var(--sec-success-muted)] text-[var(--sec-success)]'
                           }`}>
                             {history.role}
                           </span>
@@ -590,7 +596,7 @@ export default function Profile() {
             {activeTables.length > 0 && (
               <div className="glass-card rounded-2xl p-4 mb-6">
                 <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-[#FF3366]" />
+                  <Users className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                   Active Tables
                 </h3>
                 <div className="space-y-3">
@@ -617,7 +623,7 @@ export default function Profile() {
             {interestedEvents.length > 0 && (
               <div className="glass-card rounded-2xl p-4 mb-6">
                 <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <Star className="w-5 h-5 text-[#FFD700]" />
+                  <Star className="w-5 h-5" style={{ color: 'var(--sec-warning)' }} />
                   Interested Events
                 </h3>
                 <div className="space-y-3">

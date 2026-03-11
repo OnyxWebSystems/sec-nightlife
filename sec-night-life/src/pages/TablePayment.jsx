@@ -112,7 +112,7 @@ export default function TablePayment() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-2 border-[#00D4AA] border-t-transparent animate-spin" />
+        <div className="w-12 h-12 rounded-full border-2 border-[var(--sec-success)] border-t-transparent animate-spin" />
       </div>
     );
   }
@@ -124,7 +124,7 @@ export default function TablePayment() {
           <h2 className="text-xl font-bold mb-2">Payment not available</h2>
           <Button
             onClick={() => navigate(createPageUrl('Tables'))}
-            className="mt-4 bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+            className="mt-4 bg-gradient-to-r from-[var(--sec-accent)] to-[var(--sec-accent)]"
           >
             Browse Tables
           </Button>
@@ -152,7 +152,7 @@ export default function TablePayment() {
       <div className="px-4 lg:px-8 py-6 max-w-2xl mx-auto space-y-6">
         {/* Success Message */}
         <div className="text-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#00D4AA] to-[#00D4AA]/60 mx-auto mb-4 flex items-center justify-center">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--sec-success)] to-[var(--sec-success)]/60 mx-auto mb-4 flex items-center justify-center">
             <Check className="w-8 h-8" />
           </div>
           <h2 className="text-2xl font-bold mb-2">Request Accepted! 🎉</h2>
@@ -171,15 +171,15 @@ export default function TablePayment() {
           {event && (
             <div className="pt-4 border-t border-[#262629] space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <Calendar className="w-4 h-4 text-[#FF3366]" />
+                <Calendar className="w-4 h-4 text-[var(--sec-accent)]" />
                 <span>{getDateLabel()}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <Clock className="w-4 h-4 text-[#7C3AED]" />
+                <Clock className="w-4 h-4 text-[var(--sec-accent)]" />
                 <span>{event.start_time || 'TBA'}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <MapPin className="w-4 h-4 text-[#00D4AA]" />
+                <MapPin className="w-4 h-4 text-[var(--sec-success)]" />
                 <span>{venue?.name || event.address}</span>
               </div>
             </div>
@@ -189,7 +189,7 @@ export default function TablePayment() {
         {/* Payment Breakdown */}
         <div className="glass-card rounded-2xl p-6 space-y-4">
           <h3 className="font-semibold flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-[#00D4AA]" />
+            <DollarSign className="w-5 h-5 text-[var(--sec-success)]" />
             Payment Breakdown
           </h3>
 
@@ -210,15 +210,15 @@ export default function TablePayment() {
 
             <div className="pt-3 border-t border-[#262629] flex items-center justify-between">
               <span className="text-lg font-semibold">Total Amount</span>
-              <span className="text-2xl font-bold text-[#00D4AA]">R{totalAmount.toLocaleString()}</span>
+              <span className="text-2xl font-bold text-[var(--sec-success)]">R{totalAmount.toLocaleString()}</span>
             </div>
           </div>
         </div>
 
         {/* Security Info */}
-        <div className="p-4 rounded-xl bg-[#7C3AED]/10 border border-[#7C3AED]/20">
+        <div className="p-4 rounded-xl bg-[var(--sec-accent)]/10 border border-[var(--sec-accent)]/20">
           <div className="flex items-start gap-3">
-            <ShieldCheck className="w-5 h-5 text-[#7C3AED] flex-shrink-0 mt-0.5" />
+            <ShieldCheck className="w-5 h-5 text-[var(--sec-accent)] flex-shrink-0 mt-0.5" />
             <div>
               <p className="font-medium text-sm mb-1">Secure Payment</p>
               <p className="text-xs text-gray-400">
@@ -235,7 +235,7 @@ export default function TablePayment() {
           <Button
             onClick={handlePayment}
             disabled={isProcessing}
-            className="w-full h-14 rounded-xl bg-gradient-to-r from-[#00D4AA] to-[#00D4AA]/80 font-semibold text-lg"
+            className="w-full h-14 rounded-xl bg-gradient-to-r from-[var(--sec-success)] to-[var(--sec-success)]/80 font-semibold text-lg"
           >
             {isProcessing ? (
               'Processing...'

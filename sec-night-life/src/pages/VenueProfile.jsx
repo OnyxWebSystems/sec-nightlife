@@ -59,7 +59,7 @@ export default function VenueProfile() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-2 border-[#FF3366] border-t-transparent animate-spin" />
+        <div className="w-12 h-12 rounded-full border-2 border-[var(--sec-accent)] border-t-transparent animate-spin" />
       </div>
     );
   }
@@ -69,7 +69,7 @@ export default function VenueProfile() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-bold mb-2">Venue not found</h2>
-          <Link to={createPageUrl('Explore')} className="text-[#FF3366]">
+          <Link to={createPageUrl('Explore')} style={{ color: 'var(--sec-accent)' }}>
             Browse Venues
           </Link>
         </div>
@@ -96,7 +96,7 @@ export default function VenueProfile() {
             className="w-full h-full object-cover"
           />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED]" />
+          <div className="w-full h-full bg-[var(--sec-gradient-silver)]" />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0B] via-transparent to-transparent" />
         
@@ -130,7 +130,7 @@ export default function VenueProfile() {
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{venue.name}</h1>
               {venue.is_verified && (
-                <div className="w-6 h-6 rounded-full bg-[#FFD700] flex items-center justify-center">
+                <div className="w-6 h-6 rounded-full bg-[var(--sec-warning)] flex items-center justify-center">
                   <BadgeCheck className="w-4 h-4 text-black" />
                 </div>
               )}
@@ -141,7 +141,7 @@ export default function VenueProfile() {
                 <>
                   <span>•</span>
                   <span className="flex items-center gap-1">
-                    <Star className="w-4 h-4 fill-[#FFD700] text-[#FFD700]" />
+                    <Star className="w-4 h-4 fill-[var(--sec-warning)] text-[var(--sec-warning)]" />
                     {venue.rating.toFixed(1)}
                   </span>
                 </>
@@ -157,7 +157,7 @@ export default function VenueProfile() {
           <Button
             onClick={() => setIsFollowing(!isFollowing)}
             variant={isFollowing ? 'outline' : 'default'}
-            className={isFollowing ? 'border-[#262629]' : 'bg-[#FF3366]'}
+            className={isFollowing ? 'border-[#262629]' : 'bg-[var(--sec-accent)]'}
           >
             {isFollowing ? 'Following' : 'Follow'}
           </Button>
@@ -165,10 +165,10 @@ export default function VenueProfile() {
 
         {/* Verification Badge */}
         {venue.is_verified && (
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-[#FFD700]/10 border border-[#FFD700]/20">
-            <Shield className="w-5 h-5 text-[#FFD700]" />
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-[var(--sec-warning)]/10 border border-[var(--sec-warning)]/20">
+            <Shield className="w-5 h-5 text-[var(--sec-warning)]" />
             <div>
-              <p className="font-medium text-sm text-[#FFD700]">Verified Venue</p>
+              <p className="font-medium text-sm text-[var(--sec-warning)]">Verified Venue</p>
               <p className="text-xs text-gray-400">License and compliance verified</p>
             </div>
           </div>
@@ -188,7 +188,7 @@ export default function VenueProfile() {
               rel="noopener noreferrer"
               className="flex items-center gap-3 p-4 hover:bg-white/5 transition-colors"
             >
-              <MapPin className="w-5 h-5 text-[#00D4AA]" />
+              <MapPin className="w-5 h-5 text-[var(--sec-success)]" />
               <span className="flex-1">{venue.address}</span>
               <Navigation className="w-4 h-4 text-gray-600" />
             </a>
@@ -198,7 +198,7 @@ export default function VenueProfile() {
               href={`tel:${venue.phone}`}
               className="flex items-center gap-3 p-4 border-t border-[#262629] hover:bg-white/5 transition-colors"
             >
-              <Phone className="w-5 h-5 text-[#7C3AED]" />
+              <Phone className="w-5 h-5 text-[var(--sec-accent)]" />
               <span>{venue.phone}</span>
             </a>
           )}
@@ -209,7 +209,7 @@ export default function VenueProfile() {
               rel="noopener noreferrer"
               className="flex items-center gap-3 p-4 border-t border-[#262629] hover:bg-white/5 transition-colors"
             >
-              <Globe className="w-5 h-5 text-[#FF3366]" />
+              <Globe className="w-5 h-5 text-[var(--sec-accent)]" />
               <span>{venue.website}</span>
             </a>
           )}
@@ -234,7 +234,7 @@ export default function VenueProfile() {
                 <h3 className="font-semibold mb-2">Music</h3>
                 <div className="flex flex-wrap gap-2">
                   {venue.music_genres.map((genre, index) => (
-                    <span key={index} className="px-3 py-1 rounded-full bg-[#7C3AED]/20 text-[#7C3AED] text-sm">
+                    <span key={index} className="px-3 py-1 rounded-full bg-[var(--sec-accent)]/20 text-[var(--sec-accent)] text-sm">
                       {genre}
                     </span>
                   ))}
@@ -281,12 +281,12 @@ export default function VenueProfile() {
                       to={createPageUrl(`EventDetails?id=${event.id}`)}
                       className="flex items-center gap-4 p-3 glass-card rounded-xl hover:bg-white/5 transition-colors"
                     >
-                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#FF3366]/20 to-[#7C3AED]/20 flex-shrink-0 overflow-hidden">
+                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[var(--sec-accent)]/20 to-[var(--sec-accent)]/20 flex-shrink-0 overflow-hidden">
                         {event.cover_image_url ? (
                           <img src={event.cover_image_url} alt="" className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
-                            <Calendar className="w-6 h-6 text-[#FF3366]" />
+                            <Calendar className="w-6 h-6 text-[var(--sec-accent)]" />
                           </div>
                         )}
                       </div>
@@ -324,15 +324,15 @@ export default function VenueProfile() {
                       to={createPageUrl(`JobDetails?id=${job.id}`)}
                       className="flex items-center gap-4 p-3 glass-card rounded-xl hover:bg-white/5 transition-colors"
                     >
-                      <div className="w-12 h-12 rounded-xl bg-[#FFD700]/20 flex items-center justify-center">
-                        <Briefcase className="w-5 h-5 text-[#FFD700]" />
+                      <div className="w-12 h-12 rounded-xl bg-[var(--sec-warning)]/20 flex items-center justify-center">
+                        <Briefcase className="w-5 h-5 text-[var(--sec-warning)]" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-semibold">{job.title}</h4>
                         <div className="flex items-center gap-2 mt-1 text-sm">
                           <span className="text-gray-500 capitalize">{job.job_type?.replace('_', ' ')}</span>
                           {job.suggested_pay_amount && (
-                            <span className="text-[#00D4AA]">R{job.suggested_pay_amount}</span>
+                            <span className="text-[var(--sec-success)]">R{job.suggested_pay_amount}</span>
                           )}
                         </div>
                       </div>

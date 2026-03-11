@@ -20,6 +20,11 @@ export default function Events() {
     queryFn: () => dataService.Event.filter({ status: 'published' }, 'date', 100),
   });
 
+  const { data: hostEvents = [] } = useQuery({
+    queryKey: ['host-events'],
+    queryFn: () => dataService.HostEvent.filter({ status: 'published' }),
+  });
+
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn: () => dataService.Venue.list(),
@@ -190,6 +195,32 @@ export default function Events() {
       {/* ── Content ── */}
       <div style={{ padding: '24px 20px' }}>
 
+        {/* Host Events (informal) */}
+        {hostEvents.length > 0 && (
+          <section style={{ marginBottom: 36 }}>
+            <div className="sec-section-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 30, height: 30, borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--sec-accent-muted)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Users size={15} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
+                </div>
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Host Events</h2>
+              </div>
+              <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>House parties, boat parties & more</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+              {hostEvents.slice(0, 6).map((event, index) => (
+                <motion.div key={event.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                  <HostEventCard event={event} />
+                </motion.div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Recommended */}
         {recommendedEvents.length > 0 && (
           <section style={{ marginBottom: 36 }}>
@@ -276,6 +307,72 @@ function EventSection({ title, events, accent }) {
         ))}
       </div>
     </section>
+  );
+}
+
+/* ── Host event card (informal events) ── */
+function HostEventCard({ event }) {
+  const getDateLabel = () => {
+    if (!event.date) return '';
+    const date = parseISO(event.date);
+    if (isToday(date)) return 'Tonight';
+    if (isTomorrow(date)) return 'Tomorrow';
+    return format(date, 'EEE, MMM d');
+  };
+  const price = event.entry_cost > 0 ? `R${event.entry_cost}` : 'Free';
+  return (
+    <Link
+      to={createPageUrl(`HostEventDetails?id=${event.id}`)}
+      className="sec-card"
+      style={{ overflow: 'hidden', display: 'block', textDecoration: 'none' }}
+    >
+      <div style={{ position: 'relative', height: 150 }}>
+        <img
+          src={getEventImage(event.cover_image_url)}
+          alt={event.title}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+        <div className="sec-overlay" style={{ position: 'absolute', inset: 0 }} />
+        <span
+          className="sec-badge"
+          style={{
+            position: 'absolute', top: 10, right: 10,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(6px)',
+            color: 'var(--sec-text-secondary)',
+            borderRadius: 'var(--radius-pill)',
+          }}
+        >
+          Host Event
+        </span>
+      </div>
+      <div style={{ padding: '14px 16px 16px' }}>
+        <h3 style={{
+          fontSize: 14, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {event.title}
+        </h3>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 12, color: 'var(--sec-text-muted)' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Calendar size={12} strokeWidth={1.5} />
+            {getDateLabel()}
+          </span>
+          {event.city && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <MapPin size={12} strokeWidth={1.5} />
+              {event.city}
+            </span>
+          )}
+        </div>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--sec-border)',
+        }}>
+          <span style={{ fontSize: 13, color: 'var(--sec-text-primary)', fontWeight: 500 }}>{price} entry</span>
+        </div>
+      </div>
+    </Link>
   );
 }
 

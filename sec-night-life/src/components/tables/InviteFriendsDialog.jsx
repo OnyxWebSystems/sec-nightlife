@@ -122,11 +122,11 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event }
                     onClick={() => toggleFriend(friend.id)}
                     className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors ${
                       isSelected
-                        ? 'bg-[#FF3366]/20 border border-[#FF3366]'
+                        ? 'bg-[var(--sec-accent)]/20 border border-[var(--sec-accent)]'
                         : 'bg-[#0A0A0B] hover:bg-white/5'
                     }`}
                   >
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] overflow-hidden flex-shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--sec-accent)] to-[var(--sec-accent)] overflow-hidden flex-shrink-0">
                       {friend.avatar_url ? (
                         <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
                       ) : (
@@ -142,7 +142,7 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event }
                       )}
                     </div>
                     {isSelected && (
-                      <div className="w-6 h-6 rounded-full bg-[#FF3366] flex items-center justify-center">
+                      <div className="w-6 h-6 rounded-full bg-[var(--sec-accent)] flex items-center justify-center">
                         <Check className="w-4 h-4" />
                       </div>
                     )}
@@ -168,7 +168,7 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event }
             <Button
               onClick={() => inviteMutation.mutate()}
               disabled={selectedFriends.length === 0 || inviteMutation.isPending}
-              className="flex-1 bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+              className="flex-1 bg-gradient-to-r from-[var(--sec-accent)] to-[var(--sec-accent)]"
             >
               {inviteMutation.isPending ? 'Sending...' : `Invite (${selectedFriends.length})`}
             </Button>

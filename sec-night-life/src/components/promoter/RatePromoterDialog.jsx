@@ -84,7 +84,7 @@ export default function RatePromoterDialog({ isOpen, onClose, promoter, context,
                   <Star
                     className={`w-10 h-10 ${
                       star <= (hoveredRating || rating)
-                        ? 'fill-[#FFD700] text-[#FFD700]'
+                        ? 'fill-[var(--sec-warning)] text-[var(--sec-warning)]'
                         : 'text-gray-600'
                     }`}
                   />
@@ -123,7 +123,7 @@ export default function RatePromoterDialog({ isOpen, onClose, promoter, context,
             <Button
               onClick={handleSubmit}
               disabled={rateMutation.isPending || rating === 0}
-              className="flex-1 bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+              className="flex-1 sec-btn-accent"
             >
               {rateMutation.isPending ? 'Submitting...' : 'Submit Rating'}
             </Button>

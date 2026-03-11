@@ -40,7 +40,7 @@ export default function MyTickets({ userId }) {
         <Ticket className="w-12 h-12 text-gray-600 mx-auto mb-3" />
         <p className="text-gray-500 mb-4">No tickets purchased yet</p>
         <Link to={createPageUrl('Events')}>
-          <Button className="bg-gradient-to-r from-[#FF3366] to-[#7C3AED]">
+          <Button className="sec-btn-accent">
             Browse Events
           </Button>
         </Link>
@@ -66,7 +66,7 @@ export default function MyTickets({ userId }) {
 
     return (
       <Link to={createPageUrl(`EventDetails?id=${event.id}`)}>
-        <Card className={`glass-card border-[#262629] hover:border-[#FF3366]/50 transition-all ${isPast && 'opacity-60'}`}>
+        <Card className={`glass-card border-[#262629] hover:border-[var(--sec-accent)]/50 transition-all ${isPast && 'opacity-60'}`}>
           <CardContent className="p-4">
             <div className="flex gap-4">
               <div className="relative">
@@ -77,7 +77,7 @@ export default function MyTickets({ userId }) {
                     className="w-20 h-20 rounded-xl object-cover"
                   />
                 ) : (
-                  <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-[#FF3366] to-[#7C3AED]" />
+                  <div className="w-20 h-20 rounded-xl object-cover" style={{ backgroundColor: 'var(--sec-accent-muted)' }} />
                 )}
                 {isPast && (
                   <div className="absolute inset-0 bg-black/50 rounded-xl flex items-center justify-center">
@@ -99,13 +99,13 @@ export default function MyTickets({ userId }) {
                   </div>
                   <div className="flex items-center gap-2">
                     <Ticket className="w-3 h-3" />
-                    <span className="text-[#00D4AA]">{transaction.description}</span>
+                    <span className="">{transaction.description}</span>
                   </div>
                 </div>
               </div>
 
               <div className="flex flex-col items-end justify-between">
-                <QrCode className="w-8 h-8 text-[#FF3366]" />
+                <QrCode className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
                 <span className="text-xs text-gray-500">
                   {format(parseISO(transaction.created_date), 'MMM dd')}
                 </span>

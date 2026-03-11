@@ -55,7 +55,7 @@ export default function TicketPurchaseButton({ event }) {
     <>
       <Button
         onClick={() => setIsOpen(true)}
-        className="w-full bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+        className="w-full sec-btn-accent"
       >
         <Ticket className="w-4 h-4 mr-2" />
         Buy Tickets
@@ -131,7 +131,7 @@ export default function TicketPurchaseButton({ event }) {
                       <Button
                         onClick={handlePurchase}
                         disabled={isProcessing}
-                        className="w-full bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+                        className="w-full sec-btn-accent"
                       >
                         {isProcessing ? (
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />

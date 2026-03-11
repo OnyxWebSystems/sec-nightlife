@@ -86,7 +86,7 @@ export default function UserProfile() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-2 border-[#00D4AA] border-t-transparent animate-spin" />
+        <div className="w-12 h-12 rounded-full border-2 border-[var(--sec-success)] border-t-transparent animate-spin" />
       </div>
     );
   }
@@ -105,7 +105,7 @@ export default function UserProfile() {
   return (
     <div className="min-h-screen pb-8">
       {/* Header */}
-      <div className="relative h-48 bg-gradient-to-br from-[#FF3366]/30 to-[#7C3AED]/30">
+      <div className="relative h-48 bg-gradient-to-br from-[var(--sec-accent)]/30 to-[var(--sec-accent)]/30">
         <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0B] to-transparent" />
         <div className="absolute top-4 left-4">
           <button
@@ -123,7 +123,7 @@ export default function UserProfile() {
           <div className="flex flex-col items-center text-center mb-6">
             {/* Avatar */}
             <div className="relative mb-4">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] p-0.5">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[var(--sec-accent)] to-[var(--sec-accent)] p-0.5">
                 <div className="w-full h-full rounded-full overflow-hidden bg-[#141416]">
                   {viewedProfile.avatar_url ? (
                     <img src={viewedProfile.avatar_url} alt="" className="w-full h-full object-cover" />
@@ -135,7 +135,7 @@ export default function UserProfile() {
                 </div>
               </div>
               {viewedProfile.is_verified_promoter && (
-                <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-[#FFD700] flex items-center justify-center">
+                <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-[var(--sec-warning)] flex items-center justify-center">
                   <BadgeCheck className="w-5 h-5 text-black" />
                 </div>
               )}
@@ -148,7 +148,7 @@ export default function UserProfile() {
 
             {/* Badges */}
             {viewedProfile.is_verified_promoter && (
-              <span className="px-3 py-1 rounded-full bg-[#FFD700]/20 text-[#FFD700] text-xs font-medium flex items-center gap-1 mt-3">
+              <span className="px-3 py-1 rounded-full bg-[var(--sec-warning)]/20 text-[var(--sec-warning)] text-xs font-medium flex items-center gap-1 mt-3">
                 <Award className="w-3 h-3" />
                 Verified Promoter
               </span>
@@ -157,7 +157,7 @@ export default function UserProfile() {
             {/* Action Buttons */}
             {!isOwnProfile && currentUserProfile && (
               <div className="flex gap-2 mt-4">
-                <Button className="flex-1 bg-gradient-to-r from-[#FF3366] to-[#7C3AED]">
+                <Button className="flex-1 bg-gradient-to-r from-[var(--sec-accent)] to-[var(--sec-accent)]">
                   <UserPlus className="w-4 h-4 mr-2" />
                   {isFriend ? 'Friends' : 'Add Friend'}
                 </Button>
@@ -191,19 +191,19 @@ export default function UserProfile() {
           {/* Stats */}
           <div className="grid grid-cols-4 gap-4 text-center py-4 border-y border-[#262629]">
             <div>
-              <p className="text-2xl font-bold text-[#FF3366]">{hostedTables.length}</p>
+              <p className="text-2xl font-bold text-[var(--sec-accent)]">{hostedTables.length}</p>
               <p className="text-xs text-gray-500">Hosted</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-[#00D4AA]">{attendedTables.length}</p>
+              <p className="text-2xl font-bold text-[var(--sec-success)]">{attendedTables.length}</p>
               <p className="text-xs text-gray-500">Attended</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-[#7C3AED]">R{totalContributions.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-[var(--sec-accent)]">R{totalContributions.toLocaleString()}</p>
               <p className="text-xs text-gray-500">Total Spent</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-[#FFD700]">R{Math.round(averageContribution)}</p>
+              <p className="text-2xl font-bold text-[var(--sec-warning)]">R{Math.round(averageContribution)}</p>
               <p className="text-xs text-gray-500">Avg/Table</p>
             </div>
           </div>
@@ -213,7 +213,7 @@ export default function UserProfile() {
         {activeTables.length > 0 && (
           <div className="glass-card rounded-2xl p-4 mb-6">
             <h3 className="font-semibold mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-[#FF3366]" />
+              <Users className="w-5 h-5 text-[var(--sec-accent)]" />
               Active Tables
             </h3>
             <div className="space-y-3">
@@ -223,8 +223,8 @@ export default function UserProfile() {
                   to={createPageUrl(`TableDetails?id=${table.id}`)}
                   className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B] hover:bg-white/5 transition-colors"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF3366]/20 to-[#7C3AED]/20 flex items-center justify-center">
-                    <Users className="w-5 h-5 text-[#FF3366]" />
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--sec-accent)]/20 to-[var(--sec-accent)]/20 flex items-center justify-center">
+                    <Users className="w-5 h-5 text-[var(--sec-accent)]" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{table.name}</p>
@@ -241,7 +241,7 @@ export default function UserProfile() {
         {/* Table History */}
         <div className="glass-card rounded-2xl p-4">
           <h3 className="font-semibold mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-[#00D4AA]" />
+            <TrendingUp className="w-5 h-5 text-[var(--sec-success)]" />
             Table History
           </h3>
           
@@ -264,8 +264,8 @@ export default function UserProfile() {
                   >
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                       history.role === 'host' 
-                        ? 'bg-[#FF3366]/20 text-[#FF3366]' 
-                        : 'bg-[#00D4AA]/20 text-[#00D4AA]'
+                        ? 'bg-[var(--sec-accent)]/20 text-[var(--sec-accent)]' 
+                        : 'bg-[var(--sec-success)]/20 text-[var(--sec-success)]'
                     }`}>
                       <Users className="w-5 h-5" />
                     </div>
@@ -275,15 +275,15 @@ export default function UserProfile() {
                         {history.venue_name} • {format(parseISO(history.date), 'MMM d, yyyy')}
                       </p>
                       {history.contribution > 0 && (
-                        <p className="text-xs text-[#00D4AA] mt-1">
+                        <p className="text-xs text-[var(--sec-success)] mt-1">
                           Contributed: R{history.contribution.toLocaleString()}
                         </p>
                       )}
                     </div>
                     <span className={`px-2 py-0.5 rounded-full text-xs ${
                       history.role === 'host'
-                        ? 'bg-[#FF3366]/20 text-[#FF3366]'
-                        : 'bg-[#00D4AA]/20 text-[#00D4AA]'
+                        ? 'bg-[var(--sec-accent)]/20 text-[var(--sec-accent)]'
+                        : 'bg-[var(--sec-success)]/20 text-[var(--sec-success)]'
                     }`}>
                       {history.role}
                     </span>
@@ -300,7 +300,7 @@ export default function UserProfile() {
                     transition={{ delay: index * 0.05 }}
                     className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B]"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-[#FF3366]/20 text-[#FF3366] flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-xl bg-[var(--sec-accent)]/20 text-[var(--sec-accent)] flex items-center justify-center">
                       <Users className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -309,7 +309,7 @@ export default function UserProfile() {
                         {history.venue_name} • {format(parseISO(history.date), 'MMM d, yyyy')}
                       </p>
                       {history.table_total_spend > 0 && (
-                        <p className="text-xs text-[#FFD700] mt-1">
+                        <p className="text-xs text-[var(--sec-warning)] mt-1">
                           Total Spend: R{history.table_total_spend.toLocaleString()}
                         </p>
                       )}
@@ -327,7 +327,7 @@ export default function UserProfile() {
                     transition={{ delay: index * 0.05 }}
                     className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B]"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-[#00D4AA]/20 text-[#00D4AA] flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-xl bg-[var(--sec-success)]/20 text-[var(--sec-success)] flex items-center justify-center">
                       <Users className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -336,7 +336,7 @@ export default function UserProfile() {
                         {history.venue_name} • {format(parseISO(history.date), 'MMM d, yyyy')}
                       </p>
                       {history.contribution > 0 && (
-                        <p className="text-xs text-[#00D4AA] mt-1">
+                        <p className="text-xs text-[var(--sec-success)] mt-1">
                           Contributed: R{history.contribution.toLocaleString()}
                         </p>
                       )}

@@ -175,9 +175,9 @@ export default function VenueAnalytics() {
                       <p className="text-3xl font-bold text-white mt-1">
                         R{metrics.totalRevenue.toLocaleString()}
                       </p>
-                      <p className="text-xs text-[#00D4AA] mt-1">↑ Last {dateRange} days</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--sec-success)' }}>↑ Last {dateRange} days</p>
                     </div>
-                    <DollarSign className="w-8 h-8 text-[#00D4AA]" />
+                    <DollarSign className="w-8 h-8" style={{ color: 'var(--sec-success)' }} />
                   </div>
                 </CardContent>
               </Card>
@@ -190,7 +190,7 @@ export default function VenueAnalytics() {
                       <p className="text-3xl font-bold text-white mt-1">{metrics.ticketSales}</p>
                       <p className="text-xs text-gray-500 mt-1">Completed purchases</p>
                     </div>
-                    <Users className="w-8 h-8 text-[#FF3366]" />
+                    <Users className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
                   </div>
                 </CardContent>
               </Card>
@@ -205,7 +205,7 @@ export default function VenueAnalytics() {
                       </p>
                       <p className="text-xs text-gray-500 mt-1">{reviews.length} reviews</p>
                     </div>
-                    <Star className="w-8 h-8 text-[#FFD700]" />
+                    <Star className="w-8 h-8" style={{ color: 'var(--sec-warning)' }} />
                   </div>
                 </CardContent>
               </Card>
@@ -216,9 +216,9 @@ export default function VenueAnalytics() {
                     <div>
                       <p className="text-gray-500 text-sm">Total Events</p>
                       <p className="text-3xl font-bold text-white mt-1">{metrics.totalEvents}</p>
-                      <p className="text-xs text-[#7C3AED] mt-1">{metrics.upcomingEvents} upcoming</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--sec-accent)' }}>{metrics.upcomingEvents} upcoming</p>
                     </div>
-                    <Calendar className="w-8 h-8 text-[#7C3AED]" />
+                    <Calendar className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
                   </div>
                 </CardContent>
               </Card>
@@ -228,7 +228,7 @@ export default function VenueAnalytics() {
             <Card className="glass-card border-[#262629]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-[#00D4AA]" />
+                  <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
                   Ticket Sales Trend
                 </CardTitle>
               </CardHeader>
@@ -240,7 +240,7 @@ export default function VenueAnalytics() {
                     return (
                       <div key={idx} className="flex-1 flex flex-col items-center gap-2">
                         <div className="w-full bg-[#141416] rounded-t-lg relative" style={{ height: `${height}%`, minHeight: day.sales > 0 ? '20px' : '4px' }}>
-                          <div className="absolute inset-0 bg-gradient-to-t from-[#FF3366] to-[#7C3AED] rounded-t-lg" />
+                          <div className="absolute inset-0 rounded-t-lg" style={{ background: 'var(--sec-gradient-silver)' }} />
                           {day.sales > 0 && (
                             <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs text-gray-400">
                               R{day.sales}
@@ -260,7 +260,7 @@ export default function VenueAnalytics() {
               <Card className="glass-card border-[#262629]">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <PieChart className="w-5 h-5 text-[#FF3366]" />
+                    <PieChart className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                     Popular Event Types
                   </CardTitle>
                 </CardHeader>
@@ -277,7 +277,7 @@ export default function VenueAnalytics() {
                           </div>
                           <div className="h-2 bg-[#141416] rounded-full overflow-hidden">
                             <div 
-                              className="h-full bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+                              className="h-full bg-gradient-to-r from-[var(--sec-accent)] to-[var(--sec-accent)]"
                               style={{ width: `${percentage}%` }}
                             />
                           </div>
@@ -291,7 +291,7 @@ export default function VenueAnalytics() {
               <Card className="glass-card border-[#262629]">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-[#7C3AED]" />
+                    <Clock className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                     Performance Insights
                   </CardTitle>
                 </CardHeader>
@@ -321,7 +321,7 @@ export default function VenueAnalytics() {
               <Card className="glass-card border-[#262629]">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <Star className="w-5 h-5 text-[#FFD700]" />
+                    <Star className="w-5 h-5" style={{ color: 'var(--sec-warning)' }} />
                     Recent Feedback
                   </CardTitle>
                 </CardHeader>
@@ -354,7 +354,7 @@ export default function VenueAnalytics() {
                             <Star
                               key={i}
                               className={`w-3 h-3 ${
-                                i < review.rating ? 'fill-[#FFD700] text-[#FFD700]' : 'text-gray-600'
+                                i < review.rating ? 'text-[var(--sec-warning)] fill-[var(--sec-warning)]' : 'text-gray-600'
                               }`}
                             />
                           ))}

@@ -45,7 +45,7 @@ export default function InterestsEditor({ userProfile }) {
     <div className="space-y-6">
       <div>
         <h3 className="font-semibold mb-3 flex items-center gap-2 text-white">
-          <Music className="w-4 h-4 text-[#7C3AED]" />
+          <Music className="w-4 h-4" style={{ color: 'var(--sec-accent)' }} />
           Music Preferences
         </h3>
         <p className="text-sm text-gray-500 mb-4">
@@ -58,7 +58,7 @@ export default function InterestsEditor({ userProfile }) {
               onClick={() => toggleGenre(genre)}
               className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                 selectedGenres.includes(genre)
-                  ? 'bg-gradient-to-r from-[#FF3366] to-[#7C3AED] text-white'
+                  ? 'sec-btn-accent'
                   : 'bg-[#141416] text-gray-400 hover:text-white'
               }`}
             >
@@ -72,7 +72,7 @@ export default function InterestsEditor({ userProfile }) {
         <Button
           onClick={() => updateMutation.mutate()}
           disabled={updateMutation.isPending}
-          className="w-full bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+          className="w-full sec-btn-accent"
         >
           {updateMutation.isPending ? (
             <Loader2 className="w-4 h-4 animate-spin mr-2" />

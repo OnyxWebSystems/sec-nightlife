@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { ensureUserRole } from '../lib/userRoles.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
@@ -143,6 +144,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
     }
     const data = parsed.data;
 
+    await ensureUserRole(req.userId, 'business');
     const venue = await prisma.venue.create({
       data: {
         ownerUserId: req.userId,

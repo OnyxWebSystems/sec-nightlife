@@ -65,7 +65,7 @@ export default function ReviewForm({ venueId, eventId, onSuccess }) {
             <Star
               className={`w-8 h-8 ${
                 star <= (label === 'Overall Rating' ? (hoveredRating || value) : value)
-                  ? 'fill-[#FFD700] text-[#FFD700]'
+                  ? 'fill-[var(--sec-warning)] text-[var(--sec-warning)]'
                   : 'text-gray-600'
               }`}
             />
@@ -98,7 +98,7 @@ export default function ReviewForm({ venueId, eventId, onSuccess }) {
       <Button
         onClick={handleSubmit}
         disabled={submitReview.isPending || rating === 0}
-        className="w-full bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+        className="w-full bg-gradient-to-r from-[var(--sec-accent)] to-[var(--sec-accent)]"
       >
         {submitReview.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
         Submit Review

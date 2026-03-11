@@ -61,7 +61,7 @@ export default function MyReviews({ userId }) {
 
         return (
           <Link key={review.id} to={targetUrl}>
-            <Card className="glass-card border-[#262629] hover:border-[#FF3366]/50 transition-all">
+            <Card className="glass-card border-[#262629] hover:hover:border-[var(--sec-accent-border)] transition-all">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between mb-2">
                   <div>
@@ -76,7 +76,7 @@ export default function MyReviews({ userId }) {
                       <Star
                         key={i}
                         className={`w-4 h-4 ${
-                          i < review.rating ? 'fill-[#FFD700] text-[#FFD700]' : 'text-gray-600'
+                          i < review.rating ? 'fill-[var(--sec-warning)] text-[var(--sec-warning)]' : 'text-gray-600'
                         }`}
                       />
                     ))}
@@ -91,25 +91,25 @@ export default function MyReviews({ userId }) {
                   {review.atmosphere_rating && (
                     <div className="flex items-center gap-1">
                       <span className="text-gray-500">Atmosphere:</span>
-                      <span className="text-[#FF3366]">{review.atmosphere_rating}/5</span>
+                      <span className="">{review.atmosphere_rating}/5</span>
                     </div>
                   )}
                   {review.service_rating && (
                     <div className="flex items-center gap-1">
                       <span className="text-gray-500">Service:</span>
-                      <span className="text-[#7C3AED]">{review.service_rating}/5</span>
+                      <span className="">{review.service_rating}/5</span>
                     </div>
                   )}
                   {review.value_rating && (
                     <div className="flex items-center gap-1">
                       <span className="text-gray-500">Value:</span>
-                      <span className="text-[#00D4AA]">{review.value_rating}/5</span>
+                      <span className="">{review.value_rating}/5</span>
                     </div>
                   )}
                 </div>
 
                 {review.verified_attendance && (
-                  <div className="mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[#00D4AA]/20 text-[#00D4AA] text-xs">
+                  <div className="mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-full sec-badge-success text-xs">
                     ✓ Verified Attendance
                   </div>
                 )}

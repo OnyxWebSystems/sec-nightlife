@@ -216,7 +216,7 @@ export default function ManageTable() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-2 border-[#00D4AA] border-t-transparent animate-spin" />
+        <div className="w-12 h-12 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--sec-success)' }} />
       </div>
     );
   }
@@ -227,7 +227,7 @@ export default function ManageTable() {
         <div className="text-center">
           <h2 className="text-xl font-bold mb-2">Access Denied</h2>
           <p className="text-gray-400 mb-4">You don't have permission to manage this table</p>
-          <Button onClick={() => navigate(-1)} className="bg-gradient-to-r from-[#FF3366] to-[#7C3AED]">
+          <Button onClick={() => navigate(-1)} className="sec-btn-accent">
             Go Back
           </Button>
         </div>
@@ -280,11 +280,11 @@ export default function ManageTable() {
 
           <div className="grid grid-cols-4 gap-4 pt-4 border-t border-[#262629]">
             <div className="text-center">
-              <p className="text-2xl font-bold text-[#00D4AA]">{table.current_guests || 1}</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--sec-success)' }}>{table.current_guests || 1}</p>
               <p className="text-xs text-gray-500">Confirmed</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-[#FFD700]">{table.pending_requests?.length || 0}</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--sec-warning)' }}>{table.pending_requests?.length || 0}</p>
               <p className="text-xs text-gray-500">Pending</p>
             </div>
             <div className="text-center">
@@ -292,11 +292,7 @@ export default function ManageTable() {
               <p className="text-xs text-gray-500">Total Pledged</p>
             </div>
             <div className="text-center">
-              <p className={`text-2xl font-bold ${
-                table.status === 'open' ? 'text-[#00D4AA]' :
-                table.status === 'full' ? 'text-[#FFD700]' :
-                'text-gray-400'
-              }`}>
+              <p className={`text-2xl font-bold ${table.status === 'full' ? '' : 'text-gray-400'}`} style={table.status === 'open' ? { color: 'var(--sec-success)' } : table.status === 'full' ? { color: 'var(--sec-warning)' } : {}}>
                 {table.status}
               </p>
               <p className="text-xs text-gray-500">Status</p>
@@ -308,7 +304,7 @@ export default function ManageTable() {
         {pendingUsers.length > 0 && (
           <div>
             <h3 className="font-semibold mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-[#FFD700]" />
+              <Users className="w-5 h-5" style={{ color: 'var(--sec-warning)' }} />
               Pending Requests ({pendingUsers.length})
             </h3>
             <div className="space-y-3">
@@ -323,7 +319,7 @@ export default function ManageTable() {
                     className="glass-card rounded-xl p-4"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] overflow-hidden flex-shrink-0">
+                      <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
                         {user.avatar_url ? (
                           <img src={user.avatar_url} alt="" className="w-full h-full object-cover" />
                         ) : (
@@ -336,7 +332,7 @@ export default function ManageTable() {
                         <p className="font-medium">{user.username || 'User'}</p>
                         <p className="text-xs text-gray-500">Joined {format(new Date(memberData?.joined_at || new Date()), 'MMM d')}</p>
                         {memberData?.contribution > 0 && (
-                          <p className="text-sm text-[#00D4AA] mt-1">
+                          <p className="text-sm mt-1" style={{ color: 'var(--sec-success)' }}>
                             Pledged: R{memberData.contribution.toLocaleString()}
                           </p>
                         )}
@@ -345,14 +341,15 @@ export default function ManageTable() {
                         <button
                           onClick={() => acceptRequestMutation.mutate(user.id)}
                           disabled={acceptRequestMutation.isPending}
-                          className="w-10 h-10 rounded-full bg-[#00D4AA]/20 text-[#00D4AA] flex items-center justify-center hover:bg-[#00D4AA]/30 transition-colors"
+                          className="w-10 h-10 rounded-full flex items-center justify-center transition-colors"
+                            style={{ backgroundColor: 'var(--sec-success-muted)', color: 'var(--sec-success)' }}
                         >
                           <Check className="w-5 h-5" />
                         </button>
                         <button
                           onClick={() => rejectRequestMutation.mutate(user.id)}
                           disabled={rejectRequestMutation.isPending}
-                          className="w-10 h-10 rounded-full bg-[#FF3366]/20 text-[#FF3366] flex items-center justify-center hover:bg-[#FF3366]/30 transition-colors"
+                          className="w-10 h-10 rounded-full  flex items-center justify-center hover:bg-[var(--sec-accent)]/30 transition-colors"
                         >
                           <X className="w-5 h-5" />
                         </button>
@@ -368,7 +365,7 @@ export default function ManageTable() {
         {/* Confirmed Members */}
         <div>
           <h3 className="font-semibold mb-4 flex items-center gap-2">
-            <Users className="w-5 h-5 text-[#00D4AA]" />
+            <Users className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
             Confirmed Members ({confirmedMembers.length})
           </h3>
           <div className="space-y-3">
@@ -385,7 +382,7 @@ export default function ManageTable() {
                 >
                   <div className="flex items-start gap-3">
                     <div className="relative">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] overflow-hidden">
+                      <div className="w-12 h-12 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
                         {member.avatar_url ? (
                           <img src={member.avatar_url} alt="" className="w-full h-full object-cover" />
                         ) : (
@@ -395,7 +392,7 @@ export default function ManageTable() {
                         )}
                       </div>
                       {isHost && (
-                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#FFD700] flex items-center justify-center">
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--sec-warning)' }}>
                           <Crown className="w-3 h-3 text-black" />
                         </div>
                       )}
@@ -404,7 +401,7 @@ export default function ManageTable() {
                       <p className="font-medium">{member.username || 'User'}</p>
                       <p className="text-xs text-gray-500">{isHost ? 'Host' : 'Member'}</p>
                       {memberData?.contribution > 0 && (
-                        <p className="text-sm text-[#00D4AA] mt-1">
+                        <p className="text-sm mt-1" style={{ color: 'var(--sec-success)' }}>
                           Contribution: R{memberData.contribution.toLocaleString()}
                         </p>
                       )}
@@ -413,7 +410,7 @@ export default function ManageTable() {
                       <button
                         onClick={() => removeMemberMutation.mutate(member.id)}
                         disabled={removeMemberMutation.isPending}
-                        className="w-10 h-10 rounded-full bg-[#FF3366]/20 text-[#FF3366] flex items-center justify-center hover:bg-[#FF3366]/30 transition-colors"
+                        className="w-10 h-10 rounded-full  flex items-center justify-center hover:bg-[var(--sec-accent)]/30 transition-colors"
                       >
                         <UserX className="w-5 h-5" />
                       </button>
@@ -438,7 +435,8 @@ export default function ManageTable() {
           <Button
             onClick={() => setShowCancelDialog(true)}
             variant="outline"
-            className="h-14 border-[#FF3366]/30 text-[#FF3366]"
+            className="h-14"
+            style={{ borderColor: 'rgba(217,85,85,0.3)', color: 'var(--sec-error)' }}
           >
             <Trash2 className="w-5 h-5 mr-2" />
             Cancel Table
@@ -527,7 +525,7 @@ export default function ManageTable() {
             <Button
               onClick={handleSave}
               disabled={updateTableMutation.isPending}
-              className="flex-1 bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+              className="flex-1 sec-btn-accent"
             >
               {updateTableMutation.isPending ? 'Saving...' : 'Save Changes'}
             </Button>
@@ -557,7 +555,8 @@ export default function ManageTable() {
                 updateTableMutation.mutate({ status: 'cancelled' });
                 setShowCancelDialog(false);
               }}
-              className="flex-1 bg-[#FF3366]"
+              className="flex-1"
+            style={{ backgroundColor: 'var(--sec-error)' }}
             >
               Cancel Table
             </Button>

@@ -229,11 +229,11 @@ export default function JobDetails() {
           <div className="glass-card rounded-2xl p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <DollarSign className="w-5 h-5 text-[#00D4AA]" />
+                <DollarSign className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
                 <span className="text-gray-400">Suggested Pay</span>
               </div>
               <div className="text-right">
-                <p className="text-xl font-bold text-[#00D4AA]">
+                <p className="text-xl font-bold" style={{ color: 'var(--sec-success)' }}>
                   R{job.suggested_pay_amount}
                   {job.suggested_pay_type === 'hourly' && '/hr'}
                 </p>

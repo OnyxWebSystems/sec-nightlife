@@ -54,6 +54,7 @@ import BusinessPromotions from './pages/BusinessPromotions';
 import ChatRoom from './pages/ChatRoom';
 import ChangeEmail from './pages/ChangeEmail';
 import ChangePassword from './pages/ChangePassword';
+import CreateHostEvent from './pages/CreateHostEvent';
 import CreateJob from './pages/CreateJob';
 import CreateTable from './pages/CreateTable';
 import EditProfile from './pages/EditProfile';
@@ -65,6 +66,7 @@ import Friends from './pages/Friends';
 import HelpCenter from './pages/HelpCenter';
 import Home from './pages/Home';
 import HostDashboard from './pages/HostDashboard';
+import HostEventDetails from './pages/HostEventDetails';
 import JobDetails from './pages/JobDetails';
 import Jobs from './pages/Jobs';
 import Leaderboard from './pages/Leaderboard';
@@ -102,6 +104,7 @@ export const PAGES = {
     "ChatRoom": ChatRoom,
     "ChangeEmail": ChangeEmail,
     "ChangePassword": ChangePassword,
+    "CreateHostEvent": CreateHostEvent,
     "CreateJob": CreateJob,
     "CreateTable": CreateTable,
     "EditProfile": EditProfile,
@@ -112,6 +115,7 @@ export const PAGES = {
     "Friends": Friends,
     "Home": Home,
     "HostDashboard": HostDashboard,
+    "HostEventDetails": HostEventDetails,
     "JobDetails": JobDetails,
     "Jobs": Jobs,
     "Leaderboard": Leaderboard,

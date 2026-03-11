@@ -20,7 +20,7 @@ export default function TicketSuccess() {
   return (
     <div className="min-h-screen bg-[#0A0A0B] flex items-center justify-center p-6">
       <div className="max-w-md w-full text-center space-y-6">
-        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#00D4AA] to-[#00D4AA]/80 flex items-center justify-center mx-auto">
+        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[var(--sec-success)] to-[var(--sec-success)]/80 flex items-center justify-center mx-auto">
           <CheckCircle className="w-12 h-12 text-white" />
         </div>
 
@@ -30,7 +30,7 @@ export default function TicketSuccess() {
         </div>
 
         <div className="glass-card rounded-2xl p-6 space-y-4">
-          <div className="flex items-center justify-center gap-2 text-[#00D4AA]">
+          <div className="flex items-center justify-center gap-2 text-[var(--sec-success)]">
             <CheckCircle className="w-5 h-5" />
             <span className="font-semibold">Tickets Confirmed</span>
           </div>
@@ -42,7 +42,7 @@ export default function TicketSuccess() {
         <div className="space-y-3">
           <Button
             onClick={() => navigate(createPageUrl('Events'))}
-            className="w-full bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+            className="w-full bg-gradient-to-r from-[var(--sec-accent)] to-[var(--sec-accent)]"
           >
             <Calendar className="w-4 h-4 mr-2" />
             Browse More Events

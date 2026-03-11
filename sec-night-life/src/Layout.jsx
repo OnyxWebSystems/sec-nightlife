@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
+import { apiGet } from '@/api/client';
 import SecLogo from '@/components/ui/SecLogo';
+import CreateActionCenter from '@/components/CreateActionCenter';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
   LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2
@@ -23,6 +25,7 @@ export default function Layout({ children, currentPageName }) {
   const [notifications, setNotifications] = useState([]);
   const [activeMode, setActiveMode] = useState(null);
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => { loadUser(); }, []);
 
@@ -41,17 +44,25 @@ export default function Layout({ children, currentPageName }) {
 
       let hasBusiness = currentUser.role === 'VENUE';
       let hasHost = false;
+      try {
+        const rolesRes = await apiGet('/api/user-roles/me');
+        if (rolesRes && (rolesRes.host || rolesRes.business)) {
+          hasHost = rolesRes.host;
+          hasBusiness = rolesRes.business || hasBusiness;
+        }
+      } catch {}
       if (!hasBusiness) {
         try {
           const venues = await dataService.Venue.filter({ owner_user_id: currentUser.id });
           hasBusiness = venues.length > 0;
         } catch {}
       }
-      try {
-        const tables = await dataService.Table.filter({ host_user_id: currentUser.id });
-        hasHost = tables.length > 0;
-      } catch {}
-
+      if (!hasHost) {
+        try {
+          const tables = await dataService.Table.filter({ host_user_id: currentUser.id });
+          hasHost = tables.length > 0;
+        } catch {}
+      }
       setUserRoles({ partygoer: true, host: hasHost, business: hasBusiness });
 
       const saved = localStorage.getItem('sec_active_mode');
@@ -136,27 +147,27 @@ export default function Layout({ children, currentPageName }) {
   const mode = activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : userRoles.host ? 'host' : 'partygoer');
   const { primary: primaryNav, secondary: secondaryNav } = NAV[mode];
 
-  // Mobile: Instagram-style bottom nav - Home, Events, Create, Messages, Notifications, Profile
+  // Mobile: Unified 5-tab bottom nav — Home, Events, Create, Messages, Profile
   const mobileNav = mode === 'business'
     ? [
         { name: 'Home', icon: LayoutDashboard, page: 'BusinessDashboard' },
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
-        { name: 'Post Job', icon: Plus, page: 'CreateJob', isCreate: true },
+        { name: 'Create', icon: Plus, page: null, isCreate: true },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
-        { name: 'More', icon: Bell, page: 'Notifications' },
+        { name: 'Profile', icon: User, page: 'Profile' },
       ]
     : mode === 'host'
     ? [
         { name: 'Home', icon: LayoutDashboard, page: 'HostDashboard' },
         { name: 'Events', icon: Calendar, page: 'Events' },
-        { name: 'Create', icon: Plus, page: 'CreateTable', isCreate: true },
+        { name: 'Create', icon: Plus, page: null, isCreate: true },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ]
     : [
         { name: 'Home', icon: Home, page: 'Home' },
         { name: 'Events', icon: Calendar, page: 'Events' },
-        { name: 'Create', icon: Plus, page: 'CreateTable', isCreate: true },
+        { name: 'Create', icon: Plus, page: null, isCreate: true },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ];
@@ -213,18 +224,30 @@ export default function Layout({ children, currentPageName }) {
         )}
 
         <nav style={{ flex: 1, padding: '14px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {primaryNav.map((item) => (
-            <Link
-              key={item.page + item.name}
-              to={createPageUrl(item.page)}
-              className="sec-nav-item"
-              style={isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}}
-            >
-              <item.icon {...iconProps} />
-              <span>{item.name}</span>
-              {item.isCreate && <span className="sec-badge sec-badge-gold" style={{ marginLeft: 'auto' }}>New</span>}
-            </Link>
-          ))}
+          {primaryNav.map((item) =>
+            item.isCreate ? (
+              <button
+                key={item.page + item.name}
+                onClick={() => setShowCreateModal(true)}
+                className="sec-nav-item"
+                style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'none', font: 'inherit' }}
+              >
+                <item.icon {...iconProps} />
+                <span>{item.name}</span>
+                <span className="sec-badge sec-badge-gold" style={{ marginLeft: 'auto' }}>New</span>
+              </button>
+            ) : (
+              <Link
+                key={item.page + item.name}
+                to={createPageUrl(item.page)}
+                className="sec-nav-item"
+                style={isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}}
+              >
+                <item.icon {...iconProps} />
+                <span>{item.name}</span>
+              </Link>
+            )
+          )}
           <div style={{ margin: '10px 2px', height: 1, backgroundColor: 'var(--sec-border)' }} />
           {secondaryNav.map((item) => (
             <Link
@@ -266,6 +289,8 @@ export default function Layout({ children, currentPageName }) {
         {children}
       </main>
 
+      <CreateActionCenter open={showCreateModal} onOpenChange={setShowCreateModal} userRoles={userRoles} />
+
       {/* ── Mobile Bottom Navigation (Instagram-style) ── */}
       <nav
         className="lg:hidden"
@@ -278,29 +303,46 @@ export default function Layout({ children, currentPageName }) {
       >
         <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'space-around', height: 64, paddingLeft: 4, paddingRight: 4 }}>
           {mobileNav.map((item) => {
-            const active = isActive(item.page);
             const isCreate = item.isCreate;
-            return (
-              <Link
-                key={item.page}
-                to={createPageUrl(item.page)}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                  padding: '12px 8px', flex: 1, minWidth: 0, textDecoration: 'none',
-                  color: isCreate ? 'var(--sec-bg-base)' : active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
-                }}
-              >
+            const active = isCreate ? showCreateModal : isActive(item.page);
+            const navContent = (
+              <>
                 {active && !isCreate && (
                   <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 24, height: 2, background: 'var(--sec-gradient-silver)', borderRadius: 2 }} />
                 )}
                 {isCreate ? (
-                  <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--sec-gradient-silver)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 12px rgba(192,192,192,0.22)' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--sec-gradient-silver)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 12px rgba(192,192,192,0.22)', color: 'var(--sec-bg-base)' }}>
                     <item.icon size={22} strokeWidth={2} />
                   </div>
                 ) : (
                   <item.icon size={24} strokeWidth={1.5} />
                 )}
                 <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'inherit' }}>{item.name}</span>
+              </>
+            );
+            return isCreate ? (
+              <button
+                key="create"
+                onClick={() => setShowCreateModal(true)}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                  padding: '12px 8px', flex: 1, minWidth: 0, border: 'none', background: 'none', cursor: 'pointer',
+                  color: 'var(--sec-accent)',
+                }}
+              >
+                {navContent}
+              </button>
+            ) : (
+              <Link
+                key={item.page}
+                to={createPageUrl(item.page)}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                  padding: '12px 8px', flex: 1, minWidth: 0, textDecoration: 'none',
+                  color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
+                }}
+              >
+                {navContent}
               </Link>
             );
           })}

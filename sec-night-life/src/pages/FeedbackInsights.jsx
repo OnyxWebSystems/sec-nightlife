@@ -70,7 +70,7 @@ export default function FeedbackInsights() {
             <h1 className="text-3xl font-bold gradient-text">Feedback Insights</h1>
             <p className="text-gray-500 mt-1">AI-powered analysis of customer reviews</p>
           </div>
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#FF3366] to-[#7C3AED] flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
             <Brain className="w-6 h-6 text-white" />
           </div>
         </div>
@@ -95,7 +95,7 @@ export default function FeedbackInsights() {
             <Button
               onClick={handleAnalyze}
               disabled={isAnalyzing || !selectedVenue}
-              className="w-full bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
+              className="w-full sec-btn-accent"
             >
               {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Brain className="w-4 h-4 mr-2" />}
               Analyze Feedback
@@ -113,7 +113,7 @@ export default function FeedbackInsights() {
                     <p className="text-gray-500 text-sm">Total Reviews</p>
                     <p className="text-3xl font-bold text-white mt-1">{stats.total_reviews}</p>
                   </div>
-                  <Users className="w-8 h-8 text-[#00D4AA]" />
+                  <Users className="w-8 h-8" style={{ color: 'var(--sec-success)' }} />
                 </div>
               </CardContent>
             </Card>
@@ -125,7 +125,7 @@ export default function FeedbackInsights() {
                     <p className="text-gray-500 text-sm">Average Rating</p>
                     <p className="text-3xl font-bold text-white mt-1">{stats.average_rating.toFixed(1)}</p>
                   </div>
-                  <Star className="w-8 h-8 text-[#FFD700]" />
+                  <Star className="w-8 h-8 " />
                 </div>
               </CardContent>
             </Card>
@@ -139,8 +139,8 @@ export default function FeedbackInsights() {
                       <span className="text-xs text-gray-500 w-4">{rating}★</span>
                       <div className="flex-1 h-2 bg-[#141416] rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-gradient-to-r from-[#FF3366] to-[#7C3AED]"
-                          style={{ width: `${(stats.rating_breakdown[rating] / stats.total_reviews) * 100}%` }}
+                          className="h-full"
+                          style={{ width: `${(stats.rating_breakdown[rating] / stats.total_reviews) * 100}%`, background: 'var(--sec-gradient-silver)' }}
                         />
                       </div>
                       <span className="text-xs text-gray-500 w-8">{stats.rating_breakdown[rating]}</span>
@@ -169,7 +169,7 @@ export default function FeedbackInsights() {
             <Card className="glass-card border-[#262629]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-[#00D4AA]" />
+                  <TrendingUp className="w-5 h-5 " />
                   What Customers Love
                 </CardTitle>
               </CardHeader>
@@ -177,7 +177,7 @@ export default function FeedbackInsights() {
                 <ul className="space-y-2">
                   {insights.positive_themes.map((theme, idx) => (
                     <li key={idx} className="flex items-start gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#00D4AA] mt-2" />
+                      <div className="w-1.5 h-1.5 rounded-full mt-2" style={{ backgroundColor: 'var(--sec-success)' }} />
                       <span className="text-gray-300">{theme}</span>
                     </li>
                   ))}
@@ -190,7 +190,7 @@ export default function FeedbackInsights() {
               <Card className="glass-card border-[#262629]">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <TrendingDown className="w-5 h-5 text-[#FF3366]" />
+                    <TrendingDown className="w-5 h-5" style={{ color: 'var(--sec-error)' }} />
                     Areas for Improvement
                   </CardTitle>
                 </CardHeader>
@@ -198,7 +198,7 @@ export default function FeedbackInsights() {
                   <ul className="space-y-2">
                     {insights.negative_themes.map((theme, idx) => (
                       <li key={idx} className="flex items-start gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#FF3366] mt-2" />
+                        <div className="w-1.5 h-1.5 rounded-full mt-2" style={{ backgroundColor: 'var(--sec-error)' }} />
                         <span className="text-gray-300">{theme}</span>
                       </li>
                     ))}
@@ -211,7 +211,7 @@ export default function FeedbackInsights() {
             <Card className="glass-card border-[#262629]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
-                  <Brain className="w-5 h-5 text-[#7C3AED]" />
+                  <Brain className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                   AI Recommendations
                 </CardTitle>
               </CardHeader>
@@ -220,7 +220,7 @@ export default function FeedbackInsights() {
                   {insights.recommendations.map((rec, idx) => (
                     <li key={idx} className="p-3 rounded-lg bg-[#141416] border border-[#262629]">
                       <div className="flex items-start gap-3">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#FF3366] to-[#7C3AED] flex items-center justify-center flex-shrink-0 text-xs font-bold">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold" style={{ background: 'var(--sec-gradient-silver)', color: 'var(--sec-bg-base)' }}>
                           {idx + 1}
                         </div>
                         <span className="text-gray-300">{rec}</span>

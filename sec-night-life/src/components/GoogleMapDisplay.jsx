@@ -94,7 +94,7 @@ export default function GoogleMapDisplay({ latitude = -33.9249, longitude = 18.4
         icon: {
           path: window.google.maps.SymbolPath.CIRCLE,
           scale: 8,
-          fillColor: '#FF3366',
+          fillColor: '#C0C0C0',
           fillOpacity: 1,
           strokeColor: '#ffffff',
           strokeWeight: 2,

@@ -43,12 +43,18 @@ export default function HostDashboard() {
     enabled: !!user?.id,
   });
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['host-events'],
+  const { data: venueEvents = [] } = useQuery({
+    queryKey: ['venue-events'],
     queryFn: () => dataService.Event.filter({ status: 'published' }),
   });
 
-  const eventsMap = events.reduce((acc, event) => {
+  const { data: myHostEvents = [] } = useQuery({
+    queryKey: ['my-host-events', user?.id],
+    queryFn: () => dataService.HostEvent.filter({ host_user_id: user.id }),
+    enabled: !!user?.id,
+  });
+
+  const eventsMap = venueEvents.reduce((acc, event) => {
     acc[event.id] = event;
     return acc;
   }, {});
@@ -185,6 +191,41 @@ export default function HostDashboard() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* My Host Events (informal: house parties, boat parties, etc.) */}
+        <div className="sec-card" style={{ padding: 20, marginTop: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--sec-text-primary)' }}>My Host Events</h2>
+            <Link to={createPageUrl('CreateHostEvent')} className="sec-btn sec-btn-ghost" style={{ padding: '8px 12px', fontSize: 13, textDecoration: 'none' }}>
+              <Plus size={14} strokeWidth={1.5} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+              Create
+            </Link>
+          </div>
+          {myHostEvents.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {myHostEvents.slice(0, 5).map((ev) => (
+                <div key={ev.id} className="sec-card" style={{ padding: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <p style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>{ev.title}</p>
+                    <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
+                      {ev.city || ev.location || 'TBA'} • {format(parseISO(ev.date), 'MMM d, yyyy')}
+                    </p>
+                  </div>
+                  <span className={`sec-badge ${ev.status === 'published' ? 'sec-badge-success' : 'sec-badge-muted'}`}>{ev.status}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 24 }}>
+              <Calendar size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
+              <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 16 }}>Host house parties, boat parties & more</p>
+              <Link to={createPageUrl('CreateHostEvent')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
+                <Plus size={16} strokeWidth={1.5} />
+                Create Host Event
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Register Venue — for hosts who want to list venues and create events */}
