@@ -65,13 +65,13 @@ export default function Map() {
   const [selectedVenue, setSelectedVenue] = useState(null);
   const [viewMode, setViewMode] = useState('venues'); // 'venues' | 'events' | 'tables'
   const [userLocation, setUserLocation] = useState(null);
-  const [showList, setShowList] = useState(false);
   const [map, setMap] = useState(null);
+  const [mapError, setMapError] = useState(null);
   const mapRef = React.useRef(null);
 
   const { data: venues = [] } = useQuery({
     queryKey: ['map-venues'],
-    queryFn: () => dataService.Venue.filter({ compliance_status: 'approved' }),
+    queryFn: () => dataService.Venue.list(),
   });
 
   const { data: events = [] } = useQuery({
@@ -100,11 +100,12 @@ export default function Map() {
         return;
       }
       if (map) return;
+      setMapError(null);
 
       await loadGoogleMapsAPI();
 
       if (!window.google?.maps?.Map) {
-        console.error('Google Maps API not available');
+        setMapError('Unable to load map. Please check that VITE_GOOGLE_MAPS_API_KEY is set in your deployment.');
         return;
       }
 
@@ -152,6 +153,7 @@ export default function Map() {
         }
       } catch (err) {
         console.error('Failed to initialize map:', err);
+        setMapError('Unable to load map. Please try again.');
       }
     };
 
@@ -188,82 +190,96 @@ export default function Map() {
   }, [map, filteredItems]);
 
   const mapLoaded = !!map;
-  const displayItems = viewMode === 'venues' ? filteredItems : viewMode === 'events' ? events : [];
+  const hasNoVenuesWithCoords = venuesWithCoords.length === 0;
+  const hasSearchNoResults = viewMode === 'venues' && searchQuery && filteredItems.length === 0;
 
   return (
-    <div style={{ minHeight: '100vh', position: 'relative', backgroundColor: 'var(--sec-bg-base)', display: 'flex', flexDirection: 'column' }}>
-      {/* Google Map - background, only visible when loaded */}
-      <div ref={mapRef} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40vh', minHeight: 200, opacity: mapLoaded ? 1 : 0, backgroundColor: 'var(--sec-bg-elevated)' }} />
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', display: 'flex', flexDirection: 'column' }}>
+      {/* Map section - fixed height */}
+      <div style={{ position: 'relative', height: 280, flexShrink: 0, backgroundColor: 'var(--sec-bg-elevated)' }}>
+        <div
+          ref={mapRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            opacity: mapLoaded && !mapError ? 1 : 0,
+          }}
+        />
+        {mapError && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'var(--sec-bg-elevated)',
+              padding: 24,
+              textAlign: 'center',
+            }}
+          >
+            <MapPin size={36} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
+            <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500, marginBottom: 6 }}>Map unavailable</p>
+            <p style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>Browse venues in the list below.</p>
+          </div>
+        )}
 
-      {/* Search Overlay */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, padding: 16 }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={20} strokeWidth={1.5} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
-          <input
-            placeholder="Search locations..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="sec-input"
-            style={{ width: '100%', paddingLeft: 44, height: 48, borderRadius: 12 }}
-          />
-        </div>
-
-        {/* Mode Tabs */}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          {modes.map((mode) => (
-            <button
-              key={mode.value}
-              onClick={() => setViewMode(mode.value)}
+        {/* Search bar - compact overlay */}
+        <div style={{ position: 'absolute', top: 12, left: 16, right: 56, zIndex: 10 }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={18} strokeWidth={1.5} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
+            <input
+              placeholder="Search venues..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               style={{
-                padding: '8px 16px',
-                borderRadius: 999,
-                fontSize: 13,
-                fontWeight: 500,
-                backgroundColor: viewMode === mode.value ? 'var(--sec-accent)' : 'var(--sec-bg-card)',
-                color: viewMode === mode.value ? 'var(--sec-bg-base)' : 'var(--sec-text-muted)',
-                border: `1px solid ${viewMode === mode.value ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
-                transition: 'all 0.15s ease'
+                width: '100%',
+                paddingLeft: 42,
+                height: 44,
+                borderRadius: 12,
+                border: '1px solid var(--sec-border)',
+                backgroundColor: 'var(--sec-bg-card)',
+                color: 'var(--sec-text-primary)',
+                fontSize: 15,
               }}
-            >
-              {mode.label}
-            </button>
-          ))}
+            />
+          </div>
         </div>
+
+        {/* Current Location - top right */}
+        <button
+          onClick={() => userLocation && map && (map.panTo(userLocation), map.setZoom(15))}
+          className="sec-btn sec-btn-ghost"
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 16,
+            zIndex: 10,
+            width: 44,
+            height: 44,
+            borderRadius: 12,
+            padding: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'var(--sec-bg-card)',
+            border: '1px solid var(--sec-border)',
+          }}
+        >
+          <Navigation size={20} strokeWidth={1.5} />
+        </button>
       </div>
 
-      {/* Toggle List Button */}
-      <button
-        onClick={() => setShowList(!showList)}
-        className="sec-nav-icon"
-        style={{ position: 'absolute', bottom: 112, right: 16, zIndex: 1000, width: 48, height: 48, borderRadius: '50%' }}
-      >
-        <MapPin size={20} strokeWidth={1.5} />
-      </button>
-
-      {/* Current Location Button */}
-      <button
-        onClick={() => {
-          if (userLocation && map) {
-            map.panTo(userLocation);
-            map.setZoom(15);
-          }
-        }}
-        className="sec-btn sec-btn-primary"
-        style={{ position: 'absolute', bottom: 112, left: 16, zIndex: 1000, width: 48, height: 48, borderRadius: '50%', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >
-        <Navigation size={20} strokeWidth={1.5} />
-      </button>
-
-      {/* Selected Venue Card */}
-      <AnimatePresence>
-        {selectedVenue && (
+      {/* Selected Venue Card - show in list area when venue selected (cleaner) */}
+      {selectedVenue && (
+        <div style={{ padding: '0 16px 16px' }}>
           <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            style={{ position: 'absolute', bottom: 112, left: 16, right: 16, zIndex: 1000 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="sec-card"
+            style={{ borderRadius: 16, padding: 16, position: 'relative' }}
           >
-            <div className="sec-card" style={{ borderRadius: 16, padding: 16, position: 'relative' }}>
               <button
                 onClick={() => setSelectedVenue(null)}
                 className="sec-nav-icon"
@@ -320,15 +336,36 @@ export default function Map() {
                   Directions
                 </a>
               </div>
-            </div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
 
-      {/* Main content - always show venues/events list */}
-      <div style={{ flex: 1, marginTop: 140, padding: '0 16px 32px 24px', overflowY: 'auto', zIndex: 10, position: 'relative' }}>
-        <h3 style={{ fontSize: 17, fontWeight: 600, marginBottom: 16, color: 'var(--sec-text-primary)' }}>
-          {viewMode === 'venues' ? 'Venues' : viewMode === 'events' ? 'Events' : 'Tables'}
+      {/* Main content - venues/events list */}
+      <div style={{ flex: 1, padding: '20px 16px 100px', overflowY: 'auto' }}>
+        {/* Mode tabs - moved here for cleaner layout */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          {modes.map((mode) => (
+            <button
+              key={mode.value}
+              onClick={() => setViewMode(mode.value)}
+              style={{
+                padding: '10px 18px',
+                borderRadius: 12,
+                fontSize: 14,
+                fontWeight: 500,
+                backgroundColor: viewMode === mode.value ? 'var(--sec-accent)' : 'var(--sec-bg-card)',
+                color: viewMode === mode.value ? 'var(--sec-bg-base)' : 'var(--sec-text-secondary)',
+                border: `1px solid ${viewMode === mode.value ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+        <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, color: 'var(--sec-text-primary)' }}>
+          {viewMode === 'venues' ? 'Nightlife Venues' : viewMode === 'events' ? 'Upcoming Events' : 'Tables'}
         </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {viewMode === 'venues' && filteredItems.map((venue) => (
@@ -374,62 +411,30 @@ export default function Map() {
               </Link>
             ))}
             {viewMode === 'venues' && filteredItems.length === 0 && (
-              <p style={{ color: 'var(--sec-text-muted)', padding: 24, textAlign: 'center' }}>No venues match your search</p>
+              <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
+                <MapPin size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
+                <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500, marginBottom: 4 }}>
+                  {hasNoVenuesWithCoords ? 'No venues with locations yet' : hasSearchNoResults ? 'No venues match your search' : 'No venues'}
+                </p>
+                <p style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>
+                  {hasNoVenuesWithCoords ? 'Venues will appear here once added.' : hasSearchNoResults ? 'Try a different search term.' : ''}
+                </p>
+              </div>
             )}
             {viewMode === 'events' && events.length === 0 && (
-              <p style={{ color: 'var(--sec-text-muted)', padding: 24, textAlign: 'center' }}>No upcoming events</p>
+              <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
+                <Calendar size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
+                <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500 }}>No upcoming events</p>
+              </div>
             )}
             {viewMode === 'tables' && (
-              <p style={{ color: 'var(--sec-text-muted)', padding: 24, textAlign: 'center' }}>Tables will appear here. Switch to Venues or Events to browse.</p>
+              <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Browse Venues or Events to find tables.</p>
+              </div>
             )}
           </div>
         </div>
 
-      {/* List Panel (slide-up when map loaded) */}
-      <AnimatePresence>
-        {showList && mapLoaded && (
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 1001, backgroundColor: 'var(--sec-bg-base)', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '60vh', overflow: 'hidden', borderTop: '1px solid var(--sec-border)' }}
-          >
-            <div style={{ padding: 16, borderBottom: '1px solid var(--sec-border)' }}>
-              <div style={{ width: 48, height: 4, borderRadius: 999, backgroundColor: 'var(--sec-border)', margin: '0 auto 16px' }} />
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <h3 style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>Nearby {viewMode}</h3>
-                <button onClick={() => setShowList(false)} className="sec-nav-icon" style={{ width: 40, height: 40 }}>
-                  <X size={20} strokeWidth={1.5} />
-                </button>
-              </div>
-            </div>
-
-            <div style={{ overflowY: 'auto', maxHeight: 'calc(60vh - 80px)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {viewMode === 'venues' && filteredItems.map((venue) => (
-                <button
-                  key={venue.id}
-                  onClick={() => { setSelectedVenue(venue); setShowList(false); }}
-                  className="sec-card"
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: 12, borderRadius: 12, textAlign: 'left' }}
-                >
-                  <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: 'var(--sec-bg-elevated)', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {venue.cover_image_url ? (
-                      <img src={venue.cover_image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      <MapPin size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-                    )}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <h4 style={{ fontWeight: 500, color: 'var(--sec-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{venue.name}</h4>
-                    <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{venue.city}</p>
-                  </div>
-                  <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

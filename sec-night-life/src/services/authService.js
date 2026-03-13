@@ -18,7 +18,20 @@ export function redirectToLogin(returnUrl) {
   clearTokens();
   const base = window.location.origin;
   const loginPath = '/Login'; // Must match route in pages.config
-  let target = returnUrl ? base + loginPath + '?returnUrl=' + encodeURIComponent(returnUrl) : base + loginPath;
+  let pathOnly = null;
+  if (returnUrl && typeof returnUrl === 'string') {
+    if (returnUrl.startsWith('http')) {
+      try {
+        const u = new URL(returnUrl);
+        pathOnly = u.pathname + (u.search || '');
+      } catch {
+        pathOnly = '/Home';
+      }
+    } else {
+      pathOnly = returnUrl.startsWith('/') ? returnUrl : '/' + returnUrl;
+    }
+  }
+  let target = pathOnly ? base + loginPath + '?returnUrl=' + encodeURIComponent(pathOnly) : base + loginPath;
   try {
     const intent = localStorage.getItem('sec-role-intent');
     if (intent) target += (target.includes('?') ? '&' : '?') + 'role=' + encodeURIComponent(intent);

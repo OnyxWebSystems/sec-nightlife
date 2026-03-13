@@ -109,6 +109,7 @@ model UserProfile {
   interests            String[] @default([])
   musicPreferences     String[] @default([]) @map("music_preferences")
   friends              String[] @default([])
+  followedVenues       String[] @default([]) @map("followed_venues")
   onboardingComplete   Boolean  @default(false) @map("onboarding_complete")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")

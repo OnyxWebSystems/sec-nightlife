@@ -44,8 +44,8 @@ export default function Login() {
       const role = roleParam === 'BUSINESS_OWNER' ? 'VENUE' : roleParam === 'PARTY_GOER' ? 'USER' : getBackendRole();
       await authService.login(email, password, role);
       toast.success('Signed in successfully');
-      const target = (returnUrl.startsWith('/') ? returnUrl : '/' + returnUrl);
-      window.location.href = target.startsWith('http') ? target : window.location.origin + target;
+      const path = (returnUrl && returnUrl.startsWith('/')) ? returnUrl : '/' + (returnUrl || 'Home').replace(/^\/+/, '');
+      window.location.href = window.location.origin + path;
     } catch (err) {
       toast.error(err?.data?.error || err?.message || 'Sign in failed');
     } finally {

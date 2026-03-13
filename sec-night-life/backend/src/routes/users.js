@@ -24,6 +24,7 @@ const profileUpdateSchema = z.object({
   interests: z.array(z.string()).optional().nullable(),
   music_preferences: z.array(z.string()).optional().nullable(),
   friends: z.array(z.string()).optional().nullable(),
+  followed_venues: z.array(z.string()).optional().nullable(),
   onboarding_complete: z.boolean().optional().nullable()
 });
 
@@ -59,6 +60,7 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       interests: profile?.interests ?? [],
       music_preferences: profile?.musicPreferences ?? [],
       friends: profile?.friends ?? [],
+      followed_venues: profile?.followedVenues ?? [],
       onboarding_complete: profile?.onboardingComplete ?? false
     };
     res.json(Array.isArray(result) ? result : [result]);
@@ -108,6 +110,7 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       interests: profile?.interests ?? [],
       music_preferences: profile?.musicPreferences ?? [],
       friends: profile?.friends ?? [],
+      followed_venues: profile?.followedVenues ?? [],
       onboarding_complete: profile?.onboardingComplete ?? false
     };
     res.json([result]);
@@ -218,6 +221,7 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
         interests: p?.interests ?? [],
         music_preferences: p?.musicPreferences ?? [],
         friends: p?.friends ?? [],
+        followed_venues: p?.followedVenues ?? [],
         onboarding_complete: p?.onboardingComplete ?? false
       };
     });
@@ -258,7 +262,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
       ...(data.onboarding_complete != null && { onboardingComplete: data.onboarding_complete }),
       ...(data.interests != null && { interests: data.interests }),
       ...(data.music_preferences != null && { musicPreferences: data.music_preferences }),
-      ...(data.friends != null && { friends: data.friends })
+      ...(data.friends != null && { friends: data.friends }),
+      ...(data.followed_venues != null && { followedVenues: data.followed_venues })
     };
     const profile = await prisma.userProfile.upsert({
       where: { userId: req.userId },
@@ -280,6 +285,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       interests: profile.interests,
       music_preferences: profile.musicPreferences,
       friends: profile.friends ?? [],
+      followed_venues: profile.followedVenues ?? [],
       onboarding_complete: profile.onboardingComplete
     });
   } catch (err) {
@@ -314,7 +320,8 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       ...(data.onboarding_complete != null && { onboardingComplete: data.onboarding_complete }),
       ...(data.interests != null && { interests: data.interests }),
       ...(data.music_preferences != null && { musicPreferences: data.music_preferences }),
-      ...(data.friends != null && { friends: data.friends })
+      ...(data.friends != null && { friends: data.friends }),
+      ...(data.followed_venues != null && { followedVenues: data.followed_venues })
     };
     const profile = await prisma.userProfile.upsert({
       where: { userId: req.userId },
@@ -336,6 +343,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       interests: profile.interests,
       music_preferences: profile.musicPreferences,
       friends: profile.friends ?? [],
+      followed_venues: profile.followedVenues ?? [],
       onboarding_complete: profile.onboardingComplete
     });
   } catch (err) {
@@ -376,6 +384,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.interests != null) updates.interests = data.interests;
     if (data.music_preferences != null) updates.musicPreferences = data.music_preferences;
     if (data.friends != null) updates.friends = data.friends;
+    if (data.followed_venues != null) updates.followedVenues = data.followed_venues;
     if (data.onboarding_complete != null) updates.onboardingComplete = data.onboarding_complete;
     const updated = await prisma.userProfile.upsert({
       where: { userId: targetUserId },
@@ -398,6 +407,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       interests: updated.interests,
       music_preferences: updated.musicPreferences,
       friends: updated.friends ?? [],
+      followed_venues: updated.followedVenues ?? [],
       onboarding_complete: updated.onboardingComplete
     });
   } catch (err) {

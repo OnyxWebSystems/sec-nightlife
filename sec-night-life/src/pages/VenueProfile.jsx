@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   ChevronLeft,
   Share2,
@@ -30,10 +31,56 @@ import FeaturedEventCard from '@/components/home/FeaturedEventCard';
 
 export default function VenueProfile() {
   const navigate = useNavigate();
-  const [isFollowing, setIsFollowing] = useState(false);
-  
+  const queryClient = useQueryClient();
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const user = await authService.getCurrentUser();
+        setCurrentUser(user);
+      } catch {
+        setCurrentUser(null);
+      }
+    })();
+  }, []);
+
   const urlParams = new URLSearchParams(window.location.search);
   const venueId = urlParams.get('id');
+
+  const { data: userProfile } = useQuery({
+    queryKey: ['user-profile', currentUser?.email],
+    queryFn: async () => {
+      const profiles = await dataService.User.filter({ created_by: currentUser.email });
+      return profiles[0];
+    },
+    enabled: !!currentUser?.email,
+  });
+
+  const isFollowing = Array.isArray(userProfile?.followed_venues) && userProfile.followed_venues.includes(venueId);
+  const [followLoading, setFollowLoading] = useState(false);
+
+  const followMutation = useMutation({
+    mutationFn: async (follow) => {
+      const list = Array.isArray(userProfile?.followed_venues) ? [...userProfile.followed_venues] : [];
+      const next = follow ? (list.includes(venueId) ? list : [...list, venueId]) : list.filter((id) => id !== venueId);
+      await dataService.User.update(userProfile.id, { followed_venues: next });
+      return next;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['user-profile', currentUser?.email]);
+    },
+    onSettled: () => setFollowLoading(false),
+  });
+
+  const handleFollowClick = () => {
+    if (!currentUser) {
+      authService.redirectToLogin(window.location.pathname + window.location.search);
+      return;
+    }
+    setFollowLoading(true);
+    followMutation.mutate(!isFollowing);
+  };
 
   const { data: venue, isLoading } = useQuery({
     queryKey: ['venue', venueId],
@@ -155,11 +202,12 @@ export default function VenueProfile() {
             </div>
           </div>
           <Button
-            onClick={() => setIsFollowing(!isFollowing)}
+            onClick={handleFollowClick}
+            disabled={followLoading}
             variant={isFollowing ? 'outline' : 'default'}
             className={isFollowing ? 'border-[#262629]' : 'bg-[var(--sec-accent)]'}
           >
-            {isFollowing ? 'Following' : 'Follow'}
+            {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
           </Button>
         </div>
 
