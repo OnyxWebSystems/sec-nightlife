@@ -4,7 +4,6 @@ import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { 
   TrendingUp, 
   DollarSign, 
@@ -12,9 +11,7 @@ import {
   Calendar,
   Star,
   Clock,
-  BarChart3,
-  PieChart,
-  Download
+  PieChart
 } from 'lucide-react';
 import { format, subDays, parseISO } from 'date-fns';
 

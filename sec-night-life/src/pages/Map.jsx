@@ -13,7 +13,7 @@ import {
   Calendar,
   Navigation
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
 
 // Ensure Google Maps API is loaded

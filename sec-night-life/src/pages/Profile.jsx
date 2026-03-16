@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -16,16 +16,12 @@ import {
   Wine,
   Edit3,
   LogOut,
-  Camera,
   Award,
   TrendingUp,
   UserPlus,
   UserCheck,
-  UserX,
   ChevronLeft,
   MessageCircle,
-  Ticket,
-  Music,
   Crown,
   Building2
 } from 'lucide-react';

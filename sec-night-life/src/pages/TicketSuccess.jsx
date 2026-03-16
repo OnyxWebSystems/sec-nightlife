@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Calendar, Download } from 'lucide-react';
+import { CheckCircle, Calendar } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export default function TicketSuccess() {

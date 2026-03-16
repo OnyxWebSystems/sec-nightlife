@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { format, parseISO, isToday, isTomorrow, isThisWeek, isSaturday, isSunday } from 'date-fns';
+import { parseISO, isToday, isThisWeek, isSaturday, isSunday } from 'date-fns';
 import { motion } from 'framer-motion';
 
 import TrendingTableCard from '@/components/home/TrendingTableCard';

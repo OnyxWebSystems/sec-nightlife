@@ -10,13 +10,10 @@ import {
   Plus,
   Users,
   User,
-  Briefcase,
-  ChevronRight,
-  Check,
-  CheckCheck
+  Briefcase
 } from 'lucide-react';
 import { Input } from "@/components/ui/input";
-import { format, formatDistanceToNow, parseISO } from 'date-fns';
+import { formatDistanceToNow, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
 
 export default function Messages() {

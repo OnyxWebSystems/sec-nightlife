@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { dataService } from '@/services/dataService';
 import { format, parseISO } from 'date-fns';
-import { Calendar, UserPlus, ChevronRight } from 'lucide-react';
+import { Calendar, UserPlus } from 'lucide-react';
 
 export default function TrendingTableCard({ table }) {
   const navigate = useNavigate();

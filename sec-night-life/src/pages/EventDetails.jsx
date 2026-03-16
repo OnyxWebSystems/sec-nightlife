@@ -10,7 +10,6 @@ import {
   Users, Ticket, BadgeCheck, Music, Star, Plus, ChevronRight, Navigation,
 } from 'lucide-react';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
-import { motion } from 'framer-motion';
 
 import TrendingTableCard from '@/components/home/TrendingTableCard';
 import TicketPurchaseButton from '@/components/events/TicketPurchaseButton';

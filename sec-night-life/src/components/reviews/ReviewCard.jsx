@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from "@/components/ui/card";
-import { Star, ThumbsUp } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function ReviewCard({ review }) {

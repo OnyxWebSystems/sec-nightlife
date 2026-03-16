@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { createPageUrl } from '@/utils';
 
 export default function ChangeEmail() {
   const navigate = useNavigate();

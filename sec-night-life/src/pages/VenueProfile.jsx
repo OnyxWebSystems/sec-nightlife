@@ -7,7 +7,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   ChevronLeft,
   Share2,
-  Heart,
   MapPin,
   Phone,
   Globe,
@@ -15,9 +14,7 @@ import {
   Star,
   BadgeCheck,
   Calendar,
-  Users,
   Briefcase,
-  Clock,
   Navigation,
   ChevronRight,
   Shield
@@ -27,7 +24,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import { motion } from 'framer-motion';
 
-import FeaturedEventCard from '@/components/home/FeaturedEventCard';
 
 export default function VenueProfile() {
   const navigate = useNavigate();

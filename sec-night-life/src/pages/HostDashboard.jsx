@@ -6,7 +6,6 @@ import { dataService } from '@/services/dataService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Users, Settings, MessageCircle, ChevronRight, Calendar, Clock, TrendingUp, AlertCircle, Plus, Building } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';

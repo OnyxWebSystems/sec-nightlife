@@ -6,18 +6,11 @@ import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
 import { 
   Building,
-  FileText,
   Upload,
   Check,
   ChevronRight,
   ChevronLeft,
-  AlertCircle,
   MapPin,
-  Globe,
-  Instagram,
-  Phone,
-  Mail,
-  Calendar,
   Shield,
   CreditCard,
   X

@@ -31,7 +31,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { format, parseISO } from 'date-fns';
-import { motion } from 'framer-motion';
 
 export default function JobDetails() {
   const navigate = useNavigate();

@@ -8,16 +8,12 @@ import {
   ChevronLeft,
   Users,
   TrendingUp,
-  DollarSign,
-  Star,
   MapPin,
   Wine,
   BadgeCheck,
   Award,
-  UserCheck,
   UserPlus,
-  MessageCircle,
-  Calendar
+  MessageCircle
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";

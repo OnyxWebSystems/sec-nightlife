@@ -13,11 +13,9 @@ import {
   Check,
   Search,
   MapPin,
-  Clock,
   Info,
   Lock,
   LockOpen,
-  UserPlus,
   Link as LinkIcon,
   Copy,
   Share2

@@ -8,17 +8,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   ChevronLeft,
   Send,
-  Users,
   Info,
-  Image,
-  Smile,
-  Paperclip,
-  X,
-  Heart
+  Paperclip
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { format, formatDistanceToNow, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ChatRoom() {

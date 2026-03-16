@@ -2,7 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { dataService } from '@/services/dataService';
 import { Card, CardContent } from "@/components/ui/card";
-import { Star, MapPin, Calendar } from 'lucide-react';
+import { Star, Calendar } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';

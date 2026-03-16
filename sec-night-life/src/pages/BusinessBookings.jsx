@@ -9,8 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  BookOpen, Users, Search, Loader2, Check, X,
-  DollarSign, Calendar, Building2, ChevronRight, Eye
+  BookOpen, Users, Search, Loader2, Check, X, ChevronRight, Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
 

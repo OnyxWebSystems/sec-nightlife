@@ -7,18 +7,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   ChevronLeft,
   Users,
-  DollarSign,
   Check,
   X,
   Edit,
   UserX,
   MessageCircle,
   Calendar,
-  MapPin,
-  Settings,
   Trash2,
-  Crown,
-  Phone
+  Crown
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

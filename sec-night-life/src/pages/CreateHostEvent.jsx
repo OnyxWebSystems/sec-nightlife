@@ -8,10 +8,6 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import {
-  Calendar,
-  MapPin,
-  Users,
-  DollarSign,
   ChevronLeft,
   Loader2,
   Check,
