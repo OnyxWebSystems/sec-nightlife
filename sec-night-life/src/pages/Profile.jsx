@@ -666,17 +666,7 @@ export default function Profile() {
           </div>
         )}
 
-        {/* Logout Button (Own Profile Only) */}
-        {isOwnProfile && (
-          <Button
-            onClick={() => logout(false)}
-            variant="ghost"
-            className="w-full mt-6 text-red-500 hover:text-red-400 hover:bg-red-500/10"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
-          </Button>
-        )}
+        {/* Sign out lives in Home + Settings only (mobile-first) */}
       </div>
     </div>
   );

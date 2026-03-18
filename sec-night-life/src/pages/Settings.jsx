@@ -316,7 +316,10 @@ export default function Settings() {
 
         {/* Logout */}
         <Button
-          onClick={() => logout(false)}
+          onClick={() => {
+            const ok = window.confirm('Sign out of SecNightlife?');
+            if (ok) logout(true);
+          }}
           variant="ghost"
           className="w-full"
           style={{ color: 'var(--sec-error)' }}

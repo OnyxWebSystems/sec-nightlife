@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useRef, useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet } from '@/api/client';
 import SecLogo from '@/components/ui/SecLogo';
 import CreateActionCenter from '@/components/CreateActionCenter';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
   LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2
@@ -20,12 +21,15 @@ const MODES = [
 ];
 
 export default function Layout({ children, currentPageName }) {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [activeMode, setActiveMode] = useState(null);
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showModeSwitcher, setShowModeSwitcher] = useState(false);
+  const longPressTimerRef = useRef(null);
 
   useEffect(() => { loadUser(); }, []);
 
@@ -80,7 +84,7 @@ export default function Layout({ children, currentPageName }) {
     localStorage.setItem('sec_active_mode', mode);
   };
 
-  const hideNav = ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome'].includes(currentPageName);
+  const hideNav = ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName);
   if (hideNav) {
     return (
       <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
@@ -291,6 +295,62 @@ export default function Layout({ children, currentPageName }) {
 
       <CreateActionCenter open={showCreateModal} onOpenChange={setShowCreateModal} userRoles={userRoles} />
 
+      {/* ── Mobile profile switcher (Instagram-style) ── */}
+      <Dialog open={showModeSwitcher} onOpenChange={setShowModeSwitcher}>
+        <DialogContent
+          className="max-w-sm"
+          style={{
+            backgroundColor: 'var(--sec-bg-card)',
+            borderColor: 'var(--sec-border)',
+            color: 'var(--sec-text-primary)',
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--sec-text-primary)' }}>Viewing as</DialogTitle>
+            <DialogDescription style={{ color: 'var(--sec-text-muted)' }}>
+              Switch between your accounts
+            </DialogDescription>
+          </DialogHeader>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {availableModes.map((m) => {
+              const active = mode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    switchMode(m.id);
+                    setShowModeSwitcher(false);
+                    // take user to the “home” of that mode
+                    const dest = m.id === 'business' ? 'BusinessDashboard' : m.id === 'host' ? 'HostDashboard' : 'Home';
+                    navigate(createPageUrl(dest));
+                  }}
+                  className="sec-card"
+                  style={{
+                    padding: 14,
+                    borderRadius: 14,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    cursor: 'pointer',
+                    border: active ? '1px solid var(--sec-accent-border)' : '1px solid var(--sec-border)',
+                    backgroundColor: active ? 'var(--sec-accent-muted)' : 'var(--sec-bg-elevated)',
+                    color: 'var(--sec-text-primary)',
+                  }}
+                >
+                  <m.icon size={18} strokeWidth={1.5} />
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontWeight: 600 }}>{m.label}</div>
+                    <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
+                      {active ? 'Current' : 'Tap to switch'}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Mobile Bottom Navigation (Instagram-style) ── */}
       <nav
         className="lg:hidden"
@@ -320,6 +380,12 @@ export default function Layout({ children, currentPageName }) {
                 <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'inherit' }}>{item.name}</span>
               </>
             );
+            // Instagram-style: long-press or double-tap Profile to switch modes (if multiple)
+            const isProfile = item.page === 'Profile';
+            const openModeSwitcher = () => {
+              if (availableModes.length > 1) setShowModeSwitcher(true);
+            };
+
             return isCreate ? (
               <button
                 key="create"
@@ -333,17 +399,59 @@ export default function Layout({ children, currentPageName }) {
                 {navContent}
               </button>
             ) : (
-              <Link
-                key={item.page}
-                to={createPageUrl(item.page)}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                  padding: '12px 8px', flex: 1, minWidth: 0, textDecoration: 'none',
-                  color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
-                }}
-              >
-                {navContent}
-              </Link>
+              isProfile ? (
+                <button
+                  key={item.page}
+                  onClick={() => navigate(createPageUrl(item.page))}
+                  onDoubleClick={openModeSwitcher}
+                  onTouchStart={() => {
+                    if (availableModes.length <= 1) return;
+                    longPressTimerRef.current = window.setTimeout(() => {
+                      setShowModeSwitcher(true);
+                    }, 450);
+                  }}
+                  onTouchEnd={() => {
+                    if (longPressTimerRef.current) {
+                      clearTimeout(longPressTimerRef.current);
+                      longPressTimerRef.current = null;
+                    }
+                  }}
+                  onTouchCancel={() => {
+                    if (longPressTimerRef.current) {
+                      clearTimeout(longPressTimerRef.current);
+                      longPressTimerRef.current = null;
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 2,
+                    padding: '12px 8px',
+                    flex: 1,
+                    minWidth: 0,
+                    border: 'none',
+                    background: 'none',
+                    cursor: 'pointer',
+                    color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
+                  }}
+                >
+                  {navContent}
+                </button>
+              ) : (
+                <Link
+                  key={item.page}
+                  to={createPageUrl(item.page)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                    padding: '12px 8px', flex: 1, minWidth: 0, textDecoration: 'none',
+                    color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
+                  }}
+                >
+                  {navContent}
+                </Link>
+              )
             );
           })}
         </div>

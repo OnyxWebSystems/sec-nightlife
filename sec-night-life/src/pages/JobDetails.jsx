@@ -31,6 +31,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { format, parseISO } from 'date-fns';
+import { toast } from 'sonner';
 
 export default function JobDetails() {
   const navigate = useNavigate();
@@ -88,32 +89,26 @@ export default function JobDetails() {
 
   const applyMutation = useMutation({
     mutationFn: async () => {
-      const updatedApplicants = [
-        ...(job.applicants || []),
-        {
-          user_id: userProfile?.id,
-          status: 'pending',
-          applied_at: new Date().toISOString(),
-          message: applicationMessage
-        }
-      ];
-      
-      await dataService.Job.update(jobId, {
-        applicants: updatedApplicants
-      });
-
-      // Create chat for negotiation
-      await dataService.Chat.create({
-        type: 'job_negotiation',
-        name: `${job.title} - ${userProfile?.username}`,
-        participants: [userProfile?.id, venue?.owner_user_id].filter(Boolean),
-        related_job_id: jobId
-      });
+      if (!user) {
+        authService.redirectToLogin(window.location.pathname + window.location.search);
+        return;
+      }
+      if (!userProfile?.id) {
+        toast.error('Please complete your profile before applying.');
+        return;
+      }
+      // Backend persists application and notifies venue owner
+      const { apiPost } = await import('@/api/client');
+      await apiPost(`/api/jobs/${jobId}/apply`, { message: applicationMessage || '' });
     },
     onSuccess: () => {
       setShowApplyDialog(false);
       queryClient.invalidateQueries(['job', jobId]);
+      toast.success('Application submitted!');
     },
+    onError: (err) => {
+      toast.error(err?.data?.error || err?.message || 'Failed to submit application');
+    }
   });
 
   if (isLoading) {
@@ -135,7 +130,7 @@ export default function JobDetails() {
     );
   }
 
-  const hasApplied = job.applicants?.some(a => a.user_id === userProfile?.id);
+  const hasApplied = job.applicants?.some(a => a?.user_profile_id === userProfile?.id || a?.user_id === userProfile?.id);
   const spotsRemaining = (job.spots_available || 1) - (job.spots_filled || 0);
   const JOB_ICONS = { promoter: Mic2, table_host: Users, dj: Music, photographer: Camera };
   const JobIcon = JOB_ICONS[job.job_type] || Briefcase;

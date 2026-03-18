@@ -141,7 +141,14 @@ export default function Home() {
           <Link to={createPageUrl('Notifications')} className="sec-nav-icon">
             <Bell size={18} strokeWidth={1.5} />
           </Link>
-          <button onClick={() => logout()} className="sec-btn sec-btn-ghost" style={{ height: 36, padding: '0 14px', fontSize: 12, borderRadius: 'var(--radius-pill)' }}>
+          <button
+            onClick={() => {
+              const ok = window.confirm('Sign out of SecNightlife?');
+              if (ok) logout();
+            }}
+            className="sec-btn sec-btn-ghost"
+            style={{ height: 36, padding: '0 14px', fontSize: 12, borderRadius: 'var(--radius-pill)' }}
+          >
             Sign out
           </button>
         </div>
