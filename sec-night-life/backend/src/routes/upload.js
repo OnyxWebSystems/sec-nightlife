@@ -4,8 +4,15 @@ import { v2 as cloudinary } from 'cloudinary';
 import { authenticateToken } from '../middleware/auth.js';
 
 const router = Router();
-const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const MAX = 10 * 1024 * 1024;
+const ALLOWED = [
+  // Images
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  // Resumes / documents
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+];
+const MAX = 15 * 1024 * 1024;
 
 const upload = multer({
   storage: multer.memoryStorage(),

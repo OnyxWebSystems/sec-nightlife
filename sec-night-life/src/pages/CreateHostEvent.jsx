@@ -78,7 +78,7 @@ export default function CreateHostEvent() {
   if (!user) return null;
 
   return (
-    <div style={{ minHeight: '100vh', paddingBottom: 100, backgroundColor: 'var(--sec-bg-base)' }}>
+    <div style={{ minHeight: '100vh', paddingBottom: 168, backgroundColor: 'var(--sec-bg-base)' }}>
       <header
         style={{
           position: 'sticky',

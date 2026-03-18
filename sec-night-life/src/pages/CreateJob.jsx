@@ -29,8 +29,10 @@ export default function CreateJob() {
   const [user, setUser] = useState(null);
 
   const [form, setForm] = useState({
+    post_for: 'venue', // 'venue' | 'host_event'
     venue_id: '',
     event_id: '',
+    host_event_id: '',
     title: '',
     job_type: 'bartender',
     city: '',
@@ -61,11 +63,23 @@ export default function CreateJob() {
     enabled: !!user,
   });
 
+  const { data: hostEvents = [] } = useQuery({
+    queryKey: ['my-host-events', user?.id],
+    queryFn: () => dataService.HostEvent.filter({ host_user_id: user.id }),
+    enabled: !!user,
+  });
+
   const { data: events = [] } = useQuery({
     queryKey: ['biz-events', form.venue_id],
     queryFn: () => dataService.Event.filter({ venue_id: form.venue_id }),
     enabled: !!form.venue_id,
   });
+
+  React.useEffect(() => {
+    if (venues.length === 0 && hostEvents.length > 0) {
+      setForm((p) => (p.post_for === 'host_event' ? p : { ...p, post_for: 'host_event', venue_id: '', event_id: '' }));
+    }
+  }, [venues.length, hostEvents.length]);
 
   const selectedVenue = venues.find(v => v.id === form.venue_id);
   React.useEffect(() => {
@@ -85,18 +99,27 @@ export default function CreateJob() {
   });
 
   const handleSubmit = () => {
-    if (!form.venue_id || !form.title || !form.city) {
-      toast.error('Please fill in Venue, Job Title, and Location');
+    if (!form.title || !form.city) {
+      toast.error('Please fill in Job Title and Location');
+      return;
+    }
+    if (form.post_for === 'venue' && !form.venue_id) {
+      toast.error('Please select a venue');
+      return;
+    }
+    if (form.post_for === 'host_event' && !form.host_event_id) {
+      toast.error('Please select a host event');
       return;
     }
     const payload = {
-      venue_id: form.venue_id,
       title: form.title,
       job_type: form.job_type,
       city: form.city,
       spots_available: parseInt(form.spots_available) || 1,
     };
-    if (form.event_id) payload.event_id = form.event_id;
+    if (form.post_for === 'venue') payload.venue_id = form.venue_id;
+    if (form.post_for === 'venue' && form.event_id) payload.event_id = form.event_id;
+    if (form.post_for === 'host_event') payload.host_event_id = form.host_event_id;
     if (form.description) payload.description = form.description;
     if (form.suggested_pay_amount) payload.suggested_pay_amount = parseInt(form.suggested_pay_amount);
     if (form.suggested_pay_type) payload.suggested_pay_type = form.suggested_pay_type;
@@ -109,12 +132,12 @@ export default function CreateJob() {
 
   if (!user) return null;
 
-  if (venues.length === 0) {
+  if (venues.length === 0 && hostEvents.length === 0) {
     return (
       <div style={{ padding: 24, textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
         <Briefcase size={48} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 16px' }} />
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No Venue Found</h2>
-        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>Register a venue first to post jobs.</p>
+        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>Create a Host Event or register a venue to post jobs.</p>
         <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))} className="sec-btn sec-btn-primary">
           Register Venue
         </Button>
@@ -123,7 +146,7 @@ export default function CreateJob() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', paddingBottom: 100, backgroundColor: 'var(--sec-bg-base)' }}>
+    <div style={{ minHeight: '100vh', paddingBottom: 168, backgroundColor: 'var(--sec-bg-base)' }}>
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
         <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
           <button onClick={() => navigate(-1)} style={{ width: 40, height: 40, borderRadius: 12, border: '1px solid var(--sec-border)', backgroundColor: 'var(--sec-bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
@@ -137,16 +160,75 @@ export default function CreateJob() {
         <div className="sec-card" style={{ padding: 20, marginBottom: 16 }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Job Details</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {(venues.length > 0 && hostEvents.length > 0) && (
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, post_for: 'venue', host_event_id: '' }))}
+                  className="sec-btn"
+                  style={{
+                    flex: 1,
+                    height: 42,
+                    borderRadius: 12,
+                    backgroundColor: form.post_for === 'venue' ? 'var(--sec-text-primary)' : 'var(--sec-bg-elevated)',
+                    color: form.post_for === 'venue' ? 'var(--sec-bg-base)' : 'var(--sec-text-primary)',
+                    border: `1px solid ${form.post_for === 'venue' ? 'var(--sec-text-primary)' : 'var(--sec-border)'}`,
+                    fontWeight: 700,
+                  }}
+                >
+                  Venue Job
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, post_for: 'host_event', venue_id: '', event_id: '' }))}
+                  className="sec-btn"
+                  style={{
+                    flex: 1,
+                    height: 42,
+                    borderRadius: 12,
+                    backgroundColor: form.post_for === 'host_event' ? 'var(--sec-text-primary)' : 'var(--sec-bg-elevated)',
+                    color: form.post_for === 'host_event' ? 'var(--sec-bg-base)' : 'var(--sec-text-primary)',
+                    border: `1px solid ${form.post_for === 'host_event' ? 'var(--sec-text-primary)' : 'var(--sec-border)'}`,
+                    fontWeight: 700,
+                  }}
+                >
+                  Host Event Job
+                </button>
+              </div>
+            )}
+
+            {venues.length === 0 && hostEvents.length > 0 && form.post_for !== 'host_event' && (
+              <div className="sec-card" style={{ padding: 12, borderRadius: 14, color: 'var(--sec-text-muted)', fontSize: 13 }}>
+                You don’t have a venue yet. Posting this job under a Host Event.
+              </div>
+            )}
+
             <div>
-              <Label className="text-gray-400 text-sm">Venue *</Label>
-              <Select value={form.venue_id} onValueChange={v => setForm(p => ({ ...p, venue_id: v }))}>
-                <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-                  <SelectValue placeholder="Select venue" />
-                </SelectTrigger>
-                <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-                  {venues.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              {form.post_for === 'host_event' || (venues.length === 0 && hostEvents.length > 0) ? (
+                <>
+                  <Label className="text-gray-400 text-sm">Host Event *</Label>
+                  <Select value={form.host_event_id} onValueChange={v => setForm(p => ({ ...p, host_event_id: v, post_for: 'host_event' }))}>
+                    <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                      <SelectValue placeholder="Select host event" />
+                    </SelectTrigger>
+                    <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                      {hostEvents.map(e => <SelectItem key={e.id} value={e.id}>{e.title}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </>
+              ) : (
+                <>
+                  <Label className="text-gray-400 text-sm">Venue *</Label>
+                  <Select value={form.venue_id} onValueChange={v => setForm(p => ({ ...p, venue_id: v, post_for: 'venue' }))}>
+                    <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                      <SelectValue placeholder="Select venue" />
+                    </SelectTrigger>
+                    <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                      {venues.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
             </div>
             <div>
               <Label className="text-gray-400 text-sm">Job Title *</Label>
@@ -192,7 +274,11 @@ export default function CreateJob() {
             </div>
             <div>
               <Label className="text-gray-400 text-sm">Event (optional)</Label>
-              <Select value={form.event_id || '__none__'} onValueChange={v => setForm(p => ({ ...p, event_id: v === '__none__' ? '' : v }))}>
+              <Select
+                value={form.event_id || '__none__'}
+                onValueChange={v => setForm(p => ({ ...p, event_id: v === '__none__' ? '' : v }))}
+                disabled={form.post_for !== 'venue'}
+              >
                 <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
                   <SelectValue placeholder="No specific event" />
                 </SelectTrigger>

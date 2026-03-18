@@ -106,6 +106,8 @@ model UserProfile {
   isVerifiedPromoter   Boolean  @default(false) @map("is_verified_promoter")
   socialReputation     Float    @default(0) @map("social_reputation")
   behaviourScore       Float    @default(100) @map("behaviour_score")
+  serviceRatingAvg     Float    @default(0) @map("service_rating_avg")
+  serviceRatingCount   Int      @default(0) @map("service_rating_count")
   interests            String[] @default([])
   musicPreferences     String[] @default([]) @map("music_preferences")
   friends              String[] @default([])
@@ -272,8 +274,9 @@ model Table {
 // ─── Tier 2: Freelancers / Jobs ───────────────────────────────────────────
 model Job {
   id                 String   @id @default(uuid())
-  venueId            String   @map("venue_id")
+  venueId            String?  @map("venue_id")
   eventId            String?  @map("event_id")
+  hostEventId        String?  @map("host_event_id")
   title              String
   jobType            String   @map("job_type")
   status             String   @default("open")
@@ -292,13 +295,30 @@ model Job {
   updatedAt          DateTime @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
 
-  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  venue Venue? @relation(fields: [venueId], references: [id], onDelete: SetNull)
   event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  hostEvent HostEvent? @relation(fields: [hostEventId], references: [id], onDelete: SetNull)
 
   @@index([venueId])
   @@index([eventId])
+  @@index([hostEventId])
   @@index([status])
   @@map("jobs")
+}
+
+model ServiceRating {
+  id          String   @id @default(uuid())
+  raterUserId String   @map("rater_user_id")
+  rateeUserId String   @map("ratee_user_id")
+  contextType String   @map("context_type")
+  contextId   String   @map("context_id")
+  score       Int
+  message     String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([rateeUserId, createdAt])
+  @@index([contextType, contextId])
+  @@map("service_ratings")
 }
 
 // ─── Tier 3: User Social / Blocks & Reports ───────────────────────────────
@@ -432,6 +452,8 @@ model HostEvent {
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
   deletedAt            DateTime? @map("deleted_at")
+
+  jobs Job[]
 
   @@index([hostUserId])
   @@index([date])

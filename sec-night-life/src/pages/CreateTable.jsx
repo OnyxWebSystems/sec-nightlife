@@ -481,7 +481,7 @@ export default function CreateTable() {
       </div>
 
       {/* Bottom Actions */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: 'rgba(0,0,0,0.95)', backdropFilter: 'blur(16px)', borderTop: '1px solid var(--sec-border)' }}>
+      <div style={{ position: 'fixed', bottom: 'calc(64px + env(safe-area-inset-bottom))', left: 0, right: 0, padding: 16, backgroundColor: 'rgba(0,0,0,0.95)', backdropFilter: 'blur(16px)', borderTop: '1px solid var(--sec-border)' }}>
         <div className="flex gap-3 max-w-md mx-auto">
           {step > 1 && (
             <Button

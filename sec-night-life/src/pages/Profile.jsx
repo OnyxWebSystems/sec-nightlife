@@ -23,7 +23,8 @@ import {
   ChevronLeft,
   MessageCircle,
   Crown,
-  Building2
+  Building2,
+  Briefcase
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -200,7 +201,7 @@ export default function Profile() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', paddingBottom: 32, backgroundColor: 'var(--sec-bg-base)' }}>
+    <div style={{ minHeight: '100vh', paddingBottom: 168, backgroundColor: 'var(--sec-bg-base)' }}>
       <div style={{ position: 'relative', height: 160, backgroundColor: 'var(--sec-bg-elevated)' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, var(--sec-bg-base), transparent)' }} />
         
@@ -344,6 +345,28 @@ export default function Profile() {
               <p className="text-xs text-gray-500">Friends</p>
             </Link>
           </div>
+
+          {/* Job applications - only on own profile */}
+          {isOwnProfile && (
+            <div className="pt-4 border-t border-[#262629]">
+              <Link
+                to={createPageUrl('MyJobApplications')}
+                className="flex items-center gap-4 p-4 rounded-xl border transition-all"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--sec-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-elevated)'; }}
+              >
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
+                  <Briefcase className="w-6 h-6" style={{ color: 'var(--sec-accent)' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold">My Job Applications</p>
+                  <p className="text-xs text-gray-500">Track your job application status (pending, accepted, rejected).</p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+              </Link>
+            </div>
+          )}
 
           {/* Create additional roles - only on own profile */}
           {isOwnProfile && (!userRoles.host || !userRoles.business) && (

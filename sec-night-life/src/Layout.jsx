@@ -289,7 +289,12 @@ export default function Layout({ children, currentPageName }) {
       </aside>
 
       {/* ── Main Content ── */}
-      <main className="lg:ml-[240px] min-h-screen pb-20 lg:pb-0" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <main
+        className="lg:ml-[240px] min-h-screen"
+        style={{
+          paddingBottom: 'calc(84px + env(safe-area-inset-bottom))',
+        }}
+      >
         {children}
       </main>
 
