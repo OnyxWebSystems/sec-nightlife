@@ -154,6 +154,7 @@ router.post('/:id/apply', authenticateToken, async (req, res, next) => {
         message: parsed.data.message || '',
         resume_url: parsed.data.resume_url || '',
         employer_message: '',
+        work_completed_at: null,
       },
     ];
 
@@ -225,6 +226,7 @@ router.get('/applications/me', authenticateToken, async (req, res, next) => {
           message: mine.message || '',
           resume_url: mine.resume_url || '',
           employer_message: mine.employer_message || '',
+          work_completed_at: mine.work_completed_at || null,
         });
       }
     }
@@ -269,6 +271,7 @@ router.get('/:id/applications', authenticateToken, async (req, res, next) => {
         message: a.message || '',
         resume_url: a.resume_url || '',
         employer_message: a.employer_message || '',
+        work_completed_at: a.work_completed_at || null,
       };
     }));
   } catch (err) {
@@ -317,6 +320,54 @@ router.patch('/:id/applications/:profileId', authenticateToken, async (req, res,
             type: 'job_application_update',
             title: `Application ${parsed.data.status}`,
             body: parsed.data.employer_message || `Your application for “${job.title}” is now ${parsed.data.status}.`,
+            data: { job_id: job.id, venue_id: job.venueId },
+            actionUrl: `/MyJobApplications`,
+          },
+        });
+      }
+    } catch {}
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Employer: mark an accepted applicant as "work completed" (unlocks rating)
+router.post('/:id/applications/:profileId/complete', authenticateToken, async (req, res, next) => {
+  try {
+    const job = await prisma.job.findFirst({ where: { id: req.params.id, deletedAt: null } });
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.venueId) {
+      const venue = await prisma.venue.findFirst({ where: { id: job.venueId, deletedAt: null } });
+      if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    } else if (job.hostEventId) {
+      const he = await prisma.hostEvent.findFirst({ where: { id: job.hostEventId, deletedAt: null } });
+      if (!he || he.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    } else {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const apps = Array.isArray(job.applicants) ? job.applicants : [];
+    const idx = apps.findIndex((a) => a && typeof a === 'object' && a.user_profile_id === req.params.profileId);
+    if (idx === -1) return res.status(404).json({ error: 'Application not found' });
+    if ((apps[idx].status || 'pending') !== 'accepted') {
+      return res.status(400).json({ error: 'Only accepted applications can be marked completed.' });
+    }
+    const updated = { ...apps[idx], work_completed_at: new Date().toISOString() };
+    const nextApps = [...apps];
+    nextApps[idx] = updated;
+    await prisma.job.update({ where: { id: job.id }, data: { applicants: nextApps } });
+
+    // Notify applicant
+    try {
+      if (updated.user_account_id) {
+        await prisma.notification.create({
+          data: {
+            userId: updated.user_account_id,
+            type: 'job_completed',
+            title: 'Job marked completed',
+            body: `Your work for “${job.title}” was marked completed.`,
             data: { job_id: job.id, venue_id: job.venueId },
             actionUrl: `/MyJobApplications`,
           },

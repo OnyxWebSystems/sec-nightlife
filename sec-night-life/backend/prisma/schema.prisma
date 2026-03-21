@@ -155,6 +155,7 @@ model Venue {
   events     Event[]
   tables     Table[]
   jobs       Job[]
+  promotions Promotion[]
   reviews    VenueReview[]
   blockedUsers VenueBlockedUser[]
   popularity VenuePopularity[]
@@ -319,6 +320,30 @@ model ServiceRating {
   @@index([rateeUserId, createdAt])
   @@index([contextType, contextId])
   @@map("service_ratings")
+}
+
+model Promotion {
+  id           String   @id @default(uuid())
+  venueId      String   @map("venue_id")
+  type         String
+  title        String
+  description  String?  @db.Text
+  status       String   @default("draft") // draft | published | archived
+  startAt      DateTime? @map("start_at")
+  endAt        DateTime? @map("end_at")
+  boostStatus  String   @default("none") @map("boost_status") // none | pending | active
+  boostRef     String?  @map("boost_ref")
+  boostPaidAt  DateTime? @map("boost_paid_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@index([venueId])
+  @@index([status])
+  @@index([boostStatus])
+  @@map("promotions")
 }
 
 // ─── Tier 3: User Social / Blocks & Reports ───────────────────────────────

@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
-import { apiGet, apiPatch, apiPost, uploadFile } from '@/api/client';
+import { apiGet, apiPatch, apiPost, uploadFile, api } from '@/api/client';
 
 export default function JobDetails() {
   const navigate = useNavigate();
@@ -105,6 +105,19 @@ export default function JobDetails() {
     },
     onError: (err) => {
       toast.error(err?.data?.error || err?.message || 'Failed to update application');
+    }
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: async ({ user_profile_id }) => {
+      return api('POST', `/api/jobs/${jobId}/applications/${user_profile_id}/complete`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['job-applications', jobId]);
+      toast.success('Marked completed');
+    },
+    onError: (err) => {
+      toast.error(err?.data?.error || err?.message || 'Failed to mark completed');
     }
   });
 
@@ -507,40 +520,59 @@ export default function JobDetails() {
               onChange={(e) => setReviewMsg(e.target.value)}
               className="sec-input min-h-[100px]"
             />
-            <div className="sec-card" style={{ padding: 12, borderRadius: 12 }}>
-              <div style={{ fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 8 }}>Rate service (after they work)</div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Score</label>
-                <select
-                  value={ratingScore}
-                  onChange={(e) => setRatingScore(parseInt(e.target.value))}
-                  style={{
-                    height: 38,
-                    borderRadius: 10,
-                    padding: '0 10px',
-                    backgroundColor: 'var(--sec-bg-elevated)',
-                    border: '1px solid var(--sec-border)',
-                    color: 'var(--sec-text-primary)',
-                  }}
+            {selectedApplicant?.status === 'accepted' && !selectedApplicant?.work_completed_at && (
+              <div className="sec-card" style={{ padding: 12, borderRadius: 12 }}>
+                <div style={{ fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 8 }}>After they work</div>
+                <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
+                  Mark the job as completed to unlock ratings.
+                </p>
+                <button
+                  onClick={() => selectedApplicant && completeMutation.mutate({ user_profile_id: selectedApplicant.user_profile_id })}
+                  disabled={completeMutation.isPending}
+                  className="sec-btn sec-btn-primary w-full mt-3"
+                  style={{ height: 44, borderRadius: 12 }}
                 >
-                  {[5,4,3,2,1].map((n) => <option key={n} value={n}>{n}</option>)}
-                </select>
+                  {completeMutation.isPending ? 'Saving…' : 'Mark Completed'}
+                </button>
               </div>
-              <Textarea
-                placeholder="Short note (optional)…"
-                value={ratingMessage}
-                onChange={(e) => setRatingMessage(e.target.value)}
-                className="sec-input mt-3 min-h-[80px]"
-              />
-              <button
-                onClick={() => rateMutation.mutate()}
-                disabled={rateMutation.isPending}
-                className="sec-btn sec-btn-secondary w-full mt-3"
-                style={{ height: 44, borderRadius: 12 }}
-              >
-                {rateMutation.isPending ? 'Saving…' : 'Save Rating'}
-              </button>
-            </div>
+            )}
+
+            {selectedApplicant?.status === 'accepted' && !!selectedApplicant?.work_completed_at && (
+              <div className="sec-card" style={{ padding: 12, borderRadius: 12 }}>
+                <div style={{ fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 8 }}>Rate service</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Score</label>
+                  <select
+                    value={ratingScore}
+                    onChange={(e) => setRatingScore(parseInt(e.target.value))}
+                    style={{
+                      height: 38,
+                      borderRadius: 10,
+                      padding: '0 10px',
+                      backgroundColor: 'var(--sec-bg-elevated)',
+                      border: '1px solid var(--sec-border)',
+                      color: 'var(--sec-text-primary)',
+                    }}
+                  >
+                    {[5,4,3,2,1].map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+                <Textarea
+                  placeholder="Short note (optional)…"
+                  value={ratingMessage}
+                  onChange={(e) => setRatingMessage(e.target.value)}
+                  className="sec-input mt-3 min-h-[80px]"
+                />
+                <button
+                  onClick={() => rateMutation.mutate()}
+                  disabled={rateMutation.isPending}
+                  className="sec-btn sec-btn-secondary w-full mt-3"
+                  style={{ height: 44, borderRadius: 12 }}
+                >
+                  {rateMutation.isPending ? 'Saving…' : 'Save Rating'}
+                </button>
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <Button variant="outline" onClick={() => setShowReviewDialog(false)} className="sec-btn sec-btn-secondary flex-1">

@@ -72,6 +72,7 @@ import Jobs from './pages/Jobs';
 import Leaderboard from './pages/Leaderboard';
 import Login from './pages/Login';
 import MyJobApplications from './pages/MyJobApplications';
+import PaymentSuccess from './pages/PaymentSuccess';
 import Register from './pages/Register';
 import ManageTable from './pages/ManageTable';
 import Map from './pages/Map';
@@ -122,6 +123,7 @@ export const PAGES = {
     "Leaderboard": Leaderboard,
     "Login": Login,
     "MyJobApplications": MyJobApplications,
+    "PaymentSuccess": PaymentSuccess,
     "Register": Register,
     "ManageTable": ManageTable,
     "Map": Map,

@@ -31,6 +31,13 @@ router.post('/', authenticateToken, async (req, res, next) => {
       } else {
         return res.status(403).json({ error: 'Forbidden' });
       }
+
+      // Must be after work completion (not during application)
+      const apps = Array.isArray(job.applicants) ? job.applicants : [];
+      const app = apps.find((a) => a && typeof a === 'object' && a.user_account_id === d.ratee_user_id);
+      if (!app) return res.status(400).json({ error: 'User did not apply for this job.' });
+      if ((app.status || 'pending') !== 'accepted') return res.status(400).json({ error: 'Only accepted workers can be rated.' });
+      if (!app.work_completed_at) return res.status(400).json({ error: 'Rating is only available after the job is marked completed.' });
     } else if (d.context_type === 'host_event') {
       const he = await prisma.hostEvent.findFirst({ where: { id: d.context_id, deletedAt: null } });
       if (!he) return res.status(404).json({ error: 'Host event not found' });

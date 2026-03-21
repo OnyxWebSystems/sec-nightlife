@@ -25,6 +25,8 @@ import friendRequestRoutes from './routes/friend-requests.js';
 import transactionRoutes from './routes/transactions.js';
 import reviewRoutes from './routes/reviews.js';
 import ratingRoutes from './routes/ratings.js';
+import paymentRoutes, { paystackWebhookHandler } from './routes/payments.js';
+import promotionRoutes from './routes/promotions.js';
 import hostEventRoutes from './routes/host-events.js';
 import userRoleRoutes from './routes/user-roles.js';
 import adminRoutes from './routes/admin.js';
@@ -67,6 +69,9 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// Paystack webhook must read raw body for signature verification
+app.post('/api/payments/paystack/webhook', express.raw({ type: 'application/json' }), paystackWebhookHandler);
 
 // Body size limits
 app.use(express.json({ limit: '1mb' }));
@@ -118,6 +123,8 @@ app.use('/api/friend-requests', generalLimiter, friendRequestRoutes);
 app.use('/api/transactions', generalLimiter, transactionRoutes);
 app.use('/api/reviews', generalLimiter, reviewRoutes);
 app.use('/api/ratings', generalLimiter, ratingRoutes);
+app.use('/api/payments', generalLimiter, paymentRoutes);
+app.use('/api/promotions', generalLimiter, promotionRoutes);
 app.use('/api/host-events', generalLimiter, hostEventRoutes);
 app.use('/api/user-roles', generalLimiter, userRoleRoutes);
 app.use('/api/admin', generalLimiter, adminRoutes);

@@ -84,7 +84,9 @@ export default function Layout({ children, currentPageName }) {
     localStorage.setItem('sec_active_mode', mode);
   };
 
-  const hideNav = ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName);
+  const hideNav =
+    ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName) ||
+    (currentPageName === 'Home' && !user);
   if (hideNav) {
     return (
       <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>

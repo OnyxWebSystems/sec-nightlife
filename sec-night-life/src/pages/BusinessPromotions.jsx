@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sparkles, TrendingUp, Copy, Loader2, Megaphone, Tag, Clock, Star } from 'lucide-react';
 import { toast } from 'sonner';
+import { apiGet, apiPost } from '@/api/client';
 
 const PROMO_TEMPLATES = [
   { type: 'happy_hour', label: 'Happy Hour', icon: Clock, desc: '2-for-1 drinks or discounted prices during off-peak hours' },
@@ -64,6 +65,9 @@ export default function BusinessPromotions() {
   const [promotions, setPromotions] = useState([]);
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
   const [activePromoType, setActivePromoType] = useState(null);
+  const [draft, setDraft] = useState({ title: '', description: '', start_at: '', end_at: '', status: 'published' });
+  const [saving, setSaving] = useState(false);
+  const [existingPromos, setExistingPromos] = useState([]);
 
   const [descForm, setDescForm] = useState({ keywords: '', venue_type: 'nightclub', atmosphere: '' });
   const [promoForm, setPromoForm] = useState({ event_type: 'nightclub', target_audience: 'young professionals', season: 'summer', budget_level: 'medium' });
@@ -106,6 +110,61 @@ export default function BusinessPromotions() {
 
   const copy = (text) => { navigator.clipboard.writeText(text); toast.success('Copied!'); };
 
+  const loadExisting = async (venueId) => {
+    if (!venueId) return;
+    try {
+      const list = await apiGet(`/api/promotions/owner?venue_id=${venueId}`);
+      setExistingPromos(Array.isArray(list) ? list : []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (selectedVenue) loadExisting(selectedVenue);
+  }, [selectedVenue]);
+
+  const handleTemplateClick = (t) => {
+    setActivePromoType(activePromoType === t.type ? null : t.type);
+    setDraft((p) => ({
+      ...p,
+      title: `${t.label} @ ${venues.find(v => v.id === selectedVenue)?.name || 'Your Venue'}`,
+      description: p.description || t.desc,
+    }));
+  };
+
+  const publishPromotion = async ({ boostAmount } = {}) => {
+    if (!selectedVenue) { toast.error('Select a venue first'); return; }
+    if (!activePromoType) { toast.error('Pick a template first'); return; }
+    if (!draft.title?.trim()) { toast.error('Add a title'); return; }
+    setSaving(true);
+    try {
+      const created = await apiPost('/api/promotions', {
+        venue_id: selectedVenue,
+        type: activePromoType,
+        title: draft.title.trim(),
+        description: draft.description?.trim() || '',
+        status: 'published',
+        start_at: draft.start_at ? new Date(draft.start_at).toISOString() : null,
+        end_at: draft.end_at ? new Date(draft.end_at).toISOString() : null,
+      });
+      toast.success('Promotion published');
+      await loadExisting(selectedVenue);
+
+      if (boostAmount && boostAmount > 0) {
+        const pay = await apiPost('/api/payments/paystack/initialize', {
+          amount: boostAmount,
+          description: `Boost promotion: ${created.title}`,
+          venue_id: selectedVenue,
+          metadata: { promotion_id: created.id, purpose: 'promotion_boost' },
+        });
+        if (pay?.authorization_url) window.location.href = pay.authorization_url;
+      }
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Failed to publish promotion');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -140,7 +199,7 @@ export default function BusinessPromotions() {
           {PROMO_TEMPLATES.map(t => (
             <button
               key={t.type}
-              onClick={() => setActivePromoType(activePromoType === t.type ? null : t.type)}
+              onClick={() => handleTemplateClick(t)}
               style={{
                 padding: 14, borderRadius: 12, textAlign: 'left', cursor: 'pointer',
                 backgroundColor: activePromoType === t.type ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
@@ -155,6 +214,132 @@ export default function BusinessPromotions() {
           ))}
         </div>
       </div>
+
+      {/* Publish Promotion */}
+      {activePromoType && (
+        <div style={{
+          padding: 20, borderRadius: 14, marginBottom: 16,
+          backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <Megaphone size={18} style={{ color: 'var(--sec-accent)' }} />
+            <h3 style={{ fontSize: 15, fontWeight: 600 }}>Publish Promotion</h3>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-gray-400 text-sm">Title</Label>
+              <Input
+                value={draft.title}
+                onChange={(e) => setDraft(p => ({ ...p, title: e.target.value }))}
+                className="mt-1.5 h-10 rounded-xl"
+                style={sty.input}
+                placeholder="e.g. Ladies Night – Free entry before 10PM"
+              />
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Caption / Details</Label>
+              <Input
+                value={draft.description}
+                onChange={(e) => setDraft(p => ({ ...p, description: e.target.value }))}
+                className="mt-1.5 h-10 rounded-xl"
+                style={sty.input}
+                placeholder="Short promo text users can copy/share"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-gray-400 text-sm">Start (optional)</Label>
+                <Input type="datetime-local" value={draft.start_at} onChange={(e) => setDraft(p => ({ ...p, start_at: e.target.value }))} className="mt-1.5 h-10 rounded-xl" style={sty.input} />
+              </div>
+              <div>
+                <Label className="text-gray-400 text-sm">End (optional)</Label>
+                <Input type="datetime-local" value={draft.end_at} onChange={(e) => setDraft(p => ({ ...p, end_at: e.target.value }))} className="mt-1.5 h-10 rounded-xl" style={sty.input} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => publishPromotion()}
+                disabled={saving}
+                className="sec-btn sec-btn-primary"
+                style={{ flex: 1, height: 44, borderRadius: 12 }}
+              >
+                {saving ? 'Publishing…' : 'Publish'}
+              </button>
+              <button
+                onClick={() => publishPromotion({ boostAmount: 150 })}
+                disabled={saving}
+                className="sec-btn sec-btn-secondary"
+                style={{ flex: 1, height: 44, borderRadius: 12 }}
+              >
+                Boost (R150)
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
+              Publish creates the promotion inside SecNightlife. Boost uses Paystack and increases visibility.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Your Promotions */}
+      {selectedVenue && (
+        <div style={{
+          padding: 20, borderRadius: 14, marginBottom: 16,
+          backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600 }}>Your Promotions</h3>
+            <button onClick={() => loadExisting(selectedVenue)} className="sec-btn sec-btn-ghost" style={{ height: 34, padding: '0 12px', borderRadius: 999 }}>
+              Refresh
+            </button>
+          </div>
+          {existingPromos.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No promotions yet. Publish one above.</p>
+          ) : (
+            <div className="space-y-2">
+              {existingPromos.map((p) => (
+                <div key={p.id} style={{ padding: 14, borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 8 }}>
+                    <div>
+                      <h4 style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>{p.title}</h4>
+                      <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>{p.description}</p>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, backgroundColor: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}>{p.status}</span>
+                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, backgroundColor: 'var(--sec-silver-muted)', color: 'var(--sec-silver-bright)' }}>{p.boost_status}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => copy(`${p.title}\n${p.description || ''}`)} style={{ padding: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--sec-text-muted)', flexShrink: 0 }}>
+                      <Copy size={14} />
+                    </button>
+                  </div>
+                  {p.boost_status !== 'active' && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const pay = await apiPost('/api/payments/paystack/initialize', {
+                            amount: 150,
+                            description: `Boost promotion: ${p.title}`,
+                            venue_id: selectedVenue,
+                            metadata: { promotion_id: p.id, purpose: 'promotion_boost' },
+                          });
+                          if (pay?.authorization_url) window.location.href = pay.authorization_url;
+                        } catch (e) {
+                          toast.error(e?.data?.error || e?.message || 'Failed to start boost payment');
+                        }
+                      }}
+                      className="sec-btn sec-btn-secondary w-full mt-3"
+                      style={{ height: 40, borderRadius: 12 }}
+                    >
+                      Boost with Paystack (R150)
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* AI Description Generator */}
       <div style={{
