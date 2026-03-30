@@ -15,7 +15,6 @@ import {
   ChevronRight,
   Wine,
   Edit3,
-  LogOut,
   Award,
   TrendingUp,
   UserPlus,

@@ -20,12 +20,12 @@ if (!connectionString) {
 neonConfig.webSocketConstructor = ws;
 const pool = new Pool({ connectionString });
 
-const sqlPath = path.join(__dirname, 'neon-schema.sql');
+const sqlPath = path.join(__dirname, 'migrations', 'neon-schema.sql');
 let sql;
 try {
   sql = readFileSync(sqlPath, 'utf8');
 } catch (e) {
-  console.error('Could not read neon-schema.sql:', e.message);
+  console.error('Could not read migrations/neon-schema.sql:', e.message);
   process.exit(1);
 }
 

@@ -21,7 +21,7 @@ This uses your `DATABASE_URL` in `.env` and the Neon serverless driver to run th
 If the command above fails (e.g. timeout or error):
 
 1. Open [Neon Console](https://console.neon.tech) → your project **sec-nightlife-prod** → **SQL Editor**.
-2. Open the file **`backend/scripts/neon-schema.sql`** in your code editor.
+2. Open the file **`backend/scripts/migrations/neon-schema.sql`** in your code editor.
 3. Copy **all** of its contents and paste into the Neon SQL Editor.
 4. Click **Run**.
 5. Restart your backend (`npm run dev`) and try **Sign up** again.

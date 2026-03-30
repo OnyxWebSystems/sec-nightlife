@@ -656,62 +656,40 @@ export default function ProfileSetup() {
                       Paystack powers all payments
                     </p>
                     <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0, lineHeight: 1.5 }}>
-                      When you buy tickets, join tables, or boost promotions, you&apos;ll be redirected to Paystack&apos;s secure checkout. No need to add a card now.
+                      When you buy tickets, join tables, or boost promotions, you&apos;ll be redirected to Paystack&apos;s secure checkout. No need to add a card during setup — use the buttons below when you&apos;re ready to finish.
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handlePaymentSuccess}
-                  disabled={isSubmitting}
-                  style={{
-                    width: '100%',
-                    height: 48,
-                    borderRadius: 'var(--radius-lg)',
-                    backgroundColor: 'var(--sec-accent)',
-                    color: '#000',
-                    fontWeight: 600,
-                    fontSize: 15,
-                    border: 'none',
-                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                    opacity: isSubmitting ? 0.5 : 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                  }}
-                >
-                  <CreditCard size={18} strokeWidth={2} />
-                  Complete Setup
-                </button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Navigation — only show for steps 1–3 */}
-      {step < 4 && (
-        <div className="max-w-md mx-auto w-full pt-6 pb-8 px-4">
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => (step === 1 ? navigate(createPageUrl('Onboarding')) : setStep(step - 1))}
-              style={{
-                height: 52,
-                width: 52,
-                borderRadius: 'var(--radius-lg)',
-                backgroundColor: 'var(--sec-bg-card)',
-                border: '1px solid var(--sec-border)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                color: 'var(--sec-text-secondary)',
-              }}
-            >
-              <ChevronLeft size={20} strokeWidth={2} />
-            </button>
+      {/* Navigation — steps 1–3: back + continue; step 4: back + skip / optional complete */}
+      <div className="max-w-md mx-auto w-full pt-6 pb-8 px-4">
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              step === 1 ? navigate(createPageUrl('Onboarding')) : setStep(step - 1)
+            }
+            style={{
+              height: 52,
+              width: 52,
+              borderRadius: 'var(--radius-lg)',
+              backgroundColor: 'var(--sec-bg-card)',
+              border: '1px solid var(--sec-border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: 'var(--sec-text-secondary)',
+            }}
+          >
+            <ChevronLeft size={20} strokeWidth={2} />
+          </button>
+          {step < 4 ? (
             <button
               type="button"
               onClick={() => setStep(step + 1)}
@@ -736,9 +714,60 @@ export default function ProfileSetup() {
               {step === 3 ? (isVerificationComplete() ? 'Continue' : 'Verify later') : 'Continue'}
               <ChevronRight size={20} strokeWidth={2} />
             </button>
-          </div>
+          ) : (
+            <div className="flex flex-1 flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleSkipPayment}
+                disabled={isSubmitting}
+                style={{
+                  width: '100%',
+                  minHeight: 52,
+                  borderRadius: 'var(--radius-lg)',
+                  backgroundColor: 'var(--sec-accent)',
+                  color: '#000',
+                  fontWeight: 600,
+                  fontSize: 15,
+                  border: 'none',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: isSubmitting ? 0.5 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+              >
+                Skip for now
+                <ChevronRight size={20} strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                onClick={handlePaymentSuccess}
+                disabled={isSubmitting}
+                style={{
+                  width: '100%',
+                  minHeight: 44,
+                  borderRadius: 'var(--radius-lg)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--sec-text-secondary)',
+                  fontWeight: 500,
+                  fontSize: 14,
+                  border: '1px solid var(--sec-border)',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: isSubmitting ? 0.5 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+              >
+                <CreditCard size={16} strokeWidth={2} />
+                Mark payment setup complete
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

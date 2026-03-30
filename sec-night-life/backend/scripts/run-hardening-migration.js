@@ -8,7 +8,7 @@ import ws from 'ws';
 neonConfig.webSocketConstructor = ws;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sql = readFileSync(path.join(__dirname, 'migrate-hardening.sql'), 'utf8');
+const sql = readFileSync(path.join(__dirname, 'migrations', 'migrate-hardening.sql'), 'utf8');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 

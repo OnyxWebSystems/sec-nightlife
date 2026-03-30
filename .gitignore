@@ -1,0 +1,11 @@
+# Root-level ignores (app lives in sec-night-life/)
+node_modules/
+dist/
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
