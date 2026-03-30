@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { invokeFunction } from '@/services/integrationService';
+import { apiPost } from '@/api/client';
+import * as authService from '@/services/authService';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -27,18 +28,28 @@ export default function TicketPurchaseButton({ event }) {
 
     setIsProcessing(true);
     try {
-      const { data } = await invokeFunction('createCheckoutSession', {
+      const user = await authService.getCurrentUser();
+      const res = await apiPost('/api/payments/initialize', {
+        amount: totalPrice,
+        email: user?.email,
+        description: `${event.title} - ${selectedTier} x${quantity}`,
         event_id: event.id,
-        ticket_tier_name: selectedTier,
-        quantity: quantity
+        metadata: {
+          type: 'ticket',
+          event_id: event.id,
+          ticket_tier_name: selectedTier,
+          quantity: String(quantity),
+        },
       });
-
-      if (data.url) {
-        window.location.href = data.url;
+      if (res?.authorization_url) {
+        window.location.href = res.authorization_url;
+      } else {
+        throw new Error('No payment URL returned');
       }
     } catch (error) {
       console.error('Checkout error:', error);
-      toast.error('Failed to start checkout. Please try again.');
+      toast.error(error?.data?.error || error?.message || 'Failed to start checkout. Please try again.');
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -142,7 +153,7 @@ export default function TicketPurchaseButton({ event }) {
                       </Button>
 
                       <p className="text-xs text-gray-500 text-center mt-2">
-                        Secure payment powered by Stripe
+                        Secure payment powered by Paystack
                       </p>
                     </div>
                   </>

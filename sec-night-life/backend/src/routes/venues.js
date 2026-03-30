@@ -22,7 +22,8 @@ const venueCreateSchema = z.object({
   capacity: z.number().int().min(0).optional().nullable(),
   age_limit: z.number().int().min(0).optional().nullable(),
   logo_url: z.string().url().optional().nullable().or(z.literal('')),
-  cover_image_url: z.string().url().optional().nullable().or(z.literal(''))
+  cover_image_url: z.string().url().optional().nullable().or(z.literal('')),
+  compliance_document_url: z.string().url().optional().nullable().or(z.literal(''))
 });
 
 router.get('/', optionalAuth, async (req, res, next) => {
@@ -163,7 +164,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
         ageLimit: data.age_limit,
         logoUrl: data.logo_url,
         coverImageUrl: data.cover_image_url,
-        complianceStatus: 'pending'
+        complianceStatus: 'pending',
+        ...(data.compliance_document_url && { complianceDocumentUrl: data.compliance_document_url }),
       }
     });
 
@@ -212,6 +214,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.age_limit != null) updates.ageLimit = data.age_limit;
     if (data.logo_url !== undefined) updates.logoUrl = data.logo_url;
     if (data.cover_image_url !== undefined) updates.coverImageUrl = data.cover_image_url;
+    if (data.compliance_document_url !== undefined) updates.complianceDocumentUrl = data.compliance_document_url;
 
     const updated = await prisma.venue.update({
       where: { id: venue.id },

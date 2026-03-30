@@ -209,17 +209,127 @@ router.get('/audit-logs', async (req, res, next) => {
   }
 });
 
+// ── Payments ───────────────────────────────────────────────────────────────
+
+router.get('/payments', async (req, res, next) => {
+  try {
+    const { status, type, limit = 50, offset = 0 } = req.query;
+    const where = {};
+    if (status) where.status = String(status);
+    if (type) where.type = String(type);
+
+    const payments = await prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(parseInt(limit) || 50, 200),
+      skip: parseInt(offset) || 0,
+    });
+    const total = await prisma.payment.count({ where });
+    const totalsByStatus = await prisma.payment.groupBy({
+      by: ['status'],
+      where: { status: 'success' },
+      _sum: { amount: true },
+      _count: true,
+    });
+    res.json({ payments, total, summary: totalsByStatus });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Verification Queue (User ID) ───────────────────────────────────────────
+
+router.get('/verification/users', async (req, res, next) => {
+  try {
+    const { status = 'pending', limit = 50, offset = 0 } = req.query;
+    const where = { user: { deletedAt: null } };
+    if (status) {
+      where.verificationStatus = String(status);
+      if (status === 'pending') where.idDocumentUrl = { not: null };
+    }
+
+    const profiles = await prisma.userProfile.findMany({
+      where,
+      include: { user: { select: { id: true, email: true, fullName: true } } },
+      orderBy: { updatedAt: 'desc' },
+      take: Math.min(parseInt(limit) || 50, 200),
+      skip: parseInt(offset) || 0,
+    });
+    const total = await prisma.userProfile.count({ where });
+    res.json({ profiles, total });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/verification/users/:userId', async (req, res, next) => {
+  try {
+    const { status, note } = z.object({
+      status: z.enum(['approved', 'rejected']),
+      note: z.string().max(500).optional().nullable(),
+    }).parse(req.body);
+
+    const profile = await prisma.userProfile.update({
+      where: { userId: req.params.userId },
+      data: {
+        verificationStatus: status,
+        verificationRejectionNote: status === 'rejected' ? (note || null) : null,
+        ageVerified: status === 'approved',
+      },
+    });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'USER_VERIFICATION_UPDATED',
+      entityType: 'user_profile',
+      entityId: profile.id,
+      metadata: { userId: profile.userId, status, note },
+    });
+
+    res.json({ success: true, profile: { userId: profile.userId, verificationStatus: profile.verificationStatus } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Verification Queue (Business/Venue Compliance) ─────────────────────────
+
+router.get('/verification/venues', async (req, res, next) => {
+  try {
+    const { status = 'pending', limit = 50, offset = 0 } = req.query;
+    const where = { deletedAt: null };
+    if (status) where.complianceStatus = String(status);
+
+    const venues = await prisma.venue.findMany({
+      where,
+      include: { owner: { select: { id: true, email: true, fullName: true } } },
+      orderBy: { updatedAt: 'desc' },
+      take: Math.min(parseInt(limit) || 50, 200),
+      skip: parseInt(offset) || 0,
+    });
+    const total = await prisma.venue.count({ where });
+    res.json({ venues, total });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── Venue Moderation ──────────────────────────────────────────────────────
 
 router.patch('/venues/:id/compliance', async (req, res, next) => {
   try {
-    const { status } = z.object({
-      status: z.enum(['approved', 'rejected', 'pending'])
+    const { status, note } = z.object({
+      status: z.enum(['approved', 'rejected', 'pending']),
+      note: z.string().max(500).optional().nullable(),
     }).parse(req.body);
 
     const venue = await prisma.venue.update({
       where: { id: req.params.id },
-      data: { complianceStatus: status, ...(status === 'approved' ? { isVerified: true } : {}) }
+      data: {
+        complianceStatus: status,
+        complianceRejectionNote: status === 'rejected' ? (note || null) : null,
+        ...(status === 'approved' ? { isVerified: true } : {}),
+      },
     });
 
     await auditFromReq(req, {
@@ -227,7 +337,7 @@ router.patch('/venues/:id/compliance', async (req, res, next) => {
       action: 'VENUE_COMPLIANCE_UPDATED',
       entityType: 'venue',
       entityId: venue.id,
-      metadata: { venueName: venue.name, status }
+      metadata: { venueName: venue.name, status, note },
     });
 
     res.json({ success: true, venue: { id: venue.id, complianceStatus: venue.complianceStatus } });
@@ -246,6 +356,8 @@ router.get('/dashboard', async (req, res, next) => {
       pendingReports,
       totalVenues,
       pendingVenues,
+      pendingUserVerifications,
+      totalPaymentsSuccess,
       recentAuditLogs
     ] = await Promise.all([
       prisma.user.count({ where: { deletedAt: null } }),
@@ -253,6 +365,8 @@ router.get('/dashboard', async (req, res, next) => {
       prisma.report.count({ where: { status: 'pending' } }),
       prisma.venue.count({ where: { deletedAt: null } }),
       prisma.venue.count({ where: { complianceStatus: 'pending', deletedAt: null } }),
+      prisma.userProfile.count({ where: { verificationStatus: 'pending', idDocumentUrl: { not: null } } }),
+      prisma.payment.aggregate({ where: { status: 'success' }, _sum: { amount: true }, _count: true }),
       prisma.auditLog.findMany({
         orderBy: { createdAt: 'desc' },
         take: 10,
@@ -261,7 +375,12 @@ router.get('/dashboard', async (req, res, next) => {
     ]);
 
     res.json({
-      stats: { totalUsers, suspendedUsers, pendingReports, totalVenues, pendingVenues },
+      stats: {
+        totalUsers, suspendedUsers, pendingReports, totalVenues, pendingVenues,
+        pendingUserVerifications,
+        totalPaymentAmount: totalPaymentsSuccess._sum.amount ?? 0,
+        totalPaymentCount: totalPaymentsSuccess._count ?? 0,
+      },
       recentActivity: recentAuditLogs
     });
   } catch (err) {

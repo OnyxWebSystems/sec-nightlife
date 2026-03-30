@@ -1,3 +1,8 @@
+/**
+ * Paystack-only payment routes.
+ * NO Stripe or other gateways. All payments via Paystack.
+ * SECURITY: JWT required for initialize/verify; webhook uses HMAC signature.
+ */
 import { Router } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
@@ -5,6 +10,8 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 
 const router = Router();
+
+const PAYMENT_TYPES = ['event', 'table', 'promotion', 'ticket', 'other'];
 
 function requirePaystackKey() {
   const key = process.env.PAYSTACK_SECRET_KEY;
@@ -38,43 +45,131 @@ async function paystackFetch(path, { method = 'GET', body } = {}) {
 }
 
 async function applyReferenceSideEffects(reference, paystackData) {
-  // Update transaction
-  await prisma.transaction.updateMany({
-    where: { stripeId: reference },
-    data: { status: 'paid', metadata: paystackData }
+  // Idempotency: if Payment already success, skip
+  const existingPayment = await prisma.payment.findUnique({
+    where: { reference },
+    select: { status: true },
+  });
+  if (existingPayment?.status === 'success') return;
+
+  const metadata = paystackData?.metadata || {};
+  const userId = metadata.user_id || paystackData?.customer?.customer_code;
+  const email = paystackData?.customer?.email || metadata.email || 'unknown@secnightlife.app';
+  const amount = paystackData?.amount ? paystackData.amount / 100 : 0;
+  const type = metadata.type || 'other';
+
+  // Upsert Payment record (canonical store)
+  await prisma.payment.upsert({
+    where: { reference },
+    create: {
+      userId: userId || 'unknown',
+      email,
+      amount,
+      reference,
+      status: 'success',
+      type: PAYMENT_TYPES.includes(type) ? type : 'other',
+      metadata: paystackData,
+    },
+    update: { status: 'success', metadata: paystackData },
   });
 
-  // If this payment was for a promotion boost, activate it
-  const tx = await prisma.transaction.findFirst({ where: { stripeId: reference } });
-  const promoId = tx?.metadata?.promotion_id;
+  // Legacy: update Transaction if exists
+  await prisma.transaction.updateMany({
+    where: { stripeId: reference },
+    data: { status: 'paid', metadata: paystackData },
+  });
+
+  // Type-specific side effects
+  const promoId = metadata.promotion_id;
   if (promoId) {
     await prisma.promotion.updateMany({
       where: { id: promoId, deletedAt: null },
-      data: { boostStatus: 'active', boostRef: reference, boostPaidAt: new Date() }
+      data: { boostStatus: 'active', boostRef: reference, boostPaidAt: new Date() },
     });
+  }
+
+  const tableId = metadata.table_id;
+  if (tableId && userId) {
+    const table = await prisma.table.findFirst({ where: { id: tableId, deletedAt: null } });
+    if (table) {
+      const members = Array.isArray(table.members) ? [...table.members] : [];
+      const memberIdx = members.findIndex((m) => m?.user_id === userId);
+      const contribution = amount || (memberIdx >= 0 ? members[memberIdx]?.contribution : 0) || table.joiningFee || 0;
+      if (memberIdx >= 0) {
+        members[memberIdx] = { ...members[memberIdx], status: 'confirmed', contribution };
+      } else {
+        members.push({ user_id: userId, status: 'confirmed', contribution, joined_at: new Date().toISOString() });
+      }
+      const pendingRequests = Array.isArray(table.pendingRequests) ? table.pendingRequests.filter((id) => id !== userId) : [];
+      await prisma.table.update({
+        where: { id: tableId },
+        data: {
+          members,
+          pendingRequests,
+          currentGuests: members.length,
+        },
+      });
+    }
+  }
+
+  const eventId = metadata.event_id;
+  const ticketTier = metadata.ticket_tier_name;
+  const qty = parseInt(metadata.quantity || '1', 10);
+  if (eventId && ticketTier && qty > 0) {
+    const event = await prisma.event.findFirst({ where: { id: eventId, deletedAt: null } });
+    if (event?.ticketTiers && Array.isArray(event.ticketTiers)) {
+      const tiers = event.ticketTiers.map((t) =>
+        t.name === ticketTier ? { ...t, sold: (t.sold || 0) + qty } : t
+      );
+      await prisma.event.update({
+        where: { id: eventId },
+        data: { ticketTiers: tiers },
+      });
+    }
   }
 }
 
-// Initialize a Paystack transaction (returns authorization_url)
-router.post('/paystack/initialize', authenticateToken, async (req, res, next) => {
+const initSchema = z.object({
+  amount: z.number().positive().max(1_000_000),
+  email: z.string().email().optional(),
+  description: z.string().max(2000).optional().nullable(),
+  venue_id: z.string().uuid().optional().nullable(),
+  event_id: z.string().uuid().optional().nullable(),
+  metadata: z.record(z.any()).optional().nullable(),
+});
+
+// POST /api/payments/initialize — primary endpoint (spec-compliant)
+router.post('/initialize', authenticateToken, async (req, res, next) => {
   try {
-    const schema = z.object({
-      amount: z.number().positive(), // ZAR
-      email: z.string().email().optional(),
-      description: z.string().max(2000).optional().nullable(),
-      venue_id: z.string().uuid().optional().nullable(),
-      event_id: z.string().uuid().optional().nullable(),
-      metadata: z.record(z.any()).optional().nullable(),
-    });
-    const parsed = schema.safeParse(req.body || {});
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    const parsed = initSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
 
-    // Paystack expects amount in kobo/cents-like units: ZAR -> cents
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true },
+    });
+    const email = d.email || user?.email || 'user@secnightlife.app';
+
     const amountInCents = Math.round(d.amount * 100);
     const reference = crypto.randomBytes(16).toString('hex');
+    const meta = d.metadata || {};
+    const type = meta.type || (d.venue_id && meta.promotion_id ? 'promotion' : d.event_id ? 'event' : 'table') || 'other';
 
-    // Create our transaction record first (pending)
+    // Create Payment (pending)
+    await prisma.payment.create({
+      data: {
+        userId: req.userId,
+        email,
+        amount: d.amount,
+        reference,
+        status: 'pending',
+        type: PAYMENT_TYPES.includes(type) ? type : 'other',
+        metadata: { description: d.description, venue_id: d.venue_id, event_id: d.event_id, ...meta },
+      },
+    });
+
+    // Legacy Transaction for backward compat
     await prisma.transaction.create({
       data: {
         userId: req.userId,
@@ -84,27 +179,18 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         currency: 'ZAR',
         type: 'paystack',
         status: 'pending',
-        stripeId: reference, // reuse column as provider ref
-        metadata: {
-          provider: 'paystack',
-          reference,
-          description: d.description || null,
-          ...(d.metadata || {}),
-        }
-      }
+        stripeId: reference,
+        metadata: { provider: 'paystack', reference, description: d.description, ...meta },
+      },
     });
 
     const paystackResp = await paystackFetch('/transaction/initialize', {
       method: 'POST',
       body: {
-        email: d.email || 'user@secnightlife.app',
+        email,
         amount: amountInCents,
         reference,
-        metadata: {
-          user_id: req.userId,
-          description: d.description || null,
-          ...(d.metadata || {}),
-        },
+        metadata: { user_id: req.userId, type, description: d.description, ...meta },
         callback_url: process.env.APP_URL ? `${process.env.APP_URL}/PaymentSuccess?ref=${reference}` : undefined,
       },
     });
@@ -119,31 +205,91 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
   }
 });
 
-// Verify a Paystack transaction (client calls after redirect)
-router.get('/paystack/verify/:reference', authenticateToken, async (req, res, next) => {
+// Backward compat: /paystack/initialize
+router.post('/paystack/initialize', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = initSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const d = parsed.data;
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { email: true } });
+    const email = d.email || user?.email || 'user@secnightlife.app';
+    const amountInCents = Math.round(d.amount * 100);
+    const reference = crypto.randomBytes(16).toString('hex');
+    const meta = d.metadata || {};
+    const type = meta.type || (meta.promotion_id ? 'promotion' : d.event_id ? 'event' : 'table') || 'other';
+    await prisma.payment.create({
+      data: { userId: req.userId, email, amount: d.amount, reference, status: 'pending', type: PAYMENT_TYPES.includes(type) ? type : 'other', metadata: { description: d.description, venue_id: d.venue_id, event_id: d.event_id, ...meta } },
+    });
+    await prisma.transaction.create({
+      data: { userId: req.userId, venueId: d.venue_id || null, eventId: d.event_id || null, amount: d.amount, currency: 'ZAR', type: 'paystack', status: 'pending', stripeId: reference, metadata: { provider: 'paystack', reference, description: d.description, ...meta } },
+    });
+    const paystackResp = await paystackFetch('/transaction/initialize', {
+      method: 'POST',
+      body: { email, amount: amountInCents, reference, metadata: { user_id: req.userId, type, description: d.description, ...meta }, callback_url: process.env.APP_URL ? `${process.env.APP_URL}/PaymentSuccess?ref=${reference}` : undefined },
+    });
+    res.json({ reference, authorization_url: paystackResp.data.authorization_url, access_code: paystackResp.data.access_code });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/payments/verify/:reference — primary (spec-compliant)
+router.get('/verify/:reference', authenticateToken, async (req, res, next) => {
   try {
     const reference = req.params.reference;
     const paystackResp = await paystackFetch(`/transaction/verify/${encodeURIComponent(reference)}`);
-
-    const status = paystackResp.data.status; // success | failed | abandoned
+    const status = paystackResp.data.status;
     const mapped = status === 'success' ? 'paid' : status === 'failed' ? 'failed' : 'pending';
 
+    // Update Payment
+    const payment = await prisma.payment.findUnique({ where: { reference } });
+    if (payment) {
+      await prisma.payment.update({
+        where: { reference },
+        data: { status: mapped === 'paid' ? 'success' : mapped, metadata: paystackResp.data },
+      });
+    }
+
+    // Update Transaction
     await prisma.transaction.updateMany({
       where: { userId: req.userId, stripeId: reference },
-      data: { status: mapped, metadata: paystackResp.data }
+      data: { status: mapped, metadata: paystackResp.data },
     });
 
+    // Idempotent: only apply side effects once
     if (mapped === 'paid') {
       await applyReferenceSideEffects(reference, paystackResp.data);
     }
 
+    res.json({
+      status: mapped,
+      paystack_status: status,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Backward compat: /paystack/verify/:reference
+router.get('/paystack/verify/:reference', authenticateToken, async (req, res, next) => {
+  try {
+    const reference = req.params.reference;
+    const paystackResp = await paystackFetch(`/transaction/verify/${encodeURIComponent(reference)}`);
+    const status = paystackResp.data.status;
+    const mapped = status === 'success' ? 'paid' : status === 'failed' ? 'failed' : 'pending';
+    const payment = await prisma.payment.findUnique({ where: { reference } });
+    if (payment) {
+      await prisma.payment.update({ where: { reference }, data: { status: mapped === 'paid' ? 'success' : mapped, metadata: paystackResp.data } });
+    }
+    await prisma.transaction.updateMany({ where: { userId: req.userId, stripeId: reference }, data: { status: mapped, metadata: paystackResp.data } });
+    if (mapped === 'paid') await applyReferenceSideEffects(reference, paystackResp.data);
     res.json({ status: mapped, paystack_status: status });
   } catch (err) {
     next(err);
   }
 });
 
-// Paystack webhook (NO auth) - app.js must mount this with raw body
+// Paystack webhook handler — used by BOTH /api/webhooks/paystack and /api/payments/paystack/webhook
 export async function paystackWebhookHandler(req, res) {
   const sig = req.headers['x-paystack-signature'];
   const key = process.env.PAYSTACK_SECRET_KEY;
@@ -158,7 +304,6 @@ export async function paystackWebhookHandler(req, res) {
     return res.status(400).send('invalid json');
   }
 
-  // Only handle successful charges
   const event = payload?.event;
   const data = payload?.data;
   const reference = data?.reference;
@@ -167,11 +312,13 @@ export async function paystackWebhookHandler(req, res) {
   if (event === 'charge.success') {
     try {
       await applyReferenceSideEffects(reference, data);
-    } catch {}
+    } catch (e) {
+      // Log but don't fail — Paystack may retry
+      console.error('Paystack webhook applyReferenceSideEffects error:', e?.message);
+    }
   }
 
   return res.status(200).send('ok');
 }
 
 export default router;
-

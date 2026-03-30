@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { invokeFunction } from '@/services/integrationService';
+import { apiPost } from '@/api/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronLeft, Share2, Users, DollarSign, Calendar, Clock,
@@ -124,21 +124,23 @@ export default function TableDetails() {
   };
 
   const handlePayment = async () => {
+    if (window.self !== window.top) {
+      alert('Payment checkout only works in the published app. Please open the app in a new tab.');
+      return;
+    }
     setIsProcessingPayment(true);
     try {
-      const response = await invokeFunction('createCheckoutSession', {
-        table_id: tableId, amount: table.joining_fee,
+      const res = await apiPost('/api/payments/initialize', {
+        amount: table.joining_fee,
+        email: userProfile?.email || user?.email,
         description: `Join Table: ${table.name}`,
-        success_url: `${window.location.origin}${createPageUrl('TableDetails')}?id=${tableId}&payment=success`,
-        cancel_url: `${window.location.origin}${createPageUrl('TableDetails')}?id=${tableId}`,
+        metadata: { type: 'table', table_id: tableId, user_id: userProfile?.id || user?.id },
       });
-      if (window.self !== window.top) {
-        alert('Payment checkout only works in the published app. Please open the app in a new tab.');
-        setIsProcessingPayment(false); return;
-      }
-      if (response.data.url) window.location.href = response.data.url;
+      if (res?.authorization_url) window.location.href = res.authorization_url;
+      else throw new Error('No payment URL');
     } catch {
       alert('Payment failed. Please try again.');
+    } finally {
       setIsProcessingPayment(false);
     }
   };
@@ -678,7 +680,7 @@ export default function TableDetails() {
               Complete Payment
             </DialogTitle>
             <DialogDescription style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>
-              Secure checkout powered by Stripe
+              Secure checkout powered by Paystack
             </DialogDescription>
           </DialogHeader>
 
@@ -697,7 +699,7 @@ export default function TableDetails() {
             </div>
 
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>
-              You&apos;ll be redirected to Stripe&apos;s secure checkout page
+              You&apos;ll be redirected to Paystack&apos;s secure checkout
             </p>
           </div>
 

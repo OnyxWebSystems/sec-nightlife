@@ -22,9 +22,12 @@ export const appLogs = {
 };
 
 export async function invokeFunction(name, params) {
+  // Legacy: createCheckoutSession removed — use Paystack via apiPost('/api/payments/initialize', ...)
   if (name === 'createCheckoutSession') {
     const { apiPost } = await import('@/api/client');
-    return apiPost('/api/stripe/checkout', params);
+    const { amount, email, description, metadata } = params;
+    const res = await apiPost('/api/payments/initialize', { amount, email, description, metadata });
+    return { data: { url: res?.authorization_url } };
   }
   if (name === 'generateVenueDescription') {
     return { data: { success: true, description: 'AI description generation is not yet configured. Please use the Promotions page for local content generation.' } };

@@ -383,7 +383,7 @@ export default function TableJoinOnboarding() {
                 <CreditCard size={16} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
                 <div>
                   <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Joining Fee</p>
-                  <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Via Stripe — secure payment</p>
+                  <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Via Paystack — secure payment</p>
                 </div>
               </div>
               <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--sec-text-primary)' }}>R{table.joining_fee}</p>

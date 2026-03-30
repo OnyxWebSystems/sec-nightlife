@@ -80,6 +80,7 @@ import Messages from './pages/Messages';
 import Notifications from './pages/Notifications';
 import Onboarding from './pages/Onboarding';
 import ProfileSetup from './pages/ProfileSetup';
+import AdminDashboard from './pages/AdminDashboard';
 import AppPreferences from './pages/AppPreferences';
 import Privacy from './pages/Privacy';
 import PrivacyPolicy from './pages/PrivacyPolicy';
@@ -131,6 +132,7 @@ export const PAGES = {
     "Notifications": Notifications,
     "Onboarding": Onboarding,
     "ProfileSetup": ProfileSetup,
+    "AdminDashboard": AdminDashboard,
     "AppPreferences": AppPreferences,
     "Privacy": Privacy,
     "PrivacyPolicy": PrivacyPolicy,

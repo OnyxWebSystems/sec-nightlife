@@ -99,9 +99,10 @@ model UserProfile {
   avatarUrl            String?  @map("avatar_url")
   favoriteDrink        String?  @map("favorite_drink")
   dateOfBirth          String?  @map("date_of_birth")
-  idDocumentUrl        String?  @map("id_document_url")
-  ageVerified          Boolean  @default(false) @map("age_verified")
-  verificationStatus   String   @default("pending") @map("verification_status")
+  idDocumentUrl           String?  @map("id_document_url")
+  ageVerified             Boolean  @default(false) @map("age_verified")
+  verificationStatus      String   @default("pending") @map("verification_status")
+  verificationRejectionNote String? @map("verification_rejection_note") @db.Text
   paymentSetupComplete Boolean  @default(false) @map("payment_setup_complete")
   isVerifiedPromoter   Boolean  @default(false) @map("is_verified_promoter")
   socialReputation     Float    @default(0) @map("social_reputation")
@@ -134,8 +135,10 @@ model Venue {
   longitude         Float?
   bio               String?
   isVerified        Boolean             @default(false) @map("is_verified")
-  complianceStatus  VenueComplianceStatus @default(pending) @map("compliance_status")
-  logoUrl           String?             @map("logo_url")
+  complianceStatus         VenueComplianceStatus @default(pending) @map("compliance_status")
+  complianceDocumentUrl    String?               @map("compliance_document_url") @db.Text
+  complianceRejectionNote  String?               @map("compliance_rejection_note") @db.Text
+  logoUrl                  String?               @map("logo_url")
   coverImageUrl     String?             @map("cover_image_url")
   phone             String?
   email             String?
@@ -426,13 +429,32 @@ model Transaction {
   currency    String   @default("ZAR")
   type        String
   status      String
-  stripeId    String?  @map("stripe_id")
+  stripeId    String?  @map("stripe_id")  // Paystack reference (legacy column name)
   metadata    Json?
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([userId])
   @@index([venueId])
   @@map("transactions")
+}
+
+// Canonical Payment record — all Paystack payments stored here
+model Payment {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  email     String
+  amount    Float
+  reference String   @unique  // Paystack reference
+  status    String   // pending | success | failed
+  type      String   // event | table | promotion | ticket | other
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([reference])
+  @@index([status])
+  @@index([type])
+  @@map("payments")
 }
 
 model FriendRequest {

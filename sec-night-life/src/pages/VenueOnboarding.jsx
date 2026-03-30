@@ -124,6 +124,8 @@ export default function VenueOnboarding() {
       if (formData.instagram) venueData.instagram = formData.instagram;
       if (formData.logo_url) venueData.logo_url = formData.logo_url;
       if (formData.cover_image_url) venueData.cover_image_url = formData.cover_image_url;
+      const complianceDoc = formData.liquor_license_url || formData.cipc_document_url || formData.director_id_url || formData.sars_document_url || formData.annual_returns_url;
+      if (complianceDoc) venueData.compliance_document_url = complianceDoc;
 
       await dataService.Venue.create(venueData);
       navigate(createPageUrl('BusinessDashboard'));

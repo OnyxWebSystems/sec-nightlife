@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { invokeFunction } from '@/services/integrationService';
+import { apiPost } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
 import { 
   ChevronLeft,
@@ -36,9 +36,7 @@ export default function TablePayment() {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) {
-        setUserProfile(profiles[0]);
-      }
+      if (profiles.length > 0) setUserProfile(profiles[0]);
     } catch (e) {
       authService.redirectToLogin(window.location.href);
     }
@@ -75,28 +73,27 @@ export default function TablePayment() {
   const totalAmount = (member?.contribution || 0) + (table?.joining_fee || 0);
 
   const handlePayment = async () => {
+    if (window.self !== window.top) {
+      alert('Payment checkout only works in the published app. Please open the app in a new tab.');
+      return;
+    }
     setIsProcessing(true);
     try {
-      const response = await invokeFunction('createCheckoutSession', {
-        table_id: tableId,
+      const res = await apiPost('/api/payments/initialize', {
         amount: totalAmount,
-        description: `Table Payment: ${table.name}${member?.contribution ? ` - Contribution R${member.contribution}` : ''}${table.joining_fee ? ` + Fee R${table.joining_fee}` : ''}`,
-        success_url: `${window.location.origin}${createPageUrl('TableDetails')}?id=${tableId}&payment=success`,
-        cancel_url: `${window.location.origin}${createPageUrl('TablePayment')}?id=${tableId}`,
+        email: user?.email,
+        description: `Table: ${table.name}${member?.contribution ? ` - Contribution R${member.contribution}` : ''}${table.joining_fee ? ` + Fee R${table.joining_fee}` : ''}`,
+        metadata: { type: 'table', table_id: tableId, user_id: user?.id },
       });
-
-      if (window.self !== window.top) {
-        alert('Payment checkout only works in the published app. Please open the app in a new tab.');
-        setIsProcessing(false);
-        return;
-      }
-
-      if (response.data.url) {
-        window.location.href = response.data.url;
+      if (res?.authorization_url) {
+        window.location.href = res.authorization_url;
+      } else {
+        throw new Error('No payment URL returned');
       }
     } catch (error) {
       console.error('Payment failed:', error);
-      alert('Payment failed. Please try again.');
+      alert(error?.data?.error || error?.message || 'Payment failed. Please try again.');
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -222,7 +219,7 @@ export default function TablePayment() {
             <div>
               <p className="font-medium text-sm mb-1">Secure Payment</p>
               <p className="text-xs text-gray-400">
-                Powered by Stripe. Your payment information is encrypted and secure.
+                Powered by Paystack. Your payment information is encrypted and secure.
               </p>
             </div>
           </div>

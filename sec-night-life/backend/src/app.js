@@ -70,7 +70,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Paystack webhook must read raw body for signature verification
+// Paystack webhooks — raw body required for HMAC signature verification
+app.post('/api/webhooks/paystack', express.raw({ type: 'application/json' }), paystackWebhookHandler);
 app.post('/api/payments/paystack/webhook', express.raw({ type: 'application/json' }), paystackWebhookHandler);
 
 // Body size limits
@@ -102,6 +103,14 @@ const resendLimiter = rateLimit({
   message: { error: 'Too many verification email requests. Try again in an hour.' }
 });
 
+const paymentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isProd ? 20 : 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many payment requests. Try again later.' }
+});
+
 // Request logging
 app.use(requestLogger);
 
@@ -123,7 +132,7 @@ app.use('/api/friend-requests', generalLimiter, friendRequestRoutes);
 app.use('/api/transactions', generalLimiter, transactionRoutes);
 app.use('/api/reviews', generalLimiter, reviewRoutes);
 app.use('/api/ratings', generalLimiter, ratingRoutes);
-app.use('/api/payments', generalLimiter, paymentRoutes);
+app.use('/api/payments', paymentLimiter, paymentRoutes);
 app.use('/api/promotions', generalLimiter, promotionRoutes);
 app.use('/api/host-events', generalLimiter, hostEventRoutes);
 app.use('/api/user-roles', generalLimiter, userRoleRoutes);

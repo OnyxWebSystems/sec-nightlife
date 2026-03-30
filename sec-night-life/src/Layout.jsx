@@ -113,6 +113,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
         ...(userRoles.host ? [{ name: 'Host Dashboard', icon: Crown, page: 'HostDashboard' }] : []),
+        ...((user?.role === 'ADMIN' || user?.role === 'admin') ? [{ name: 'Admin', icon: LayoutDashboard, page: 'AdminDashboard' }] : []),
       ],
     },
     host: {
@@ -292,7 +293,7 @@ export default function Layout({ children, currentPageName }) {
 
       {/* ── Main Content ── */}
       <main
-        className="lg:ml-[240px] min-h-screen"
+        className="lg:ml-[240px] min-h-screen w-full max-w-[480px] lg:max-w-none mx-auto lg:mx-0"
         style={{
           paddingBottom: 'calc(84px + env(safe-area-inset-bottom))',
         }}

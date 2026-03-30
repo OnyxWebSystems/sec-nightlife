@@ -4,8 +4,6 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import {
   User,
   MapPin,
@@ -37,157 +35,6 @@ const DRINKS = [
   'Whiskey', 'Vodka', 'Gin', 'Tequila', 'Rum', 'Champagne',
   'Wine', 'Beer', 'Cocktails', 'Non-alcoholic',
 ];
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder');
-
-const CARD_ELEMENT_OPTIONS = {
-  style: {
-    base: {
-      color: 'var(--sec-text-primary)',
-      fontFamily: 'inherit',
-      fontSize: '14px',
-      '::placeholder': { color: 'var(--sec-text-muted)' },
-      backgroundColor: 'var(--sec-bg-elevated)',
-    },
-    invalid: {
-      color: 'var(--sec-accent)',
-    },
-  },
-};
-
-/* ── Inline PaymentMethodForm (SEC colors: Lock in var(--sec-accent-muted), no #00D4AA or gradient) ── */
-function PaymentFormInner({ onSuccess, onError, disabled }) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [cardComplete, setCardComplete] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-
-    const cardNumber = elements.getElement(CardNumberElement);
-    if (!cardNumber) return;
-
-    setIsProcessing(true);
-    try {
-      const { error, paymentMethod } = await stripe.createPaymentMethod({
-        type: 'card',
-        card: cardNumber,
-      });
-      if (error) {
-        onError?.(error.message);
-      } else {
-        onSuccess?.(paymentMethod);
-      }
-    } catch (err) {
-      onError?.(err.message || 'Payment failed');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{
-        padding: '14px 16px',
-        borderRadius: 'var(--radius-md)',
-        backgroundColor: 'var(--sec-bg-elevated)',
-        border: '1px solid var(--sec-border)',
-      }}>
-        <div style={{ marginBottom: 12 }}>
-          <Label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8, display: 'block' }}>
-            Card number
-          </Label>
-          <div style={{
-            padding: '10px 14px',
-            borderRadius: 'var(--radius-md)',
-            backgroundColor: 'var(--sec-bg-card)',
-            border: '1px solid var(--sec-border)',
-          }}>
-            <CardNumberElement
-              options={CARD_ELEMENT_OPTIONS}
-              onChange={(e) => setCardComplete(e.complete)}
-            />
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <Label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8, display: 'block' }}>
-              Expiry
-            </Label>
-            <div style={{
-              padding: '10px 14px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--sec-bg-card)',
-              border: '1px solid var(--sec-border)',
-            }}>
-              <CardExpiryElement options={CARD_ELEMENT_OPTIONS} />
-            </div>
-          </div>
-          <div>
-            <Label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8, display: 'block' }}>
-              CVC
-            </Label>
-            <div style={{
-              padding: '10px 14px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--sec-bg-card)',
-              border: '1px solid var(--sec-border)',
-            }}>
-              <CardCvcElement options={CARD_ELEMENT_OPTIONS} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '12px 14px',
-        borderRadius: 'var(--radius-md)',
-        backgroundColor: 'var(--sec-bg-card)',
-        border: '1px solid var(--sec-border)',
-      }}>
-        <Lock size={16} strokeWidth={1.5} style={{ color: 'var(--sec-accent-muted)', flexShrink: 0 }} />
-        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: 0 }}>
-          Your card details are encrypted and secure.
-        </p>
-      </div>
-
-      <button
-        type="submit"
-        disabled={!stripe || !cardComplete || isProcessing || disabled}
-        style={{
-          width: '100%',
-          height: 48,
-          borderRadius: 'var(--radius-lg)',
-          backgroundColor: 'var(--sec-accent)',
-          color: '#000',
-          fontWeight: 600,
-          fontSize: 15,
-          border: 'none',
-          cursor: !stripe || !cardComplete || isProcessing || disabled ? 'not-allowed' : 'pointer',
-          opacity: !stripe || !cardComplete || isProcessing || disabled ? 0.5 : 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-        }}
-      >
-        {isProcessing ? (
-          <>Processing…</>
-        ) : (
-          <>
-            <CreditCard size={18} strokeWidth={2} />
-            Add Card & Complete
-          </>
-        )}
-      </button>
-    </form>
-  );
-}
 
 export default function ProfileSetup() {
   const navigate = useNavigate();
@@ -791,7 +638,7 @@ export default function ProfileSetup() {
                 <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
                   Payment
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Add a card to complete setup</p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Payments are handled securely at checkout</p>
               </div>
 
               <div
@@ -802,50 +649,42 @@ export default function ProfileSetup() {
                   border: '1px solid var(--sec-border)',
                 }}
               >
-                <Elements stripe={stripePromise}>
-                  <PaymentFormInner
-                    onSuccess={handlePaymentSuccess}
-                    onError={(msg) => setError(msg)}
-                    disabled={isSubmitting}
-                  />
-                </Elements>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleSkipPayment}
-                disabled={isSubmitting}
-                style={{
-                  width: '100%',
-                  padding: '12px 20px',
-                  marginTop: 8,
-                  borderRadius: 'var(--radius-lg)',
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--sec-border)',
-                  color: 'var(--sec-text-secondary)',
-                  fontSize: 14,
-                  fontWeight: 500,
-                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                  opacity: isSubmitting ? 0.6 : 1,
-                }}
-              >
-                Skip for now — add payment later
-              </button>
-
-              {error && (
-                <div
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+                  <Lock size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent-muted)', flexShrink: 0 }} />
+                  <div>
+                    <p style={{ fontSize: 14, color: 'var(--sec-text-primary)', margin: '0 0 8px 0' }}>
+                      Paystack powers all payments
+                    </p>
+                    <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0, lineHeight: 1.5 }}>
+                      When you buy tickets, join tables, or boost promotions, you&apos;ll be redirected to Paystack&apos;s secure checkout. No need to add a card now.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePaymentSuccess}
+                  disabled={isSubmitting}
                   style={{
-                    padding: 12,
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'rgba(239,68,68,0.1)',
-                    border: '1px solid rgba(239,68,68,0.3)',
-                    color: '#ef4444',
-                    fontSize: 13,
+                    width: '100%',
+                    height: 48,
+                    borderRadius: 'var(--radius-lg)',
+                    backgroundColor: 'var(--sec-accent)',
+                    color: '#000',
+                    fontWeight: 600,
+                    fontSize: 15,
+                    border: 'none',
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                    opacity: isSubmitting ? 0.5 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
                   }}
                 >
-                  {error}
-                </div>
-              )}
+                  <CreditCard size={18} strokeWidth={2} />
+                  Complete Setup
+                </button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
