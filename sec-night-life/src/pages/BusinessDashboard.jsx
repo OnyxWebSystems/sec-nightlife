@@ -4,11 +4,12 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
+import { apiGet, apiPost } from '@/api/client';
 import { Button } from "@/components/ui/button";
 import {
   Calendar, BookOpen, Megaphone, BarChart3,
   Star, Users, ArrowRight, Building2, Plus,
-  ChevronRight, AlertCircle, Briefcase
+  ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload
 } from 'lucide-react';
 
 function StatCard({ icon: Icon, label, value, sub }) {
@@ -79,6 +80,28 @@ export default function BusinessDashboard() {
 
   const venue = venues[0];
 
+  const DOC_TYPES = [
+    { type: 'LIQUOR_LICENCE', label: 'Liquor Licence' },
+    { type: 'BUSINESS_REGISTRATION', label: 'Business Registration' },
+    { type: 'HEALTH_CERTIFICATE', label: 'Health Certificate' },
+    { type: 'TAX_CLEARANCE', label: 'Tax Clearance' },
+    { type: 'OTHER', label: 'Other' },
+  ];
+
+  const [complianceError, setComplianceError] = useState('');
+  const [uploading, setUploading] = useState({});
+
+  const cloudinaryConfig = {
+    cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
+    uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
+  };
+
+  const { data: complianceLatest, refetch: refetchCompliance } = useQuery({
+    queryKey: ['biz-compliance-latest', venue?.id],
+    queryFn: async () => apiGet(`/api/compliance-documents/venue/${venue.id}/latest`),
+    enabled: !!venue,
+  });
+
   const { data: events = [] } = useQuery({
     queryKey: ['biz-events', venue?.id],
     queryFn: () => dataService.Event.filter({ venue_id: venue.id }),
@@ -144,6 +167,67 @@ export default function BusinessDashboard() {
     : '—';
   const totalGuests = tables.reduce((s, t) => s + (t.current_guests || 0), 0);
 
+  const getDocStatus = (docType) => {
+    const list = complianceLatest?.documents || [];
+    return list.find((d) => d.documentType === docType) || null;
+  };
+
+  const handleUploadDoc = async (docType, file) => {
+    setComplianceError('');
+
+    if (!file) return;
+    if (!cloudinaryConfig.cloudName || !cloudinaryConfig.uploadPreset) {
+      setComplianceError('Cloudinary is not configured. Please contact support.');
+      return;
+    }
+
+    const MAX_MB = 10;
+    const maxBytes = MAX_MB * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setComplianceError(`File is too large. Max is ${MAX_MB}MB.`);
+      return;
+    }
+
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+    if (!allowed.includes(file.type)) {
+      setComplianceError('Invalid file type. Upload PDF, JPG, or PNG only.');
+      return;
+    }
+
+    setUploading((prev) => ({ ...prev, [docType]: true }));
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('upload_preset', cloudinaryConfig.uploadPreset);
+
+      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
+        method: 'POST',
+        body: form,
+      });
+
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) {
+        throw new Error(uploadData?.error?.message || 'Cloudinary upload failed');
+      }
+
+      const fileUrl = uploadData.secure_url;
+      if (!fileUrl) throw new Error('Cloudinary returned no secure_url');
+
+      await apiPost('/api/compliance-documents', {
+        venueId: venue.id,
+        documentType: docType,
+        fileUrl,
+        fileName: file.name,
+      });
+
+      await refetchCompliance();
+    } catch (err) {
+      setComplianceError(err?.message || 'Upload failed. Please try again.');
+    } finally {
+      setUploading((prev) => ({ ...prev, [docType]: false }));
+    }
+  };
+
   return (
     <div style={{ padding: 'var(--space-6) var(--space-5)', maxWidth: 1100, margin: '0 auto' }}>
       {/* Header */}
@@ -184,6 +268,99 @@ export default function BusinessDashboard() {
           </span>
         </div>
       )}
+
+      {/* Compliance Documents Upload */}
+      <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: 'var(--sec-accent-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ShieldCheck size={18} style={{ color: 'var(--sec-accent)' }} />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--sec-text-primary)', margin: 0 }}>Compliance Documents</h3>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>Upload required documents for verification.</p>
+          </div>
+        </div>
+
+        {complianceError && (
+          <div style={{ padding: '10px 12px', borderRadius: 12, backgroundColor: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', fontSize: 13, marginBottom: 12 }}>
+            {complianceError}
+          </div>
+        )}
+
+        {!complianceLatest && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--sec-text-muted)', fontSize: 13 }}>
+            <Loader2 size={16} className="animate-spin" /> Loading compliance status...
+          </div>
+        )}
+
+        {complianceLatest && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {DOC_TYPES.map((d) => {
+              const status = getDocStatus(d.type);
+              const uploadedAt = status?.uploadedAt ? new Date(status.uploadedAt).toLocaleDateString() : null;
+              const currentStatus = status?.status || 'PENDING';
+              const hasFile = Boolean(status?.id);
+              const isApproved = currentStatus === 'APPROVED';
+              const isRejected = currentStatus === 'REJECTED';
+              const canUpload = !isApproved;
+
+              const statusText = !hasFile
+                ? 'Not submitted'
+                : isApproved
+                  ? 'Approved'
+                  : isRejected
+                    ? 'Rejected'
+                    : 'Pending';
+
+              return (
+                <div key={d.type} style={{ padding: 14, borderRadius: 14, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <FileText size={16} style={{ color: 'var(--sec-accent)' }} />
+                        <p style={{ fontWeight: 900, fontSize: 13, color: 'var(--sec-text-primary)', margin: 0 }}>{d.label}</p>
+                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>
+                        Status:{' '}
+                        <span style={{ color: isApproved ? 'var(--sec-success)' : (isRejected ? 'var(--sec-warning)' : 'var(--sec-accent)') }}>
+                          {statusText}
+                        </span>
+                        {uploadedAt ? ` · ${uploadedAt}` : ''}
+                      </p>
+                      {isRejected && status?.rejectionReason && (
+                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>
+                          Rejection reason: {status.rejectionReason}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: canUpload ? 'pointer' : 'not-allowed', opacity: canUpload ? 1 : 0.55 }}>
+                      <Upload size={16} />
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>
+                        {isApproved ? 'Approved' : uploading[d.type] ? 'Uploading...' : hasFile && isRejected ? 'Re-upload' : 'Upload'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        style={{ display: 'none' }}
+                        disabled={!canUpload || uploading[d.type]}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          handleUploadDoc(d.type, file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Max 10MB · PDF/JPG/PNG</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Stat Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>

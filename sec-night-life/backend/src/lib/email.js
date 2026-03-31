@@ -1,114 +1,49 @@
-import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
 import { logger } from './logger.js';
-
-const isProd = process.env.NODE_ENV === 'production';
-const hasResend = !!process.env.RESEND_API_KEY;
-const hasSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 
 function getFromAddress() {
   return process.env.EMAIL_FROM || 'noreply@secnightlife.com';
 }
 
-function createSmtpTransport() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT) || 587,
-    secure: parseInt(process.env.SMTP_PORT) === 465,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    }
-  });
-}
-
 function createResendClient() {
-  if (!hasResend) return null;
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error('RESEND_API_KEY is not configured');
+  }
   return new Resend(process.env.RESEND_API_KEY);
 }
 
-/**
- * Send an email using the configured provider.
- * Priority:
- *  1. Resend when RESEND_API_KEY is set
- *  2. SMTP when SMTP_* variables are present
- *  3. Dev-only console fallback (never in production)
- */
-async function sendMail({ to, subject, html, text }) {
+export async function sendEmail({ to, subject, html, text }) {
+  const resend = createResendClient();
   const from = getFromAddress();
+  await resend.emails.send({ from, to, subject, html, text });
+  logger.info('Email sent via Resend', { to, subject });
+}
 
-  if (hasResend) {
-    try {
-      const resend = createResendClient();
-      await resend.emails.send({
-        from,
-        to,
-        subject,
-        html,
-        text
-      });
-      logger.info('Email sent via Resend', { to, subject });
-      return;
-    } catch (err) {
-      logger.error('Failed to send email via Resend', {
-        to,
-        subject,
-        error: err?.message || String(err)
-      });
-      if (isProd && !hasSmtp) {
-        // In production with only Resend configured, treat this as a soft failure
-        return;
-      }
-      // Otherwise fall through to SMTP/dev fallback
-    }
-  }
+export async function sendBulkEmails(messages) {
+  const resend = createResendClient();
+  const from = getFromAddress();
+  if (!Array.isArray(messages) || messages.length === 0) return;
 
-  if (hasSmtp) {
-    try {
-      const transporter = createSmtpTransport();
-      await transporter.sendMail({
-        from,
-        to,
-        subject,
-        html,
-        text
-      });
-      logger.info('Email sent via SMTP', { to, subject });
-      return;
-    } catch (err) {
-      logger.error('Failed to send email via SMTP', {
-        to,
-        subject,
-        error: err?.message || String(err)
-      });
-      if (isProd && !hasResend) {
-        // In production with only SMTP configured, treat this as a soft failure
-        return;
-      }
-    }
-  }
+  const payload = messages.map((m) => ({
+    from,
+    to: m.to,
+    subject: m.subject,
+    html: m.html,
+    text: m.text
+  }));
 
-  if (!isProd) {
-    // Dev fallback — print email to stdout so developers can click the link
-    logger.info('[DEV EMAIL — not sent via provider]', { to, subject });
-    process.stdout.write('─'.repeat(60) + '\n');
-    process.stdout.write(`TO: ${to}\n`);
-    process.stdout.write(`SUBJECT: ${subject}\n`);
-    process.stdout.write((text || '') + '\n');
-    process.stdout.write('─'.repeat(60) + '\n');
+  const batchSend = resend.batch?.send?.bind(resend);
+  if (typeof batchSend === 'function') {
+    await batchSend(payload);
   } else {
-    // Production without any working provider — log error but do not crash the process
-    logger.error('No email provider configured or all providers failed. Email not sent.', {
-      to,
-      subject
-    });
+    await Promise.all(payload.map((m) => resend.emails.send(m)));
   }
 }
 
 export async function sendVerificationEmail(to, token) {
   const baseUrl = process.env.APP_URL || 'http://localhost:5173';
   const link = `${baseUrl}/verify-email?token=${encodeURIComponent(token)}`;
-  await sendMail({
+  await sendEmail({
     to,
     subject: 'Verify your SEC Nightlife account',
     text: `Welcome to SEC Nightlife!\n\nVerify your email by clicking the link below:\n${link}\n\nThis link expires in 24 hours.\n\nIf you did not create an account, ignore this email.`,
@@ -132,7 +67,7 @@ export async function sendVerificationEmail(to, token) {
 export async function sendPasswordResetEmail(to, token) {
   const baseUrl = process.env.APP_URL || 'http://localhost:5173';
   const link = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
-  await sendMail({
+  await sendEmail({
     to,
     subject: 'Reset your SEC Nightlife password',
     text: `Reset your password by clicking the link below:\n${link}\n\nThis link expires in 1 hour.\n\nIf you did not request a password reset, ignore this email.`,

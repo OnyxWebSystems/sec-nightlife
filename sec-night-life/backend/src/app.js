@@ -31,6 +31,7 @@ import hostEventRoutes from './routes/host-events.js';
 import userRoleRoutes from './routes/user-roles.js';
 import adminRoutes from './routes/admin.js';
 import legalRoutes from './routes/legal.js';
+import complianceDocumentsRoutes from './routes/compliance-documents.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 
@@ -138,6 +139,7 @@ app.use('/api/host-events', generalLimiter, hostEventRoutes);
 app.use('/api/user-roles', generalLimiter, userRoleRoutes);
 app.use('/api/admin', generalLimiter, adminRoutes);
 app.use('/api/legal', legalRoutes);
+app.use('/api/compliance-documents', generalLimiter, complianceDocumentsRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

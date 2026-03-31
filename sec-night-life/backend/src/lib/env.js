@@ -6,7 +6,7 @@
  *  - Required vars must be present and non-empty in ALL environments.
  *  - JWT secrets must be ≥ 32 chars and must NOT contain placeholder text.
  *  - In production: CORS_ORIGIN and APP_URL must be set.
- *  - In production: at least one email provider must be configured (SMTP or Resend).
+ *  - In production: Resend email provider must be configured.
  *  - No wildcard CORS origins in production.
  *  - No localhost in CORS_ORIGIN in production.
  *
@@ -115,17 +115,13 @@ export function validateEnv() {
       fatal('CORS_ORIGIN must not use wildcards (*) in production.');
     }
 
-    // Email provider required in production — either SMTP or Resend
-    const hasSmtp =
-      !!process.env.SMTP_HOST &&
-      !!process.env.SMTP_USER &&
-      !!process.env.SMTP_PASS;
+    // Email provider required in production — Resend only
     const hasResend = !!process.env.RESEND_API_KEY;
 
-    if (!hasSmtp && !hasResend) {
+    if (!hasResend) {
       fatal(
         'Email provider is not configured for production.\n' +
-        '  Configure either SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_PORT) or Resend (RESEND_API_KEY).\n' +
+        '  Configure Resend (RESEND_API_KEY).\n' +
         '  This is required so users can receive verification and reset emails.'
       );
     }

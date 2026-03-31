@@ -14,7 +14,7 @@ const REDACTED_KEYS = new Set([
   'token', 'refreshToken', 'accessToken', 'refresh_token', 'access_token',
   'secret', 'resetToken', 'reset_token', 'verificationToken', 'verification_token',
   'authorization', 'cookie', 'set-cookie',
-  'DATABASE_URL', 'SMTP_PASS', 'CLOUDINARY_API_SECRET'
+  'DATABASE_URL', 'CLOUDINARY_API_SECRET'
 ]);
 
 export function redact(obj) {

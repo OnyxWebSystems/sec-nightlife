@@ -12,6 +12,8 @@ const venueCreateSchema = z.object({
   venue_type: z.string().min(1),
   city: z.string().min(1),
   address: z.string().optional().nullable(),
+  suburb: z.string().optional().nullable(),
+  province: z.string().optional().nullable(),
   latitude: z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
   bio: z.string().optional().nullable(),
@@ -48,6 +50,8 @@ router.get('/', optionalAuth, async (req, res, next) => {
       venue_type: v.venueType,
       city: v.city,
       address: v.address,
+      suburb: v.suburb,
+      province: v.province,
       latitude: v.latitude,
       longitude: v.longitude,
       is_verified: v.isVerified,
@@ -88,6 +92,8 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       venue_type: v.venueType,
       city: v.city,
       address: v.address,
+      suburb: v.suburb,
+      province: v.province,
       latitude: v.latitude,
       longitude: v.longitude,
       is_verified: v.isVerified,
@@ -116,6 +122,8 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       venue_type: venue.venueType,
       city: venue.city,
       address: venue.address,
+      suburb: venue.suburb,
+      province: venue.province,
       latitude: venue.latitude,
       longitude: venue.longitude,
       bio: venue.bio,
@@ -153,6 +161,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
         venueType: data.venue_type,
         city: data.city,
         address: data.address,
+        suburb: data.suburb,
+        province: data.province,
         latitude: data.latitude,
         longitude: data.longitude,
         bio: data.bio,
@@ -174,6 +184,11 @@ router.post('/', authenticateToken, async (req, res, next) => {
       name: venue.name,
       venue_type: venue.venueType,
       city: venue.city,
+      address: venue.address,
+      suburb: venue.suburb,
+      province: venue.province,
+      latitude: venue.latitude,
+      longitude: venue.longitude,
       compliance_status: venue.complianceStatus,
       owner_user_id: venue.ownerUserId
     });
@@ -203,6 +218,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.venue_type != null) updates.venueType = data.venue_type;
     if (data.city != null) updates.city = data.city;
     if (data.address != null) updates.address = data.address;
+    if (data.suburb != null) updates.suburb = data.suburb;
+    if (data.province != null) updates.province = data.province;
     if (data.latitude != null) updates.latitude = data.latitude;
     if (data.longitude != null) updates.longitude = data.longitude;
     if (data.bio != null) updates.bio = data.bio;
@@ -226,6 +243,11 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       name: updated.name,
       venue_type: updated.venueType,
       city: updated.city,
+      address: updated.address,
+      suburb: updated.suburb,
+      province: updated.province,
+      latitude: updated.latitude,
+      longitude: updated.longitude,
       cover_image_url: updated.coverImageUrl,
       compliance_status: updated.complianceStatus
     });

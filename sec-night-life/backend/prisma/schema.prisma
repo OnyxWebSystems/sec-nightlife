@@ -22,6 +22,20 @@ enum VenueComplianceStatus {
   rejected
 }
 
+enum ComplianceDocumentType {
+  LIQUOR_LICENCE
+  BUSINESS_REGISTRATION
+  HEALTH_CERTIFICATE
+  TAX_CLEARANCE
+  OTHER
+}
+
+enum ComplianceDocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum EventStatus {
   draft
   published
@@ -131,6 +145,8 @@ model Venue {
   venueType         String              @map("venue_type")
   city              String
   address           String?
+  suburb            String?
+  province          String?
   latitude          Float?
   longitude         Float?
   bio               String?
@@ -162,11 +178,54 @@ model Venue {
   reviews    VenueReview[]
   blockedUsers VenueBlockedUser[]
   popularity VenuePopularity[]
+  complianceDocuments ComplianceDocument[]
 
   @@index([ownerUserId])
   @@index([city])
   @@index([complianceStatus])
   @@map("venues")
+}
+
+model ComplianceDocument {
+  id String @id @default(cuid())
+
+  venueId String @map("venue_id")
+  venue   Venue  @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  documentType ComplianceDocumentType @map("document_type")
+  fileUrl String @map("file_url") @db.Text
+  fileName String @map("file_name")
+
+  uploadedAt DateTime @default(now()) @map("uploaded_at")
+
+  status ComplianceDocumentStatus @default(PENDING)
+
+  rejectionReason String? @map("rejection_reason") @db.Text
+  reviewedAt DateTime? @map("reviewed_at")
+  reviewedBy String? @map("reviewed_by")
+
+  reviewedByUser User? @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([venueId])
+  @@index([status])
+  @@index([documentType])
+  @@map("compliance_documents")
+}
+
+model AdminReviewer {
+  id String @id @default(cuid())
+
+  email String @unique
+  name String
+
+  addedAt DateTime @default(now()) @map("added_at")
+  isActive Boolean @default(true) @map("is_active")
+
+  addedByUserId String @map("added_by_user_id")
+  addedByUser User @relation(fields: [addedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([isActive])
+  @@map("admin_reviewers")
 }
 
 model VenueReview {

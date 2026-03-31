@@ -54,8 +54,10 @@ export default function VenueOnboarding() {
     bio: '',
     address: '',
     city: '',
-    latitude: -33.9249,
-    longitude: 18.4241,
+    suburb: '',
+    province: '',
+    latitude: null,
+    longitude: null,
     phone: '',
     email: '',
     website: '',
@@ -116,8 +118,10 @@ export default function VenueOnboarding() {
 
       if (formData.bio) venueData.bio = formData.bio;
       if (formData.address) venueData.address = formData.address;
-      if (formData.latitude) venueData.latitude = formData.latitude;
-      if (formData.longitude) venueData.longitude = formData.longitude;
+      if (formData.suburb) venueData.suburb = formData.suburb;
+      if (formData.province) venueData.province = formData.province;
+      if (formData.latitude != null) venueData.latitude = formData.latitude;
+      if (formData.longitude != null) venueData.longitude = formData.longitude;
       if (formData.phone) venueData.phone = formData.phone;
       if (formData.email) venueData.email = formData.email;
       if (formData.website) venueData.website = formData.website;
@@ -355,18 +359,37 @@ export default function VenueOnboarding() {
               <div className="space-y-4">
                 <div>
                    <GoogleAddressInput
-                     value={formData.address}
-                     onChange={(address) => setFormData(prev => ({ ...prev, address }))}
-                     onCoordinatesChange={(coords) => setFormData(prev => ({ 
-                       ...prev, 
-                       latitude: coords.latitude,
-                       longitude: coords.longitude
-                     }))}
+                     value={{
+                       formattedAddress: formData.address,
+                       street: formData.address,
+                       suburb: formData.suburb,
+                       city: formData.city,
+                       province: formData.province,
+                       country: 'ZA',
+                       latitude: formData.latitude,
+                       longitude: formData.longitude,
+                     }}
+                     onChange={(addr) => setFormData((prev) => {
+                       const normalizedCity = typeof addr?.city === 'string' ? addr.city.trim() : '';
+                       const mappedCity = CITIES.some((c) => c.toLowerCase() === normalizedCity.toLowerCase())
+                         ? normalizedCity
+                         : prev.city;
+
+                       return {
+                         ...prev,
+                         address: addr?.street || addr?.formattedAddress || '',
+                         suburb: addr?.suburb || '',
+                         province: addr?.province || '',
+                         latitude: addr?.latitude ?? null,
+                         longitude: addr?.longitude ?? null,
+                         city: mappedCity,
+                       };
+                     })}
                      placeholder="123 Main Street, Sandton"
                    />
                  </div>
 
-                 {formData.address && (
+                 {formData.address && formData.latitude != null && formData.longitude != null && (
                    <GoogleMapDisplay 
                      latitude={formData.latitude}
                      longitude={formData.longitude}

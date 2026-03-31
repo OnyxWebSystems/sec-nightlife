@@ -15,47 +15,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
-
-// Ensure Google Maps API is loaded
-const loadGoogleMapsAPI = () => {
-  if (window.__googleMapsApiLoading) return window.__googleMapsApiPromise;
-  
-  if (window.google?.maps?.Map) {
-    return Promise.resolve();
-  }
-
-  // Load script if not already loaded
-  if (!window.__googleMapsScriptLoaded) {
-    window.__googleMapsScriptLoaded = true;
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-    if (!apiKey) {
-      console.error('VITE_GOOGLE_MAPS_API_KEY environment variable is not set');
-      return Promise.resolve();
-    }
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-    script.async = true;
-    script.defer = true;
-    script.onerror = () => console.error('Failed to load Google Maps script');
-    document.head.appendChild(script);
-  }
-
-  window.__googleMapsApiLoading = true;
-  window.__googleMapsApiPromise = new Promise((resolve) => {
-    const checkInterval = setInterval(() => {
-      if (window.google?.maps?.Map) {
-        clearInterval(checkInterval);
-        resolve();
-      }
-    }, 100);
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      resolve();
-    }, 10000);
-  });
-
-  return window.__googleMapsApiPromise;
-};
+import { useGoogleMaps } from '@/lib/GoogleMapsProvider';
 
 // Johannesburg coordinates as default
 const DEFAULT_CENTER = { lat: -26.2041, lng: 28.0473 };
@@ -68,6 +28,7 @@ export default function Map() {
   const [map, setMap] = useState(null);
   const [mapError, setMapError] = useState(null);
   const mapRef = React.useRef(null);
+  const { status: mapsStatus, error: mapsError } = useGoogleMaps();
 
   const { data: venues = [] } = useQuery({
     queryKey: ['map-venues'],
@@ -94,6 +55,13 @@ export default function Map() {
 
   // Initialize Google Map
   useEffect(() => {
+    if (mapsStatus === 'error') {
+      setMapError('Map unavailable. Please check your deployment Google Maps configuration.');
+      return;
+    }
+
+    if (mapsStatus !== 'ready') return;
+
     const initMap = async () => {
       if (!mapRef.current) {
         console.warn('Map container ref not available');
@@ -101,8 +69,6 @@ export default function Map() {
       }
       if (map) return;
       setMapError(null);
-
-      await loadGoogleMapsAPI();
 
       if (!window.google?.maps?.Map) {
         setMapError('Unable to load map. Please check that VITE_GOOGLE_MAPS_API_KEY is set in your deployment.');
@@ -158,7 +124,7 @@ export default function Map() {
     };
 
     initMap();
-  }, []);
+  }, [mapsStatus, map]);
 
   // Update markers when filtered items change
   useEffect(() => {

@@ -8,6 +8,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { PreferencesProvider } from '@/context/PreferencesContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import { GoogleMapsProvider } from '@/lib/GoogleMapsProvider';
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
@@ -68,13 +69,15 @@ function App() {
   return (
     <AuthProvider>
       <PreferencesProvider>
-        <QueryClientProvider client={queryClientInstance}>
-          <Router>
-            <NavigationTracker />
-            <AuthenticatedApp />
-          </Router>
-          <Toaster />
-        </QueryClientProvider>
+        <GoogleMapsProvider>
+          <QueryClientProvider client={queryClientInstance}>
+            <Router>
+              <NavigationTracker />
+              <AuthenticatedApp />
+            </Router>
+            <Toaster />
+          </QueryClientProvider>
+        </GoogleMapsProvider>
       </PreferencesProvider>
     </AuthProvider>
   )

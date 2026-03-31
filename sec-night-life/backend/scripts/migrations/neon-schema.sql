@@ -68,6 +68,8 @@ CREATE TABLE "venues" (
     "venue_type" TEXT NOT NULL,
     "city" TEXT NOT NULL,
     "address" TEXT,
+    "suburb" TEXT,
+    "province" TEXT,
     "latitude" DOUBLE PRECISION,
     "longitude" DOUBLE PRECISION,
     "bio" TEXT,
@@ -285,6 +287,8 @@ CREATE INDEX "refresh_tokens_token_idx" ON "refresh_tokens"("token");
 CREATE UNIQUE INDEX "user_profiles_user_id_key" ON "user_profiles"("user_id");
 CREATE INDEX "venues_owner_user_id_idx" ON "venues"("owner_user_id");
 CREATE INDEX "venues_city_idx" ON "venues"("city");
+CREATE INDEX "venues_suburb_idx" ON "venues"("suburb");
+CREATE INDEX "venues_province_idx" ON "venues"("province");
 CREATE INDEX "venues_compliance_status_idx" ON "venues"("compliance_status");
 CREATE INDEX "venue_reviews_venue_id_idx" ON "venue_reviews"("venue_id");
 CREATE INDEX "venue_reviews_user_id_idx" ON "venue_reviews"("user_id");
@@ -462,3 +466,67 @@ ALTER TABLE "blocks" ADD CONSTRAINT "blocks_blocker_id_fkey" FOREIGN KEY ("block
 ALTER TABLE "blocks" ADD CONSTRAINT "blocks_blocked_id_fkey" FOREIGN KEY ("blocked_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "reports" ADD CONSTRAINT "reports_reporter_id_fkey" FOREIGN KEY ("reporter_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- ─── Compliance Documents + Admin Reviewers (Issue 2) ─────────────────────
+DO $$
+BEGIN
+  CREATE TYPE "ComplianceDocumentType" AS ENUM (
+    'LIQUOR_LICENCE',
+    'BUSINESS_REGISTRATION',
+    'HEALTH_CERTIFICATE',
+    'TAX_CLEARANCE',
+    'OTHER'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  CREATE TYPE "ComplianceDocumentStatus" AS ENUM (
+    'PENDING',
+    'APPROVED',
+    'REJECTED'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "compliance_documents" (
+  "id" TEXT NOT NULL,
+  "venue_id" TEXT NOT NULL,
+  "document_type" "ComplianceDocumentType" NOT NULL,
+  "file_url" TEXT NOT NULL,
+  "file_name" TEXT NOT NULL,
+  "uploaded_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "status" "ComplianceDocumentStatus" NOT NULL DEFAULT 'PENDING',
+  "rejection_reason" TEXT,
+  "reviewed_at" TIMESTAMP(3),
+  "reviewed_by" TEXT,
+
+  CONSTRAINT "compliance_documents_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "compliance_documents_venue_id_fkey"
+    FOREIGN KEY ("venue_id") REFERENCES "venues"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "compliance_documents_reviewed_by_fkey"
+    FOREIGN KEY ("reviewed_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "admin_reviewers" (
+  "id" TEXT NOT NULL,
+  "email" TEXT NOT NULL,
+  "name" TEXT NOT NULL,
+  "added_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "is_active" BOOLEAN NOT NULL DEFAULT true,
+  "added_by_user_id" TEXT NOT NULL,
+
+  CONSTRAINT "admin_reviewers_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "admin_reviewers_email_key" UNIQUE ("email"),
+  CONSTRAINT "admin_reviewers_added_by_user_id_fkey"
+    FOREIGN KEY ("added_by_user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "compliance_documents_venue_id_idx" ON "compliance_documents"("venue_id");
+CREATE INDEX IF NOT EXISTS "compliance_documents_status_idx" ON "compliance_documents"("status");
+CREATE INDEX IF NOT EXISTS "compliance_documents_document_type_idx" ON "compliance_documents"("document_type");
+
+CREATE INDEX IF NOT EXISTS "admin_reviewers_is_active_idx" ON "admin_reviewers"("is_active");
