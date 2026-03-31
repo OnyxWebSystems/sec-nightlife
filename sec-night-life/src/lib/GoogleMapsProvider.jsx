@@ -13,11 +13,23 @@ export function GoogleMapsProvider({ children }) {
 
   useEffect(() => {
     didUnmount.current = false;
+    let authFailurePoll = null;
 
     loadGoogleMapsApi()
       .then(() => {
         if (didUnmount.current) return;
         setStatus('ready');
+
+        // Google Maps auth/billing/key-restriction failures can occur after script load.
+        // When that happens, switch components into their manual fallback state.
+        authFailurePoll = window.setInterval(() => {
+          if (didUnmount.current) return;
+          if (window.__googleMapsAuthFailure) {
+            setError(new Error('Google Maps authentication failed.'));
+            setStatus('error');
+            window.clearInterval(authFailurePoll);
+          }
+        }, 500);
       })
       .catch((err) => {
         if (didUnmount.current) return;
@@ -27,6 +39,7 @@ export function GoogleMapsProvider({ children }) {
 
     return () => {
       didUnmount.current = true;
+      if (authFailurePoll) window.clearInterval(authFailurePoll);
     };
   }, []);
 

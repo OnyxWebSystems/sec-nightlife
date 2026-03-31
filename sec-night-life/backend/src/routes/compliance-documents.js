@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendBulkEmails, sendEmail } from '../lib/email.js';
-import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { authenticateToken } from '../middleware/auth.js';
 import { requireComplianceReviewer, requireSuperAdmin } from '../middleware/complianceReviewer.js';
 
 const router = Router();
@@ -129,7 +129,7 @@ router.get('/me/access', authenticateToken, async (req, res, next) => {
 });
 
 // Business: upload a new document (Cloudinary upload already done by frontend)
-router.post('/', authenticateToken, requireRole('VENUE'), async (req, res, next) => {
+router.post('/', authenticateToken, async (req, res, next) => {
   try {
     const schema = z.object({
       venueId: z.string().min(1),

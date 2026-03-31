@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { integrations } from '@/services/integrationService';
+import { apiPost } from '@/api/client';
 import { 
   Building,
   Upload,
@@ -47,6 +47,12 @@ export default function VenueOnboarding() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState({});
+  const [selectedPlan, setSelectedPlan] = useState('basic');
+
+  const cloudinaryConfig = {
+    cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
+    uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
+  };
   
   const [formData, setFormData] = useState({
     name: '',
@@ -93,13 +99,37 @@ export default function VenueOnboarding() {
     if (!file) return;
 
     setUploadProgress(prev => ({ ...prev, [field]: 'uploading' }));
+    setError('');
 
     try {
-      const { file_url } = await integrations.Core.UploadFile({ file });
-      setFormData(prev => ({ ...prev, [field]: file_url }));
+      if (!cloudinaryConfig.cloudName || !cloudinaryConfig.uploadPreset) {
+        throw new Error('Cloudinary is not configured for uploads.');
+      }
+
+      const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+      if (!allowed.includes(file.type)) {
+        throw new Error('Only PDF, JPG, and PNG documents are allowed.');
+      }
+
+      const form = new FormData();
+      form.append('file', file);
+      form.append('upload_preset', cloudinaryConfig.uploadPreset);
+
+      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
+        method: 'POST',
+        body: form,
+      });
+      const uploadData = await uploadRes.json();
+
+      if (!uploadRes.ok || !uploadData?.secure_url) {
+        throw new Error(uploadData?.error?.message || 'Failed to upload document.');
+      }
+
+      setFormData(prev => ({ ...prev, [field]: uploadData.secure_url }));
       setUploadProgress(prev => ({ ...prev, [field]: 'done' }));
     } catch (error) {
       setUploadProgress(prev => ({ ...prev, [field]: 'error' }));
+      setError(error?.message || 'Failed to upload document.');
     }
   };
 
@@ -131,10 +161,32 @@ export default function VenueOnboarding() {
       const complianceDoc = formData.liquor_license_url || formData.cipc_document_url || formData.director_id_url || formData.sars_document_url || formData.annual_returns_url;
       if (complianceDoc) venueData.compliance_document_url = complianceDoc;
 
-      await dataService.Venue.create(venueData);
+      const createdVenue = await dataService.Venue.create(venueData);
+
+      const complianceUploads = [
+        { documentType: 'BUSINESS_REGISTRATION', fileUrl: formData.cipc_document_url, fileName: 'cipc-registration' },
+        { documentType: 'TAX_CLEARANCE', fileUrl: formData.sars_document_url, fileName: 'sars-documents' },
+        { documentType: 'LIQUOR_LICENCE', fileUrl: formData.liquor_license_url, fileName: 'liquor-license' },
+        { documentType: 'OTHER', fileUrl: formData.director_id_url, fileName: 'director-id' },
+        { documentType: 'OTHER', fileUrl: formData.annual_returns_url, fileName: 'annual-returns' },
+      ].filter((doc) => !!doc.fileUrl);
+
+      if (createdVenue?.id && complianceUploads.length > 0) {
+        await Promise.all(
+          complianceUploads.map((doc) =>
+            apiPost('/api/compliance-documents', {
+              venueId: createdVenue.id,
+              documentType: doc.documentType,
+              fileUrl: doc.fileUrl,
+              fileName: doc.fileName,
+            })
+          )
+        );
+      }
+
       navigate(createPageUrl('BusinessDashboard'));
     } catch (error) {
-      setError('Failed to create venue. Please try again.');
+      setError(error?.message || 'Failed to create venue. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -557,7 +609,15 @@ export default function VenueOnboarding() {
                </div>
 
                <div className="space-y-3">
-                 <div className="p-4 rounded-xl" style={{ border: '2px solid var(--sec-accent-border)', backgroundColor: 'var(--sec-accent-muted)' }}>
+                 <button
+                   type="button"
+                   onClick={() => setSelectedPlan('basic')}
+                   className="w-full p-4 rounded-xl text-left transition-all"
+                   style={{
+                     border: selectedPlan === 'basic' ? '2px solid var(--sec-accent-border)' : '2px solid var(--sec-border)',
+                     backgroundColor: selectedPlan === 'basic' ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)'
+                   }}
+                 >
                    <h3 className="font-semibold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Basic Plan</h3>
                    <p className="text-2xl font-bold mb-1" style={{ color: 'var(--sec-text-primary)' }}>R 299<span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>/month</span></p>
                    <ul className="text-xs space-y-1 mt-3" style={{ color: 'var(--sec-text-secondary)' }}>
@@ -565,9 +625,17 @@ export default function VenueOnboarding() {
                      <li>✓ Basic analytics</li>
                      <li>✓ Customer support</li>
                    </ul>
-                 </div>
+                 </button>
 
-                 <div className="p-4 rounded-xl" style={{ border: '2px solid var(--sec-border)', backgroundColor: 'var(--sec-bg-card)' }}>
+                 <button
+                   type="button"
+                   onClick={() => setSelectedPlan('premium')}
+                   className="w-full p-4 rounded-xl text-left transition-all"
+                   style={{
+                     border: selectedPlan === 'premium' ? '2px solid var(--sec-accent-border)' : '2px solid var(--sec-border)',
+                     backgroundColor: selectedPlan === 'premium' ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)'
+                   }}
+                 >
                    <h3 className="font-semibold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Premium Plan</h3>
                    <p className="text-2xl font-bold mb-1" style={{ color: 'var(--sec-text-primary)' }}>R 799<span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>/month</span></p>
                    <ul className="text-xs space-y-1 mt-3" style={{ color: 'var(--sec-text-secondary)' }}>
@@ -576,7 +644,7 @@ export default function VenueOnboarding() {
                      <li>✓ Priority support</li>
                      <li>✓ Featured listings</li>
                    </ul>
-                 </div>
+                 </button>
                </div>
 
                <div className="rounded-xl p-3 mt-6" style={{ backgroundColor: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
@@ -611,15 +679,25 @@ export default function VenueOnboarding() {
               <ChevronRight className="w-5 h-5 ml-2" />
             </Button>
           ) : (
-            <Button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
-              style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
-            >
-              {isSubmitting ? 'Submitting...' : 'Skip & Register Venue'}
-              {!isSubmitting && <Check className="w-5 h-5 ml-2" />}
-            </Button>
+            <>
+              <Button
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                variant="outline"
+                className="h-14 px-4 rounded-xl bg-[#141416] border-[#262629]"
+              >
+                Skip Payment
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
+                style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
+              >
+                {isSubmitting ? 'Submitting...' : `Continue with ${selectedPlan === 'premium' ? 'Premium' : 'Basic'}`}
+                {!isSubmitting && <Check className="w-5 h-5 ml-2" />}
+              </Button>
+            </>
           )}
         </div>
       </div>
