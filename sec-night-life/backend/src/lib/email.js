@@ -32,7 +32,7 @@ export async function sendBulkEmails(messages) {
     text: m.text
   }));
 
-  const batchSend = resend.batch?.send?.bind(resend);
+  const batchSend = resend.batch?.send?.bind(resend.batch);
   if (typeof batchSend === 'function') {
     await batchSend(payload);
   } else {

@@ -23,6 +23,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   // Persist role from URL to localStorage for consistency
   React.useEffect(() => {
@@ -35,8 +36,11 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
     if (!email || !password) {
-      toast.error('Please enter email and password');
+      const message = 'Please enter email and password';
+      setError(message);
+      toast.error(message);
       return;
     }
     setLoading(true);
@@ -47,7 +51,9 @@ export default function Login() {
       const path = (returnUrl && returnUrl.startsWith('/')) ? returnUrl : '/' + (returnUrl || 'Home').replace(/^\/+/, '');
       window.location.href = window.location.origin + path;
     } catch (err) {
-      toast.error(err?.data?.error || err?.message || 'Sign in failed');
+      const message = err?.data?.error || err?.message || 'Sign in failed';
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -59,6 +65,11 @@ export default function Login() {
         <h1 className="text-2xl font-bold text-white mb-2">Sign In</h1>
         <p className="text-gray-400 mb-6">SEC Nightlife</p>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {error}
+            </div>
+          )}
           <div>
             <Label className="text-gray-400">Email</Label>
             <Input
