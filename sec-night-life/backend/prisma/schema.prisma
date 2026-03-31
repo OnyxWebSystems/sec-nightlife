@@ -57,32 +57,34 @@ enum ReportStatus {
 // ─── Users & Auth ─────────────────────────────────────────────────────────
 // Party Goers (USER) and Business Owners (VENUE) can share the same email as separate accounts
 model User {
-  id                String    @id @default(uuid())
-  email             String
-  passwordHash      String    @map("password_hash")
-  role              UserRole  @default(USER)
-  fullName          String?   @map("full_name")
-  emailVerified          Boolean   @default(false) @map("email_verified")
-  verificationTokenHash  String?   @map("verification_token_hash")
-  verificationExpiry     DateTime? @map("verification_expiry")
-  resetTokenHash         String?   @map("reset_token_hash")
-  resetTokenExpiry       DateTime? @map("reset_token_expiry")
-  isPremium         Boolean   @default(false) @map("is_premium")
-  suspendedAt       DateTime? @map("suspended_at")
-  suspendedReason   String?   @map("suspended_reason")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-  deletedAt         DateTime? @map("deleted_at")
+  id                    String    @id @default(uuid())
+  email                 String
+  passwordHash          String    @map("password_hash")
+  role                  UserRole  @default(USER)
+  fullName              String?   @map("full_name")
+  emailVerified         Boolean   @default(false) @map("email_verified")
+  verificationTokenHash String?   @map("verification_token_hash")
+  verificationExpiry    DateTime? @map("verification_expiry")
+  resetTokenHash        String?   @map("reset_token_hash")
+  resetTokenExpiry      DateTime? @map("reset_token_expiry")
+  isPremium             Boolean   @default(false) @map("is_premium")
+  suspendedAt           DateTime? @map("suspended_at")
+  suspendedReason       String?   @map("suspended_reason")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  deletedAt             DateTime? @map("deleted_at")
 
   // Relations
-  venueOwner        Venue[]   @relation("VenueOwner")
-  userProfile       UserProfile?
-  hostedTables      Table[]   @relation("TableHost")
-  blocksInitiated   Block[]   @relation("BlockInitiator")
-  blocksReceived    Block[]   @relation("BlockTarget")
-  reportsInitiated  Report[]  @relation("ReportInitiator")
-  auditLogs         AuditLog[]
-  refreshTokens     RefreshToken[]
+  venueOwner                  Venue[]              @relation("VenueOwner")
+  userProfile                 UserProfile?
+  hostedTables                Table[]              @relation("TableHost")
+  blocksInitiated             Block[]              @relation("BlockInitiator")
+  blocksReceived              Block[]              @relation("BlockTarget")
+  reportsInitiated            Report[]             @relation("ReportInitiator")
+  complianceDocumentsReviewed ComplianceDocument[] @relation("ReviewedByUser")
+  adminReviewerAdditions      AdminReviewer[]      @relation("AddedByUser")
+  auditLogs                   AuditLog[]
+  refreshTokens               RefreshToken[]
 
   @@unique([email, role])
   @@index([email])
@@ -105,32 +107,32 @@ model RefreshToken {
 }
 
 model UserProfile {
-  id                   String   @id @default(uuid())
-  userId               String   @unique @map("user_id")
-  username             String?
-  bio                  String?
-  city                 String?
-  avatarUrl            String?  @map("avatar_url")
-  favoriteDrink        String?  @map("favorite_drink")
-  dateOfBirth          String?  @map("date_of_birth")
-  idDocumentUrl           String?  @map("id_document_url")
-  ageVerified             Boolean  @default(false) @map("age_verified")
-  verificationStatus      String   @default("pending") @map("verification_status")
-  verificationRejectionNote String? @map("verification_rejection_note") @db.Text
-  paymentSetupComplete Boolean  @default(false) @map("payment_setup_complete")
-  isVerifiedPromoter   Boolean  @default(false) @map("is_verified_promoter")
-  socialReputation     Float    @default(0) @map("social_reputation")
-  behaviourScore       Float    @default(100) @map("behaviour_score")
-  serviceRatingAvg     Float    @default(0) @map("service_rating_avg")
-  serviceRatingCount   Int      @default(0) @map("service_rating_count")
-  interests            String[] @default([])
-  musicPreferences     String[] @default([]) @map("music_preferences")
-  friends              String[] @default([])
-  followedVenues       String[] @default([]) @map("followed_venues")
-  onboardingComplete   Boolean  @default(false) @map("onboarding_complete")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  deletedAt            DateTime? @map("deleted_at")
+  id                        String    @id @default(uuid())
+  userId                    String    @unique @map("user_id")
+  username                  String?
+  bio                       String?
+  city                      String?
+  avatarUrl                 String?   @map("avatar_url")
+  favoriteDrink             String?   @map("favorite_drink")
+  dateOfBirth               String?   @map("date_of_birth")
+  idDocumentUrl             String?   @map("id_document_url")
+  ageVerified               Boolean   @default(false) @map("age_verified")
+  verificationStatus        String    @default("pending") @map("verification_status")
+  verificationRejectionNote String?   @map("verification_rejection_note") @db.Text
+  paymentSetupComplete      Boolean   @default(false) @map("payment_setup_complete")
+  isVerifiedPromoter        Boolean   @default(false) @map("is_verified_promoter")
+  socialReputation          Float     @default(0) @map("social_reputation")
+  behaviourScore            Float     @default(100) @map("behaviour_score")
+  serviceRatingAvg          Float     @default(0) @map("service_rating_avg")
+  serviceRatingCount        Int       @default(0) @map("service_rating_count")
+  interests                 String[]  @default([])
+  musicPreferences          String[]  @default([]) @map("music_preferences")
+  friends                   String[]  @default([])
+  followedVenues            String[]  @default([]) @map("followed_venues")
+  onboardingComplete        Boolean   @default(false) @map("onboarding_complete")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  deletedAt                 DateTime? @map("deleted_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -139,45 +141,45 @@ model UserProfile {
 
 // ─── Tier 1: Venues ───────────────────────────────────────────────────────
 model Venue {
-  id                String              @id @default(uuid())
-  ownerUserId       String              @map("owner_user_id")
-  name              String
-  venueType         String              @map("venue_type")
-  city              String
-  address           String?
-  suburb            String?
-  province          String?
-  latitude          Float?
-  longitude         Float?
-  bio               String?
-  isVerified        Boolean             @default(false) @map("is_verified")
-  complianceStatus         VenueComplianceStatus @default(pending) @map("compliance_status")
-  complianceDocumentUrl    String?               @map("compliance_document_url") @db.Text
-  complianceRejectionNote  String?               @map("compliance_rejection_note") @db.Text
-  logoUrl                  String?               @map("logo_url")
-  coverImageUrl     String?             @map("cover_image_url")
-  phone             String?
-  email             String?
-  website           String?
-  instagram         String?
-  capacity          Int?
-  ageLimit          Int?                @map("age_limit")
-  rating            Float               @default(0)
-  ratingCount       Int                 @default(0) @map("rating_count")
-  performanceScore  Float               @default(0) @map("performance_score")
-  transparencyScore Float               @default(0) @map("transparency_score")
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
-  deletedAt         DateTime?           @map("deleted_at")
+  id                      String                @id @default(uuid())
+  ownerUserId             String                @map("owner_user_id")
+  name                    String
+  venueType               String                @map("venue_type")
+  city                    String
+  address                 String?
+  suburb                  String?
+  province                String?
+  latitude                Float?
+  longitude               Float?
+  bio                     String?
+  isVerified              Boolean               @default(false) @map("is_verified")
+  complianceStatus        VenueComplianceStatus @default(pending) @map("compliance_status")
+  complianceDocumentUrl   String?               @map("compliance_document_url") @db.Text
+  complianceRejectionNote String?               @map("compliance_rejection_note") @db.Text
+  logoUrl                 String?               @map("logo_url")
+  coverImageUrl           String?               @map("cover_image_url")
+  phone                   String?
+  email                   String?
+  website                 String?
+  instagram               String?
+  capacity                Int?
+  ageLimit                Int?                  @map("age_limit")
+  rating                  Float                 @default(0)
+  ratingCount             Int                   @default(0) @map("rating_count")
+  performanceScore        Float                 @default(0) @map("performance_score")
+  transparencyScore       Float                 @default(0) @map("transparency_score")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+  deletedAt               DateTime?             @map("deleted_at")
 
-  owner      User    @relation("VenueOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  events     Event[]
-  tables     Table[]
-  jobs       Job[]
-  promotions Promotion[]
-  reviews    VenueReview[]
-  blockedUsers VenueBlockedUser[]
-  popularity VenuePopularity[]
+  owner               User                 @relation("VenueOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  events              Event[]
+  tables              Table[]
+  jobs                Job[]
+  promotions          Promotion[]
+  reviews             VenueReview[]
+  blockedUsers        VenueBlockedUser[]
+  popularity          VenuePopularity[]
   complianceDocuments ComplianceDocument[]
 
   @@index([ownerUserId])
@@ -193,18 +195,18 @@ model ComplianceDocument {
   venue   Venue  @relation(fields: [venueId], references: [id], onDelete: Cascade)
 
   documentType ComplianceDocumentType @map("document_type")
-  fileUrl String @map("file_url") @db.Text
-  fileName String @map("file_name")
+  fileUrl      String                 @map("file_url") @db.Text
+  fileName     String                 @map("file_name")
 
   uploadedAt DateTime @default(now()) @map("uploaded_at")
 
   status ComplianceDocumentStatus @default(PENDING)
 
-  rejectionReason String? @map("rejection_reason") @db.Text
-  reviewedAt DateTime? @map("reviewed_at")
-  reviewedBy String? @map("reviewed_by")
+  rejectionReason String?   @map("rejection_reason") @db.Text
+  reviewedAt      DateTime? @map("reviewed_at")
+  reviewedBy      String?   @map("reviewed_by")
 
-  reviewedByUser User? @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedByUser User? @relation("ReviewedByUser", fields: [reviewedBy], references: [id], onDelete: SetNull)
 
   @@index([venueId])
   @@index([status])
@@ -216,27 +218,27 @@ model AdminReviewer {
   id String @id @default(cuid())
 
   email String @unique
-  name String
+  name  String
 
-  addedAt DateTime @default(now()) @map("added_at")
-  isActive Boolean @default(true) @map("is_active")
+  addedAt  DateTime @default(now()) @map("added_at")
+  isActive Boolean  @default(true) @map("is_active")
 
   addedByUserId String @map("added_by_user_id")
-  addedByUser User @relation(fields: [addedByUserId], references: [id], onDelete: Cascade)
+  addedByUser   User   @relation("AddedByUser", fields: [addedByUserId], references: [id], onDelete: Cascade)
 
   @@index([isActive])
   @@map("admin_reviewers")
 }
 
 model VenueReview {
-  id               String   @id @default(uuid())
-  venueId          String   @map("venue_id")
-  eventId          String?  @map("event_id")
-  userId           String   @map("user_id")
-  rating           Int
-  comment          String?
-  metadata         Json?    // atmosphere_rating, service_rating, value_rating, verified_attendance
-  createdAt        DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid())
+  venueId   String   @map("venue_id")
+  eventId   String?  @map("event_id")
+  userId    String   @map("user_id")
+  rating    Int
+  comment   String?
+  metadata  Json? // atmosphere_rating, service_rating, value_rating, verified_attendance
+  createdAt DateTime @default(now()) @map("created_at")
 
   venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
 
@@ -262,24 +264,24 @@ model VenueBlockedUser {
 
 // ─── Events & Tables ──────────────────────────────────────────────────────
 model Event {
-  id             String      @id @default(uuid())
-  venueId        String      @map("venue_id")
-  title          String
-  description    String?
-  date           DateTime
-  city           String
-  status         EventStatus @default(draft)
-  isFeatured     Boolean     @default(false) @map("is_featured")
-  coverImageUrl  String?     @map("cover_image_url")
-  bannerUrl      String?     @map("banner_url")
-  ticketTiers    Json?       @map("ticket_tiers")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
-  deletedAt      DateTime?   @map("deleted_at")
+  id            String      @id @default(uuid())
+  venueId       String      @map("venue_id")
+  title         String
+  description   String?
+  date          DateTime
+  city          String
+  status        EventStatus @default(draft)
+  isFeatured    Boolean     @default(false) @map("is_featured")
+  coverImageUrl String?     @map("cover_image_url")
+  bannerUrl     String?     @map("banner_url")
+  ticketTiers   Json?       @map("ticket_tiers")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
 
-  venue    Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
-  tables   Table[]
-  jobs     Job[]
+  venue     Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  tables    Table[]
+  jobs      Job[]
   attendees EventAttendance[]
 
   @@index([venueId])
@@ -306,25 +308,25 @@ model EventAttendance {
 }
 
 model Table {
-  id            String      @id @default(uuid())
-  eventId       String      @map("event_id")
-  venueId       String      @map("venue_id")
-  hostUserId    String      @map("host_user_id")
-  name          String
-  status        TableStatus @default(open)
-  maxGuests     Int         @map("max_guests")
-  currentGuests Int         @default(0) @map("current_guests")
-  minSpend      Float?      @map("min_spend")
-  joiningFee    Float?      @map("joining_fee")
-  members       Json        @default("[]")
-  pendingRequests Json      @default("[]") @map("pending_requests")
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-  deletedAt     DateTime?   @map("deleted_at")
+  id              String      @id @default(uuid())
+  eventId         String      @map("event_id")
+  venueId         String      @map("venue_id")
+  hostUserId      String      @map("host_user_id")
+  name            String
+  status          TableStatus @default(open)
+  maxGuests       Int         @map("max_guests")
+  currentGuests   Int         @default(0) @map("current_guests")
+  minSpend        Float?      @map("min_spend")
+  joiningFee      Float?      @map("joining_fee")
+  members         Json        @default("[]")
+  pendingRequests Json        @default("[]") @map("pending_requests")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  deletedAt       DateTime?   @map("deleted_at")
 
-  event    Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  venue    Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
-  host     User  @relation("TableHost", fields: [hostUserId], references: [id], onDelete: Cascade)
+  event    Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  venue    Venue          @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  host     User           @relation("TableHost", fields: [hostUserId], references: [id], onDelete: Cascade)
   bookings TableBooking[]
 
   @@index([eventId])
@@ -336,30 +338,30 @@ model Table {
 
 // ─── Tier 2: Freelancers / Jobs ───────────────────────────────────────────
 model Job {
-  id                 String   @id @default(uuid())
-  venueId            String?  @map("venue_id")
-  eventId            String?  @map("event_id")
-  hostEventId        String?  @map("host_event_id")
+  id                 String    @id @default(uuid())
+  venueId            String?   @map("venue_id")
+  eventId            String?   @map("event_id")
+  hostEventId        String?   @map("host_event_id")
   title              String
-  jobType            String   @map("job_type")
-  status             String   @default("open")
-  spotsAvailable     Int      @map("spots_available")
-  spotsFilled        Int      @default(0) @map("spots_filled")
+  jobType            String    @map("job_type")
+  status             String    @default("open")
+  spotsAvailable     Int       @map("spots_available")
+  spotsFilled        Int       @default(0) @map("spots_filled")
   city               String
-  description        String?  @db.Text
-  suggestedPayAmount Int?     @map("suggested_pay_amount")
-  suggestedPayType   String?  @map("suggested_pay_type")
-  startTime          String?  @map("start_time")
-  endTime            String?  @map("end_time")
-  contactDetails     String?  @map("contact_details") @db.Text
+  description        String?   @db.Text
+  suggestedPayAmount Int?      @map("suggested_pay_amount")
+  suggestedPayType   String?   @map("suggested_pay_type")
+  startTime          String?   @map("start_time")
+  endTime            String?   @map("end_time")
+  contactDetails     String?   @map("contact_details") @db.Text
   date               String?
-  applicants         Json     @default("[]")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  applicants         Json      @default("[]")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
 
-  venue Venue? @relation(fields: [venueId], references: [id], onDelete: SetNull)
-  event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  venue     Venue?     @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  event     Event?     @relation(fields: [eventId], references: [id], onDelete: SetNull)
   hostEvent HostEvent? @relation(fields: [hostEventId], references: [id], onDelete: SetNull)
 
   @@index([venueId])
@@ -385,20 +387,20 @@ model ServiceRating {
 }
 
 model Promotion {
-  id           String   @id @default(uuid())
-  venueId      String   @map("venue_id")
-  type         String
-  title        String
-  description  String?  @db.Text
-  status       String   @default("draft") // draft | published | archived
-  startAt      DateTime? @map("start_at")
-  endAt        DateTime? @map("end_at")
-  boostStatus  String   @default("none") @map("boost_status") // none | pending | active
-  boostRef     String?  @map("boost_ref")
-  boostPaidAt  DateTime? @map("boost_paid_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  deletedAt    DateTime? @map("deleted_at")
+  id          String    @id @default(uuid())
+  venueId     String    @map("venue_id")
+  type        String
+  title       String
+  description String?   @db.Text
+  status      String    @default("draft") // draft | published | archived
+  startAt     DateTime? @map("start_at")
+  endAt       DateTime? @map("end_at")
+  boostStatus String    @default("none") @map("boost_status") // none | pending | active
+  boostRef    String?   @map("boost_ref")
+  boostPaidAt DateTime? @map("boost_paid_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
 
   venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
 
@@ -410,10 +412,10 @@ model Promotion {
 
 // ─── Tier 3: User Social / Blocks & Reports ───────────────────────────────
 model Block {
-  id          String   @id @default(uuid())
-  blockerId   String   @map("blocker_id")
-  blockedId   String   @map("blocked_id")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid())
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
 
   blocker User @relation("BlockInitiator", fields: [blockerId], references: [id], onDelete: Cascade)
   blocked User @relation("BlockTarget", fields: [blockedId], references: [id], onDelete: Cascade)
@@ -425,16 +427,16 @@ model Block {
 }
 
 model Report {
-  id          String      @id @default(uuid())
-  reporterId  String      @map("reporter_id")
-  targetType  String      @map("target_type")
-  targetId    String      @map("target_id")
-  reason      String
-  details     String?
-  status      ReportStatus @default(pending)
-  resolvedBy  String?     @map("resolved_by")
-  resolvedAt  DateTime?   @map("resolved_at")
-  createdAt   DateTime    @default(now()) @map("created_at")
+  id         String       @id @default(uuid())
+  reporterId String       @map("reporter_id")
+  targetType String       @map("target_type")
+  targetId   String       @map("target_id")
+  reason     String
+  details    String?
+  status     ReportStatus @default(pending)
+  resolvedBy String?      @map("resolved_by")
+  resolvedAt DateTime?    @map("resolved_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
 
   reporter User @relation("ReportInitiator", fields: [reporterId], references: [id], onDelete: Cascade)
 
@@ -446,10 +448,10 @@ model Report {
 
 // ─── Supporting Models ────────────────────────────────────────────────────
 model Chat {
-  id               String   @id @default(uuid())
-  relatedTableId   String?  @map("related_table_id")
-  lastMessageAt    DateTime? @map("last_message_at")
-  createdAt        DateTime @default(now()) @map("created_at")
+  id             String    @id @default(uuid())
+  relatedTableId String?   @map("related_table_id")
+  lastMessageAt  DateTime? @map("last_message_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   @@map("chats")
 }
@@ -480,17 +482,17 @@ model Notification {
 }
 
 model Transaction {
-  id          String   @id @default(uuid())
-  userId      String   @map("user_id")
-  venueId     String?  @map("venue_id")
-  eventId     String?  @map("event_id")
-  amount      Float
-  currency    String   @default("ZAR")
-  type        String
-  status      String
-  stripeId    String?  @map("stripe_id")  // Paystack reference (legacy column name)
-  metadata    Json?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  venueId   String?  @map("venue_id")
+  eventId   String?  @map("event_id")
+  amount    Float
+  currency  String   @default("ZAR")
+  type      String
+  status    String
+  stripeId  String?  @map("stripe_id") // Paystack reference (legacy column name)
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([userId])
   @@index([venueId])
@@ -503,9 +505,9 @@ model Payment {
   userId    String   @map("user_id")
   email     String
   amount    Float
-  reference String   @unique  // Paystack reference
-  status    String   // pending | success | failed
-  type      String   // event | table | promotion | ticket | other
+  reference String   @unique // Paystack reference
+  status    String // pending | success | failed
+  type      String // event | table | promotion | ticket | other
   metadata  Json?
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -517,11 +519,11 @@ model Payment {
 }
 
 model FriendRequest {
-  id          String   @id @default(uuid())
-  fromUserId  String   @map("from_user_id")
-  toUserId    String   @map("to_user_id")
-  status      String   @default("pending")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  fromUserId String   @map("from_user_id")
+  toUserId   String   @map("to_user_id")
+  status     String   @default("pending")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@unique([fromUserId, toUserId])
   @@index([toUserId])
@@ -532,7 +534,7 @@ model FriendRequest {
 model AccountRole {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  roleType  String   @map("role_type")  // partygoer | host | business
+  roleType  String   @map("role_type") // partygoer | host | business
   createdAt DateTime @default(now()) @map("created_at")
 
   @@unique([userId, roleType])
@@ -543,21 +545,21 @@ model AccountRole {
 
 // ─── Host Events (informal: house parties, boat parties, etc.) ─────────────
 model HostEvent {
-  id                   String   @id @default(uuid())
-  hostUserId           String   @map("host_user_id")
-  title                String
-  description          String?  @db.Text
-  date                 DateTime
-  location             String?
-  city                 String?
-  capacity             Int?
-  entryCost            Float?   @map("entry_cost")
-  guestApprovalRequired Boolean @default(true) @map("guest_approval_required")
-  status               String   @default("draft")  // draft | published | cancelled
-  coverImageUrl        String?  @map("cover_image_url")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  deletedAt            DateTime? @map("deleted_at")
+  id                    String    @id @default(uuid())
+  hostUserId            String    @map("host_user_id")
+  title                 String
+  description           String?   @db.Text
+  date                  DateTime
+  location              String?
+  city                  String?
+  capacity              Int?
+  entryCost             Float?    @map("entry_cost")
+  guestApprovalRequired Boolean   @default(true) @map("guest_approval_required")
+  status                String    @default("draft") // draft | published | cancelled
+  coverImageUrl         String?   @map("cover_image_url")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  deletedAt             DateTime? @map("deleted_at")
 
   jobs Job[]
 
@@ -569,14 +571,14 @@ model HostEvent {
 
 // ─── Analytics ────────────────────────────────────────────────────────────
 model AnalyticsEvent {
-  id         String   @id @default(uuid())
-  eventId    String?  @map("event_id")
-  venueId    String?  @map("venue_id")
-  userId     String?  @map("user_id")
-  metric     String
-  value      Float?
-  metadata   Json?
-  createdAt  DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid())
+  eventId   String?  @map("event_id")
+  venueId   String?  @map("venue_id")
+  userId    String?  @map("user_id")
+  metric    String
+  value     Float?
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([eventId])
   @@index([venueId])
@@ -607,10 +609,10 @@ model AuditLog {
 
 // ─── Premium Subscription Prep ────────────────────────────────────────────
 model ProfileView {
-  id         String   @id @default(uuid())
-  viewerId   String   @map("viewer_id")
-  viewedId   String   @map("viewed_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid())
+  viewerId  String   @map("viewer_id")
+  viewedId  String   @map("viewed_id")
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([viewerId])
   @@index([viewedId])
@@ -620,15 +622,15 @@ model ProfileView {
 
 // ─── Reputation Scores (server-computed) ─────────────────────────────────
 model ReputationScore {
-  id                  String   @id @default(uuid())
-  userId              String   @unique @map("user_id")
-  score               Float    @default(50)
-  attendanceScore     Float    @default(0) @map("attendance_score")
-  reportsReceived     Int      @default(0) @map("reports_received")
-  blocksReceived      Int      @default(0) @map("blocks_received")
-  eventParticipation  Int      @default(0) @map("event_participation")
-  tableParticipation  Int      @default(0) @map("table_participation")
-  computedAt          DateTime @default(now()) @map("computed_at")
+  id                 String   @id @default(uuid())
+  userId             String   @unique @map("user_id")
+  score              Float    @default(50)
+  attendanceScore    Float    @default(0) @map("attendance_score")
+  reportsReceived    Int      @default(0) @map("reports_received")
+  blocksReceived     Int      @default(0) @map("blocks_received")
+  eventParticipation Int      @default(0) @map("event_participation")
+  tableParticipation Int      @default(0) @map("table_participation")
+  computedAt         DateTime @default(now()) @map("computed_at")
 
   @@index([userId])
   @@index([score])
@@ -655,17 +657,17 @@ model VenuePopularity {
 
 // ─── Future: Table Booking & Split Payments ──────────────────────────────
 model TableBooking {
-  id               String   @id @default(uuid())
-  tableId          String   @map("table_id")
-  organizerUserId  String   @map("organizer_user_id")
-  totalCost        Float    @map("total_cost")
-  splitCount       Int      @default(1) @map("split_count")
-  status           String   @default("pending")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(uuid())
+  tableId         String   @map("table_id")
+  organizerUserId String   @map("organizer_user_id")
+  totalCost       Float    @map("total_cost")
+  splitCount      Int      @default(1) @map("split_count")
+  status          String   @default("pending")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  splits  TableBookingSplit[]
+  table  Table               @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  splits TableBookingSplit[]
 
   @@index([tableId])
   @@index([organizerUserId])
@@ -674,14 +676,14 @@ model TableBooking {
 }
 
 model TableBookingSplit {
-  id              String   @id @default(uuid())
-  bookingId       String   @map("booking_id")
-  userId          String   @map("user_id")
-  amount          Float
-  paymentStatus   String   @default("pending") @map("payment_status")
-  paymentRef      String?  @map("payment_ref")
-  paidAt          DateTime? @map("paid_at")
-  createdAt       DateTime @default(now()) @map("created_at")
+  id            String    @id @default(uuid())
+  bookingId     String    @map("booking_id")
+  userId        String    @map("user_id")
+  amount        Float
+  paymentStatus String    @default("pending") @map("payment_status")
+  paymentRef    String?   @map("payment_ref")
+  paidAt        DateTime? @map("paid_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   booking TableBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
@@ -712,11 +714,11 @@ model PartyGroup {
 }
 
 model PartyGroupMember {
-  id        String   @id @default(uuid())
-  groupId   String   @map("group_id")
-  userId    String   @map("user_id")
-  role      String   @default("member")
-  joinedAt  DateTime @default(now()) @map("joined_at")
+  id       String   @id @default(uuid())
+  groupId  String   @map("group_id")
+  userId   String   @map("user_id")
+  role     String   @default("member")
+  joinedAt DateTime @default(now()) @map("joined_at")
 
   group PartyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
@@ -727,12 +729,12 @@ model PartyGroupMember {
 }
 
 model PartyGroupInvitation {
-  id          String   @id @default(uuid())
-  groupId     String   @map("group_id")
-  inviterId   String   @map("inviter_id")
-  inviteeId   String   @map("invitee_id")
-  status      String   @default("pending")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id          String    @id @default(uuid())
+  groupId     String    @map("group_id")
+  inviterId   String    @map("inviter_id")
+  inviteeId   String    @map("invitee_id")
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now()) @map("created_at")
   respondedAt DateTime? @map("responded_at")
 
   group PartyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -745,15 +747,15 @@ model PartyGroupInvitation {
 }
 
 model PartyGroupEvent {
-  id        String   @id @default(uuid())
-  groupId   String   @map("group_id")
-  eventId   String?  @map("event_id")
-  venueId   String?  @map("venue_id")
+  id        String    @id @default(uuid())
+  groupId   String    @map("group_id")
+  eventId   String?   @map("event_id")
+  venueId   String?   @map("venue_id")
   title     String
   date      DateTime?
-  status    String   @default("planning")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  status    String    @default("planning")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   group PartyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
