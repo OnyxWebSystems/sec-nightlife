@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { apiPost } from '@/api/client';
+import { apiPatch, apiPost } from '@/api/client';
 import { 
   Building,
   Upload,
@@ -39,6 +39,13 @@ const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton', 
   'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Polokwane'
 ];
+
+const PLAN_PRICES = {
+  basic: 299,
+  premium: 799,
+};
+
+const VENUE_PAYMENT_CONTEXT_KEY = 'sec-venue-onboarding-payment';
 
 export default function VenueOnboarding() {
   const navigate = useNavigate();
@@ -133,7 +140,26 @@ export default function VenueOnboarding() {
     }
   };
 
-  const handleSubmit = async () => {
+  const upsertVenue = async (venueData) => {
+    const existingVenues = user?.id
+      ? await dataService.Venue.filter({ owner_user_id: user.id }, undefined, 1)
+      : [];
+
+    if (existingVenues.length > 0) {
+      return dataService.Venue.update(existingVenues[0].id, venueData);
+    }
+
+    return dataService.Venue.create(venueData);
+  };
+
+  const syncPaymentStatus = async (paymentCompleted) => {
+    await apiPatch('/api/users/profile', {
+      payment_setup_complete: paymentCompleted,
+      onboarding_complete: true,
+    });
+  };
+
+  const handleVenueCompletion = async ({ paymentCompleted, startPayment }) => {
     setIsSubmitting(true);
     setError('');
 
@@ -161,7 +187,7 @@ export default function VenueOnboarding() {
       const complianceDoc = formData.liquor_license_url || formData.cipc_document_url || formData.director_id_url || formData.sars_document_url || formData.annual_returns_url;
       if (complianceDoc) venueData.compliance_document_url = complianceDoc;
 
-      const createdVenue = await dataService.Venue.create(venueData);
+      const createdVenue = await upsertVenue(venueData);
 
       const complianceUploads = [
         { documentType: 'BUSINESS_REGISTRATION', fileUrl: formData.cipc_document_url, fileName: 'cipc-registration' },
@@ -184,12 +210,57 @@ export default function VenueOnboarding() {
         );
       }
 
+      await syncPaymentStatus(paymentCompleted);
+
+      if (startPayment) {
+        if (window.self !== window.top) {
+          throw new Error('Payment checkout only works in the published app. Please open the app in a new tab.');
+        }
+
+        const planName = selectedPlan === 'premium' ? 'Premium' : 'Basic';
+        const payment = await apiPost('/api/payments/initialize', {
+          amount: PLAN_PRICES[selectedPlan],
+          email: user?.email,
+          description: `Venue subscription: ${planName} plan`,
+          venue_id: createdVenue.id,
+          metadata: {
+            type: 'other',
+            context: 'venue_onboarding',
+            venue_id: createdVenue.id,
+            plan: selectedPlan,
+            plan_name: planName,
+          },
+        });
+
+        if (!payment?.authorization_url) {
+          throw new Error('No Paystack checkout URL was returned.');
+        }
+
+        localStorage.setItem(VENUE_PAYMENT_CONTEXT_KEY, JSON.stringify({
+          nextPath: createPageUrl('BusinessDashboard'),
+          venueId: createdVenue.id,
+          plan: selectedPlan,
+          planName,
+        }));
+
+        window.location.href = payment.authorization_url;
+        return;
+      }
+
       navigate(createPageUrl('BusinessDashboard'));
     } catch (error) {
       setError(error?.message || 'Failed to create venue. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSkipPayment = async () => {
+    await handleVenueCompletion({ paymentCompleted: false, startPayment: false });
+  };
+
+  const handleContinueWithPlan = async () => {
+    await handleVenueCompletion({ paymentCompleted: false, startPayment: true });
   };
 
   const steps = [
@@ -592,7 +663,7 @@ export default function VenueOnboarding() {
            >
              <div className="text-center mb-8">
                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Choose Your Plan</h1>
-               <p style={{ color: 'var(--sec-text-muted)' }}>Payment via Paystack coming soon</p>
+               <p style={{ color: 'var(--sec-text-muted)' }}>Continue to Paystack to securely complete your subscription payment</p>
              </div>
 
              <div className="rounded-2xl p-6" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
@@ -603,7 +674,7 @@ export default function VenueOnboarding() {
                  <div>
                    <p className="font-medium text-sm" style={{ color: 'var(--sec-text-primary)' }}>Payment Integration</p>
                    <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)' }}>
-                     Paystack payment gateway will be integrated soon. For now, you can complete the venue registration — payment setup will follow.
+                     After you choose a plan, you will be redirected to Paystack to sign in or complete payment securely on their hosted checkout page.
                    </p>
                  </div>
                </div>
@@ -649,9 +720,15 @@ export default function VenueOnboarding() {
 
                <div className="rounded-xl p-3 mt-6" style={{ backgroundColor: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
                  <p className="text-xs text-center" style={{ color: 'rgb(234, 179, 8)' }}>
-                   Paystack integration coming soon. You can skip this step and register your venue now. Your first month will be free.
+                  You can still skip this step and finish venue registration now. Payment can be completed later from your business flow.
                  </p>
                </div>
+
+              {error && (
+                <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm mt-4">
+                  {error}
+                </div>
+              )}
              </div>
            </motion.div>
           )}
@@ -681,20 +758,20 @@ export default function VenueOnboarding() {
           ) : (
             <>
               <Button
-                onClick={handleSubmit}
+                onClick={handleSkipPayment}
                 disabled={isSubmitting}
                 variant="outline"
                 className="h-14 px-4 rounded-xl bg-[#141416] border-[#262629]"
               >
-                Skip Payment
+                {isSubmitting ? 'Saving...' : 'Skip Payment'}
               </Button>
               <Button
-                onClick={handleSubmit}
+                onClick={handleContinueWithPlan}
                 disabled={isSubmitting}
                 className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
                 style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
               >
-                {isSubmitting ? 'Submitting...' : `Continue with ${selectedPlan === 'premium' ? 'Premium' : 'Basic'}`}
+                {isSubmitting ? 'Redirecting...' : `Continue with ${selectedPlan === 'premium' ? 'Premium' : 'Basic'}`}
                 {!isSubmitting && <Check className="w-5 h-5 ml-2" />}
               </Button>
             </>
