@@ -154,7 +154,6 @@ model Venue {
   bio                     String?
   isVerified              Boolean               @default(false) @map("is_verified")
   complianceStatus        VenueComplianceStatus @default(pending) @map("compliance_status")
-  complianceDocumentUrl   String?               @map("compliance_document_url") @db.Text
   complianceRejectionNote String?               @map("compliance_rejection_note") @db.Text
   logoUrl                 String?               @map("logo_url")
   coverImageUrl           String?               @map("cover_image_url")
