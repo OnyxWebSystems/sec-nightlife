@@ -15,16 +15,6 @@ const PAYMENT_TYPES = ['event', 'table', 'promotion', 'ticket', 'other'];
 
 function requirePaystackKey() {
   const key = process.env.PAYSTACK_SECRET_KEY;
-  console.log(
-    '[paystack] key mode:',
-    key?.startsWith('sk_test_')
-      ? 'sk_test'
-      : key?.startsWith('sk_live_')
-        ? 'sk_live'
-        : key
-          ? 'unknown'
-          : 'missing'
-  );
   if (!key) {
     const err = new Error('Paystack is not configured');
     err.status = 500;
