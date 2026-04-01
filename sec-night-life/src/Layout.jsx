@@ -9,7 +9,7 @@ import CreateActionCenter from '@/components/CreateActionCenter';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
-  LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2
+  LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2, Shield
 } from 'lucide-react';
 
 const iconProps = { size: 22, strokeWidth: 1.5 };
@@ -29,6 +29,7 @@ export default function Layout({ children, currentPageName }) {
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
+  const [complianceAccess, setComplianceAccess] = useState({ canReview: false, isSuperAdmin: false });
   const longPressTimerRef = useRef(null);
 
   useEffect(() => { loadUser(); }, []);
@@ -39,6 +40,15 @@ export default function Layout({ children, currentPageName }) {
     try {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
+      try {
+        const access = await apiGet('/api/compliance-documents/me/access');
+        setComplianceAccess({
+          canReview: !!access?.canReview,
+          isSuperAdmin: !!access?.isSuperAdmin,
+        });
+      } catch {
+        setComplianceAccess({ canReview: false, isSuperAdmin: false });
+      }
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
       let profile = profiles[0] || null;
       if (profiles.length > 0) setUserProfile(profile);
@@ -97,6 +107,9 @@ export default function Layout({ children, currentPageName }) {
 
   const badge = notifications.length;
   const availableModes = MODES.filter(m => userRoles[m.id]);
+  const complianceNavItem = complianceAccess.canReview
+    ? [{ name: 'Compliance Review', icon: Shield, page: 'AdminDashboard', query: '?tab=compliance-documents' }]
+    : [];
 
   const NAV = {
     partygoer: {
@@ -113,6 +126,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
         ...(userRoles.host ? [{ name: 'Host Dashboard', icon: Crown, page: 'HostDashboard' }] : []),
+        ...complianceNavItem,
         ...((['SUPER_ADMIN', 'ADMIN', 'admin'].includes(user?.role)) ? [{ name: 'Admin', icon: LayoutDashboard, page: 'AdminDashboard' }] : []),
       ],
     },
@@ -128,6 +142,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Profile', icon: User, page: 'Profile' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
+        ...complianceNavItem,
         { name: 'Settings', icon: Settings, page: 'Settings' },
       ],
     },
@@ -146,6 +161,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Insights', icon: Users, page: 'FeedbackInsights' },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
+        ...complianceNavItem,
         { name: 'Settings', icon: Settings, page: 'Settings' },
       ],
     },
@@ -246,7 +262,7 @@ export default function Layout({ children, currentPageName }) {
             ) : (
               <Link
                 key={item.page + item.name}
-                to={createPageUrl(item.page)}
+                to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
                 className="sec-nav-item"
                 style={isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}}
               >
@@ -259,7 +275,7 @@ export default function Layout({ children, currentPageName }) {
           {secondaryNav.map((item) => (
             <Link
               key={item.page + item.name}
-              to={createPageUrl(item.page)}
+              to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
               className="sec-nav-item"
               style={{ position: 'relative', ...(isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}) }}
             >
@@ -298,6 +314,27 @@ export default function Layout({ children, currentPageName }) {
           paddingBottom: 'calc(84px + env(safe-area-inset-bottom))',
         }}
       >
+        {complianceAccess.canReview && currentPageName !== 'AdminDashboard' && (
+          <div className="lg:hidden" style={{ padding: '12px 16px 0' }}>
+            <Link
+              to={`${createPageUrl('AdminDashboard')}?tab=compliance-documents`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '12px 14px',
+                borderRadius: 14,
+                textDecoration: 'none',
+                color: 'var(--sec-text-primary)',
+                backgroundColor: 'var(--sec-accent-muted)',
+                border: '1px solid var(--sec-accent-border)',
+              }}
+            >
+              <Shield size={16} style={{ color: 'var(--sec-accent)' }} />
+              <span style={{ fontSize: 14, fontWeight: 600 }}>Open Compliance Review</span>
+            </Link>
+          </div>
+        )}
         {children}
       </main>
 

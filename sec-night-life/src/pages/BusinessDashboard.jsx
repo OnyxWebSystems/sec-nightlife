@@ -199,8 +199,10 @@ export default function BusinessDashboard() {
       const form = new FormData();
       form.append('file', file);
       form.append('upload_preset', cloudinaryConfig.uploadPreset);
+      form.append('public_id', `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-'));
+      form.append('filename_override', file.name);
 
-      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
+      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/auto/upload`, {
         method: 'POST',
         body: form,
       });

@@ -121,8 +121,10 @@ export default function VenueOnboarding() {
       const form = new FormData();
       form.append('file', file);
       form.append('upload_preset', cloudinaryConfig.uploadPreset);
+      form.append('public_id', `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-'));
+      form.append('filename_override', file.name);
 
-      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
+      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/auto/upload`, {
         method: 'POST',
         body: form,
       });
@@ -188,11 +190,11 @@ export default function VenueOnboarding() {
       const createdVenue = await upsertVenue(venueData);
 
       const complianceUploads = [
-        { documentType: 'BUSINESS_REGISTRATION', fileUrl: formData.cipc_document_url, fileName: 'cipc-registration' },
-        { documentType: 'TAX_CLEARANCE', fileUrl: formData.sars_document_url, fileName: 'sars-documents' },
-        { documentType: 'LIQUOR_LICENCE', fileUrl: formData.liquor_license_url, fileName: 'liquor-license' },
-        { documentType: 'OTHER', fileUrl: formData.director_id_url, fileName: 'director-id' },
-        { documentType: 'OTHER', fileUrl: formData.annual_returns_url, fileName: 'annual-returns' },
+        { documentType: 'BUSINESS_REGISTRATION', fileUrl: formData.cipc_document_url, fileName: 'cipc-registration.pdf' },
+        { documentType: 'TAX_CLEARANCE', fileUrl: formData.sars_document_url, fileName: 'sars-documents.pdf' },
+        { documentType: 'LIQUOR_LICENCE', fileUrl: formData.liquor_license_url, fileName: 'liquor-license.pdf' },
+        { documentType: 'OTHER', fileUrl: formData.director_id_url, fileName: 'director-id.pdf' },
+        { documentType: 'OTHER', fileUrl: formData.annual_returns_url, fileName: 'annual-returns.pdf' },
       ].filter((doc) => !!doc.fileUrl);
 
       if (createdVenue?.id && complianceUploads.length > 0) {

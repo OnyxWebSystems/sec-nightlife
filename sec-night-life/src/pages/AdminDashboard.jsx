@@ -16,6 +16,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -41,6 +42,7 @@ export default function AdminDashboard() {
   const [reviewerManagementLoading, setReviewerManagementLoading] = useState(false);
   const [newReviewer, setNewReviewer] = useState({ name: '', email: '' });
   const [addingReviewer, setAddingReviewer] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -204,6 +206,42 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen pb-24" style={{ maxWidth: 480, margin: '0 auto' }}>
+      <Dialog open={!!previewDocument} onOpenChange={(open) => { if (!open) setPreviewDocument(null); }}>
+        <DialogContent className="max-w-4xl" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}>
+          <DialogHeader>
+            <DialogTitle>Review document</DialogTitle>
+          </DialogHeader>
+          {previewDocument && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="font-medium">{previewDocument.fileName || 'Compliance document'}</p>
+                  <p className="text-xs text-[var(--sec-text-muted)]">{previewDocument.documentType?.replace(/_/g, ' ')}</p>
+                </div>
+                <a
+                  href={previewDocument.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
+                >
+                  Open in new tab <ExternalLink size={14} />
+                </a>
+              </div>
+              {previewDocument.isPdf ? (
+                <iframe
+                  title="Compliance document PDF preview"
+                  src={previewDocument.fileUrl}
+                  style={{ width: '100%', height: '70vh', border: '1px solid var(--sec-border)', borderRadius: 12, backgroundColor: '#fff' }}
+                />
+              ) : (
+                <div className="rounded-lg overflow-hidden border border-[#262629]">
+                  <img src={previewDocument.fileUrl} alt="" style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', backgroundColor: '#111' }} />
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <header className="sticky top-0 z-40 bg-[#0A0A0B]/95 backdrop-blur-xl border-b border-[#262629]">
         <div className="px-4 py-4">
           <h1 className="text-xl font-bold flex items-center gap-2">
@@ -472,20 +510,13 @@ export default function AdminDashboard() {
                                   </div>
                                 </div>
 
-                                {isPdf ? (
-                                  <a
-                                    href={doc.fileUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
-                                  >
-                                    View PDF <ExternalLink size={14} />
-                                  </a>
-                                ) : (
-                                  <div className="rounded-lg overflow-hidden border border-[#262629]">
-                                    <img src={doc.fileUrl} alt="" style={{ width: '100%', maxHeight: 180, objectFit: 'cover' }} />
-                                  </div>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewDocument({ ...doc, isPdf })}
+                                  className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
+                                >
+                                  {isPdf ? 'Preview PDF' : 'Preview document'} <ExternalLink size={14} />
+                                </button>
 
                                 <div className="flex gap-2 flex-wrap">
                                   <Button
