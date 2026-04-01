@@ -44,7 +44,7 @@ export default function PageNotFound() {
                     </div>
                     
                     {/* Admin Note */}
-                    {isFetched && authData?.isAuthenticated && (authData.user?.role === 'ADMIN' || authData.user?.role === 'admin') && (
+                    {isFetched && authData?.isAuthenticated && ['SUPER_ADMIN', 'ADMIN', 'admin'].includes(authData.user?.role) && (
                         <div className="mt-8 p-4 rounded-lg" style={{ backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
                             <p className="text-sm text-left" style={{ color: 'var(--sec-text-secondary)' }}>
                                 Admin: Check that the URL is correct.

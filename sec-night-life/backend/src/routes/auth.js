@@ -84,7 +84,7 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1).max(256),
-  role: z.enum(['USER', 'VENUE', 'FREELANCER']).optional()
+  role: z.enum(['USER', 'VENUE', 'FREELANCER', 'ADMIN', 'SUPER_ADMIN']).optional()
 });
 
 const refreshSchema = z.object({
@@ -179,11 +179,26 @@ router.post('/login', async (req, res, next) => {
     }
     const { email, password, role: loginRole } = parsed.data;
 
-    // Require role so Party Goer and Business Owner stay separate (same email = different accounts)
-    const role = loginRole || 'USER';
-    const user = await prisma.user.findFirst({
-      where: { email: email.toLowerCase(), role, deletedAt: null }
-    });
+    // Require role so Party Goer and Business Owner stay separate (same email = different accounts).
+    // If no role is supplied and there is only one account for the email, allow that account
+    // so SUPER_ADMIN / ADMIN users can still sign in from the normal login page.
+    let user = null;
+    if (loginRole) {
+      user = await prisma.user.findFirst({
+        where: { email: email.toLowerCase(), role: loginRole, deletedAt: null }
+      });
+    } else {
+      const accounts = await prisma.user.findMany({
+        where: { email: email.toLowerCase(), deletedAt: null },
+        orderBy: { createdAt: 'asc' }
+      });
+
+      if (accounts.length === 1) {
+        [user] = accounts;
+      } else {
+        user = accounts.find((account) => account.role === 'USER') || null;
+      }
+    }
 
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       // SECURITY: log failed attempt; same error message for both wrong email and wrong password

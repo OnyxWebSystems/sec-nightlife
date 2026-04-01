@@ -113,7 +113,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
         ...(userRoles.host ? [{ name: 'Host Dashboard', icon: Crown, page: 'HostDashboard' }] : []),
-        ...((user?.role === 'ADMIN' || user?.role === 'admin') ? [{ name: 'Admin', icon: LayoutDashboard, page: 'AdminDashboard' }] : []),
+        ...((['SUPER_ADMIN', 'ADMIN', 'admin'].includes(user?.role)) ? [{ name: 'Admin', icon: LayoutDashboard, page: 'AdminDashboard' }] : []),
       ],
     },
     host: {

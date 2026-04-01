@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { sendBulkEmails, sendEmail } from '../lib/email.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireComplianceReviewer, requireSuperAdmin } from '../middleware/complianceReviewer.js';
+import { auditFromReq } from '../lib/audit.js';
 
 const router = Router();
 
@@ -28,10 +29,17 @@ function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
 
+function isSuperAdminUser({ role, email, superAdminEmail }) {
+  return role === 'SUPER_ADMIN' || (role === 'ADMIN' && superAdminEmail && normalizeEmail(email) === superAdminEmail);
+}
+
 function getAppReviewLink({ venueId }) {
+  const query = venueId
+    ? `?tab=compliance-documents&venueId=${encodeURIComponent(venueId)}`
+    : '?tab=compliance-documents';
   const appUrl = process.env.APP_URL;
-  if (!appUrl) return `/AdminDashboard?tab=compliance-documents&venueId=${venueId}`;
-  return `${appUrl}/AdminDashboard?tab=compliance-documents&venueId=${venueId}`;
+  if (!appUrl) return `/AdminDashboard${query}`;
+  return `${appUrl}/AdminDashboard${query}`;
 }
 
 async function sendComplianceUploadEmails({ superAdminEmail, reviewerEmails, emailPayload }) {
@@ -115,7 +123,7 @@ router.get('/me/access', authenticateToken, async (req, res, next) => {
     const superAdminEmail = normalizeEmail(process.env.SUPER_ADMIN_EMAIL);
     const userEmail = normalizeEmail(user.email);
 
-    const isSuperAdmin = user.role === 'ADMIN' && superAdminEmail && userEmail === superAdminEmail;
+    const isSuperAdmin = isSuperAdminUser({ role: user.role, email: userEmail, superAdminEmail });
     if (isSuperAdmin) return res.json({ canReview: true, isSuperAdmin: true });
 
     const reviewer = await prisma.adminReviewer.findFirst({
@@ -234,7 +242,7 @@ router.patch('/:id/review', authenticateToken, requireComplianceReviewer, async 
       return res.status(403).json({ error: 'Not authorized to review your own venue documents' });
     }
 
-    await prisma.complianceDocument.update({
+    const reviewed = await prisma.complianceDocument.update({
       where: { id: doc.id },
       data: {
         status,
@@ -264,6 +272,20 @@ router.patch('/:id/review', authenticateToken, requireComplianceReviewer, async 
     await prisma.venue.update({
       where: { id: doc.venueId },
       data: { isVerified: allRequiredLatestApproved, complianceStatus: allRequiredLatestApproved ? 'approved' : 'pending' },
+    });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: `COMPLIANCE_DOCUMENT_${status}`,
+      entityType: 'compliance_document',
+      entityId: reviewed.id,
+      metadata: {
+        venueId: doc.venueId,
+        venueName: doc.venue.name,
+        documentType: doc.documentType,
+        reviewedBy: req.userId,
+        rejectionReason: status === 'REJECTED' ? (rejectionReason || '').trim() : null,
+      }
     });
 
     // Email business owner
@@ -331,6 +353,32 @@ router.post('/admin/reviewers', authenticateToken, requireSuperAdmin, async (req
       }
     });
 
+    const reviewLink = getAppReviewLink({});
+
+    await sendEmail({
+      to: created.email,
+      subject: 'You now have access to review compliance documents',
+      text: `Hi ${created.name},\n\nYou have been added as a compliance reviewer for SEC Nightlife.\n\nOpen the review page here: ${reviewLink}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+          <h2 style="color:#000;background:#111;padding:16px;margin:0 0 12px;">SEC Nightlife</h2>
+          <div style="padding:16px;background:#1a1a1a;color:#e0e0e0;border-radius:12px;">
+            <p style="margin:0 0 8px;">Hi <strong>${created.name}</strong>,</p>
+            <p style="margin:0 0 12px;">You have been added as a compliance reviewer and can now approve or reject submitted business documents.</p>
+            <a href="${reviewLink}" style="display:inline-block;padding:12px 18px;background:#fff;color:#000;font-weight:700;border-radius:8px;text-decoration:none;">Open review page</a>
+          </div>
+        </div>
+      `
+    });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'ADMIN_REVIEWER_CREATED',
+      entityType: 'admin_reviewer',
+      entityId: created.id,
+      metadata: { reviewerEmail: created.email, reviewerName: created.name }
+    });
+
     res.status(201).json({ reviewer: created });
   } catch (err) {
     next(err);
@@ -345,6 +393,14 @@ router.patch('/admin/reviewers/:reviewerId', authenticateToken, requireSuperAdmi
     const updated = await prisma.adminReviewer.update({
       where: { id: reviewerId },
       data: { isActive }
+    });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: isActive ? 'ADMIN_REVIEWER_REACTIVATED' : 'ADMIN_REVIEWER_DEACTIVATED',
+      entityType: 'admin_reviewer',
+      entityId: updated.id,
+      metadata: { reviewerEmail: updated.email, reviewerName: updated.name, isActive }
     });
 
     res.json({ reviewer: updated });

@@ -4,7 +4,7 @@
  */
 import { prisma } from './prisma.js';
 
-const STAFF_ROLES = ['ADMIN', 'MODERATOR'];
+const STAFF_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
 
 export function isStaff(role) {
   return role && STAFF_ROLES.includes(role);
@@ -23,7 +23,7 @@ export async function getVenueIdsForUser(userId, userRole) {
 
 /**
  * Asserts user owns the venue. Throws/returns 403 if not.
- * Staff (ADMIN/MODERATOR) bypass.
+ * Staff (SUPER_ADMIN/ADMIN/MODERATOR) bypass.
  */
 export async function assertVenueOwnership(venueId, userId, userRole) {
   if (isStaff(userRole)) return;

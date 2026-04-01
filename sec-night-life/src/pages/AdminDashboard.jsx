@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const requestedVenueId = searchParams.get('venueId');
   const [user, setUser] = useState(null);
   const [stats, setStats] = useState(null);
   const [payments, setPayments] = useState([]);
@@ -55,12 +56,12 @@ export default function AdminDashboard() {
         }
         setComplianceAccess(access);
 
-        if (!access?.canReview && u?.role !== 'ADMIN' && u?.role !== 'admin') {
+        if (!access?.canReview) {
           navigate(createPageUrl('Home'));
           return;
         }
 
-        const shouldLoadAdminQueues = !!(access?.isSuperAdmin || u?.role === 'ADMIN' || u?.role === 'admin');
+        const shouldLoadAdminQueues = !!(access?.isSuperAdmin || u?.role === 'SUPER_ADMIN');
         if (shouldLoadAdminQueues) {
           const [dashboardRes, paymentsRes, usersRes, venuesRes] = await Promise.all([
             apiGet('/api/admin/dashboard'),
@@ -212,7 +213,7 @@ export default function AdminDashboard() {
           <p className="text-sm text-[var(--sec-text-muted)] mt-1">Payments, users & verification</p>
         </div>
         <div className="flex border-b border-[#262629]">
-          {((complianceAccess?.isSuperAdmin || user.role === 'ADMIN' || user.role === 'admin')
+          {((complianceAccess?.isSuperAdmin || user.role === 'SUPER_ADMIN')
             ? ['overview', 'payments', 'users', 'venues', 'compliance-documents']
             : ['compliance-documents']
           ).map((t) => (
@@ -433,9 +434,19 @@ export default function AdminDashboard() {
                   return acc;
                 }, {});
 
+                const groupedValues = Object.values(grouped);
+                const visibleGroups = requestedVenueId
+                  ? groupedValues.filter((g) => g.venue.id === requestedVenueId)
+                  : groupedValues;
+
                 return (
                   <div className="space-y-4">
-                    {Object.values(grouped).map((g) => (
+                    {requestedVenueId && visibleGroups.length === 0 && (
+                      <p className="text-sm text-[var(--sec-text-muted)]">
+                        No pending documents found for that venue right now.
+                      </p>
+                    )}
+                    {visibleGroups.map((g) => (
                       <div key={g.venue.id} className="p-4 rounded-xl bg-[#141416] border border-[#262629] space-y-3">
                         <div>
                           <p className="font-medium">{g.venue.name}</p>

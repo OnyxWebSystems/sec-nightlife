@@ -21,7 +21,7 @@ export async function requirePremium(req, res, next) {
   if (!user) return res.status(401).json({ error: 'User not found' });
 
   // Admin bypass
-  if (user.role === 'ADMIN') return next();
+  if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') return next();
 
   if (!user.isPremium) {
     return res.status(403).json({

@@ -2,7 +2,7 @@
 -- Then restart your backend and try Sign up again.
 
 -- CreateEnum
-CREATE TYPE "UserRole" AS ENUM ('USER', 'VENUE', 'FREELANCER', 'ADMIN', 'MODERATOR');
+CREATE TYPE "UserRole" AS ENUM ('USER', 'VENUE', 'FREELANCER', 'ADMIN', 'SUPER_ADMIN', 'MODERATOR');
 CREATE TYPE "VenueComplianceStatus" AS ENUM ('pending', 'approved', 'rejected');
 CREATE TYPE "EventStatus" AS ENUM ('draft', 'published', 'cancelled');
 CREATE TYPE "TableStatus" AS ENUM ('open', 'full', 'closed');

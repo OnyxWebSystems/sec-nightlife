@@ -150,7 +150,7 @@ router.post('/users/:id/unsuspend', async (req, res, next) => {
 router.patch('/users/:id/role', async (req, res, next) => {
   try {
     const { role } = z.object({
-      role: z.enum(['USER', 'VENUE', 'FREELANCER', 'ADMIN', 'MODERATOR'])
+      role: z.enum(['USER', 'VENUE', 'FREELANCER', 'ADMIN', 'SUPER_ADMIN', 'MODERATOR'])
     }).parse(req.body);
 
     // SECURITY: prevent demoting yourself

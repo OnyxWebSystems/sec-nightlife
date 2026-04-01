@@ -12,7 +12,7 @@
 /** Only ADMIN */
 export function requireAdmin(req, res, next) {
   if (!req.userRole) return res.status(401).json({ error: 'Authentication required' });
-  if (req.userRole !== 'ADMIN') {
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(req.userRole)) {
     return res.status(403).json({ error: 'Admin access required' }); // SECURITY: sensitive admin route
   }
   next();
@@ -21,7 +21,7 @@ export function requireAdmin(req, res, next) {
 /** ADMIN or MODERATOR */
 export function requireStaff(req, res, next) {
   if (!req.userRole) return res.status(401).json({ error: 'Authentication required' });
-  if (!['ADMIN', 'MODERATOR'].includes(req.userRole)) {
+  if (!['ADMIN', 'SUPER_ADMIN', 'MODERATOR'].includes(req.userRole)) {
     return res.status(403).json({ error: 'Staff access required' });
   }
   next();
@@ -31,7 +31,10 @@ export function requireStaff(req, res, next) {
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.userRole) return res.status(401).json({ error: 'Authentication required' });
-    if (!roles.includes(req.userRole)) {
+    const allowedRoles = roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')
+      ? [...roles, 'SUPER_ADMIN']
+      : roles;
+    if (!allowedRoles.includes(req.userRole)) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
     next();
@@ -55,7 +58,7 @@ export function requireSelfOrStaff(paramName = 'id') {
     if (!req.userId) return res.status(401).json({ error: 'Authentication required' });
     const targetId = req.params[paramName];
     if (req.userId === targetId) return next();
-    if (['ADMIN', 'MODERATOR'].includes(req.userRole)) return next();
+    if (['ADMIN', 'SUPER_ADMIN', 'MODERATOR'].includes(req.userRole)) return next();
     return res.status(403).json({ error: 'Cannot access another user\'s resource' }); // SECURITY: IDOR protection
   };
 }
