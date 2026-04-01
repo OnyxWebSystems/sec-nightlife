@@ -12,6 +12,26 @@ function getToken() {
   }
 }
 
+function getRefreshToken() {
+  try {
+    return localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
+  } catch {
+    return null;
+  }
+}
+
+function getTokenStorage() {
+  try {
+    if (localStorage.getItem('access_token') || localStorage.getItem('refresh_token')) {
+      return localStorage;
+    }
+    if (sessionStorage.getItem('access_token') || sessionStorage.getItem('refresh_token')) {
+      return sessionStorage;
+    }
+  } catch {}
+  return localStorage;
+}
+
 function getHeaders(includeAuth = true) {
   const headers = { 'Content-Type': 'application/json' };
   if (includeAuth) {
@@ -19,6 +39,34 @@ function getHeaders(includeAuth = true) {
     if (token) headers.Authorization = `Bearer ${token}`;
   }
   return headers;
+}
+
+async function refreshAccessToken() {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+
+  const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ refreshToken }),
+  });
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {}
+
+  if (!res.ok || !data?.accessToken) {
+    clearTokens();
+    return false;
+  }
+
+  const storage = getTokenStorage();
+  storage.setItem('access_token', data.accessToken);
+  if (data.refreshToken) storage.setItem('refresh_token', data.refreshToken);
+  return true;
 }
 
 export async function api(method, path, body = null, opts = {}) {
@@ -49,6 +97,17 @@ export async function api(method, path, body = null, opts = {}) {
     data = text ? JSON.parse(text) : null;
   } catch {
     data = null;
+  }
+  const tokenExpired = (res.status === 401 || res.status === 403) && (
+    data?.error === 'Invalid or expired token' ||
+    data?.error === 'Authentication required'
+  );
+  const canRetryWithRefresh = opts.skipAuth !== true && opts._retriedAfterRefresh !== true && p !== '/api/auth/refresh';
+  if (tokenExpired && canRetryWithRefresh) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return api(method, path, body, { ...opts, _retriedAfterRefresh: true });
+    }
   }
   if (!res.ok) {
     const err = new Error(data?.error || res.statusText || 'Request failed');
