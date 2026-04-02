@@ -92,7 +92,10 @@ function parseCloudinaryFromUrl(fileUrl) {
 
     const publicId = publicIdPrefix ? `${publicIdPrefix}/${lastNoExt}` : lastNoExt;
 
-    return { resourceType, publicId, format };
+    // Full path as in the URL (last segment keeps extension). Raw assets often need this for API download.
+    const fullPublicId = publicSegments.join('/');
+
+    return { resourceType, publicId, format, fullPublicId };
   } catch {
     return null;
   }
@@ -118,17 +121,31 @@ function signCloudinaryUrl(fileUrl) {
   if (!parsed) return null;
   if (!ensureCloudinaryConfigured()) return null;
 
-  const { resourceType, publicId, format } = parsed;
+  const { resourceType, publicId, format, fullPublicId } = parsed;
   // 30 min window; refresh per admin page load.
   const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30;
 
-  // sign_url=true makes Cloudinary generate an auth/signature querystring.
-  return cloudinary.url(publicId, {
-    resource_type: resourceType,
-    format: format || undefined,
+  // Default delivery type is "upload". Do not use "authenticated" unless the asset was uploaded that way.
+  const baseOpts = {
     secure: true,
     sign_url: true,
     expires_at: expiresAtSeconds,
+    type: 'upload',
+  };
+
+  // Raw files: public_id includes the extension; do not pass format or it gets appended twice.
+  if (resourceType === 'raw' && fullPublicId) {
+    return cloudinary.url(fullPublicId, {
+      ...baseOpts,
+      resource_type: 'raw',
+    });
+  }
+
+  // sign_url=true makes Cloudinary generate an auth/signature querystring.
+  return cloudinary.url(publicId, {
+    ...baseOpts,
+    resource_type: resourceType,
+    format: format || undefined,
   });
 }
 
@@ -137,20 +154,28 @@ function privateDownloadUrl(fileUrl) {
   if (!parsed) return null;
   if (!ensureCloudinaryConfigured()) return null;
 
-  const { resourceType, publicId, format } = parsed;
-  if (!format) return null;
+  const { resourceType, publicId, format, fullPublicId } = parsed;
 
   // Use Cloudinary API-authenticated download endpoint.
   // This works even when delivery URLs are blocked by ACL/token rules.
   const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30;
 
-  return cloudinary.utils.private_download_url(publicId, format, {
+  // Must match how the file was stored. Preset uploads are almost always type "upload".
+  const downloadOpts = {
     resource_type: resourceType,
-    // Prefer authenticated if the asset was uploaded as authenticated; Cloudinary will enforce correctly.
-    type: 'authenticated',
+    type: 'upload',
     expires_at: expiresAtSeconds,
     attachment: false,
-  });
+  };
+
+  // Raw PDFs/docs: API expects public_id with extension; do not split format.
+  if (resourceType === 'raw' && fullPublicId) {
+    return cloudinary.utils.private_download_url(fullPublicId, null, downloadOpts);
+  }
+
+  if (!format) return null;
+
+  return cloudinary.utils.private_download_url(publicId, format, downloadOpts);
 }
 
 // Business: get latest compliance status per type for the venue (latest by uploadedAt)
@@ -428,34 +453,14 @@ router.get('/:id/file', authenticateToken, requireComplianceReviewer, async (req
     });
     if (!doc || !doc.fileUrl) return res.status(404).json({ error: 'Document not found' });
 
-    const parsed = parseCloudinaryFromUrl(doc.fileUrl);
-    if (!parsed) {
-      // Fallback: if we can't parse, just redirect to the stored URL.
+    if (!ensureCloudinaryConfigured()) {
       return res.redirect(doc.fileUrl);
     }
 
-    const { resourceType, publicId, format } = parsed;
-
-    // Configure Cloudinary for server-side URL signing.
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      // If Cloudinary creds are missing, fallback to stored URL.
+    const signedUrl = signCloudinaryUrl(doc.fileUrl);
+    if (!signedUrl) {
       return res.redirect(doc.fileUrl);
     }
-
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-    });
-
-    const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30; // 30 minutes
-    const signedUrl = cloudinary.url(publicId, {
-      resource_type: resourceType,
-      format: format || undefined,
-      secure: true,
-      sign_url: true,
-      expires_at: expiresAtSeconds,
-    });
 
     return res.redirect(signedUrl);
   } catch (err) {
