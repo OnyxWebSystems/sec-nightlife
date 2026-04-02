@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { toast } from 'sonner';
 
 function withPdfInlineParams(fileUrl) {
   if (!fileUrl) return fileUrl;
@@ -182,8 +183,8 @@ export default function AdminDashboard() {
         : { status: nextStatus };
       await apiPatch(`/api/compliance-documents/${docId}/review`, payload);
       await loadPendingDocuments();
-    } catch {
-      // Keep UI stable; errors appear via inline reject reason validation when relevant.
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Review failed');
     } finally {
       setReviewingDocId(null);
     }
@@ -195,8 +196,8 @@ export default function AdminDashboard() {
       await apiPatch(`/api/compliance-documents/admin/reviewers/${reviewerId}`, { isActive: nextIsActive });
       const res = await apiGet('/api/compliance-documents/admin/reviewers');
       setReviewers(res?.reviewers || []);
-    } catch {
-      // no-op
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Failed to update reviewer');
     } finally {
       setReviewerManagementLoading(false);
     }
@@ -210,8 +211,8 @@ export default function AdminDashboard() {
       setNewReviewer({ name: '', email: '' });
       const res = await apiGet('/api/compliance-documents/admin/reviewers');
       setReviewers(res?.reviewers || []);
-    } catch {
-      // no-op
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Failed to add reviewer');
     } finally {
       setAddingReviewer(false);
     }

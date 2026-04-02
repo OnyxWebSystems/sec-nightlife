@@ -353,9 +353,22 @@ router.patch('/:id/review', authenticateToken, requireComplianceReviewer, async 
     });
     if (!doc || doc.venue.deletedAt) return res.status(404).json({ error: 'Document not found' });
 
-    // SECURITY: never allow venue owners to approve/reject their own compliance docs.
+    // SECURITY: venue owners cannot approve/reject their own docs (prevents self-approval).
+    // Super admins may review their own venue for operations/testing.
     if (doc.venue.ownerUserId === req.userId) {
-      return res.status(403).json({ error: 'Not authorized to review your own venue documents' });
+      const actor = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { email: true, role: true }
+      });
+      const superAdminEmail = normalizeEmail(process.env.SUPER_ADMIN_EMAIL);
+      const isSuperAdmin = actor && isSuperAdminUser({
+        role: actor.role,
+        email: normalizeEmail(actor.email),
+        superAdminEmail
+      });
+      if (!isSuperAdmin) {
+        return res.status(403).json({ error: 'Not authorized to review your own venue documents' });
+      }
     }
 
     const reviewed = await prisma.complianceDocument.update({
