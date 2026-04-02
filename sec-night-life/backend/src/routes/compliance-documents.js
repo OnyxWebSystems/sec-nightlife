@@ -5,6 +5,7 @@ import { sendBulkEmails, sendEmail } from '../lib/email.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireComplianceReviewer, requireSuperAdmin } from '../middleware/complianceReviewer.js';
 import { auditFromReq } from '../lib/audit.js';
+import { v2 as cloudinary } from 'cloudinary';
 
 const router = Router();
 
@@ -60,6 +61,35 @@ function fileUrlLooksLikeCloudinary(fileUrl, cloudName) {
   if (!fileUrl || !cloudName) return false;
   const prefix = `https://res.cloudinary.com/${cloudName}/`;
   return fileUrl.startsWith(prefix);
+}
+
+function parseCloudinaryFromUrl(fileUrl) {
+  // Accept URLs like:
+  // https://res.cloudinary.com/<cloudName>/<resourceType>/upload/v<version>/<publicId>.<ext>
+  // where resourceType is typically "image" or "raw".
+  try {
+    const u = new URL(fileUrl);
+    const parts = u.pathname.split('/').filter(Boolean);
+    const uploadIdx = parts.indexOf('upload');
+    if (uploadIdx < 2) return null;
+
+    // Expected: [..., <cloudName>, <resourceType>, 'upload', 'v123', '<publicId>.<ext>']
+    const resourceType = parts[uploadIdx - 1];
+    const versionPart = parts[uploadIdx + 1]; // v...
+    const publicWithExt = parts[uploadIdx + 2];
+    if (!resourceType || !publicWithExt) return null;
+
+    const dotIdx = publicWithExt.lastIndexOf('.');
+    const format = dotIdx > -1 ? publicWithExt.slice(dotIdx + 1) : null;
+    const publicId = dotIdx > -1 ? publicWithExt.slice(0, dotIdx) : publicWithExt;
+
+    // versionPart currently unused but kept for safety
+    void versionPart;
+
+    return { resourceType, publicId, format };
+  } catch {
+    return null;
+  }
 }
 
 // Business: get latest compliance status per type for the venue (latest by uploadedAt)
@@ -320,6 +350,53 @@ router.patch('/:id/review', authenticateToken, requireComplianceReviewer, async 
     }
 
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Compliance admin file access (proxy Cloudinary with fresh signed URL).
+// This avoids stale signed Cloudinary URLs stored in the DB returning HTTP 401.
+router.get('/:id/file', authenticateToken, requireComplianceReviewer, async (req, res, next) => {
+  try {
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+
+    const doc = await prisma.complianceDocument.findUnique({
+      where: { id },
+      select: { id: true, fileUrl: true, fileName: true }
+    });
+    if (!doc || !doc.fileUrl) return res.status(404).json({ error: 'Document not found' });
+
+    const parsed = parseCloudinaryFromUrl(doc.fileUrl);
+    if (!parsed) {
+      // Fallback: if we can't parse, just redirect to the stored URL.
+      return res.redirect(doc.fileUrl);
+    }
+
+    const { resourceType, publicId, format } = parsed;
+
+    // Configure Cloudinary for server-side URL signing.
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      // If Cloudinary creds are missing, fallback to stored URL.
+      return res.redirect(doc.fileUrl);
+    }
+
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+
+    const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30; // 30 minutes
+    const signedUrl = cloudinary.url(publicId, {
+      resource_type: resourceType,
+      format: format || undefined,
+      secure: true,
+      sign_url: true,
+      expires_at: expiresAtSeconds,
+    });
+
+    return res.redirect(signedUrl);
   } catch (err) {
     next(err);
   }

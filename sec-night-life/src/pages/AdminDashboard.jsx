@@ -243,9 +243,7 @@ export default function AdminDashboard() {
                   <p className="text-xs text-[var(--sec-text-muted)]">{previewDocument.documentType?.replace(/_/g, ' ')}</p>
                 </div>
                 <a
-                  href={previewDocument.fileUrl && previewDocument.fileUrl.includes('?')
-                    ? previewDocument.fileUrl
-                    : withPdfInlineParams(previewDocument.fileUrl)}
+                  href={previewDocument.isPdf ? `/api/compliance-documents/${previewDocument.id}/file` : previewDocument.fileUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
@@ -256,9 +254,7 @@ export default function AdminDashboard() {
               {previewDocument.isPdf ? (
                 <iframe
                   title="Compliance document PDF preview"
-                  src={previewDocument.fileUrl && previewDocument.fileUrl.includes('?')
-                    ? previewDocument.fileUrl
-                    : withPdfInlineParams(previewDocument.fileUrl)}
+                  src={`/api/compliance-documents/${previewDocument.id}/file`}
                   style={{ width: '100%', height: '70vh', border: '1px solid var(--sec-border)', borderRadius: 12, backgroundColor: '#fff' }}
                 />
               ) : (
