@@ -76,20 +76,60 @@ function parseCloudinaryFromUrl(fileUrl) {
     // Expected: [..., <cloudName>, <resourceType>, 'upload', 'v123', '<publicId>.<ext>']
     const resourceType = parts[uploadIdx - 1];
     const versionPart = parts[uploadIdx + 1]; // v...
-    const publicWithExt = parts[uploadIdx + 2];
-    if (!resourceType || !publicWithExt) return null;
-
-    const dotIdx = publicWithExt.lastIndexOf('.');
-    const format = dotIdx > -1 ? publicWithExt.slice(dotIdx + 1) : null;
-    const publicId = dotIdx > -1 ? publicWithExt.slice(0, dotIdx) : publicWithExt;
-
-    // versionPart currently unused but kept for safety
     void versionPart;
+
+    const publicSegments = parts.slice(uploadIdx + 2); // everything after version
+    if (!resourceType || publicSegments.length === 0) return null;
+
+    const last = publicSegments[publicSegments.length - 1];
+    const dotIdx = last.lastIndexOf('.');
+    const format = dotIdx > -1 ? last.slice(dotIdx + 1) : null;
+    const lastNoExt = dotIdx > -1 ? last.slice(0, dotIdx) : last;
+
+    const publicIdPrefix = publicSegments.length > 1
+      ? publicSegments.slice(0, -1).join('/')
+      : '';
+
+    const publicId = publicIdPrefix ? `${publicIdPrefix}/${lastNoExt}` : lastNoExt;
 
     return { resourceType, publicId, format };
   } catch {
     return null;
   }
+}
+
+let cloudinaryConfigured = false;
+function ensureCloudinaryConfigured() {
+  if (cloudinaryConfigured) return true;
+  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    return false;
+  }
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+  cloudinaryConfigured = true;
+  return true;
+}
+
+function signCloudinaryUrl(fileUrl) {
+  const parsed = parseCloudinaryFromUrl(fileUrl);
+  if (!parsed) return null;
+  if (!ensureCloudinaryConfigured()) return null;
+
+  const { resourceType, publicId, format } = parsed;
+  // 30 min window; refresh per admin page load.
+  const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30;
+
+  // sign_url=true makes Cloudinary generate an auth/signature querystring.
+  return cloudinary.url(publicId, {
+    resource_type: resourceType,
+    format: format || undefined,
+    secure: true,
+    sign_url: true,
+    expires_at: expiresAtSeconds,
+  });
 }
 
 // Business: get latest compliance status per type for the venue (latest by uploadedAt)
@@ -512,14 +552,19 @@ router.get('/admin/pending-documents', authenticateToken, requireComplianceRevie
     });
     const ownersById = new Map(owners.map((o) => [o.id, o]));
 
-    const payload = docs.map((d) => {
+    const payload = await Promise.all(docs.map(async (d) => {
       const owner = ownersById.get(d.venue.ownerUserId);
+      const signedFileUrl = (fileUrlLooksLikeCloudinary(d.fileUrl, process.env.CLOUDINARY_CLOUD_NAME))
+        ? signCloudinaryUrl(d.fileUrl)
+        : null;
+
       return {
         id: d.id,
         documentType: d.documentType,
         status: d.status,
         uploadedAt: d.uploadedAt,
         fileUrl: d.fileUrl,
+        signedFileUrl: signedFileUrl || null,
         fileName: d.fileName,
         rejectionReason: d.rejectionReason,
         venue: {
@@ -530,7 +575,7 @@ router.get('/admin/pending-documents', authenticateToken, requireComplianceRevie
             : { id: d.venue.ownerUserId }
         }
       };
-    });
+    }));
 
     res.json({ pendingDocuments: payload });
   } catch (err) {
