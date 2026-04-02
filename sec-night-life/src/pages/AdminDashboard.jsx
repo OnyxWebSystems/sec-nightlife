@@ -20,26 +20,25 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 
 function withPdfInlineParams(fileUrl) {
   if (!fileUrl) return fileUrl;
-  // Cloudinary sometimes serves PDFs with a disposition that prevents in-browser rendering.
-  // These params encourage inline rendering without forcing downloads.
+  // If the URL is signed (Cloudinary commonly includes query params like `s`/`e`/`signature`),
+  // appending our own query params can invalidate the signature and cause 401.
+  const lower = fileUrl.toLowerCase();
+  const looksSigned = lower.includes('signature=') || /[?&]s=/.test(lower) || /[?&]e=/.test(lower);
+  if (looksSigned) return fileUrl;
+
+  // Encourage inline rendering without forcing downloads (only for unsigned URLs).
   const paramsToAdd = [
     ['response-content-disposition', 'inline'],
     ['attachment', 'false'],
     ['fl_attachment', 'false'],
   ];
 
-  const hasQuery = fileUrl.includes('?');
-  const base = fileUrl;
-  const sep = hasQuery ? '&' : '?';
-
-  // Avoid duplicating params if the URL already contains them.
-  let url = base;
+  let url = fileUrl;
   for (const [k, v] of paramsToAdd) {
-    const re = new RegExp(`([?&])${k}=`,'i');
-    if (re.test(url)) continue;
+    const hasParam = new RegExp(`([?&])${k}=`, 'i').test(url);
+    if (hasParam) continue;
     url += `${url.includes('?') ? '&' : '?'}${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
   }
-  // Ensure we keep consistent separators after loop
   return url;
 }
 
