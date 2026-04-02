@@ -18,19 +18,29 @@ import {
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-function normalizeCloudinaryPdfUrl(fileUrl) {
+function withPdfInlineParams(fileUrl) {
   if (!fileUrl) return fileUrl;
-  // Some existing uploads are stored under /image/upload/...pdf instead of /raw/upload/...pdf.
-  // For PDFs, /raw/upload is the correct resource type for viewing/download.
-  if (fileUrl.includes('/image/upload/') && fileUrl.toLowerCase().includes('.pdf')) {
-    return fileUrl.replace('/image/upload/', '/raw/upload/');
-  }
-  return fileUrl;
-}
+  // Cloudinary sometimes serves PDFs with a disposition that prevents in-browser rendering.
+  // These params encourage inline rendering without forcing downloads.
+  const paramsToAdd = [
+    ['response-content-disposition', 'inline'],
+    ['attachment', 'false'],
+    ['fl_attachment', 'false'],
+  ];
 
-function getGoogleDocsPdfPreviewUrl(fileUrl) {
-  const rawUrl = normalizeCloudinaryPdfUrl(fileUrl);
-  return `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(rawUrl)}`;
+  const hasQuery = fileUrl.includes('?');
+  const base = fileUrl;
+  const sep = hasQuery ? '&' : '?';
+
+  // Avoid duplicating params if the URL already contains them.
+  let url = base;
+  for (const [k, v] of paramsToAdd) {
+    const re = new RegExp(`([?&])${k}=`,'i');
+    if (re.test(url)) continue;
+    url += `${url.includes('?') ? '&' : '?'}${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
+  }
+  // Ensure we keep consistent separators after loop
+  return url;
 }
 
 export default function AdminDashboard() {
@@ -234,7 +244,7 @@ export default function AdminDashboard() {
                   <p className="text-xs text-[var(--sec-text-muted)]">{previewDocument.documentType?.replace(/_/g, ' ')}</p>
                 </div>
                 <a
-                  href={previewDocument.resolvedFileUrl || previewDocument.fileUrl}
+                  href={withPdfInlineParams(previewDocument.fileUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
@@ -245,7 +255,7 @@ export default function AdminDashboard() {
               {previewDocument.isPdf ? (
                 <iframe
                   title="Compliance document PDF preview"
-                  src={getGoogleDocsPdfPreviewUrl(previewDocument.resolvedFileUrl || previewDocument.fileUrl)}
+                  src={withPdfInlineParams(previewDocument.fileUrl)}
                   style={{ width: '100%', height: '70vh', border: '1px solid var(--sec-border)', borderRadius: 12, backgroundColor: '#fff' }}
                 />
               ) : (
@@ -531,13 +541,7 @@ export default function AdminDashboard() {
 
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setPreviewDocument({
-                                      ...doc,
-                                      isPdf,
-                                      resolvedFileUrl: isPdf ? normalizeCloudinaryPdfUrl(doc.fileUrl) : doc.fileUrl,
-                                    })
-                                  }
+                                  onClick={() => setPreviewDocument({ ...doc, isPdf })}
                                   className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
                                 >
                                   {isPdf ? 'Preview PDF' : 'Preview document'} <ExternalLink size={14} />
