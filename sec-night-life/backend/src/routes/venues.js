@@ -68,12 +68,13 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
 router.get('/filter', optionalAuth, async (req, res, next) => {
   try {
-    const { city, id, owner_user_id, compliance_status, sort, limit = 50 } = req.query;
+    const { city, id, owner_user_id, compliance_status, venue_type, sort, limit = 50 } = req.query;
     const where = { deletedAt: null };
     if (city) where.city = String(city);
     if (id) where.id = String(id);
     if (owner_user_id) where.ownerUserId = String(owner_user_id);
     if (compliance_status) where.complianceStatus = compliance_status;
+    if (venue_type) where.venueType = String(venue_type);
     if (req.userId && req.userRole === 'VENUE' && !isStaff(req.userRole)) {
       where.ownerUserId = req.userId;
     }

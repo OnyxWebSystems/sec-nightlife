@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -28,7 +28,10 @@ import { motion } from 'framer-motion';
 export default function VenueProfile() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const venueIdFromUrl = searchParams.get('id');
   const [currentUser, setCurrentUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -37,12 +40,14 @@ export default function VenueProfile() {
         setCurrentUser(user);
       } catch {
         setCurrentUser(null);
+      } finally {
+        setAuthReady(true);
       }
     })();
   }, []);
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const venueId = urlParams.get('id');
+  const canFetchOwnedVenue = authReady && !!currentUser?.id && !venueIdFromUrl;
+  const venueQueryEnabled = Boolean(venueIdFromUrl || canFetchOwnedVenue);
 
   const { data: userProfile } = useQuery({
     queryKey: ['user-profile', currentUser?.email],
@@ -53,13 +58,36 @@ export default function VenueProfile() {
     enabled: !!currentUser?.email,
   });
 
-  const isFollowing = Array.isArray(userProfile?.followed_venues) && userProfile.followed_venues.includes(venueId);
+  const { data: venue, isLoading: venueLoading, isFetching: venueFetching } = useQuery({
+    queryKey: ['venue', venueIdFromUrl, currentUser?.id, 'profile'],
+    queryFn: async () => {
+      if (venueIdFromUrl) {
+        const venues = await dataService.Venue.filter({ id: venueIdFromUrl });
+        return venues[0];
+      }
+      if (currentUser?.id) {
+        const venues = await dataService.Venue.filter({ owner_user_id: currentUser.id });
+        return venues[0];
+      }
+      return undefined;
+    },
+    enabled: venueQueryEnabled,
+  });
+
+  const resolvedVenueId = venue?.id ?? venueIdFromUrl ?? null;
+
+  const isFollowing =
+    Boolean(resolvedVenueId) &&
+    Array.isArray(userProfile?.followed_venues) &&
+    userProfile.followed_venues.includes(resolvedVenueId);
   const [followLoading, setFollowLoading] = useState(false);
 
   const followMutation = useMutation({
     mutationFn: async (follow) => {
+      const vid = venue?.id ?? venueIdFromUrl;
+      if (!vid || !userProfile?.id) return;
       const list = Array.isArray(userProfile?.followed_venues) ? [...userProfile.followed_venues] : [];
-      const next = follow ? (list.includes(venueId) ? list : [...list, venueId]) : list.filter((id) => id !== venueId);
+      const next = follow ? (list.includes(vid) ? list : [...list, vid]) : list.filter((id) => id !== vid);
       await dataService.User.update(userProfile.id, { followed_venues: next });
       return next;
     },
@@ -78,28 +106,23 @@ export default function VenueProfile() {
     followMutation.mutate(!isFollowing);
   };
 
-  const { data: venue, isLoading } = useQuery({
-    queryKey: ['venue', venueId],
-    queryFn: async () => {
-      const venues = await dataService.Venue.filter({ id: venueId });
-      return venues[0];
-    },
-    enabled: !!venueId,
-  });
-
   const { data: events = [] } = useQuery({
-    queryKey: ['venue-events', venueId],
-    queryFn: () => dataService.Event.filter({ venue_id: venueId, status: 'published' }, 'date'),
-    enabled: !!venueId,
+    queryKey: ['venue-events', resolvedVenueId],
+    queryFn: () => dataService.Event.filter({ venue_id: resolvedVenueId, status: 'published' }, 'date'),
+    enabled: !!resolvedVenueId,
   });
 
   const { data: jobs = [] } = useQuery({
-    queryKey: ['venue-jobs', venueId],
-    queryFn: () => dataService.Job.filter({ venue_id: venueId, status: 'open' }),
-    enabled: !!venueId,
+    queryKey: ['venue-jobs', resolvedVenueId],
+    queryFn: () => dataService.Job.filter({ venue_id: resolvedVenueId, status: 'open' }),
+    enabled: !!resolvedVenueId,
   });
 
-  if (isLoading) {
+  const waitingForAuth = !venueIdFromUrl && !authReady;
+  const showLoader =
+    waitingForAuth || (venueQueryEnabled && (venueLoading || venueFetching));
+
+  if (showLoader) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-12 h-12 rounded-full border-2 border-[var(--sec-accent)] border-t-transparent animate-spin" />
