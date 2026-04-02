@@ -46,6 +46,7 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedVenueId = searchParams.get('venueId');
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
   const [user, setUser] = useState(null);
   const [stats, setStats] = useState(null);
   const [payments, setPayments] = useState([]);
@@ -67,6 +68,11 @@ export default function AdminDashboard() {
   const [newReviewer, setNewReviewer] = useState({ name: '', email: '' });
   const [addingReviewer, setAddingReviewer] = useState(false);
   const [previewDocument, setPreviewDocument] = useState(null);
+
+  const getComplianceFileEndpoint = (docId) => {
+    const path = `/api/compliance-documents/${docId}/file`;
+    return apiBase ? `${apiBase}${path}` : path;
+  };
 
   useEffect(() => {
     (async () => {
@@ -243,7 +249,7 @@ export default function AdminDashboard() {
                   <p className="text-xs text-[var(--sec-text-muted)]">{previewDocument.documentType?.replace(/_/g, ' ')}</p>
                 </div>
                 <a
-                  href={previewDocument.isPdf ? `/api/compliance-documents/${previewDocument.id}/file` : previewDocument.fileUrl}
+                  href={previewDocument.isPdf ? getComplianceFileEndpoint(previewDocument.id) : previewDocument.fileUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
@@ -254,7 +260,7 @@ export default function AdminDashboard() {
               {previewDocument.isPdf ? (
                 <iframe
                   title="Compliance document PDF preview"
-                  src={`/api/compliance-documents/${previewDocument.id}/file`}
+                  src={getComplianceFileEndpoint(previewDocument.id)}
                   style={{ width: '100%', height: '70vh', border: '1px solid var(--sec-border)', borderRadius: 12, backgroundColor: '#fff' }}
                 />
               ) : (
