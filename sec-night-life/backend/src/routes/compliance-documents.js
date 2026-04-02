@@ -132,6 +132,27 @@ function signCloudinaryUrl(fileUrl) {
   });
 }
 
+function privateDownloadUrl(fileUrl) {
+  const parsed = parseCloudinaryFromUrl(fileUrl);
+  if (!parsed) return null;
+  if (!ensureCloudinaryConfigured()) return null;
+
+  const { resourceType, publicId, format } = parsed;
+  if (!format) return null;
+
+  // Use Cloudinary API-authenticated download endpoint.
+  // This works even when delivery URLs are blocked by ACL/token rules.
+  const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30;
+
+  return cloudinary.utils.private_download_url(publicId, format, {
+    resource_type: resourceType,
+    // Prefer authenticated if the asset was uploaded as authenticated; Cloudinary will enforce correctly.
+    type: 'authenticated',
+    expires_at: expiresAtSeconds,
+    attachment: false,
+  });
+}
+
 // Business: get latest compliance status per type for the venue (latest by uploadedAt)
 router.get('/venue/:venueId/latest', authenticateToken, async (req, res, next) => {
   try {
@@ -554,9 +575,9 @@ router.get('/admin/pending-documents', authenticateToken, requireComplianceRevie
 
     const payload = await Promise.all(docs.map(async (d) => {
       const owner = ownersById.get(d.venue.ownerUserId);
-      const signedFileUrl = (fileUrlLooksLikeCloudinary(d.fileUrl, process.env.CLOUDINARY_CLOUD_NAME))
-        ? signCloudinaryUrl(d.fileUrl)
-        : null;
+      const isCloudinary = fileUrlLooksLikeCloudinary(d.fileUrl, process.env.CLOUDINARY_CLOUD_NAME);
+      const signedFileUrl = isCloudinary ? signCloudinaryUrl(d.fileUrl) : null;
+      const downloadUrl = isCloudinary ? privateDownloadUrl(d.fileUrl) : null;
 
       return {
         id: d.id,
@@ -565,6 +586,7 @@ router.get('/admin/pending-documents', authenticateToken, requireComplianceRevie
         uploadedAt: d.uploadedAt,
         fileUrl: d.fileUrl,
         signedFileUrl: signedFileUrl || null,
+        downloadUrl: downloadUrl || null,
         fileName: d.fileName,
         rejectionReason: d.rejectionReason,
         venue: {
