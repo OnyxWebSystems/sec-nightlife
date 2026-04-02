@@ -359,9 +359,12 @@ export default function VenueProfile() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-semibold">{event.title}</h4>
-                        <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
+                        <div className="flex items-center gap-3 mt-1 text-sm text-gray-400 flex-wrap">
                           <span>{getDateLabel(event.date)}</span>
                           {event.start_time && <span>• {event.start_time}</span>}
+                          {event.has_entrance_fee && event.entrance_fee_amount != null && (
+                            <span>• Door R{event.entrance_fee_amount}</span>
+                          )}
                         </div>
                       </div>
                       <ChevronRight className="w-5 h-5 text-gray-600" />

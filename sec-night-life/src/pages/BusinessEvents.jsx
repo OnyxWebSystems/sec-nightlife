@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2
 } from 'lucide-react';
@@ -18,6 +19,9 @@ import { toast } from 'sonner';
 const EMPTY_EVENT = {
   title: '', description: '', date: '', city: '', status: 'draft',
   cover_image_url: '', ticket_tiers: [],
+  start_time: '',
+  has_entrance_fee: false,
+  entrance_fee_amount: '',
 };
 
 export default function BusinessEvents() {
@@ -92,6 +96,11 @@ export default function BusinessEvents() {
       status: evt.status || 'draft',
       cover_image_url: evt.cover_image_url || '',
       ticket_tiers: evt.ticket_tiers || [],
+      start_time: evt.start_time || '',
+      has_entrance_fee: !!evt.has_entrance_fee,
+      entrance_fee_amount: evt.entrance_fee_amount != null && evt.entrance_fee_amount !== ''
+        ? String(evt.entrance_fee_amount)
+        : '',
     });
     setDialogOpen(true);
   };
@@ -107,15 +116,28 @@ export default function BusinessEvents() {
       toast.error('Please fill in title, date, and city');
       return;
     }
+    if (form.has_entrance_fee) {
+      const amt = parseFloat(String(form.entrance_fee_amount).replace(',', '.'));
+      if (Number.isNaN(amt) || amt < 0) {
+        toast.error('Please enter a valid entrance fee amount');
+        return;
+      }
+    }
     const payload = {
       title: form.title,
       date: form.date,
       city: form.city,
       status: form.status,
+      has_entrance_fee: form.has_entrance_fee,
+      entrance_fee_amount: form.has_entrance_fee
+        ? parseFloat(String(form.entrance_fee_amount).replace(',', '.'))
+        : null,
     };
     if (form.description) payload.description = form.description;
     if (form.cover_image_url) payload.cover_image_url = form.cover_image_url;
     if (form.ticket_tiers?.length) payload.ticket_tiers = form.ticket_tiers;
+    if (form.start_time) payload.start_time = form.start_time;
+    else if (editingEvent) payload.start_time = null;
     saveMutation.mutate(payload);
   };
 
@@ -228,7 +250,9 @@ export default function BusinessEvents() {
                   {evt.title}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2 }}>
-                  {evt.date} &middot; {evt.city}
+                  {evt.date}
+                  {evt.start_time ? ` · ${evt.start_time}` : ''}
+                  {' · '}{evt.city}
                 </div>
               </div>
 
@@ -302,6 +326,44 @@ export default function BusinessEvents() {
                 style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 />
               </div>
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Start time</Label>
+              <Input
+                type="time"
+                value={form.start_time}
+                onChange={e => setForm(p => ({ ...p, start_time: e.target.value }))}
+                className="mt-1.5 h-11 rounded-xl max-w-[200px]"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+              />
+              <p className="text-xs text-gray-500 mt-1">Optional. Leave empty if the time is not set yet.</p>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="entrance-fee"
+                  checked={form.has_entrance_fee}
+                  onCheckedChange={(v) => setForm(p => ({ ...p, has_entrance_fee: v === true }))}
+                />
+                <Label htmlFor="entrance-fee" className="text-gray-300 text-sm cursor-pointer">
+                  Entrance fee at the door
+                </Label>
+              </div>
+              {form.has_entrance_fee && (
+                <div>
+                  <Label className="text-gray-400 text-sm">Entrance fee (ZAR) *</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={form.entrance_fee_amount}
+                    onChange={e => setForm(p => ({ ...p, entrance_fee_amount: e.target.value }))}
+                    placeholder="0.00"
+                    className="mt-1.5 h-11 rounded-xl max-w-[200px]"
+                    style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                  />
+                </div>
+              )}
             </div>
             <div>
               <Label className="text-gray-400 text-sm">Description</Label>

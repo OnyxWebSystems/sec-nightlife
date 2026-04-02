@@ -388,7 +388,11 @@ function EventCard({ event }) {
 
   const lowestTicketPrice = event.ticket_tiers?.reduce((min, tier) =>
     tier.price < min ? tier.price : min, event.ticket_tiers?.[0]?.price || 0
-  );
+  ) || 0;
+  const doorEntrance =
+    event.has_entrance_fee && event.entrance_fee_amount != null && Number(event.entrance_fee_amount) > 0
+      ? Number(event.entrance_fee_amount)
+      : null;
 
   return (
     <Link
@@ -453,10 +457,22 @@ function EventCard({ event }) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--sec-border)',
         }}>
-          {lowestTicketPrice > 0 ? (
+          {lowestTicketPrice > 0 && doorEntrance != null ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', flexWrap: 'wrap' }}>
+              <Ticket size={13} strokeWidth={1.5} />
+              From R{lowestTicketPrice}
+              <span style={{ color: 'var(--sec-text-muted)', fontWeight: 500 }}>·</span>
+              Door R{doorEntrance}
+            </span>
+          ) : lowestTicketPrice > 0 ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
               <Ticket size={13} strokeWidth={1.5} />
               From R{lowestTicketPrice}
+            </span>
+          ) : doorEntrance != null ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+              <Ticket size={13} strokeWidth={1.5} />
+              Door R{doorEntrance}
             </span>
           ) : (
             <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Free Entry</span>

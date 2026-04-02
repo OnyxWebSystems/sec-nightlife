@@ -97,6 +97,11 @@ export default function FeaturedEventCard({ event }) {
                 {event.city}
               </span>
             )}
+            {event.has_entrance_fee && event.entrance_fee_amount > 0 && (
+              <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+                Door R{event.entrance_fee_amount}
+              </span>
+            )}
             {event.total_attending > 0 && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Users size={11} strokeWidth={1.5} />

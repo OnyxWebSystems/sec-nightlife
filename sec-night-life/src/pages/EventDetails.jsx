@@ -262,6 +262,21 @@ export default function EventDetails() {
           </div>
         </div>
 
+        {event.has_entrance_fee && event.entrance_fee_amount != null && (
+          <div className="sec-card" style={{
+            padding: '12px 16px', marginBottom: 20,
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <Ticket size={16} strokeWidth={1.5} style={{ color: 'var(--sec-accent)', flexShrink: 0 }} />
+            <div>
+              <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 2, fontWeight: 500 }}>Entrance at door</p>
+              <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
+                R{Number(event.entrance_fee_amount)}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── Description ── */}
         {event.description && (
           <div style={{ marginBottom: 20 }}>
