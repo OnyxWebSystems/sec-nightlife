@@ -565,6 +565,29 @@ router.patch('/admin/reviewers/:reviewerId', authenticateToken, requireSuperAdmi
   }
 });
 
+router.delete('/admin/reviewers/:reviewerId', authenticateToken, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { reviewerId } = z.object({ reviewerId: z.string().min(1) }).parse(req.params);
+
+    const existing = await prisma.adminReviewer.findUnique({ where: { id: reviewerId } });
+    if (!existing) return res.status(404).json({ error: 'Reviewer not found' });
+
+    await prisma.adminReviewer.delete({ where: { id: reviewerId } });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'ADMIN_REVIEWER_DELETED',
+      entityType: 'admin_reviewer',
+      entityId: reviewerId,
+      metadata: { reviewerEmail: existing.email, reviewerName: existing.name }
+    });
+
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Super admin & active reviewer: pending documents list (flat; frontend can group by venue)
 router.get('/admin/pending-documents', authenticateToken, requireComplianceReviewer, async (req, res, next) => {
   try {

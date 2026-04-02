@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
-import { apiGet, apiPatch, apiPost } from '@/api/client';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import {
   LayoutDashboard,
   Users,
@@ -67,6 +67,7 @@ export default function AdminDashboard() {
   const [reviewerManagementLoading, setReviewerManagementLoading] = useState(false);
   const [newReviewer, setNewReviewer] = useState({ name: '', email: '' });
   const [addingReviewer, setAddingReviewer] = useState(false);
+  const [deletingReviewerId, setDeletingReviewerId] = useState(null);
   const [previewDocument, setPreviewDocument] = useState(null);
 
 
@@ -215,6 +216,25 @@ export default function AdminDashboard() {
       toast.error(err?.data?.error || err?.message || 'Failed to add reviewer');
     } finally {
       setAddingReviewer(false);
+    }
+  };
+
+  const handleDeleteReviewer = async (reviewerId) => {
+    const ok = window.confirm(
+      'Remove this person from compliance reviewers? This cannot be undone. Their user account will not be deleted—they only lose reviewer access.'
+    );
+    if (!ok) return;
+    if (deletingReviewerId) return;
+    setDeletingReviewerId(reviewerId);
+    try {
+      await apiDelete(`/api/compliance-documents/admin/reviewers/${reviewerId}`);
+      toast.success('Reviewer removed');
+      const res = await apiGet('/api/compliance-documents/admin/reviewers');
+      setReviewers(res?.reviewers || []);
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Failed to remove reviewer');
+    } finally {
+      setDeletingReviewerId(null);
     }
   };
 
@@ -644,15 +664,26 @@ export default function AdminDashboard() {
                             Status: {r.isActive ? 'Active' : 'Inactive'}
                           </p>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={reviewerManagementLoading}
-                          className={r.isActive ? 'border-red-500/50 text-red-500' : 'border-emerald-500/50 text-emerald-400'}
-                          onClick={() => handleToggleReviewer(r.id, !r.isActive)}
-                        >
-                          {r.isActive ? 'Deactivate' : 'Reactivate'}
-                        </Button>
+                        <div className="flex flex-col gap-2 items-end shrink-0">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={reviewerManagementLoading || deletingReviewerId === r.id}
+                            className={r.isActive ? 'border-red-500/50 text-red-500' : 'border-emerald-500/50 text-emerald-400'}
+                            onClick={() => handleToggleReviewer(r.id, !r.isActive)}
+                          >
+                            {r.isActive ? 'Deactivate' : 'Reactivate'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={reviewerManagementLoading || deletingReviewerId === r.id}
+                            className="border-red-600/60 text-red-500 hover:bg-red-950/30"
+                            onClick={() => handleDeleteReviewer(r.id)}
+                          >
+                            {deletingReviewerId === r.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Remove'}
+                          </Button>
+                        </div>
                       </div>
                     ))
                   )}
