@@ -12,6 +12,28 @@ import {
   ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload
 } from 'lucide-react';
 
+/** Matches backend REQUIRED_DOC_TYPES (excludes optional OTHER). */
+const REQUIRED_COMPLIANCE_DOC_TYPES = [
+  'LIQUOR_LICENCE',
+  'BUSINESS_REGISTRATION',
+  'HEALTH_CERTIFICATE',
+  'TAX_CLEARANCE',
+];
+
+/** Latest payload from GET /api/compliance-documents/venue/:id/latest */
+function isVenueComplianceComplete(latestPayload) {
+  const docs = latestPayload?.documents;
+  if (!Array.isArray(docs) || docs.length === 0) return false;
+  const byType = (t) => docs.find((d) => d.documentType === t);
+  for (const t of REQUIRED_COMPLIANCE_DOC_TYPES) {
+    const d = byType(t);
+    if (!d || d.status !== 'APPROVED') return false;
+  }
+  const other = byType('OTHER');
+  if (other?.id && other.status !== 'APPROVED') return false;
+  return true;
+}
+
 function StatCard({ icon: Icon, label, value, sub }) {
   return (
     <div className="sec-card" style={{ padding: 20 }}>
@@ -167,6 +189,19 @@ export default function BusinessDashboard() {
     : '—';
   const totalGuests = tables.reduce((s, t) => s + (t.current_guests || 0), 0);
 
+  const complianceCompleteFromApi = complianceLatest
+    ? isVenueComplianceComplete(complianceLatest)
+    : null;
+  const showComplianceSection =
+    !complianceLatest || !complianceCompleteFromApi;
+  const headerComplianceLabel =
+    complianceCompleteFromApi !== null
+      ? (complianceCompleteFromApi ? 'approved' : 'pending')
+      : (venue.compliance_status || 'Pending');
+  const headerComplianceApproved =
+    complianceCompleteFromApi === true ||
+    (complianceCompleteFromApi === null && venue.compliance_status === 'approved');
+
   const getDocStatus = (docType) => {
     const list = complianceLatest?.documents || [];
     return list.find((d) => d.documentType === docType) || null;
@@ -249,11 +284,11 @@ export default function BusinessDashboard() {
               {venue.city} &middot; {venue.venue_type?.replace('_', ' ')}
               {' '}&middot;{' '}
               <span style={{
-                color: venue.compliance_status === 'approved'
+                color: headerComplianceApproved
                   ? 'var(--sec-success)'
                   : 'var(--sec-warning)',
               }}>
-                {venue.compliance_status || 'Pending'}
+                {headerComplianceLabel}
               </span>
             </p>
           </div>
@@ -261,7 +296,8 @@ export default function BusinessDashboard() {
       </div>
 
       {/* Compliance Notice */}
-      {venue.compliance_status !== 'approved' && (
+      {showComplianceSection &&
+        (complianceLatest ? !complianceCompleteFromApi : venue.compliance_status !== 'approved') && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
           borderRadius: 12, marginBottom: 20,
@@ -275,6 +311,7 @@ export default function BusinessDashboard() {
       )}
 
       {/* Compliance Documents Upload */}
+      {showComplianceSection && (
       <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: 'var(--sec-accent-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -366,6 +403,7 @@ export default function BusinessDashboard() {
           </div>
         )}
       </div>
+      )}
 
       {/* Stat Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>

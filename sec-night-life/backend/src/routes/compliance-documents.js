@@ -26,6 +26,44 @@ const documentTypeSchema = z.enum([
 
 const documentStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED']);
 
+/**
+ * Sets venue isVerified + complianceStatus from latest docs per type:
+ * all four required types APPROVED, and if an OTHER exists its latest must be APPROVED.
+ */
+async function recomputeVenueComplianceFromDocuments(venueId) {
+  const requiredDocsLatestFirst = await prisma.complianceDocument.findMany({
+    where: { venueId, documentType: { in: REQUIRED_DOC_TYPES } },
+    orderBy: { uploadedAt: 'desc' },
+    select: { documentType: true, status: true }
+  });
+
+  const latestByType = new Map();
+  for (const d of requiredDocsLatestFirst) {
+    if (!latestByType.has(d.documentType)) latestByType.set(d.documentType, d.status);
+  }
+
+  const allRequiredApproved = REQUIRED_DOC_TYPES.every(
+    (t) => latestByType.get(t) === 'APPROVED'
+  );
+
+  const otherLatest = await prisma.complianceDocument.findFirst({
+    where: { venueId, documentType: 'OTHER' },
+    orderBy: { uploadedAt: 'desc' },
+    select: { status: true }
+  });
+
+  const complete =
+    allRequiredApproved && (!otherLatest || otherLatest.status === 'APPROVED');
+
+  await prisma.venue.update({
+    where: { id: venueId },
+    data: {
+      isVerified: complete,
+      complianceStatus: complete ? 'approved' : 'pending'
+    }
+  });
+}
+
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
@@ -286,6 +324,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
       }
     });
 
+    await recomputeVenueComplianceFromDocuments(venue.id);
+
     // Email notifications (Super admin + active reviewers)
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     if (!superAdminEmail) {
@@ -381,27 +421,7 @@ router.patch('/:id/review', authenticateToken, requireComplianceReviewer, async 
       }
     });
 
-    // Decide whether venue becomes VERIFIED using the *latest* doc per required type.
-    // This prevents issues when a document is re-uploaded and duplicates exist.
-    const requiredDocsLatestFirst = await prisma.complianceDocument.findMany({
-      where: { venueId: doc.venueId, documentType: { in: REQUIRED_DOC_TYPES } },
-      orderBy: { uploadedAt: 'desc' },
-      select: { documentType: true, status: true }
-    });
-
-    const latestByType = new Map();
-    for (const d of requiredDocsLatestFirst) {
-      if (!latestByType.has(d.documentType)) latestByType.set(d.documentType, d.status);
-    }
-
-    const allRequiredLatestApproved = REQUIRED_DOC_TYPES.every(
-      (t) => latestByType.get(t) === 'APPROVED'
-    );
-
-    await prisma.venue.update({
-      where: { id: doc.venueId },
-      data: { isVerified: allRequiredLatestApproved, complianceStatus: allRequiredLatestApproved ? 'approved' : 'pending' },
-    });
+    await recomputeVenueComplianceFromDocuments(doc.venueId);
 
     await auditFromReq(req, {
       userId: req.userId,
