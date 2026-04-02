@@ -194,6 +194,8 @@ export default function BusinessDashboard() {
       return;
     }
 
+    const isPdf = file.type === 'application/pdf' || (file.name || '').toLowerCase().endsWith('.pdf');
+
     setUploading((prev) => ({ ...prev, [docType]: true }));
     try {
       const form = new FormData();
@@ -201,8 +203,9 @@ export default function BusinessDashboard() {
       form.append('upload_preset', cloudinaryConfig.uploadPreset);
       form.append('public_id', `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-'));
       form.append('filename_override', file.name);
+      form.append('resource_type', isPdf ? 'raw' : 'image');
 
-      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/auto/upload`, {
+      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
         method: 'POST',
         body: form,
       });

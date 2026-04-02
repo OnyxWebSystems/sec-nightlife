@@ -18,6 +18,21 @@ import {
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
+function normalizeCloudinaryPdfUrl(fileUrl) {
+  if (!fileUrl) return fileUrl;
+  // Some existing uploads are stored under /image/upload/...pdf instead of /raw/upload/...pdf.
+  // For PDFs, /raw/upload is the correct resource type for viewing/download.
+  if (fileUrl.includes('/image/upload/') && fileUrl.toLowerCase().includes('.pdf')) {
+    return fileUrl.replace('/image/upload/', '/raw/upload/');
+  }
+  return fileUrl;
+}
+
+function getGoogleDocsPdfPreviewUrl(fileUrl) {
+  const rawUrl = normalizeCloudinaryPdfUrl(fileUrl);
+  return `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(rawUrl)}`;
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -219,7 +234,7 @@ export default function AdminDashboard() {
                   <p className="text-xs text-[var(--sec-text-muted)]">{previewDocument.documentType?.replace(/_/g, ' ')}</p>
                 </div>
                 <a
-                  href={previewDocument.fileUrl}
+                  href={previewDocument.resolvedFileUrl || previewDocument.fileUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
@@ -230,12 +245,16 @@ export default function AdminDashboard() {
               {previewDocument.isPdf ? (
                 <iframe
                   title="Compliance document PDF preview"
-                  src={previewDocument.fileUrl}
+                  src={getGoogleDocsPdfPreviewUrl(previewDocument.resolvedFileUrl || previewDocument.fileUrl)}
                   style={{ width: '100%', height: '70vh', border: '1px solid var(--sec-border)', borderRadius: 12, backgroundColor: '#fff' }}
                 />
               ) : (
                 <div className="rounded-lg overflow-hidden border border-[#262629]">
-                  <img src={previewDocument.fileUrl} alt="" style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', backgroundColor: '#111' }} />
+                  <img
+                    src={previewDocument.resolvedFileUrl || previewDocument.fileUrl}
+                    alt=""
+                    style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', backgroundColor: '#111' }}
+                  />
                 </div>
               )}
             </div>
@@ -512,7 +531,13 @@ export default function AdminDashboard() {
 
                                 <button
                                   type="button"
-                                  onClick={() => setPreviewDocument({ ...doc, isPdf })}
+                                  onClick={() =>
+                                    setPreviewDocument({
+                                      ...doc,
+                                      isPdf,
+                                      resolvedFileUrl: isPdf ? normalizeCloudinaryPdfUrl(doc.fileUrl) : doc.fileUrl,
+                                    })
+                                  }
                                   className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
                                 >
                                   {isPdf ? 'Preview PDF' : 'Preview document'} <ExternalLink size={14} />
