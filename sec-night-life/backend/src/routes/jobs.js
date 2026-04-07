@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { sendEmail } from '../lib/email.js';
 import { logger } from '../lib/logger.js';
-import { signCloudinaryUrl } from '../lib/cloudinarySignedUrl.js';
+import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
 
 const router = Router();
 const USER_HOURLY_LIMIT = 5;
@@ -353,7 +353,9 @@ router.get('/applications/:applicationId/cv', authenticateToken, async (req, res
     logger.info('CV access attempt', { applicationId: req.params.applicationId, accessedBy: req.userId, accessedAt: new Date().toISOString() });
     if (!application) return res.status(403).json({ error: 'Forbidden' });
     const raw = application.cvUrl;
-    const viewUrl = raw ? (signCloudinaryUrl(raw) || raw) : null;
+    const viewUrl = raw
+      ? (signCloudinaryUrl(raw) || privateDownloadUrl(raw) || raw)
+      : null;
     return res.json({ cvUrl: raw, viewUrl, cvFileName: application.cvFileName });
   } catch (err) {
     return next(err);

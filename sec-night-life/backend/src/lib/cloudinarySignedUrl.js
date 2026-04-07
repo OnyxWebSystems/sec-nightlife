@@ -3,19 +3,43 @@
  */
 import { v2 as cloudinary } from 'cloudinary';
 
+/** Hostname pattern: {cloud}-res.cloudinary.com (no cloud name in path). */
+function cloudNameFromHost(hostname) {
+  const m = /^([^-]+)-res\.cloudinary\.com$/i.exec(hostname);
+  return m ? m[1] : null;
+}
+
+/**
+ * Parse a res.cloudinary.com (or cloud-res) delivery URL into pieces for signing.
+ * Supports upload / authenticated / private delivery segments (not only "upload").
+ */
 export function parseCloudinaryFromUrl(fileUrl) {
   try {
     const u = new URL(fileUrl);
     const parts = u.pathname.split('/').filter(Boolean);
-    const uploadIdx = parts.indexOf('upload');
-    if (uploadIdx < 2) return null;
+    const hostCloud = cloudNameFromHost(u.hostname);
 
-    const resourceType = parts[uploadIdx - 1];
-    const versionPart = parts[uploadIdx + 1];
-    void versionPart;
+    const deliveryIdx = parts.findIndex((p) => p === 'upload' || p === 'authenticated' || p === 'private');
+    if (deliveryIdx < 1) return null;
 
-    const publicSegments = parts.slice(uploadIdx + 2);
-    if (!resourceType || publicSegments.length === 0) return null;
+    const resourceType = parts[deliveryIdx - 1];
+    const deliveryToken = parts[deliveryIdx];
+
+    let storageType = 'upload';
+    if (deliveryToken === 'authenticated') storageType = 'authenticated';
+    else if (deliveryToken === 'private') storageType = 'private';
+
+    /** When path is /{cloud}/raw/upload/... the first segment is the cloud name. */
+    const cloudName = hostCloud || (deliveryIdx >= 2 ? parts[0] : null);
+    if (!cloudName) return null;
+
+    let publicSegments = parts.slice(deliveryIdx + 1);
+    if (publicSegments.length === 0) return null;
+
+    if (publicSegments[0] && /^v\d+$/.test(publicSegments[0])) {
+      publicSegments = publicSegments.slice(1);
+    }
+    if (publicSegments.length === 0) return null;
 
     const last = publicSegments[publicSegments.length - 1];
     const dotIdx = last.lastIndexOf('.');
@@ -29,7 +53,7 @@ export function parseCloudinaryFromUrl(fileUrl) {
     const publicId = publicIdPrefix ? `${publicIdPrefix}/${lastNoExt}` : lastNoExt;
     const fullPublicId = publicSegments.join('/');
 
-    return { resourceType, publicId, format, fullPublicId };
+    return { resourceType, publicId, format, fullPublicId, storageType, cloudName };
   } catch {
     return null;
   }
@@ -50,19 +74,29 @@ function ensureCloudinaryConfigured() {
   return true;
 }
 
+/**
+ * Signed delivery URL (s--…-- in path). Use for public, authenticated, or private assets.
+ * For raw PDFs stored as authenticated/restricted, the stored secure_url often contains
+ * `/raw/authenticated/` — callers must not assume `/raw/upload/` only (see parseCloudinaryFromUrl).
+ */
 export function signCloudinaryUrl(fileUrl) {
   const parsed = parseCloudinaryFromUrl(fileUrl);
   if (!parsed) return null;
   if (!ensureCloudinaryConfigured()) return null;
 
-  const { resourceType, publicId, format, fullPublicId } = parsed;
-  const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30;
+  const { resourceType, publicId, format, fullPublicId, storageType, cloudName } = parsed;
+  const envCloud = process.env.CLOUDINARY_CLOUD_NAME;
+  if (cloudName && envCloud && cloudName !== envCloud) {
+    console.warn(
+      `[cloudinarySignedUrl] URL cloud name "${cloudName}" differs from CLOUDINARY_CLOUD_NAME "${envCloud}". Signing uses the URL's cloud name; fix env or stored URL if delivery still fails.`
+    );
+  }
 
   const baseOpts = {
     secure: true,
     sign_url: true,
-    expires_at: expiresAtSeconds,
-    type: 'upload',
+    type: storageType,
+    cloud_name: cloudName || envCloud,
   };
 
   if (resourceType === 'raw' && fullPublicId) {
@@ -84,14 +118,15 @@ export function privateDownloadUrl(fileUrl) {
   if (!parsed) return null;
   if (!ensureCloudinaryConfigured()) return null;
 
-  const { resourceType, publicId, format, fullPublicId } = parsed;
+  const { resourceType, publicId, format, fullPublicId, storageType, cloudName } = parsed;
   const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30;
 
   const downloadOpts = {
     resource_type: resourceType,
-    type: 'upload',
+    type: storageType,
     expires_at: expiresAtSeconds,
     attachment: false,
+    cloud_name: cloudName || process.env.CLOUDINARY_CLOUD_NAME,
   };
 
   if (resourceType === 'raw' && fullPublicId) {
