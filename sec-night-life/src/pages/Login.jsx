@@ -45,7 +45,16 @@ export default function Login() {
     }
     setLoading(true);
     try {
-      const role = roleParam === 'BUSINESS_OWNER' ? 'VENUE' : roleParam === 'PARTY_GOER' ? 'USER' : getBackendRole();
+      // Same email can be USER + SUPER_ADMIN (see schema @@unique([email, role])). Default sign-in
+      // targets USER/VENUE; staff must use ?role=SUPER_ADMIN|ADMIN|MODERATOR so the API looks up the right row.
+      const role =
+        roleParam === 'BUSINESS_OWNER'
+          ? 'VENUE'
+          : roleParam === 'PARTY_GOER'
+            ? 'USER'
+            : ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(roleParam)
+              ? roleParam
+              : getBackendRole();
       await authService.login(email, password, role);
       toast.success('Signed in successfully');
       const path = (returnUrl && returnUrl.startsWith('/')) ? returnUrl : '/' + (returnUrl || 'Home').replace(/^\/+/, '');
