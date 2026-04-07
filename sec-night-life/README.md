@@ -26,6 +26,13 @@ VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
 VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
 ```
 
+For **unsigned Cloudinary uploads** in the browser (e.g. Venue Onboarding logo/cover), also set these on the **frontend** build (Vite embeds them at build time). Server-only `CLOUDINARY_*` variables are not enough for the SPA:
+
+```
+VITE_CLOUDINARY_CLOUD_NAME=your_cloud_name
+VITE_CLOUDINARY_UPLOAD_PRESET=your_unsigned_preset
+```
+
 Run the app: `npm run dev`
 
 **Publish your changes**

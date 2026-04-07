@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { apiPatch, apiPost } from '@/api/client';
+import { apiPatch, apiPost, uploadFile } from '@/api/client';
 import { 
   Building,
   Upload,
@@ -46,6 +46,49 @@ const PLAN_PRICES = {
 };
 
 const VENUE_PAYMENT_CONTEXT_KEY = 'sec-venue-onboarding-payment';
+
+const BRANDING_FIELDS = new Set(['logo_url', 'cover_image_url']);
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+
+const IMAGE_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+  'image/heic',
+  'image/heif',
+]);
+
+function fileExtension(name) {
+  const m = (name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : '';
+}
+
+const BRANDING_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'avif']);
+const COMPLIANCE_EXT = new Set(['pdf', ...BRANDING_EXT]);
+
+/**
+ * Returns Cloudinary resource_type: image for photos, raw for PDFs.
+ * @param {string} field
+ * @param {File} file
+ */
+function assertAllowedUpload(field, file) {
+  const ext = fileExtension(file.name);
+  const isBranding = BRANDING_FIELDS.has(field);
+
+  if (isBranding) {
+    if (IMAGE_MIME.has(file.type)) return 'image';
+    if (!file.type && BRANDING_EXT.has(ext)) return 'image';
+    throw new Error('Please choose an image file (JPG, PNG, WebP, GIF, HEIC, or AVIF).');
+  }
+
+  const isPdf = file.type === 'application/pdf' || ext === 'pdf';
+  if (isPdf) return 'raw';
+  if (IMAGE_MIME.has(file.type)) return 'image';
+  if (!file.type && BRANDING_EXT.has(ext)) return 'image';
+  throw new Error('Only PDF, JPG, PNG, WebP, and other common image formats are allowed.');
+}
 
 export default function VenueOnboarding() {
   const navigate = useNavigate();
@@ -102,46 +145,69 @@ export default function VenueOnboarding() {
   };
 
   const handleFileUpload = async (field, e) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
 
     setUploadProgress(prev => ({ ...prev, [field]: 'uploading' }));
     setError('');
 
     try {
-      if (!cloudinaryConfig.cloudName || !cloudinaryConfig.uploadPreset) {
-        throw new Error('Cloudinary is not configured for uploads.');
+      if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error(`File is too large. Maximum size is ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB.`);
       }
 
-      const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
-      if (!allowed.includes(file.type)) {
-        throw new Error('Only PDF, JPG, and PNG documents are allowed.');
+      const resourceType = assertAllowedUpload(field, file);
+
+      let cloudinaryError = null;
+      let url = null;
+
+      if (cloudinaryConfig.cloudName && cloudinaryConfig.uploadPreset) {
+        try {
+          const form = new FormData();
+          form.append('file', file);
+          form.append('upload_preset', cloudinaryConfig.uploadPreset);
+          form.append(
+            'public_id',
+            `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-')
+          );
+          form.append('filename_override', file.name);
+          form.append('resource_type', resourceType);
+
+          const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
+            method: 'POST',
+            body: form,
+          });
+          const uploadData = await uploadRes.json();
+
+          if (uploadRes.ok && uploadData?.secure_url) {
+            url = uploadData.secure_url;
+          } else {
+            cloudinaryError = new Error(uploadData?.error?.message || 'Cloudinary upload failed.');
+          }
+        } catch (err) {
+          cloudinaryError = err instanceof Error ? err : new Error(String(err));
+        }
       }
 
-      const isPdf = file.type === 'application/pdf' || (file.name || '').toLowerCase().endsWith('.pdf');
-
-      const form = new FormData();
-      form.append('file', file);
-      form.append('upload_preset', cloudinaryConfig.uploadPreset);
-      form.append('public_id', `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-'));
-      form.append('filename_override', file.name);
-      form.append('resource_type', isPdf ? 'raw' : 'image');
-
-      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
-        method: 'POST',
-        body: form,
-      });
-      const uploadData = await uploadRes.json();
-
-      if (!uploadRes.ok || !uploadData?.secure_url) {
-        throw new Error(uploadData?.error?.message || 'Failed to upload document.');
+      if (!url) {
+        try {
+          const data = await uploadFile(file);
+          url = data?.file_url;
+          if (!url) throw new Error('Upload returned no URL.');
+        } catch (serverErr) {
+          if (cloudinaryError) throw cloudinaryError;
+          throw serverErr instanceof Error ? serverErr : new Error(String(serverErr));
+        }
       }
 
-      setFormData(prev => ({ ...prev, [field]: uploadData.secure_url }));
+      setFormData(prev => ({ ...prev, [field]: url }));
       setUploadProgress(prev => ({ ...prev, [field]: 'done' }));
     } catch (error) {
       setUploadProgress(prev => ({ ...prev, [field]: 'error' }));
       setError(error?.message || 'Failed to upload document.');
+    } finally {
+      input.value = '';
     }
   };
 
