@@ -56,6 +56,7 @@ const IMAGE_MIME = new Set([
   'image/png',
   'image/webp',
   'image/gif',
+  'image/svg+xml',
   'image/avif',
   'image/heic',
   'image/heif',
@@ -66,7 +67,7 @@ function fileExtension(name) {
   return m ? m[1] : '';
 }
 
-const BRANDING_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'avif']);
+const BRANDING_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'heic', 'heif', 'avif']);
 const COMPLIANCE_EXT = new Set(['pdf', ...BRANDING_EXT]);
 
 /**
@@ -81,14 +82,14 @@ function assertAllowedUpload(field, file) {
   if (isBranding) {
     if (IMAGE_MIME.has(file.type)) return 'image';
     if (!file.type && BRANDING_EXT.has(ext)) return 'image';
-    throw new Error('Please choose an image file (JPG, PNG, WebP, GIF, HEIC, or AVIF).');
+    throw new Error('Please choose an image file (JPG, PNG, WebP, GIF, SVG, HEIC, or AVIF).');
   }
 
   const isPdf = file.type === 'application/pdf' || ext === 'pdf';
   if (isPdf) return 'raw';
   if (IMAGE_MIME.has(file.type)) return 'image';
   if (!file.type && BRANDING_EXT.has(ext)) return 'image';
-  throw new Error('Only PDF, JPG, PNG, WebP, and other common image formats are allowed.');
+  throw new Error('Only PDF, JPG, PNG, WebP, SVG, and other common image formats are allowed.');
 }
 
 function uploadFieldLabel(field) {
