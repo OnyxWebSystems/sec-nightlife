@@ -182,13 +182,14 @@ router.post('/login', async (req, res, next) => {
     // Require role so Party Goer and Business Owner stay separate (same email = different accounts).
     // If no role is supplied, pick the account whose password matches.
     let user = null;
+    const normalizedEmail = email.toLowerCase();
     if (loginRole) {
       user = await prisma.user.findFirst({
-        where: { email: email.toLowerCase(), role: loginRole, deletedAt: null }
+        where: { email: normalizedEmail, role: loginRole, deletedAt: null }
       });
     } else {
       const accounts = await prisma.user.findMany({
-        where: { email: email.toLowerCase(), deletedAt: null },
+        where: { email: normalizedEmail, deletedAt: null },
         orderBy: { createdAt: 'asc' }
       });
 
@@ -214,9 +215,36 @@ router.post('/login', async (req, res, next) => {
       }
     }
 
-    // If a role was provided, we haven't compared yet; do it now.
-    if (loginRole && user && !(await bcrypt.compare(password, user.passwordHash))) {
-      user = null;
+    // If a role was provided, verify that role first. If it doesn't match (or doesn't exist),
+    // fall back to finding any account for the email whose password matches. This protects
+    // against clients sending the wrong role intent (e.g. VENUE) for staff accounts.
+    if (loginRole) {
+      if (user && (await bcrypt.compare(password, user.passwordHash))) {
+        // ok
+      } else {
+        user = null;
+        const accounts = await prisma.user.findMany({
+          where: { email: normalizedEmail, deletedAt: null },
+          orderBy: { createdAt: 'asc' }
+        });
+
+        // Prefer staff roles first, but ultimately choose the first account that matches the password.
+        const rolePriority = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'VENUE', 'FREELANCER', 'USER'];
+        const sorted = [...accounts].sort((a, b) => {
+          const ai = rolePriority.indexOf(a.role);
+          const bi = rolePriority.indexOf(b.role);
+          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+
+        for (const account of sorted) {
+          // eslint-disable-next-line no-await-in-loop
+          const ok = await bcrypt.compare(password, account.passwordHash);
+          if (ok) {
+            user = account;
+            break;
+          }
+        }
+      }
     }
 
     if (!user) {
@@ -226,7 +254,7 @@ router.post('/login', async (req, res, next) => {
         action: 'LOGIN_FAILED',
         entityType: 'user',
         entityId: user?.id || null,
-        metadata: { email: email.toLowerCase(), roleSupplied: loginRole || null },
+        metadata: { email: normalizedEmail, roleSupplied: loginRole || null },
         ipAddress: getIp(req)
       });
       return res.status(401).json({ error: 'Invalid email or password' });
