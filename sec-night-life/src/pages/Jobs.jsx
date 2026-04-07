@@ -1,200 +1,129 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  Briefcase,
-  Search,
-  MapPin,
-  Calendar,
-  DollarSign,
-  Clock,
-  Users,
-  Camera,
-  Music,
-  ChevronRight,
-  BadgeCheck,
-  Mic2
-} from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { Briefcase, Calendar, ChevronRight, MapPin, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { differenceInDays } from 'date-fns';
+import { apiGet } from '@/api/client';
 
-const JOB_TYPES = [
-  { value: 'all', label: 'All', icon: Briefcase },
-  { value: 'promoter', label: 'Promoter', icon: Mic2 },
-  { value: 'table_host', label: 'Table Host', icon: Users },
-  { value: 'dj', label: 'DJ', icon: Music },
-  { value: 'photographer', label: 'Photo', icon: Camera },
-];
+const JOB_TYPES = ['ALL', 'FULL_TIME', 'PART_TIME', 'ONCE_OFF', 'CONTRACT'];
+const COMPENSATION_TYPES = ['ALL', 'FIXED', 'NEGOTIABLE', 'UNPAID_TRIAL'];
+const CITY_OPTIONS = ['ALL', 'Johannesburg', 'Cape Town', 'Durban', 'Pretoria'];
 
-function getJobIcon(jobType) {
-  const found = JOB_TYPES.find(t => t.value === jobType);
-  return found ? found.icon : Briefcase;
+function toLabel(text) {
+  return String(text || '').replaceAll('_', ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function spotsLeft(job) {
+  return Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
+}
+
+function closingText(closingDate) {
+  if (!closingDate) return null;
+  const days = differenceInDays(new Date(closingDate), new Date());
+  if (days < 0 || days > 7) return null;
+  if (days === 0) return 'Closes today';
+  return `Closes in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+function compensationText(job) {
+  if (job.compensationPer === 'COMMISSION') return 'Commission based';
+  if (job.compensationType === 'NEGOTIABLE') return 'Negotiable';
+  if (job.compensationType === 'UNPAID_TRIAL') return 'Unpaid trial';
+  if (job.compensationAmount) return `R${Number(job.compensationAmount).toFixed(0)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
+  return 'Compensation not specified';
+}
+
+function toAppliedSet(apps) {
+  return new Set((apps || []).map((x) => x.jobPostingId));
 }
 
 export default function Jobs() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedType, setSelectedType] = useState('all');
+  const [selectedType, setSelectedType] = useState('ALL');
+  const [selectedCity, setSelectedCity] = useState('ALL');
+  const [selectedCompensation, setSelectedCompensation] = useState('ALL');
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['jobs', selectedType],
-    queryFn: async () => {
-      const filter = { status: 'open' };
-      if (selectedType !== 'all') filter.job_type = selectedType;
-      return dataService.Job.filter(filter, '-created_date', 100);
+    queryKey: ['public-jobs', selectedCity, selectedType, selectedCompensation],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (selectedCity !== 'ALL') params.set('city', selectedCity);
+      if (selectedType !== 'ALL') params.set('jobType', selectedType);
+      if (selectedCompensation !== 'ALL') params.set('compensationType', selectedCompensation);
+      return apiGet(`/api/jobs/public${params.toString() ? `?${params.toString()}` : ''}`, { skipAuth: false });
     },
   });
 
-  const { data: venues = [] } = useQuery({
-    queryKey: ['job-venues'],
-    queryFn: () => dataService.Venue.list(),
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ['my-job-applications-lite'],
+    queryFn: () => apiGet('/api/jobs/my-applications'),
+    retry: false,
   });
 
-  const venuesMap = venues.reduce((acc, venue) => {
-    acc[venue.id] = venue;
-    return acc;
-  }, {});
-
-  const filteredJobs = jobs.filter(job =>
-    job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    job.city?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const appliedSet = useMemo(() => toAppliedSet(myApplications), [myApplications]);
+  const filteredJobs = jobs.filter((job) => (
+    (job.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (job.venue?.name || '').toLowerCase().includes(searchQuery.toLowerCase())
+  ));
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
         <div style={{ padding: 'var(--space-4) var(--space-6)' }}>
-          <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 16, color: 'var(--sec-text-primary)' }}>Nightlife Jobs</h1>
+          <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 16, color: 'var(--sec-text-primary)' }}>Jobs</h1>
           <div style={{ position: 'relative' }}>
             <Search size={18} strokeWidth={1.5} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
             <input className="sec-input" placeholder="Search jobs..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ paddingLeft: 44, height: 48 }} />
           </div>
         </div>
-        <div style={{ padding: '0 var(--space-6) var(--space-4)' }}>
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }} className="scrollbar-hide">
-            {JOB_TYPES.map((type) => {
-              const Icon = type.icon;
-              const isSelected = selectedType === type.value;
-              return (
-                <button
-                  key={type.value}
-                  onClick={() => setSelectedType(type.value)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 999, whiteSpace: 'nowrap',
-                    backgroundColor: isSelected ? 'var(--sec-accent)' : 'var(--sec-bg-card)',
-                    color: isSelected ? 'var(--sec-bg-base)' : 'var(--sec-text-secondary)',
-                    border: `1px solid ${isSelected ? 'var(--sec-accent)' : 'var(--sec-border)'}`
-                  }}
-                >
-                  <Icon size={16} strokeWidth={1.5} />
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>{type.label}</span>
-                </button>
-              );
-            })}
-          </div>
+        <div style={{ padding: '0 var(--space-6) var(--space-4)', display: 'grid', gap: 8 }}>
+          <select className="sec-input" style={{ height: 44 }} value={selectedCity} onChange={(e) => setSelectedCity(e.target.value)}>
+            {CITY_OPTIONS.map((x) => <option key={x} value={x}>{x === 'ALL' ? 'All cities' : x}</option>)}
+          </select>
+          <select className="sec-input" style={{ height: 44 }} value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
+            {JOB_TYPES.map((x) => <option key={x} value={x}>{x === 'ALL' ? 'All job types' : toLabel(x)}</option>)}
+          </select>
+          <select className="sec-input" style={{ height: 44 }} value={selectedCompensation} onChange={(e) => setSelectedCompensation(e.target.value)}>
+            {COMPENSATION_TYPES.map((x) => <option key={x} value={x}>{x === 'ALL' ? 'All compensation' : toLabel(x)}</option>)}
+          </select>
         </div>
       </header>
-
       <div style={{ padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Jobs List */}
-        {filteredJobs.map((job, index) => {
-          const venue = venuesMap[job.venue_id];
-          
-          return (
-            <motion.div
-              key={job.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-            >
-              <Link
-                to={createPageUrl(`JobDetails?id=${job.id}`)}
-                className="sec-card block rounded-xl p-4 transition-colors group"
-              >
-                <div className="flex items-start gap-4">
-                  {/* Job type icon or venue logo */}
-                  <div style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {venue?.logo_url ? (
-                      <img src={venue.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      (() => {
-                        const JobIcon = getJobIcon(job.job_type);
-                        return <JobIcon size={24} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />;
-                      })()
-                    )}
-                  </div>
-
-                  {/* Job Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-semibold">{job.title}</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          {venue && (
-                            <span style={{ fontSize: 13, color: 'var(--sec-text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                              {venue.name}
-                              {venue.is_verified && (
-                                <BadgeCheck size={14} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-                              )}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} className="group-hover:opacity-80 transition-opacity" />
-                    </div>
-
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12, fontSize: 13, color: 'var(--sec-text-muted)' }}>
-                      {job.date && (
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5" />
-                          {format(parseISO(job.date), 'EEE, MMM d')}
-                        </span>
-                      )}
-                      {job.city && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5" />
-                          {job.city}
-                        </span>
-                      )}
-                      {job.start_time && (
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5" />
-                          {job.start_time}
-                        </span>
-                      )}
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--sec-border)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span className="sec-badge sec-badge-gold" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          {(() => {
-                            const JobBadgeIcon = getJobIcon(job.job_type);
-                            return <><JobBadgeIcon size={12} strokeWidth={1.5} />{job.job_type?.replace('_', ' ')}</>;
-                          })()}
-                        </span>
-                        <span style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>
-                          {job.spots_available - (job.spots_filled || 0)} spots
-                        </span>
-                      </div>
-
-                      {job.suggested_pay_amount && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, color: 'var(--sec-accent)' }}>
-                          <DollarSign size={16} strokeWidth={1.5} />
-                          R{job.suggested_pay_amount}
-                          {job.suggested_pay_type === 'hourly' && '/hr'}
-                          {job.suggested_pay_type === 'commission' && ` + ${job.commission_percentage}%`}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+        {filteredJobs.map((job, index) => (
+          <motion.div key={job.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+            <Link to={createPageUrl(`JobDetails?id=${job.id}`)} className="sec-card block rounded-xl p-4 transition-colors group">
+              <div className="flex items-start gap-4">
+                <div style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Briefcase size={24} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
                 </div>
-              </Link>
-            </motion.div>
-          );
-        })}
-
-        {filteredJobs.length === 0 && !isLoading && (
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="font-semibold">{job.title}</h3>
+                      <div style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>{job.venue?.name} · {toLabel(job.venue?.venueType)}</div>
+                    </div>
+                    <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12, fontSize: 13, color: 'var(--sec-text-muted)' }}>
+                    {job.venue?.city ? <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{job.venue.city}</span> : null}
+                    {job.closingDate ? <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{new Date(job.closingDate).toLocaleDateString()}</span> : null}
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <span className="sec-badge sec-badge-gold">{toLabel(job.jobType)}</span>
+                    <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--sec-text-muted)' }}>{spotsLeft(job)} spots left</span>
+                  </div>
+                  <p style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'var(--sec-accent)' }}>{compensationText(job)}</p>
+                  {closingText(job.closingDate) ? <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-warning)' }}>{closingText(job.closingDate)}</p> : null}
+                  <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-text-muted)' }}>{String(job.description || '').slice(0, 100)}</p>
+                  <div style={{ marginTop: 10 }}>{appliedSet.has(job.id) ? <span className="sec-badge sec-badge-success">Applied</span> : <span className="sec-badge sec-badge-muted">Apply</span>}</div>
+                </div>
+              </div>
+            </Link>
+          </motion.div>
+        ))}
+        {filteredJobs.length === 0 && !isLoading ? (
           <div style={{ textAlign: 'center', padding: '48px 24px' }}>
             <div style={{ width: 72, height: 72, borderRadius: '50%', backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
               <Briefcase size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
@@ -202,24 +131,7 @@ export default function Jobs() {
             <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No jobs available</h3>
             <p style={{ color: 'var(--sec-text-muted)' }}>Check back soon for new opportunities</p>
           </div>
-        )}
-
-        {isLoading && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="sec-card" style={{ padding: 16 }}>
-                <div style={{ display: 'flex', gap: 16 }}>
-                  <div style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: 'var(--sec-border)' }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ height: 18, width: 120, borderRadius: 4, backgroundColor: 'var(--sec-border)', marginBottom: 8 }} />
-                    <div style={{ height: 14, width: 80, borderRadius: 4, backgroundColor: 'var(--sec-border)', marginBottom: 12 }} />
-                    <div style={{ height: 12, width: 180, borderRadius: 4, backgroundColor: 'var(--sec-border)' }} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

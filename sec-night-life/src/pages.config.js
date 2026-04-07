@@ -50,6 +50,7 @@
 import BusinessBookings from './pages/BusinessBookings';
 import BusinessDashboard from './pages/BusinessDashboard';
 import BusinessEvents from './pages/BusinessEvents';
+import BusinessJobs from './pages/BusinessJobs';
 import BusinessPromotions from './pages/BusinessPromotions';
 import ChatRoom from './pages/ChatRoom';
 import ChangeEmail from './pages/ChangeEmail';
@@ -103,6 +104,7 @@ export const PAGES = {
     "BusinessBookings": BusinessBookings,
     "BusinessDashboard": BusinessDashboard,
     "BusinessEvents": BusinessEvents,
+    "BusinessJobs": BusinessJobs,
     "BusinessPromotions": BusinessPromotions,
     "ChatRoom": ChatRoom,
     "ChangeEmail": ChangeEmail,

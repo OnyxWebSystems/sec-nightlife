@@ -11,16 +11,26 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ChevronLeft, Briefcase, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { apiPost } from '@/api/client';
 
 const JOB_TYPES = [
-  { value: 'bartender', label: 'Bartender' },
-  { value: 'security', label: 'Security' },
-  { value: 'dj', label: 'DJ' },
-  { value: 'promoter', label: 'Promoter' },
-  { value: 'photographer', label: 'Photographer' },
-  { value: 'table_host', label: 'Table Host' },
-  { value: 'vip_host', label: 'VIP Host' },
-  { value: 'other', label: 'Other' },
+  { value: 'FULL_TIME', label: 'Full Time' },
+  { value: 'PART_TIME', label: 'Part Time' },
+  { value: 'ONCE_OFF', label: 'Once-Off' },
+  { value: 'CONTRACT', label: 'Contract' },
+];
+
+const COMPENSATION_TYPES = [
+  { value: 'FIXED', label: 'Fixed' },
+  { value: 'NEGOTIABLE', label: 'Negotiable' },
+  { value: 'UNPAID_TRIAL', label: 'Unpaid Trial' },
+];
+
+const COMPENSATION_PER = [
+  { value: 'HOUR', label: 'Per Hour' },
+  { value: 'MONTH', label: 'Per Month' },
+  { value: 'COMMISSION', label: 'Commission' },
+  { value: 'ONCE_OFF', label: 'Once-Off' },
 ];
 
 export default function CreateJob() {
@@ -29,21 +39,25 @@ export default function CreateJob() {
   const [user, setUser] = useState(null);
 
   const [form, setForm] = useState({
-    post_for: 'venue', // 'venue' | 'host_event'
     venue_id: '',
-    event_id: '',
-    host_event_id: '',
     title: '',
-    job_type: 'bartender',
-    city: '',
     description: '',
-    suggested_pay_amount: '',
-    suggested_pay_type: 'fixed',
-    start_time: '',
-    end_time: '',
-    contact_details: '',
-    date: '',
-    spots_available: '1',
+    requirements: '',
+    jobType: 'FULL_TIME',
+    compensationType: 'FIXED',
+    compensationAmount: '',
+    compensationPer: 'MONTH',
+    totalSpots: 1,
+    closingDate: '',
+    currency: 'ZAR',
+  });
+
+  const [errors, setErrors] = useState({
+    title: '',
+    description: '',
+    requirements: '',
+    venue_id: '',
+    compensationAmount: '',
   });
 
   useEffect(() => {
@@ -63,81 +77,56 @@ export default function CreateJob() {
     enabled: !!user,
   });
 
-  const { data: hostEvents = [] } = useQuery({
-    queryKey: ['my-host-events', user?.id],
-    queryFn: () => dataService.HostEvent.filter({ host_user_id: user.id }),
-    enabled: !!user,
-  });
-
-  const { data: events = [] } = useQuery({
-    queryKey: ['biz-events', form.venue_id],
-    queryFn: () => dataService.Event.filter({ venue_id: form.venue_id }),
-    enabled: !!form.venue_id,
-  });
-
-  React.useEffect(() => {
-    if (venues.length === 0 && hostEvents.length > 0) {
-      setForm((p) => (p.post_for === 'host_event' ? p : { ...p, post_for: 'host_event', venue_id: '', event_id: '' }));
-    }
-  }, [venues.length, hostEvents.length]);
-
-  const selectedVenue = venues.find(v => v.id === form.venue_id);
-  React.useEffect(() => {
-    if (selectedVenue?.city && !form.city) setForm(p => ({ ...p, city: selectedVenue.city }));
-  }, [selectedVenue?.city]);
-
   const createMutation = useMutation({
-    mutationFn: (payload) => dataService.Job.create(payload),
+    mutationFn: (payload) => apiPost('/api/jobs', payload),
     onSuccess: () => {
       toast.success('Job posted!');
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      navigate(createPageUrl('Jobs'));
+      queryClient.invalidateQueries({ queryKey: ['owner-jobs'] });
+      navigate(createPageUrl('BusinessDashboard'));
     },
     onError: (err) => {
-      toast.error(err?.message || 'Failed to post job');
+      toast.error(err?.data?.error || err?.message || 'Failed to post job');
     },
   });
 
   const handleSubmit = () => {
-    if (!form.title || !form.city) {
-      toast.error('Please fill in Job Title and Location');
-      return;
-    }
-    if (form.post_for === 'venue' && !form.venue_id) {
-      toast.error('Please select a venue');
-      return;
-    }
-    if (form.post_for === 'host_event' && !form.host_event_id) {
-      toast.error('Please select a host event');
-      return;
-    }
-    const payload = {
-      title: form.title,
-      job_type: form.job_type,
-      city: form.city,
-      spots_available: parseInt(form.spots_available) || 1,
+    const nextErrors = {
+      title: form.title.trim() ? '' : 'Job title is required',
+      description: form.description.trim() ? '' : 'Description is required',
+      requirements: form.requirements.trim() ? '' : 'Requirements are required',
+      venue_id: form.venue_id ? '' : 'Select a venue',
+      compensationAmount: '',
     };
-    if (form.post_for === 'venue') payload.venue_id = form.venue_id;
-    if (form.post_for === 'venue' && form.event_id) payload.event_id = form.event_id;
-    if (form.post_for === 'host_event') payload.host_event_id = form.host_event_id;
-    if (form.description) payload.description = form.description;
-    if (form.suggested_pay_amount) payload.suggested_pay_amount = parseInt(form.suggested_pay_amount);
-    if (form.suggested_pay_type) payload.suggested_pay_type = form.suggested_pay_type;
-    if (form.start_time) payload.start_time = form.start_time;
-    if (form.end_time) payload.end_time = form.end_time;
-    if (form.contact_details) payload.contact_details = form.contact_details;
-    if (form.date) payload.date = form.date;
+    if (['FIXED', 'NEGOTIABLE'].includes(form.compensationType) && form.compensationAmount && Number(form.compensationAmount) < 0) {
+      nextErrors.compensationAmount = 'Amount must be positive';
+    }
+    setErrors(nextErrors);
+    if (Object.values(nextErrors).some(Boolean)) return;
+
+    const payload = {
+      venueId: form.venue_id,
+      title: form.title.trim(),
+      description: form.description.trim(),
+      requirements: form.requirements.trim(),
+      jobType: form.jobType,
+      compensationType: form.compensationType,
+      compensationPer: form.compensationPer,
+      compensationAmount: form.compensationAmount ? Number(form.compensationAmount) : null,
+      currency: form.currency || 'ZAR',
+      totalSpots: Number(form.totalSpots || 1),
+      closingDate: form.closingDate || null,
+    };
     createMutation.mutate(payload);
   };
 
   if (!user) return null;
 
-  if (venues.length === 0 && hostEvents.length === 0) {
+  if (venues.length === 0) {
     return (
       <div style={{ padding: 24, textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
         <Briefcase size={48} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 16px' }} />
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No Venue Found</h2>
-        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>Create a Host Event or register a venue to post jobs.</p>
+        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>Register a venue to post jobs.</p>
         <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))} className="sec-btn sec-btn-primary">
           Register Venue
         </Button>
@@ -160,75 +149,17 @@ export default function CreateJob() {
         <div className="sec-card" style={{ padding: 20, marginBottom: 16 }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Job Details</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {(venues.length > 0 && hostEvents.length > 0) && (
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setForm((p) => ({ ...p, post_for: 'venue', host_event_id: '' }))}
-                  className="sec-btn"
-                  style={{
-                    flex: 1,
-                    height: 42,
-                    borderRadius: 12,
-                    backgroundColor: form.post_for === 'venue' ? 'var(--sec-text-primary)' : 'var(--sec-bg-elevated)',
-                    color: form.post_for === 'venue' ? 'var(--sec-bg-base)' : 'var(--sec-text-primary)',
-                    border: `1px solid ${form.post_for === 'venue' ? 'var(--sec-text-primary)' : 'var(--sec-border)'}`,
-                    fontWeight: 700,
-                  }}
-                >
-                  Venue Job
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setForm((p) => ({ ...p, post_for: 'host_event', venue_id: '', event_id: '' }))}
-                  className="sec-btn"
-                  style={{
-                    flex: 1,
-                    height: 42,
-                    borderRadius: 12,
-                    backgroundColor: form.post_for === 'host_event' ? 'var(--sec-text-primary)' : 'var(--sec-bg-elevated)',
-                    color: form.post_for === 'host_event' ? 'var(--sec-bg-base)' : 'var(--sec-text-primary)',
-                    border: `1px solid ${form.post_for === 'host_event' ? 'var(--sec-text-primary)' : 'var(--sec-border)'}`,
-                    fontWeight: 700,
-                  }}
-                >
-                  Host Event Job
-                </button>
-              </div>
-            )}
-
-            {venues.length === 0 && hostEvents.length > 0 && form.post_for !== 'host_event' && (
-              <div className="sec-card" style={{ padding: 12, borderRadius: 14, color: 'var(--sec-text-muted)', fontSize: 13 }}>
-                You don’t have a venue yet. Posting this job under a Host Event.
-              </div>
-            )}
-
             <div>
-              {form.post_for === 'host_event' || (venues.length === 0 && hostEvents.length > 0) ? (
-                <>
-                  <Label className="text-gray-400 text-sm">Host Event *</Label>
-                  <Select value={form.host_event_id} onValueChange={v => setForm(p => ({ ...p, host_event_id: v, post_for: 'host_event' }))}>
-                    <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-                      <SelectValue placeholder="Select host event" />
-                    </SelectTrigger>
-                    <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-                      {hostEvents.map(e => <SelectItem key={e.id} value={e.id}>{e.title}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </>
-              ) : (
-                <>
-                  <Label className="text-gray-400 text-sm">Venue *</Label>
-                  <Select value={form.venue_id} onValueChange={v => setForm(p => ({ ...p, venue_id: v, post_for: 'venue' }))}>
-                    <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-                      <SelectValue placeholder="Select venue" />
-                    </SelectTrigger>
-                    <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-                      {venues.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </>
-              )}
+              <Label className="text-gray-400 text-sm">Venue *</Label>
+              <Select value={form.venue_id} onValueChange={v => setForm(p => ({ ...p, venue_id: v }))}>
+                <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                  <SelectValue placeholder="Select venue" />
+                </SelectTrigger>
+                <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                  {venues.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {errors.venue_id ? <p style={{ color: 'var(--sec-error)', fontSize: 12, marginTop: 4 }}>{errors.venue_id}</p> : null}
             </div>
             <div>
               <Label className="text-gray-400 text-sm">Job Title *</Label>
@@ -239,10 +170,11 @@ export default function CreateJob() {
                 className="mt-1.5 h-11 rounded-xl"
                 style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
               />
+              {errors.title ? <p style={{ color: 'var(--sec-error)', fontSize: 12, marginTop: 4 }}>{errors.title}</p> : null}
             </div>
             <div>
               <Label className="text-gray-400 text-sm">Job Type *</Label>
-              <Select value={form.job_type} onValueChange={v => setForm(p => ({ ...p, job_type: v }))}>
+              <Select value={form.jobType} onValueChange={v => setForm(p => ({ ...p, jobType: v }))}>
                 <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
                   <SelectValue />
                 </SelectTrigger>
@@ -252,17 +184,7 @@ export default function CreateJob() {
               </Select>
             </div>
             <div>
-              <Label className="text-gray-400 text-sm">Location *</Label>
-              <Input
-                placeholder="e.g. Johannesburg"
-                value={form.city}
-                onChange={e => setForm(p => ({ ...p, city: e.target.value }))}
-                className="mt-1.5 h-11 rounded-xl"
-                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-              />
-            </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Description</Label>
+              <Label className="text-gray-400 text-sm">Job Description *</Label>
               <Textarea
                 placeholder="Describe the role, responsibilities..."
                 value={form.description}
@@ -271,91 +193,108 @@ export default function CreateJob() {
                 style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 rows={4}
               />
+              {errors.description ? <p style={{ color: 'var(--sec-error)', fontSize: 12, marginTop: 4 }}>{errors.description}</p> : null}
             </div>
             <div>
-              <Label className="text-gray-400 text-sm">Event (optional)</Label>
-              <Select
-                value={form.event_id || '__none__'}
-                onValueChange={v => setForm(p => ({ ...p, event_id: v === '__none__' ? '' : v }))}
-                disabled={form.post_for !== 'venue'}
-              >
-                <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-                  <SelectValue placeholder="No specific event" />
-                </SelectTrigger>
-                <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-                  <SelectItem value="__none__">No specific event</SelectItem>
-                  {events.map(e => <SelectItem key={e.id} value={e.id}>{e.title} - {e.date}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label className="text-gray-400 text-sm">Requirements *</Label>
+              <Textarea
+                placeholder="What experience and skills are required?"
+                value={form.requirements}
+                onChange={e => setForm(p => ({ ...p, requirements: e.target.value }))}
+                className="mt-1.5 rounded-xl resize-none"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                rows={4}
+              />
+              {errors.requirements ? <p style={{ color: 'var(--sec-error)', fontSize: 12, marginTop: 4 }}>{errors.requirements}</p> : null}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <Label className="text-gray-400 text-sm">Pay (R)</Label>
-                <Input
-                  type="number"
-                  placeholder="e.g. 150"
-                  value={form.suggested_pay_amount}
-                  onChange={e => setForm(p => ({ ...p, suggested_pay_amount: e.target.value }))}
-                  className="mt-1.5 h-11 rounded-xl"
-                  style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-                />
-              </div>
-              <div>
-                <Label className="text-gray-400 text-sm">Pay Type</Label>
-                <Select value={form.suggested_pay_type} onValueChange={v => setForm(p => ({ ...p, suggested_pay_type: v }))}>
+                <Label className="text-gray-400 text-sm">Compensation Type *</Label>
+                <Select value={form.compensationType} onValueChange={v => setForm(p => ({ ...p, compensationType: v }))}>
                   <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-                    <SelectItem value="fixed">Fixed</SelectItem>
-                    <SelectItem value="hourly">Per Hour</SelectItem>
-                    <SelectItem value="commission">Commission</SelectItem>
+                    {COMPENSATION_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label className="text-gray-400 text-sm">Currency</Label>
+                <Input
+                  value={form.currency}
+                  onChange={e => setForm(p => ({ ...p, currency: e.target.value.toUpperCase() }))}
+                  className="mt-1.5 h-11 rounded-xl"
+                  style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                />
+              </div>
             </div>
+
+            {['FIXED', 'NEGOTIABLE'].includes(form.compensationType) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <Label className="text-gray-400 text-sm">Amount</Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 150"
+                    value={form.compensationAmount}
+                    onChange={e => setForm(p => ({ ...p, compensationAmount: e.target.value }))}
+                    className="mt-1.5 h-11 rounded-xl"
+                    style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                  />
+                  {errors.compensationAmount ? <p style={{ color: 'var(--sec-error)', fontSize: 12, marginTop: 4 }}>{errors.compensationAmount}</p> : null}
+                </div>
+                <div>
+                  <Label className="text-gray-400 text-sm">Paid Per</Label>
+                  <Select value={form.compensationPer} onValueChange={v => setForm(p => ({ ...p, compensationPer: v }))}>
+                    <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                      {COMPENSATION_PER.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <Label className="text-gray-400 text-sm">Shift Start</Label>
+                <Label className="text-gray-400 text-sm">Total Spots Available</Label>
                 <Input
-                  placeholder="e.g. 20:00"
-                  value={form.start_time}
-                  onChange={e => setForm(p => ({ ...p, start_time: e.target.value }))}
+                  type="number"
+                  min="1"
+                  value={form.totalSpots}
+                  onChange={e => setForm(p => ({ ...p, totalSpots: e.target.value }))}
                   className="mt-1.5 h-11 rounded-xl"
                   style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 />
               </div>
               <div>
-                <Label className="text-gray-400 text-sm">Shift End</Label>
+                <Label className="text-gray-400 text-sm">Closing Date</Label>
                 <Input
-                  placeholder="e.g. 02:00"
-                  value={form.end_time}
-                  onChange={e => setForm(p => ({ ...p, end_time: e.target.value }))}
+                  type="date"
+                  value={form.closingDate}
+                  onChange={e => setForm(p => ({ ...p, closingDate: e.target.value }))}
                   className="mt-1.5 h-11 rounded-xl"
                   style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 />
               </div>
             </div>
             <div>
-              <Label className="text-gray-400 text-sm">Spots Available</Label>
-              <Input
-                type="number"
-                min="1"
-                value={form.spots_available}
-                onChange={e => setForm(p => ({ ...p, spots_available: e.target.value }))}
-                className="mt-1.5 h-11 rounded-xl"
-                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-              />
+              <Label className="text-gray-400 text-sm">Compensation per</Label>
+              <Select value={form.compensationPer} onValueChange={v => setForm(p => ({ ...p, compensationPer: v }))}>
+                <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                  {COMPENSATION_PER.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Contact Details</Label>
-              <Input
-                placeholder="Phone or email for applicants"
-                value={form.contact_details}
-                onChange={e => setForm(p => ({ ...p, contact_details: e.target.value }))}
-                className="mt-1.5 h-11 rounded-xl"
-                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-              />
+
+            <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
+              This form does not allow editing `filledSpots` or directly forcing system values.
             </div>
           </div>
         </div>

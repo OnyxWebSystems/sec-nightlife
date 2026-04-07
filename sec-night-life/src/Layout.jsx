@@ -122,7 +122,7 @@ export default function Layout({ children, currentPageName }) {
       ],
       secondary: [
         { name: 'Events', icon: Calendar, page: 'Events' },
-        { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
+        { name: 'Jobs', icon: Briefcase, page: 'BusinessJobs' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
         ...(userRoles.host ? [{ name: 'Host Dashboard', icon: Crown, page: 'HostDashboard' }] : []),

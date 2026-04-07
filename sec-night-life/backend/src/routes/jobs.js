@@ -2,382 +2,503 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
-import { applyJobVenueIsolation, canAccessVenue } from '../lib/access.js';
+import { sendEmail } from '../lib/email.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
+const USER_HOURLY_LIMIT = 5;
+const HOUR_MS = 60 * 60 * 1000;
 
-function formatJob(j) {
-  return {
-    id: j.id,
-    title: j.title,
-    venue_id: j.venueId,
-    event_id: j.eventId,
-    host_event_id: j.hostEventId,
-    status: j.status,
-    job_type: j.jobType,
-    spots_available: j.spotsAvailable,
-    spots_filled: j.spotsFilled,
-    city: j.city,
-    description: j.description,
-    suggested_pay_amount: j.suggestedPayAmount,
-    suggested_pay_type: j.suggestedPayType,
-    start_time: j.startTime,
-    end_time: j.endTime,
-    contact_details: j.contactDetails,
-    date: j.date,
-    applicants: j.applicants ?? [],
-    created_date: j.createdAt.toISOString(),
-  };
+const postingSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().trim().min(1),
+  requirements: z.string().trim().min(1),
+  jobType: z.enum(['FULL_TIME', 'PART_TIME', 'ONCE_OFF', 'CONTRACT']),
+  compensationType: z.enum(['FIXED', 'NEGOTIABLE', 'UNPAID_TRIAL']),
+  compensationAmount: z.number().nonnegative().optional().nullable(),
+  compensationPer: z.enum(['HOUR', 'MONTH', 'COMMISSION', 'ONCE_OFF']).optional().nullable(),
+  currency: z.string().trim().min(1).default('ZAR'),
+  totalSpots: z.number().int().min(1).default(1),
+  closingDate: z.coerce.date().optional().nullable(),
+  venueId: z.string().min(1),
+});
+
+const applicationSchema = z.object({
+  coverMessage: z.string().trim().min(50).max(1000),
+  cvUrl: z.string().url().optional().nullable(),
+  cvFileName: z.string().max(255).optional().nullable(),
+  portfolioUrl: z.string().url().optional().nullable(),
+});
+
+const messageSchema = z.object({
+  body: z.string().trim().min(1).max(2000),
+});
+
+function isBusinessOwner(role) {
+  return role === 'VENUE';
 }
 
-router.get('/', optionalAuth, async (req, res, next) => {
-  try {
-    const where = { deletedAt: null };
-    if (req.query.status) where.status = req.query.status;
-    if (req.query.venue_id) where.venueId = req.query.venue_id;
-    if (req.userId && req.userRole === 'VENUE') {
-      const ok = await canAccessVenue(req.query.venue_id, req.userId, req.userRole);
-      if (!ok && req.query.venue_id) return res.status(403).json({ error: 'Forbidden' });
-      await applyJobVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
-    }
-    const jobs = await prisma.job.findMany({
-      where,
-      take: Math.min(parseInt(req.query.limit) || 100, 100)
-    });
-    res.json(jobs.map(formatJob));
-  } catch (err) {
-    next(err);
-  }
-});
+function isRegularUser(role) {
+  return role === 'USER';
+}
 
-router.get('/filter', optionalAuth, async (req, res, next) => {
-  try {
-    const where = { deletedAt: null };
-    if (req.query.id) where.id = req.query.id;
-    if (req.query.venue_id) where.venueId = req.query.venue_id;
-    if (req.userId && req.userRole === 'VENUE') {
-      const ok = await canAccessVenue(req.query.venue_id, req.userId, req.userRole);
-      if (!ok && req.query.venue_id) return res.status(403).json({ error: 'Forbidden' });
-      await applyJobVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
-    }
-    const jobs = await prisma.job.findMany({ where });
-    res.json(jobs.map(formatJob));
-  } catch (err) {
-    next(err);
-  }
-});
+async function getVenueOwnedByUser(venueId, userId) {
+  return prisma.venue.findFirst({
+    where: { id: venueId, ownerUserId: userId, deletedAt: null },
+    select: { id: true, name: true, owner: { select: { id: true, email: true, fullName: true } } },
+  });
+}
+
+async function getOwnedJob(jobId, ownerUserId) {
+  return prisma.jobPosting.findFirst({
+    where: { id: jobId, venue: { ownerUserId, deletedAt: null } },
+    include: {
+      venue: { select: { id: true, name: true, city: true, venueType: true, ownerUserId: true, owner: { select: { email: true, fullName: true } } } },
+    },
+  });
+}
+
+function publicJobWhere(query = {}) {
+  const where = {
+    status: 'OPEN',
+    OR: [{ closingDate: null }, { closingDate: { gt: new Date() } }],
+  };
+  if (query.city) where.venue = { city: query.city, deletedAt: null };
+  if (query.jobType) where.jobType = query.jobType;
+  if (query.compensationType) where.compensationType = query.compensationType;
+  return where;
+}
+
+function formatCompensation(job) {
+  if (job.compensationType === 'UNPAID_TRIAL') return 'Unpaid trial';
+  if (job.compensationType === 'NEGOTIABLE') return 'Negotiable';
+  if (job.compensationPer === 'COMMISSION') return 'Commission based';
+  const amount = job.compensationAmount ? Number(job.compensationAmount).toFixed(0) : '0';
+  const per = job.compensationPer?.toLowerCase() || 'month';
+  return `R${amount} per ${per}`;
+}
 
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
-    const schema = z.object({
-      venue_id: z.string().uuid().optional().nullable(),
-      event_id: z.string().uuid().optional().nullable(),
-      host_event_id: z.string().uuid().optional().nullable(),
-      title: z.string().min(1),
-      job_type: z.string().min(1),
-      spots_available: z.number().int().min(1),
-      city: z.string().min(1),
-      description: z.string().optional().nullable(),
-      suggested_pay_amount: z.number().int().optional().nullable(),
-      suggested_pay_type: z.string().optional().nullable(),
-      start_time: z.string().optional().nullable(),
-      end_time: z.string().optional().nullable(),
-      contact_details: z.string().optional().nullable(),
-      date: z.string().optional().nullable(),
-    });
-    const parsed = schema.safeParse(req.body);
+    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
+    const parsed = postingSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
-    const d = parsed.data;
-    if (!d.venue_id && !d.host_event_id) return res.status(400).json({ error: 'Missing venue_id or host_event_id' });
-    if (d.venue_id && d.host_event_id) return res.status(400).json({ error: 'Choose either venue_id or host_event_id (not both)' });
+    const payload = parsed.data;
+    if ((payload.compensationType === 'FIXED' || payload.compensationType === 'NEGOTIABLE') && !payload.compensationPer) {
+      return res.status(400).json({ error: 'compensationPer is required for fixed or negotiable compensation' });
+    }
+    const venue = await getVenueOwnedByUser(payload.venueId, req.userId);
+    if (!venue) return res.status(403).json({ error: 'Forbidden' });
 
-    if (d.venue_id) {
-      const venue = await prisma.venue.findFirst({ where: { id: d.venue_id, deletedAt: null } });
-      if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Not authorized' });
-    }
-    if (d.host_event_id) {
-      const he = await prisma.hostEvent.findFirst({ where: { id: d.host_event_id, deletedAt: null } });
-      if (!he || he.hostUserId !== req.userId) return res.status(403).json({ error: 'Not authorized' });
-    }
-    const job = await prisma.job.create({
+    const created = await prisma.jobPosting.create({
       data: {
-        venueId: d.venue_id || null,
-        eventId: d.event_id || null,
-        hostEventId: d.host_event_id || null,
-        title: d.title,
-        jobType: d.job_type,
-        spotsAvailable: d.spots_available,
-        city: d.city,
-        description: d.description || null,
-        suggestedPayAmount: d.suggested_pay_amount ?? null,
-        suggestedPayType: d.suggested_pay_type || null,
-        startTime: d.start_time || null,
-        endTime: d.end_time || null,
-        contactDetails: d.contact_details || null,
-        date: d.date || null,
-        applicants: [],
-      }
+        venueId: payload.venueId,
+        title: payload.title,
+        description: payload.description,
+        requirements: payload.requirements,
+        jobType: payload.jobType,
+        compensationType: payload.compensationType,
+        compensationAmount: payload.compensationAmount ?? null,
+        compensationPer: payload.compensationPer || 'MONTH',
+        currency: payload.currency,
+        totalSpots: payload.totalSpots,
+        filledSpots: 0,
+        closingDate: payload.closingDate ?? null,
+        status: 'OPEN',
+      },
     });
-    res.status(201).json({ id: job.id, title: job.title });
+    return res.status(201).json(created);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
-// Apply to a job (Party Goer flow)
-router.post('/:id/apply', authenticateToken, async (req, res, next) => {
+router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
   try {
-    const schema = z.object({
-      message: z.string().max(2000).optional().nullable(),
-      resume_url: z.string().url().optional().nullable(),
+    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
+    const venue = await getVenueOwnedByUser(req.params.venueId, req.userId);
+    if (!venue) return res.status(403).json({ error: 'Forbidden' });
+    const jobs = await prisma.jobPosting.findMany({
+      where: { venueId: req.params.venueId },
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { applications: true, messages: true } } },
     });
+    return res.json(jobs);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/public', optionalAuth, async (req, res, next) => {
+  try {
+    const jobs = await prisma.jobPosting.findMany({
+      where: publicJobWhere(req.query),
+      orderBy: { createdAt: 'desc' },
+      include: { venue: { select: { id: true, name: true, city: true, venueType: true } } },
+    });
+    return res.json(jobs.map((job) => ({
+      id: job.id,
+      venue: job.venue,
+      title: job.title,
+      jobType: job.jobType,
+      compensationType: job.compensationType,
+      compensationAmount: job.compensationAmount,
+      compensationPer: job.compensationPer,
+      currency: job.currency,
+      compensationLabel: formatCompensation(job),
+      description: job.description,
+      requirements: job.requirements,
+      totalSpots: job.totalSpots,
+      filledSpots: job.filledSpots,
+      closingDate: job.closingDate,
+      createdAt: job.createdAt,
+      status: job.status,
+    })));
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/public/:jobId', optionalAuth, async (req, res, next) => {
+  try {
+    const job = await prisma.jobPosting.findFirst({
+      where: { id: req.params.jobId, ...publicJobWhere({}) },
+      include: { venue: { select: { id: true, name: true, city: true, venueType: true } } },
+    });
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    return res.json({
+      id: job.id,
+      venue: job.venue,
+      title: job.title,
+      jobType: job.jobType,
+      compensationType: job.compensationType,
+      compensationAmount: job.compensationAmount,
+      compensationPer: job.compensationPer,
+      currency: job.currency,
+      compensationLabel: formatCompensation(job),
+      description: job.description,
+      requirements: job.requirements,
+      totalSpots: job.totalSpots,
+      filledSpots: job.filledSpots,
+      closingDate: job.closingDate,
+      createdAt: job.createdAt,
+      status: job.status,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:jobId', authenticateToken, async (req, res, next) => {
+  try {
+    if (req.params.jobId === 'public') return next();
+    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
+    const job = await prisma.jobPosting.findFirst({
+      where: { id: req.params.jobId, venue: { ownerUserId: req.userId, deletedAt: null } },
+      include: {
+        venue: { select: { id: true, name: true, city: true, venueType: true } },
+        applications: {
+          orderBy: { appliedAt: 'desc' },
+          select: {
+            id: true, coverMessage: true, cvUrl: true, cvFileName: true, portfolioUrl: true, status: true, appliedAt: true,
+            applicant: { select: { id: true, email: true, fullName: true } },
+          },
+        },
+      },
+    });
+    if (!job) return res.status(403).json({ error: 'Forbidden' });
+    return res.json(job);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/:jobId', authenticateToken, async (req, res, next) => {
+  try {
+    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
+    const ownedJob = await getOwnedJob(req.params.jobId, req.userId);
+    if (!ownedJob) return res.status(403).json({ error: 'Forbidden' });
+    const schema = postingSchema.partial().omit({ venueId: true }).extend({ status: z.enum(['OPEN', 'CLOSED', 'FILLED']).optional() });
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const updated = await prisma.jobPosting.update({
+      where: { id: req.params.jobId },
+      data: parsed.data,
+    });
+    return res.json(updated);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.delete('/:jobId', authenticateToken, async (req, res, next) => {
+  try {
+    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
+    const ownedJob = await getOwnedJob(req.params.jobId, req.userId);
+    if (!ownedJob) return res.status(403).json({ error: 'Forbidden' });
+    const count = await prisma.jobApplication.count({ where: { jobPostingId: req.params.jobId } });
+    if (count > 0) {
+      await prisma.jobPosting.update({ where: { id: req.params.jobId }, data: { status: 'CLOSED' } });
+      return res.json({ status: 'CLOSED' });
+    }
+    await prisma.jobPosting.delete({ where: { id: req.params.jobId } });
+    return res.json({ deleted: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:jobId/applications', authenticateToken, async (req, res, next) => {
+  try {
+    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
+    const ownedJob = await getOwnedJob(req.params.jobId, req.userId);
+    if (!ownedJob) return res.status(403).json({ error: 'Forbidden' });
+    const applications = await prisma.jobApplication.findMany({
+      where: { jobPostingId: req.params.jobId },
+      orderBy: { appliedAt: 'desc' },
+      include: { applicant: { select: { id: true, fullName: true, email: true } } },
+    });
+    return res.json(applications);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/applications/:applicationId/status', authenticateToken, async (req, res, next) => {
+  try {
+    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
+    const schema = z.object({ status: z.enum(['SHORTLISTED', 'REJECTED', 'HIRED']) });
     const parsed = schema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-    const job = await prisma.job.findFirst({ where: { id: req.params.id, deletedAt: null } });
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-
-    const profile = await prisma.userProfile.findUnique({ where: { userId: req.userId } });
-    if (!profile) return res.status(400).json({ error: 'Please complete your profile before applying.' });
-
-    const applicants = Array.isArray(job.applicants) ? job.applicants : [];
-    const already = applicants.some((a) => a && typeof a === 'object' && a.user_account_id === req.userId);
-    if (already) return res.status(409).json({ error: 'You already applied for this job.' });
-
-    const nextApplicants = [
-      ...applicants,
-      {
-        user_account_id: req.userId,
-        user_profile_id: profile.id,
-        status: 'pending',
-        applied_at: new Date().toISOString(),
-        message: parsed.data.message || '',
-        resume_url: parsed.data.resume_url || '',
-        employer_message: '',
-        work_completed_at: null,
+    const application = await prisma.jobApplication.findFirst({
+      where: { id: req.params.applicationId, jobPosting: { venue: { ownerUserId: req.userId } } },
+      include: {
+        applicant: { select: { id: true, email: true, fullName: true } },
+        jobPosting: { include: { venue: { include: { owner: { select: { email: true, fullName: true } } } } } },
       },
-    ];
-
-    await prisma.job.update({
-      where: { id: job.id },
-      data: { applicants: nextApplicants },
     });
+    if (!application) return res.status(403).json({ error: 'Forbidden' });
 
-    // Notify job owner (venue owner or host event owner)
-    try {
-      if (job.venueId) {
-        const venue = await prisma.venue.findFirst({ where: { id: job.venueId, deletedAt: null } });
-        if (venue?.ownerUserId) {
-          await prisma.notification.create({
-            data: {
-              userId: venue.ownerUserId,
-              type: 'job_application',
-              title: 'New Job Application',
-              body: `${profile.username || 'Someone'} applied for “${job.title}”`,
-              data: { job_id: job.id, applicant_user_id: req.userId, applicant_profile_id: profile.id },
-              actionUrl: `/JobDetails?id=${job.id}`,
-            },
-          });
-        }
-      } else if (job.hostEventId) {
-        const he = await prisma.hostEvent.findFirst({ where: { id: job.hostEventId, deletedAt: null } });
-        if (he?.hostUserId) {
-          await prisma.notification.create({
-            data: {
-              userId: he.hostUserId,
-              type: 'job_application',
-              title: 'New Job Application',
-              body: `${profile.username || 'Someone'} applied for “${job.title}”`,
-              data: { job_id: job.id, applicant_user_id: req.userId, applicant_profile_id: profile.id },
-              actionUrl: `/JobDetails?id=${job.id}`,
-            },
-          });
-        }
-      }
-    } catch {}
-
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Applicant: list my applications (for tracking status)
-router.get('/applications/me', authenticateToken, async (req, res, next) => {
-  try {
-    const profile = await prisma.userProfile.findUnique({ where: { userId: req.userId } });
-    if (!profile) return res.json([]);
-
-    const jobs = await prisma.job.findMany({
-      where: { deletedAt: null },
-      select: { id: true, title: true, venueId: true, applicants: true, createdAt: true }
-    });
-    const out = [];
-    for (const j of jobs) {
-      const apps = Array.isArray(j.applicants) ? j.applicants : [];
-      const mine = apps.find((a) => a && typeof a === 'object' && a.user_profile_id === profile.id);
-      if (mine) {
-        out.push({
-          job_id: j.id,
-          title: j.title,
-          venue_id: j.venueId,
-          status: mine.status || 'pending',
-          applied_at: mine.applied_at,
-          message: mine.message || '',
-          resume_url: mine.resume_url || '',
-          employer_message: mine.employer_message || '',
-          work_completed_at: mine.work_completed_at || null,
+    const status = parsed.data.status;
+    const txResult = await prisma.$transaction(async (tx) => {
+      const updated = await tx.jobApplication.update({
+        where: { id: application.id },
+        data: { status },
+      });
+      if (status === 'HIRED') {
+        const posting = await tx.jobPosting.update({
+          where: { id: application.jobPostingId },
+          data: { filledSpots: { increment: 1 } },
         });
+        if (posting.filledSpots >= posting.totalSpots) {
+          await tx.jobPosting.update({ where: { id: posting.id }, data: { status: 'FILLED' } });
+        }
       }
+      return updated;
+    });
+
+    const jobTitle = application.jobPosting.title;
+    const venueName = application.jobPosting.venue.name;
+    if (application.applicant.email) {
+      const subjects = {
+        SHORTLISTED: `You've been shortlisted — ${jobTitle} at ${venueName}`,
+        REJECTED: `Application Update — ${jobTitle} at ${venueName}`,
+        HIRED: `You're hired! — ${jobTitle} at ${venueName}`,
+      };
+      await sendEmail({
+        to: application.applicant.email,
+        subject: subjects[status],
+        text: `Your application status was updated to ${status}. Open the app to view details and messages.`,
+      }).catch(() => {});
     }
-    res.json(out);
+    if (status === 'HIRED' && application.jobPosting.venue.owner.email) {
+      await sendEmail({
+        to: application.jobPosting.venue.owner.email,
+        subject: `Hire confirmed — ${jobTitle}`,
+        text: `You marked ${application.applicant.fullName || 'an applicant'} as hired.`,
+      }).catch(() => {});
+    }
+    return res.json(txResult);
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 
-// Employer: list applications for a job (venue owner only)
-router.get('/:id/applications', authenticateToken, async (req, res, next) => {
+router.get('/applications/:applicationId/cv', authenticateToken, async (req, res, next) => {
   try {
-    const job = await prisma.job.findFirst({ where: { id: req.params.id, deletedAt: null } });
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-    if (job.venueId) {
-      const venue = await prisma.venue.findFirst({ where: { id: job.venueId, deletedAt: null } });
-      if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    } else if (job.hostEventId) {
-      const he = await prisma.hostEvent.findFirst({ where: { id: job.hostEventId, deletedAt: null } });
-      if (!he || he.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    } else {
-      return res.status(403).json({ error: 'Forbidden' });
+    const application = await prisma.jobApplication.findFirst({
+      where: { id: req.params.applicationId, jobPosting: { venue: { ownerUserId: req.userId } } },
+      select: { id: true, cvUrl: true, cvFileName: true },
+    });
+    logger.info('CV access attempt', { applicationId: req.params.applicationId, accessedBy: req.userId, accessedAt: new Date().toISOString() });
+    if (!application) return res.status(403).json({ error: 'Forbidden' });
+    return res.json({ cvUrl: application.cvUrl, cvFileName: application.cvFileName });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+async function getApplicationWithAccess(applicationId, userId) {
+  return prisma.jobApplication.findFirst({
+    where: {
+      id: applicationId,
+      OR: [{ applicantUserId: userId }, { jobPosting: { venue: { ownerUserId: userId } } }],
+    },
+    include: {
+      applicant: { select: { id: true, email: true, fullName: true } },
+      jobPosting: { include: { venue: { include: { owner: { select: { id: true, email: true, fullName: true } } } } } },
+    },
+  });
+}
+
+router.get('/applications/:applicationId/messages', authenticateToken, async (req, res, next) => {
+  try {
+    const application = await getApplicationWithAccess(req.params.applicationId, req.userId);
+    if (!application) return res.status(403).json({ error: 'Forbidden' });
+    await prisma.jobMessage.updateMany({
+      where: { applicationId: application.id, readAt: null, senderUserId: { not: req.userId } },
+      data: { readAt: new Date() },
+    });
+    const messages = await prisma.jobMessage.findMany({
+      where: { applicationId: application.id },
+      orderBy: { sentAt: 'asc' },
+      include: { sender: { select: { id: true, fullName: true, email: true } } },
+    });
+    return res.json(messages);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/applications/:applicationId/messages', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = messageSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    const application = await getApplicationWithAccess(req.params.applicationId, req.userId);
+    if (!application) return res.status(403).json({ error: 'Forbidden' });
+    const created = await prisma.jobMessage.create({
+      data: {
+        applicationId: application.id,
+        jobPostingId: application.jobPostingId,
+        senderUserId: req.userId,
+        body: parsed.data.body,
+      },
+      include: { sender: { select: { id: true, fullName: true, email: true } } },
+    });
+
+    const senderIsOwner = application.jobPosting.venue.owner.id === req.userId;
+    const recipient = senderIsOwner ? application.applicant : application.jobPosting.venue.owner;
+    if (recipient?.email) {
+      const appUrl = process.env.APP_URL ? `${process.env.APP_URL}/MyJobApplications` : '';
+      await sendEmail({
+        to: recipient.email,
+        subject: `New message regarding your application — ${application.jobPosting.title}`,
+        text: `${created.sender.fullName || 'Someone'} sent you a message. Open the app to reply.${appUrl ? ` ${appUrl}` : ''}`,
+      }).catch(() => {});
     }
+    return res.status(201).json(created);
+  } catch (err) {
+    return next(err);
+  }
+});
 
-    const apps = Array.isArray(job.applicants) ? job.applicants : [];
-    const profileIds = apps.map((a) => a?.user_profile_id).filter(Boolean);
-    const profiles = await prisma.userProfile.findMany({ where: { id: { in: profileIds } } });
+router.get('/applications/:applicationId/messages/unread-count', authenticateToken, async (req, res, next) => {
+  try {
+    const application = await getApplicationWithAccess(req.params.applicationId, req.userId);
+    if (!application) return res.status(403).json({ error: 'Forbidden' });
+    const count = await prisma.jobMessage.count({
+      where: { applicationId: application.id, readAt: null, senderUserId: { not: req.userId } },
+    });
+    return res.json({ count });
+  } catch (err) {
+    return next(err);
+  }
+});
 
-    res.json(apps.map((a) => {
-      const p = profiles.find((x) => x.id === a.user_profile_id);
+router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
+  try {
+    if (!isRegularUser(req.userRole)) return res.status(403).json({ error: 'Only regular users can apply' });
+    const parsed = applicationSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const job = await prisma.jobPosting.findFirst({
+      where: { id: req.params.jobId, status: 'OPEN' },
+      include: { venue: { include: { owner: { select: { email: true } } } } },
+    });
+    if (!job) return res.status(404).json({ error: 'Job not found or closed' });
+    if (job.closingDate && new Date(job.closingDate) <= new Date()) return res.status(400).json({ error: 'Applications are closed for this job' });
+
+    const hourlyCount = await prisma.jobApplication.count({
+      where: { applicantUserId: req.userId, appliedAt: { gte: new Date(Date.now() - HOUR_MS) } },
+    });
+    if (hourlyCount >= USER_HOURLY_LIMIT) return res.status(429).json({ error: 'Application rate limit exceeded. Try again later.' });
+
+    const exists = await prisma.jobApplication.findUnique({
+      where: { jobPostingId_applicantUserId: { jobPostingId: req.params.jobId, applicantUserId: req.userId } },
+      select: { id: true },
+    });
+    if (exists) return res.status(409).json({ error: 'You have already applied for this position' });
+
+    const created = await prisma.jobApplication.create({
+      data: {
+        jobPostingId: req.params.jobId,
+        applicantUserId: req.userId,
+        coverMessage: parsed.data.coverMessage,
+        cvUrl: parsed.data.cvUrl ?? null,
+        cvFileName: parsed.data.cvFileName ?? null,
+        portfolioUrl: parsed.data.portfolioUrl ?? null,
+        status: 'PENDING',
+      },
+    });
+
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { fullName: true, email: true } });
+    if (user?.email) {
+      await sendEmail({
+        to: user.email,
+        subject: `Application received — ${job.title} at ${job.venue.name}`,
+        text: 'Your application has been received. We will notify you of updates by email and in the app.',
+      }).catch(() => {});
+    }
+    if (job.venue.owner.email) {
+      await sendEmail({
+        to: job.venue.owner.email,
+        subject: `New application — ${job.title}`,
+        text: `${user?.fullName || 'A user'} has applied. Review in your dashboard.`,
+      }).catch(() => {});
+    }
+    return res.status(201).json(created);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/my-applications', authenticateToken, async (req, res, next) => {
+  try {
+    if (!isRegularUser(req.userRole)) return res.status(403).json({ error: 'Only regular users can view this endpoint' });
+    const apps = await prisma.jobApplication.findMany({
+      where: { applicantUserId: req.userId },
+      orderBy: { appliedAt: 'desc' },
+      include: {
+        jobPosting: { include: { venue: { select: { name: true } } } },
+      },
+    });
+    const data = await Promise.all(apps.map(async (app) => {
+      const unread = await prisma.jobMessage.count({
+        where: { applicationId: app.id, readAt: null, senderUserId: { not: req.userId } },
+      });
       return {
-        user_profile_id: a.user_profile_id,
-        user_account_id: a.user_account_id,
-        username: p?.username,
-        full_name: null,
-        avatar_url: p?.avatarUrl,
-        city: p?.city,
-        service_rating_avg: p?.serviceRatingAvg ?? 0,
-        service_rating_count: p?.serviceRatingCount ?? 0,
-        status: a.status || 'pending',
-        applied_at: a.applied_at,
-        message: a.message || '',
-        resume_url: a.resume_url || '',
-        employer_message: a.employer_message || '',
-        work_completed_at: a.work_completed_at || null,
+        id: app.id,
+        jobPostingId: app.jobPostingId,
+        jobTitle: app.jobPosting.title,
+        venueName: app.jobPosting.venue.name,
+        status: app.status,
+        appliedAt: app.appliedAt,
+        unreadCount: unread,
       };
     }));
+    return res.json(data);
   } catch (err) {
-    next(err);
-  }
-});
-
-// Employer: update application status + message (accept/reject)
-router.patch('/:id/applications/:profileId', authenticateToken, async (req, res, next) => {
-  try {
-    const schema = z.object({
-      status: z.enum(['pending', 'accepted', 'rejected']),
-      employer_message: z.string().max(2000).optional().nullable(),
-    });
-    const parsed = schema.safeParse(req.body || {});
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-
-    const job = await prisma.job.findFirst({ where: { id: req.params.id, deletedAt: null } });
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-    if (job.venueId) {
-      const venue = await prisma.venue.findFirst({ where: { id: job.venueId, deletedAt: null } });
-      if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    } else if (job.hostEventId) {
-      const he = await prisma.hostEvent.findFirst({ where: { id: job.hostEventId, deletedAt: null } });
-      if (!he || he.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    } else {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const apps = Array.isArray(job.applicants) ? job.applicants : [];
-    const idx = apps.findIndex((a) => a && typeof a === 'object' && a.user_profile_id === req.params.profileId);
-    if (idx === -1) return res.status(404).json({ error: 'Application not found' });
-
-    const updated = { ...apps[idx], status: parsed.data.status, employer_message: parsed.data.employer_message || '' };
-    const nextApps = [...apps];
-    nextApps[idx] = updated;
-
-    await prisma.job.update({ where: { id: job.id }, data: { applicants: nextApps } });
-
-    // Notify applicant
-    try {
-      if (updated.user_account_id) {
-        await prisma.notification.create({
-          data: {
-            userId: updated.user_account_id,
-            type: 'job_application_update',
-            title: `Application ${parsed.data.status}`,
-            body: parsed.data.employer_message || `Your application for “${job.title}” is now ${parsed.data.status}.`,
-            data: { job_id: job.id, venue_id: job.venueId },
-            actionUrl: `/MyJobApplications`,
-          },
-        });
-      }
-    } catch {}
-
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Employer: mark an accepted applicant as "work completed" (unlocks rating)
-router.post('/:id/applications/:profileId/complete', authenticateToken, async (req, res, next) => {
-  try {
-    const job = await prisma.job.findFirst({ where: { id: req.params.id, deletedAt: null } });
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-    if (job.venueId) {
-      const venue = await prisma.venue.findFirst({ where: { id: job.venueId, deletedAt: null } });
-      if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    } else if (job.hostEventId) {
-      const he = await prisma.hostEvent.findFirst({ where: { id: job.hostEventId, deletedAt: null } });
-      if (!he || he.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    } else {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const apps = Array.isArray(job.applicants) ? job.applicants : [];
-    const idx = apps.findIndex((a) => a && typeof a === 'object' && a.user_profile_id === req.params.profileId);
-    if (idx === -1) return res.status(404).json({ error: 'Application not found' });
-    if ((apps[idx].status || 'pending') !== 'accepted') {
-      return res.status(400).json({ error: 'Only accepted applications can be marked completed.' });
-    }
-    const updated = { ...apps[idx], work_completed_at: new Date().toISOString() };
-    const nextApps = [...apps];
-    nextApps[idx] = updated;
-    await prisma.job.update({ where: { id: job.id }, data: { applicants: nextApps } });
-
-    // Notify applicant
-    try {
-      if (updated.user_account_id) {
-        await prisma.notification.create({
-          data: {
-            userId: updated.user_account_id,
-            type: 'job_completed',
-            title: 'Job marked completed',
-            body: `Your work for “${job.title}” was marked completed.`,
-            data: { job_id: job.id, venue_id: job.venueId },
-            actionUrl: `/MyJobApplications`,
-          },
-        });
-      }
-    } catch {}
-
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
+    return next(err);
   }
 });
 

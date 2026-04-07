@@ -4,7 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
-import { apiGet, apiPost } from '@/api/client';
+import { apiGet, apiPatch, apiPost } from '@/api/client';
 import { Button } from "@/components/ui/button";
 import {
   Calendar, BookOpen, Megaphone, BarChart3,
@@ -139,6 +139,12 @@ export default function BusinessDashboard() {
   const { data: reviews = [] } = useQuery({
     queryKey: ['biz-reviews', venue?.id],
     queryFn: () => dataService.Review.filter({ venue_id: venue.id }),
+    enabled: !!venue,
+  });
+
+  const { data: jobs = [] } = useQuery({
+    queryKey: ['owner-jobs', venue?.id],
+    queryFn: () => apiGet(`/api/jobs/venue/${venue.id}`),
     enabled: !!venue,
   });
 
@@ -423,6 +429,44 @@ export default function BusinessDashboard() {
           <QuickAction icon={Megaphone} label="Promotions & AI" page="BusinessPromotions" />
           <QuickAction icon={Briefcase} label="Post a Job" page="CreateJob" />
         </div>
+      </div>
+
+      <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700 }}>Jobs</h3>
+          <Link to={createPageUrl('CreateJob')} className="sec-btn sec-btn-primary" style={{ height: 44, minWidth: 44, textDecoration: 'none' }}>Post Job</Link>
+        </div>
+        {jobs.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No job postings yet.</p>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {jobs.map((j) => (
+              <div key={j.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <div>
+                    <p style={{ fontWeight: 700 }}>{j.title}</p>
+                    <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{j.jobType} · {j._count?.applications || 0} applications</p>
+                  </div>
+                  <span className={`sec-badge ${j.status === 'OPEN' ? 'sec-badge-success' : j.status === 'FILLED' ? 'sec-badge-gold' : 'sec-badge-muted'}`}>{j.status}</span>
+                </div>
+                <p style={{ marginTop: 8, fontSize: 12 }}>{j.filledSpots} of {j.totalSpots} filled</p>
+                <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Link to={createPageUrl(`JobDetails?id=${j.id}`)} className="sec-btn sec-btn-secondary" style={{ textDecoration: 'none', height: 44, minWidth: 44 }}>View Applicants</Link>
+                  <Link to={createPageUrl(`JobDetails?id=${j.id}`)} className="sec-btn sec-btn-secondary" style={{ textDecoration: 'none', height: 44, minWidth: 44 }}>Edit</Link>
+                  <button
+                    className="sec-btn sec-btn-secondary"
+                    style={{ height: 44, minWidth: 44 }}
+                    onClick={async () => {
+                      await apiPatch(`/api/jobs/${j.id}`, { status: 'CLOSED' }).catch(() => {});
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Two-Column Layout */}

@@ -55,6 +55,39 @@ enum ReportStatus {
   dismissed
 }
 
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  ONCE_OFF
+  CONTRACT
+}
+
+enum CompensationType {
+  FIXED
+  NEGOTIABLE
+  UNPAID_TRIAL
+}
+
+enum CompensationPer {
+  HOUR
+  MONTH
+  COMMISSION
+  ONCE_OFF
+}
+
+enum JobStatus {
+  OPEN
+  CLOSED
+  FILLED
+}
+
+enum ApplicationStatus {
+  PENDING
+  SHORTLISTED
+  REJECTED
+  HIRED
+}
+
 // ─── Users & Auth ─────────────────────────────────────────────────────────
 // Party Goers (USER) and Business Owners (VENUE) can share the same email as separate accounts
 model User {
@@ -86,6 +119,8 @@ model User {
   adminReviewerAdditions      AdminReviewer[]      @relation("AddedByUser")
   auditLogs                   AuditLog[]
   refreshTokens               RefreshToken[]
+  jobApplications             JobApplication[]
+  sentJobMessages             JobMessage[]         @relation("MessageSender")
 
   @@unique([email, role])
   @@index([email])
@@ -176,6 +211,7 @@ model Venue {
   events              Event[]
   tables              Table[]
   jobs                Job[]
+  jobPostings         JobPosting[]
   promotions          Promotion[]
   reviews             VenueReview[]
   blockedUsers        VenueBlockedUser[]
@@ -264,23 +300,23 @@ model VenueBlockedUser {
 
 // ─── Events & Tables ──────────────────────────────────────────────────────
 model Event {
-  id            String      @id @default(uuid())
-  venueId       String      @map("venue_id")
-  title         String
-  description   String?
-  date          DateTime
-  city          String
-  status        EventStatus @default(draft)
-  isFeatured    Boolean     @default(false) @map("is_featured")
-  coverImageUrl String?     @map("cover_image_url")
-  bannerUrl     String?     @map("banner_url")
-  ticketTiers   Json?       @map("ticket_tiers")
-  startTime     String?     @map("start_time")
-  hasEntranceFee   Boolean  @default(false) @map("has_entrance_fee")
-  entranceFeeAmount Float?   @map("entrance_fee_amount")
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-  deletedAt     DateTime?   @map("deleted_at")
+  id                String      @id @default(uuid())
+  venueId           String      @map("venue_id")
+  title             String
+  description       String?
+  date              DateTime
+  city              String
+  status            EventStatus @default(draft)
+  isFeatured        Boolean     @default(false) @map("is_featured")
+  coverImageUrl     String?     @map("cover_image_url")
+  bannerUrl         String?     @map("banner_url")
+  ticketTiers       Json?       @map("ticket_tiers")
+  startTime         String?     @map("start_time")
+  hasEntranceFee    Boolean     @default(false) @map("has_entrance_fee")
+  entranceFeeAmount Float?      @map("entrance_fee_amount")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+  deletedAt         DateTime?   @map("deleted_at")
 
   venue     Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
   tables    Table[]
@@ -372,6 +408,78 @@ model Job {
   @@index([hostEventId])
   @@index([status])
   @@map("jobs")
+}
+
+model JobPosting {
+  id                 String           @id @default(cuid())
+  venueId            String           @map("venue_id")
+  title              String
+  description        String           @db.Text
+  requirements       String           @db.Text
+  jobType            JobType          @map("job_type")
+  compensationType   CompensationType @map("compensation_type")
+  compensationAmount Float?           @map("compensation_amount")
+  compensationPer    CompensationPer  @map("compensation_per")
+  currency           String           @default("ZAR")
+  totalSpots         Int              @default(1) @map("total_spots")
+  filledSpots        Int              @default(0) @map("filled_spots")
+  closingDate        DateTime?        @map("closing_date")
+  status             JobStatus        @default(OPEN)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  venue        Venue            @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  applications JobApplication[]
+  messages     JobMessage[]
+
+  @@index([venueId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("job_postings")
+}
+
+model JobApplication {
+  id              String            @id @default(cuid())
+  jobPostingId    String            @map("job_posting_id")
+  applicantUserId String            @map("applicant_user_id")
+  coverMessage    String            @map("cover_message") @db.Text
+  cvUrl           String?           @map("cv_url")
+  cvFileName      String?           @map("cv_file_name")
+  portfolioUrl    String?           @map("portfolio_url")
+  status          ApplicationStatus @default(PENDING)
+  appliedAt       DateTime          @default(now()) @map("applied_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  jobPosting JobPosting   @relation(fields: [jobPostingId], references: [id], onDelete: Cascade)
+  applicant  User         @relation(fields: [applicantUserId], references: [id], onDelete: Cascade)
+  messages   JobMessage[]
+
+  @@unique([jobPostingId, applicantUserId])
+  @@index([jobPostingId])
+  @@index([applicantUserId])
+  @@index([status])
+  @@map("job_applications")
+}
+
+model JobMessage {
+  id            String    @id @default(cuid())
+  applicationId String    @map("application_id")
+  jobPostingId  String    @map("job_posting_id")
+  senderUserId  String    @map("sender_user_id")
+  body          String    @db.Text
+  sentAt        DateTime  @default(now()) @map("sent_at")
+  readAt        DateTime? @map("read_at")
+
+  application JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  jobPosting  JobPosting     @relation(fields: [jobPostingId], references: [id], onDelete: Cascade)
+  sender      User           @relation("MessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([jobPostingId])
+  @@index([senderUserId])
+  @@index([sentAt])
+  @@index([readAt])
+  @@map("job_messages")
 }
 
 model ServiceRating {
