@@ -98,6 +98,27 @@ function uploadFieldLabel(field) {
   return 'Document';
 }
 
+function normalizeOptionalEmail(value) {
+  const v = (value || '').trim();
+  if (!v) return null;
+  const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  if (!ok) throw new Error('Please enter a valid email address for the venue.');
+  return v.toLowerCase();
+}
+
+function normalizeOptionalWebsite(value) {
+  const raw = (value || '').trim();
+  if (!raw) return null;
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const u = new URL(withProtocol);
+    if (!u.hostname) throw new Error('missing-host');
+    return u.toString();
+  } catch {
+    throw new Error('Please enter a valid website URL (e.g. https://example.com).');
+  }
+}
+
 export default function VenueOnboarding() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
@@ -247,6 +268,8 @@ export default function VenueOnboarding() {
     setError('');
 
     try {
+      const normalizedVenueEmail = normalizeOptionalEmail(formData.email);
+      const normalizedWebsite = normalizeOptionalWebsite(formData.website);
       const venueData = {
         name: formData.name,
         venue_type: formData.venue_type,
@@ -262,8 +285,8 @@ export default function VenueOnboarding() {
       if (formData.latitude != null) venueData.latitude = formData.latitude;
       if (formData.longitude != null) venueData.longitude = formData.longitude;
       if (formData.phone) venueData.phone = formData.phone;
-      if (formData.email) venueData.email = formData.email;
-      if (formData.website) venueData.website = formData.website;
+      if (normalizedVenueEmail) venueData.email = normalizedVenueEmail;
+      if (normalizedWebsite) venueData.website = normalizedWebsite;
       if (formData.instagram) venueData.instagram = formData.instagram;
       if (formData.logo_url) venueData.logo_url = formData.logo_url;
       if (formData.cover_image_url) venueData.cover_image_url = formData.cover_image_url;
