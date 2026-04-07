@@ -1,5 +1,5 @@
 /**
- * Integration service - file upload via backend, no Base44.
+ * Integration service - file upload via backend.
  */
 import { uploadFile } from '@/api/client';
 

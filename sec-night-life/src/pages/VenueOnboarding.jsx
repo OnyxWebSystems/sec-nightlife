@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import GoogleMapDisplay from '@/components/GoogleMapDisplay';
 import SecLogo from '@/components/ui/SecLogo';
@@ -90,6 +91,12 @@ function assertAllowedUpload(field, file) {
   throw new Error('Only PDF, JPG, PNG, WebP, and other common image formats are allowed.');
 }
 
+function uploadFieldLabel(field) {
+  if (field === 'logo_url') return 'Logo';
+  if (field === 'cover_image_url') return 'Cover image';
+  return 'Document';
+}
+
 export default function VenueOnboarding() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
@@ -151,6 +158,7 @@ export default function VenueOnboarding() {
 
     setUploadProgress(prev => ({ ...prev, [field]: 'uploading' }));
     setError('');
+    toast.info(`${uploadFieldLabel(field)} upload started...`);
 
     try {
       if (file.size > MAX_UPLOAD_BYTES) {
@@ -203,9 +211,12 @@ export default function VenueOnboarding() {
 
       setFormData(prev => ({ ...prev, [field]: url }));
       setUploadProgress(prev => ({ ...prev, [field]: 'done' }));
+      toast.success(`${uploadFieldLabel(field)} uploaded successfully.`);
     } catch (error) {
       setUploadProgress(prev => ({ ...prev, [field]: 'error' }));
-      setError(error?.message || 'Failed to upload document.');
+      const message = error?.message || 'Failed to upload document.';
+      setError(message);
+      toast.error(message);
     } finally {
       input.value = '';
     }
@@ -466,6 +477,17 @@ export default function VenueOnboarding() {
                     </div>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('logo_url', e)} />
                   </label>
+                  <p className="text-xs mt-1" style={{ color: uploadProgress.logo_url === 'error' ? '#ef4444' : 'var(--sec-text-muted)' }}>
+                    {uploadProgress.logo_url === 'uploading'
+                      ? 'Uploading logo...'
+                      : uploadProgress.logo_url === 'done'
+                        ? 'Logo uploaded.'
+                        : uploadProgress.logo_url === 'error'
+                          ? 'Logo upload failed. Try again.'
+                          : formData.logo_url
+                            ? 'Logo selected.'
+                            : 'Select a logo image.'}
+                  </p>
                 </div>
                 <div className="flex-[2]">
                   <Label className="text-gray-400 text-sm">Cover Image</Label>
@@ -479,6 +501,17 @@ export default function VenueOnboarding() {
                     </div>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('cover_image_url', e)} />
                   </label>
+                  <p className="text-xs mt-1" style={{ color: uploadProgress.cover_image_url === 'error' ? '#ef4444' : 'var(--sec-text-muted)' }}>
+                    {uploadProgress.cover_image_url === 'uploading'
+                      ? 'Uploading cover image...'
+                      : uploadProgress.cover_image_url === 'done'
+                        ? 'Cover image uploaded.'
+                        : uploadProgress.cover_image_url === 'error'
+                          ? 'Cover image upload failed. Try again.'
+                          : formData.cover_image_url
+                            ? 'Cover image selected.'
+                            : 'Select a cover image.'}
+                  </p>
                 </div>
               </div>
 

@@ -1,6 +1,6 @@
-# SEC Night Life – Base44 Migration Complete
+# SEC Night Life – Platform Migration Complete
 
-The app has been migrated from Base44 to a **production-ready Node.js backend** with PostgreSQL, Prisma, and JWT auth.
+The app has been migrated to a **production-ready Node.js backend** with PostgreSQL, Prisma, and JWT auth.
 
 ## Architecture (Option A – Implemented)
 
@@ -44,10 +44,10 @@ Frontend runs at `http://localhost:5173` and proxies `/api` to the backend.
 
 ## What Was Removed
 
-- Base44 SDK
-- Base44 Vite plugin
+- Legacy SDK integration
+- Legacy Vite plugin
 - `base44Client.js`
-- Base44 env vars and routing
+- Legacy env vars and routing
 
 ## What Was Added
 
