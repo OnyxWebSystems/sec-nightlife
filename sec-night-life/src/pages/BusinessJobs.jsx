@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPatch } from '@/api/client';
+import { apiDelete, apiGet, apiPatch } from '@/api/client';
 import { dataService } from '@/services/dataService';
 import * as authService from '@/services/authService';
 import { toast } from 'sonner';
@@ -51,13 +51,26 @@ export default function BusinessJobs() {
     return map;
   }, [jobs]);
 
-  const closeMutation = useMutation({
-    mutationFn: (jobId) => apiPatch(`/api/jobs/${jobId}`, { status: 'CLOSED' }),
+  const jobStatusMutation = useMutation({
+    mutationFn: ({ jobId, status }) => apiPatch(`/api/jobs/${jobId}`, { status }),
     onSuccess: () => {
-      toast.success('Job closed');
+      toast.success('Job status updated');
       qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
     },
-    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to close job'),
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update job status'),
+  });
+
+  const deleteJobMutation = useMutation({
+    mutationFn: (jobId) => apiDelete(`/api/jobs/${jobId}`),
+    onSuccess: () => {
+      toast.success('Job deleted');
+      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+      if (activeJobId) {
+        setActiveJobId(null);
+        qc.invalidateQueries({ queryKey: ['biz-job-applications', activeJobId] });
+      }
+    },
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
   });
 
   const updateStatus = useMutation({
@@ -107,26 +120,26 @@ export default function BusinessJobs() {
       </div>
 
       {isLoading ? <div className="sec-spinner" /> : null}
-      <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ display: 'grid', gap: 12 }}>
         {jobs.map((job) => (
           <div key={job.id} className="sec-card" style={{ borderRadius: 12, padding: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
               <div>
                 <div style={{ fontWeight: 700 }}>{job.title}</div>
                 <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{job.jobType} · {compensationText(job)}</div>
+                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-text-muted)' }}>
+                  {job.filledSpots} of {job.totalSpots} filled · {job.closingDate ? new Date(job.closingDate).toLocaleDateString() : 'No closing date'}
+                </div>
               </div>
               <span className={`sec-badge ${job.status === 'OPEN' ? 'sec-badge-success' : job.status === 'FILLED' ? 'sec-badge-gold' : 'sec-badge-muted'}`}>{job.status}</span>
             </div>
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-text-muted)' }}>
-              {job.filledSpots} of {job.totalSpots} filled · {job.closingDate ? new Date(job.closingDate).toLocaleDateString() : 'No closing date'}
-            </div>
-            <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} onClick={() => setActiveJobId(job.id)}>
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+              <button className="sec-btn sec-btn-secondary" style={{ height: 42, width: '100%' }} onClick={() => setActiveJobId(job.id)}>
                 View Applicants ({job._count?.applications || 0})
               </button>
               <button
                 className="sec-btn sec-btn-secondary"
-                style={{ height: 44, minWidth: 44 }}
+                style={{ height: 42, width: '100%' }}
                 onClick={() => {
                   setEditJobId(job.id);
                   setEditForm({
@@ -140,9 +153,31 @@ export default function BusinessJobs() {
               >
                 Edit
               </button>
-              <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} disabled={closeMutation.isPending} onClick={() => closeMutation.mutate(job.id)}>
-                {closeMutation.isPending ? 'Closing...' : 'Close'}
+              <button
+                className={`sec-btn ${job.status === 'OPEN' ? 'sec-btn-secondary' : 'sec-btn-primary'}`}
+                style={{ height: 42, width: '100%' }}
+                disabled={jobStatusMutation.isPending}
+                onClick={() => {
+                  const status = job.status === 'OPEN' ? 'CLOSED' : 'OPEN';
+                  jobStatusMutation.mutate({ jobId: job.id, status });
+                }}
+              >
+                {jobStatusMutation.isPending ? 'Saving...' : (job.status === 'OPEN' ? 'Close Job' : 'Open Job')}
               </button>
+              <button
+                className="sec-btn sec-btn-secondary"
+                style={{ height: 42, width: '100%', borderColor: 'rgba(217, 85, 85, 0.35)', color: 'var(--sec-error)' }}
+                disabled={deleteJobMutation.isPending}
+                onClick={() => {
+                  const ok = window.confirm('Delete this job post? This action cannot be undone.');
+                  if (!ok) return;
+                  deleteJobMutation.mutate(job.id);
+                }}
+              >
+                {deleteJobMutation.isPending ? 'Deleting...' : 'Delete Job'}
+              </button>
+            </div>
+            <div style={{ marginTop: 8 }}>
               <span className="sec-badge sec-badge-muted">Unread {unreadByJob[job.id] || 0}</span>
             </div>
           </div>
