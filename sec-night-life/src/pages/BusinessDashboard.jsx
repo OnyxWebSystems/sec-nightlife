@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { useQuery } from '@tanstack/react-query';
-import { apiGet, apiPatch, apiPost } from '@/api/client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
+import { toast } from 'sonner';
 import { Button } from "@/components/ui/button";
 import {
   Calendar, BookOpen, Megaphone, BarChart3,
@@ -81,6 +82,7 @@ function QuickAction({ icon: Icon, label, page }) {
 
 export default function BusinessDashboard() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -143,9 +145,27 @@ export default function BusinessDashboard() {
   });
 
   const { data: jobs = [] } = useQuery({
-    queryKey: ['owner-jobs', venue?.id],
+    queryKey: ['biz-jobs', venue?.id],
     queryFn: () => apiGet(`/api/jobs/venue/${venue.id}`),
     enabled: !!venue,
+  });
+
+  const jobStatusMutation = useMutation({
+    mutationFn: ({ jobId, status }) => apiPatch(`/api/jobs/${jobId}`, { status }),
+    onSuccess: () => {
+      toast.success('Job status updated');
+      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+    },
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update job status'),
+  });
+
+  const deleteJobMutation = useMutation({
+    mutationFn: (jobId) => apiDelete(`/api/jobs/${jobId}`),
+    onSuccess: () => {
+      toast.success('Job deleted');
+      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+    },
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
   });
 
   if (!user) return null;
@@ -432,35 +452,74 @@ export default function BusinessDashboard() {
       </div>
 
       <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
           <h3 style={{ fontSize: 15, fontWeight: 700 }}>Jobs</h3>
-          <Link to={createPageUrl('CreateJob')} className="sec-btn sec-btn-primary" style={{ height: 44, minWidth: 44, textDecoration: 'none' }}>Post Job</Link>
+          <Link
+            to={createPageUrl('CreateJob')}
+            className="sec-btn sec-btn-primary sec-btn-md"
+            style={{ textDecoration: 'none', flexShrink: 0 }}
+          >
+            Post Job
+          </Link>
         </div>
         {jobs.length === 0 ? (
           <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No job postings yet.</p>
         ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
+          <div style={{ display: 'grid', gap: 12 }}>
             {jobs.map((j) => (
-              <div key={j.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <div key={j.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
                   <div>
-                    <p style={{ fontWeight: 700 }}>{j.title}</p>
-                    <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{j.jobType} · {j._count?.applications || 0} applications</p>
+                    <p style={{ fontWeight: 700, margin: 0 }}>{j.title}</p>
+                    <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                      {j.jobType} · {j._count?.applications || 0} applications
+                    </p>
+                    <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-text-muted)' }}>
+                      {j.filledSpots} of {j.totalSpots} filled
+                      {j.closingDate ? ` · closes ${new Date(j.closingDate).toLocaleDateString()}` : ''}
+                    </p>
                   </div>
                   <span className={`sec-badge ${j.status === 'OPEN' ? 'sec-badge-success' : j.status === 'FILLED' ? 'sec-badge-gold' : 'sec-badge-muted'}`}>{j.status}</span>
                 </div>
-                <p style={{ marginTop: 8, fontSize: 12 }}>{j.filledSpots} of {j.totalSpots} filled</p>
-                <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <Link to={createPageUrl(`JobDetails?id=${j.id}`)} className="sec-btn sec-btn-secondary" style={{ textDecoration: 'none', height: 44, minWidth: 44 }}>View Applicants</Link>
-                  <Link to={createPageUrl(`JobDetails?id=${j.id}`)} className="sec-btn sec-btn-secondary" style={{ textDecoration: 'none', height: 44, minWidth: 44 }}>Edit</Link>
-                  <button
+                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+                  <Link
+                    to={createPageUrl(`JobDetails?id=${j.id}`)}
                     className="sec-btn sec-btn-secondary"
-                    style={{ height: 44, minWidth: 44 }}
-                    onClick={async () => {
-                      await apiPatch(`/api/jobs/${j.id}`, { status: 'CLOSED' }).catch(() => {});
+                    style={{ textDecoration: 'none', height: 42, width: '100%', boxSizing: 'border-box' }}
+                  >
+                    View Applicants
+                  </Link>
+                  <Link
+                    to={createPageUrl(`JobDetails?id=${j.id}`)}
+                    className="sec-btn sec-btn-secondary"
+                    style={{ textDecoration: 'none', height: 42, width: '100%', boxSizing: 'border-box' }}
+                  >
+                    Edit
+                  </Link>
+                  <button
+                    type="button"
+                    className={`sec-btn ${j.status === 'OPEN' ? 'sec-btn-secondary' : 'sec-btn-primary'}`}
+                    style={{ height: 42, width: '100%' }}
+                    disabled={jobStatusMutation.isPending}
+                    onClick={() => {
+                      const status = j.status === 'OPEN' ? 'CLOSED' : 'OPEN';
+                      jobStatusMutation.mutate({ jobId: j.id, status });
                     }}
                   >
-                    Close
+                    {jobStatusMutation.isPending ? 'Saving...' : (j.status === 'OPEN' ? 'Close Job' : 'Open Job')}
+                  </button>
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-secondary"
+                    style={{ height: 42, width: '100%', borderColor: 'rgba(217, 85, 85, 0.35)', color: 'var(--sec-error)' }}
+                    disabled={deleteJobMutation.isPending}
+                    onClick={() => {
+                      const ok = window.confirm('Delete this job post? This action cannot be undone.');
+                      if (!ok) return;
+                      deleteJobMutation.mutate(j.id);
+                    }}
+                  >
+                    {deleteJobMutation.isPending ? 'Deleting...' : 'Delete Job'}
                   </button>
                 </div>
               </div>

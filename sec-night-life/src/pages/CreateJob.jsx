@@ -81,7 +81,7 @@ export default function CreateJob() {
     mutationFn: (payload) => apiPost('/api/jobs', payload),
     onSuccess: () => {
       toast.success('Job posted!');
-      queryClient.invalidateQueries({ queryKey: ['owner-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['biz-jobs'] });
       navigate(createPageUrl('BusinessDashboard'));
     },
     onError: (err) => {
