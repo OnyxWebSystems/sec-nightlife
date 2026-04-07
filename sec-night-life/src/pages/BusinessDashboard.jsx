@@ -506,7 +506,7 @@ export default function BusinessDashboard() {
                     View Applicants
                   </Link>
                   <Link
-                    to={createPageUrl(`JobDetails?id=${j.id}`)}
+                    to={`${createPageUrl('BusinessJobs')}?edit=${encodeURIComponent(j.id)}`}
                     className="sec-btn sec-btn-secondary"
                     style={{ textDecoration: 'none', height: 42, width: '100%', boxSizing: 'border-box' }}
                   >

@@ -5,7 +5,7 @@ import { sendBulkEmails, sendEmail } from '../lib/email.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireComplianceReviewer, requireSuperAdmin } from '../middleware/complianceReviewer.js';
 import { auditFromReq } from '../lib/audit.js';
-import { v2 as cloudinary } from 'cloudinary';
+import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
 
 const router = Router();
 
@@ -99,121 +99,6 @@ function fileUrlLooksLikeCloudinary(fileUrl, cloudName) {
   if (!fileUrl || !cloudName) return false;
   const prefix = `https://res.cloudinary.com/${cloudName}/`;
   return fileUrl.startsWith(prefix);
-}
-
-function parseCloudinaryFromUrl(fileUrl) {
-  // Accept URLs like:
-  // https://res.cloudinary.com/<cloudName>/<resourceType>/upload/v<version>/<publicId>.<ext>
-  // where resourceType is typically "image" or "raw".
-  try {
-    const u = new URL(fileUrl);
-    const parts = u.pathname.split('/').filter(Boolean);
-    const uploadIdx = parts.indexOf('upload');
-    if (uploadIdx < 2) return null;
-
-    // Expected: [..., <cloudName>, <resourceType>, 'upload', 'v123', '<publicId>.<ext>']
-    const resourceType = parts[uploadIdx - 1];
-    const versionPart = parts[uploadIdx + 1]; // v...
-    void versionPart;
-
-    const publicSegments = parts.slice(uploadIdx + 2); // everything after version
-    if (!resourceType || publicSegments.length === 0) return null;
-
-    const last = publicSegments[publicSegments.length - 1];
-    const dotIdx = last.lastIndexOf('.');
-    const format = dotIdx > -1 ? last.slice(dotIdx + 1) : null;
-    const lastNoExt = dotIdx > -1 ? last.slice(0, dotIdx) : last;
-
-    const publicIdPrefix = publicSegments.length > 1
-      ? publicSegments.slice(0, -1).join('/')
-      : '';
-
-    const publicId = publicIdPrefix ? `${publicIdPrefix}/${lastNoExt}` : lastNoExt;
-
-    // Full path as in the URL (last segment keeps extension). Raw assets often need this for API download.
-    const fullPublicId = publicSegments.join('/');
-
-    return { resourceType, publicId, format, fullPublicId };
-  } catch {
-    return null;
-  }
-}
-
-let cloudinaryConfigured = false;
-function ensureCloudinaryConfigured() {
-  if (cloudinaryConfigured) return true;
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-    return false;
-  }
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-  cloudinaryConfigured = true;
-  return true;
-}
-
-function signCloudinaryUrl(fileUrl) {
-  const parsed = parseCloudinaryFromUrl(fileUrl);
-  if (!parsed) return null;
-  if (!ensureCloudinaryConfigured()) return null;
-
-  const { resourceType, publicId, format, fullPublicId } = parsed;
-  // 30 min window; refresh per admin page load.
-  const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30;
-
-  // Default delivery type is "upload". Do not use "authenticated" unless the asset was uploaded that way.
-  const baseOpts = {
-    secure: true,
-    sign_url: true,
-    expires_at: expiresAtSeconds,
-    type: 'upload',
-  };
-
-  // Raw files: public_id includes the extension; do not pass format or it gets appended twice.
-  if (resourceType === 'raw' && fullPublicId) {
-    return cloudinary.url(fullPublicId, {
-      ...baseOpts,
-      resource_type: 'raw',
-    });
-  }
-
-  // sign_url=true makes Cloudinary generate an auth/signature querystring.
-  return cloudinary.url(publicId, {
-    ...baseOpts,
-    resource_type: resourceType,
-    format: format || undefined,
-  });
-}
-
-function privateDownloadUrl(fileUrl) {
-  const parsed = parseCloudinaryFromUrl(fileUrl);
-  if (!parsed) return null;
-  if (!ensureCloudinaryConfigured()) return null;
-
-  const { resourceType, publicId, format, fullPublicId } = parsed;
-
-  // Use Cloudinary API-authenticated download endpoint.
-  // This works even when delivery URLs are blocked by ACL/token rules.
-  const expiresAtSeconds = Math.floor(Date.now() / 1000) + 60 * 30;
-
-  // Must match how the file was stored. Preset uploads are almost always type "upload".
-  const downloadOpts = {
-    resource_type: resourceType,
-    type: 'upload',
-    expires_at: expiresAtSeconds,
-    attachment: false,
-  };
-
-  // Raw PDFs/docs: API expects public_id with extension; do not split format.
-  if (resourceType === 'raw' && fullPublicId) {
-    return cloudinary.utils.private_download_url(fullPublicId, null, downloadOpts);
-  }
-
-  if (!format) return null;
-
-  return cloudinary.utils.private_download_url(publicId, format, downloadOpts);
 }
 
 // Business: get latest compliance status per type for the venue (latest by uploadedAt)

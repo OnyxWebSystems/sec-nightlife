@@ -4,6 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
+import { apiGet } from '@/api/client';
 import { 
   MessageCircle,
   Search,
@@ -49,6 +50,11 @@ export default function Messages() {
     if (selectedTab === 'groups') return matchesSearch && (chat.type === 'group' || chat.type === 'table');
     return matchesSearch;
   });
+
+  const showEmptyChatState =
+    filteredChats.length === 0 &&
+    !isLoading &&
+    (user?.role !== 'USER' ? true : !jobAppsLoading && jobApplications.length === 0);
 
   const tabs = [
     { value: 'all', label: 'All' },
@@ -182,7 +188,7 @@ export default function Messages() {
         </div>
 
         {/* Empty State */}
-        {filteredChats.length === 0 && !isLoading && (
+        {showEmptyChatState && (
           <div className="text-center py-20">
             <div style={{ width: 80, height: 80, borderRadius: '50%', backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
               <MessageCircle size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />

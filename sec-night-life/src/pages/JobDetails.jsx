@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
 import { apiGet, apiPatch, apiPost } from '@/api/client';
 import * as authService from '@/services/authService';
 import { toast } from 'sonner';
@@ -91,10 +90,12 @@ export default function JobDetails() {
 
   const submitApplication = useMutation({
     mutationFn: () => apiPost(`/api/jobs/${jobId}/apply`, { coverMessage, cvUrl: cvUrl || null, cvFileName: cvFileName || null, portfolioUrl: portfolioUrl || null }),
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success('Application submitted');
       setShowApplyDialog(false);
-      queryClient.invalidateQueries({ queryKey: ['my-apps'] });
+      await queryClient.invalidateQueries({ queryKey: ['my-apps'] });
+      await queryClient.refetchQueries({ queryKey: ['my-apps'] });
+      queryClient.invalidateQueries({ queryKey: ['public-job', jobId] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to apply'),
   });
@@ -183,7 +184,9 @@ export default function JobDetails() {
   async function viewCv(applicationId) {
     try {
       const data = await apiGet(`/api/jobs/applications/${applicationId}/cv`);
-      if (data?.cvUrl) window.open(data.cvUrl, '_blank');
+      const url = data?.viewUrl || data?.cvUrl;
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      else toast.error('No CV on file');
     } catch (err) {
       toast.error(err?.data?.error || 'Cannot access CV');
     }
@@ -212,9 +215,11 @@ export default function JobDetails() {
       </div>
 
       {canApply ? (
-        <button onClick={() => setShowApplyDialog(true)} className="sec-btn sec-btn-primary w-full" style={{ marginTop: 14, height: 48 }}>Apply</button>
+        <button type="button" onClick={() => setShowApplyDialog(true)} className="sec-btn sec-btn-primary w-full" style={{ marginTop: 14, height: 48 }}>Apply</button>
       ) : selectedMyApplication ? (
         <div className="sec-badge sec-badge-success" style={{ marginTop: 14 }}>Applied</div>
+      ) : user && user.role !== 'USER' && !ownerJob ? (
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>Switch to Party Goer mode to apply for jobs.</p>
       ) : null}
 
       {ownerJob ? (
@@ -260,17 +265,31 @@ export default function JobDetails() {
             </div>
           ) : null}
           {ownerJob.applications?.length ? ownerJob.applications.map((a) => (
-            <div key={a.id} className="sec-card" style={{ padding: 14, borderRadius: 12 }}>
-              <p style={{ fontWeight: 700 }}>{a.applicant?.fullName || 'Applicant'}</p>
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{a.applicant?.email}</p>
-              <p style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{a.coverMessage}</p>
-              {a.portfolioUrl ? <a href={a.portfolioUrl} target="_blank" rel="noreferrer">Portfolio</a> : null}
-              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} onClick={() => viewCv(a.id)}>View CV</button>
-                {a.status !== 'SHORTLISTED' ? <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'SHORTLISTED' })}>Shortlist</button> : null}
-                {a.status !== 'REJECTED' ? <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'REJECTED' })}>Reject</button> : null}
-                {a.status !== 'HIRED' ? <button className="sec-btn sec-btn-primary" style={{ height: 44, minWidth: 44 }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'HIRED' })}>Hire</button> : null}
-                <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} onClick={() => setSelectedApplication(a)}>Message</button>
+            <div key={a.id} className="sec-card" style={{ padding: 16, borderRadius: 14, display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+                <div>
+                  <p style={{ fontWeight: 700, margin: 0, fontSize: 16 }}>{a.applicant?.fullName || 'Applicant'}</p>
+                  <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>{a.applicant?.email}</p>
+                </div>
+                <span className="sec-badge sec-badge-muted">{a.status}</span>
+              </div>
+              <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.5, color: 'var(--sec-text-secondary)' }}>{a.coverMessage}</p>
+              {a.portfolioUrl ? (
+                <a
+                  href={a.portfolioUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 13, color: 'var(--sec-accent)', textDecoration: 'underline', wordBreak: 'break-all' }}
+                >
+                  Open portfolio
+                </a>
+              ) : null}
+              <div style={{ marginTop: 4, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }}>
+                <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => viewCv(a.id)}>View CV</button>
+                {a.status !== 'SHORTLISTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'SHORTLISTED' })}>Shortlist</button> : null}
+                {a.status !== 'REJECTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'REJECTED' })}>Reject</button> : null}
+                {a.status !== 'HIRED' ? <button type="button" className="sec-btn sec-btn-primary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'HIRED' })}>Hire</button> : null}
+                <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => setSelectedApplication(a)}>Message</button>
               </div>
             </div>
           )) : (
@@ -282,20 +301,20 @@ export default function JobDetails() {
       ) : null}
 
       {activeApplicationId ? (
-        <div className="sec-card" style={{ marginTop: 20, padding: 14, borderRadius: 12 }}>
-          <h3>Messages</h3>
-          <div style={{ maxHeight: 260, overflowY: 'auto', display: 'grid', gap: 8, marginTop: 8 }}>
+        <div className="sec-card" style={{ marginTop: 20, padding: 16, borderRadius: 14 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Messages</h3>
+          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'grid', gap: 8, marginTop: 12 }}>
             {messages.map((m) => (
-              <div key={m.id} style={{ justifySelf: m.senderUserId === user?.id ? 'end' : 'start', maxWidth: '85%', background: m.senderUserId === user?.id ? 'var(--sec-accent-muted)' : 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', borderRadius: 10, padding: 10 }}>
+              <div key={m.id} style={{ justifySelf: m.senderUserId === user?.id ? 'end' : 'start', maxWidth: '90%', background: m.senderUserId === user?.id ? 'var(--sec-accent-muted)' : 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', borderRadius: 12, padding: '10px 12px' }}>
                 <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{m.sender?.fullName || 'User'} · {new Date(m.sentAt).toLocaleString()}</div>
-                <div>{m.body}</div>
-                <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{m.readAt ? 'Read' : 'Sent'}</div>
+                <div style={{ marginTop: 4, fontSize: 14 }}>{m.body}</div>
+                <div style={{ fontSize: 10, color: 'var(--sec-text-muted)', marginTop: 4 }}>{m.readAt ? 'Read' : 'Sent'}</div>
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-            <input className="sec-input" value={messageBody} onChange={(e) => setMessageBody(e.target.value)} placeholder="Type a message..." />
-            <button className="sec-btn sec-btn-primary" style={{ height: 44, minWidth: 44 }} disabled={!messageBody.trim() || sendMessage.isPending} onClick={() => sendMessage.mutate()}>
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input className="sec-input" value={messageBody} onChange={(e) => setMessageBody(e.target.value)} placeholder="Type a message..." style={{ minHeight: 44 }} />
+            <button type="button" className="sec-btn sec-btn-primary" style={{ height: 44, width: '100%' }} disabled={!messageBody.trim() || sendMessage.isPending} onClick={() => sendMessage.mutate()}>
               {sendMessage.isPending ? 'Sending...' : 'Send'}
             </button>
           </div>
@@ -303,31 +322,36 @@ export default function JobDetails() {
       ) : null}
 
       <Dialog open={showApplyDialog} onOpenChange={setShowApplyDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md border-[var(--sec-border)] bg-[var(--sec-bg-card)] text-[var(--sec-text-primary)]">
           <DialogHeader>
             <DialogTitle>Apply for {job.title}</DialogTitle>
-            <DialogDescription>Submit your application details.</DialogDescription>
+            <DialogDescription style={{ color: 'var(--sec-text-muted)' }}>Submit your application details.</DialogDescription>
           </DialogHeader>
-          <div style={{ display: 'grid', gap: 10 }}>
-            <Textarea value={coverMessage} onChange={(e) => setCoverMessage(e.target.value)} placeholder="Cover message (50-1000 chars)" />
+          <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
+            <Textarea value={coverMessage} onChange={(e) => setCoverMessage(e.target.value)} placeholder="Cover message (50-1000 characters)" className="min-h-[120px] border-[var(--sec-border)] bg-[var(--sec-bg-elevated)]" />
             <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{coverMessage.length}/1000</div>
             <input type="url" className="sec-input" value={portfolioUrl} onChange={(e) => setPortfolioUrl(e.target.value)} placeholder="Portfolio URL (optional)" />
-            <input type="file" accept="application/pdf,.pdf" onChange={(e) => uploadCv(e.target.files?.[0])} />
-            {uploading ? <div style={{ fontSize: 12 }}>Uploading CV...</div> : null}
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--sec-text-muted)', display: 'block', marginBottom: 6 }}>CV (PDF, max 5MB)</label>
+              <input type="file" accept="application/pdf,.pdf" className="sec-input" style={{ padding: 8 }} onChange={(e) => uploadCv(e.target.files?.[0])} />
+            </div>
+            {uploading ? <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Uploading CV...</div> : null}
             {cvFileName ? (
-              <div style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
-                <span>{cvFileName}</span>
-                <button onClick={() => { setCvFileName(''); setCvUrl(''); }} type="button">Remove</button>
+              <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--sec-border)', background: 'var(--sec-bg-elevated)' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cvFileName}</span>
+                <button type="button" className="sec-btn sec-btn-ghost sec-btn-sm" onClick={() => { setCvFileName(''); setCvUrl(''); }}>Remove</button>
               </div>
             ) : null}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <Button variant="outline" onClick={() => setShowApplyDialog(false)}>Cancel</Button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+              <button type="button" className="sec-btn sec-btn-secondary w-full" style={{ height: 44 }} onClick={() => setShowApplyDialog(false)}>Cancel</button>
               <button
-                className="sec-btn sec-btn-primary"
+                type="button"
+                className="sec-btn sec-btn-primary w-full"
+                style={{ height: 48 }}
                 disabled={submitApplication.isPending || coverMessage.trim().length < 50 || coverMessage.trim().length > 1000}
                 onClick={() => submitApplication.mutate()}
               >
-                {submitApplication.isPending ? 'Submitting...' : 'Submit'}
+                {submitApplication.isPending ? 'Submitting...' : 'Submit application'}
               </button>
             </div>
           </div>

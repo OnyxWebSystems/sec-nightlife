@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { sendEmail } from '../lib/email.js';
 import { logger } from '../lib/logger.js';
+import { signCloudinaryUrl } from '../lib/cloudinarySignedUrl.js';
 
 const router = Router();
 const USER_HOURLY_LIMIT = 5;
@@ -63,6 +64,23 @@ function publicJobWhere(query = {}) {
   if (query.jobType) where.jobType = query.jobType;
   if (query.compensationType) where.compensationType = query.compensationType;
   return where;
+}
+
+async function createJobNotification({ userId, type, title, body, actionUrl }) {
+  if (!userId) return;
+  try {
+    await prisma.notification.create({
+      data: {
+        userId,
+        type,
+        title,
+        body: body ?? null,
+        actionUrl: actionUrl ?? null,
+      },
+    });
+  } catch (e) {
+    logger.warn('job notification create failed', { err: e?.message });
+  }
 }
 
 function formatCompensation(job) {
@@ -301,6 +319,18 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
         text: `Your application status was updated to ${status}. Open the app to view details and messages.`,
       }).catch(() => {});
     }
+    const statusTitles = {
+      SHORTLISTED: 'Application shortlisted',
+      REJECTED: 'Application update',
+      HIRED: "You're hired",
+    };
+    await createJobNotification({
+      userId: application.applicant.id,
+      type: 'job_application',
+      title: statusTitles[status] || 'Application update',
+      body: `${jobTitle} at ${venueName}: status is now ${status}.`,
+      actionUrl: `/JobDetails?id=${application.jobPostingId}`,
+    });
     if (status === 'HIRED' && application.jobPosting.venue.owner.email) {
       await sendEmail({
         to: application.jobPosting.venue.owner.email,
@@ -322,7 +352,9 @@ router.get('/applications/:applicationId/cv', authenticateToken, async (req, res
     });
     logger.info('CV access attempt', { applicationId: req.params.applicationId, accessedBy: req.userId, accessedAt: new Date().toISOString() });
     if (!application) return res.status(403).json({ error: 'Forbidden' });
-    return res.json({ cvUrl: application.cvUrl, cvFileName: application.cvFileName });
+    const raw = application.cvUrl;
+    const viewUrl = raw ? (signCloudinaryUrl(raw) || raw) : null;
+    return res.json({ cvUrl: raw, viewUrl, cvFileName: application.cvFileName });
   } catch (err) {
     return next(err);
   }
@@ -386,6 +418,16 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
         text: `${created.sender.fullName || 'Someone'} sent you a message. Open the app to reply.${appUrl ? ` ${appUrl}` : ''}`,
       }).catch(() => {});
     }
+    const recipientUserId = senderIsOwner ? application.applicant.id : application.jobPosting.venue.owner.id;
+    const bodyText = parsed.data.body || '';
+    const preview = bodyText.slice(0, 120);
+    await createJobNotification({
+      userId: recipientUserId,
+      type: 'message',
+      title: `Message: ${application.jobPosting.title}`,
+      body: `${created.sender.fullName || 'Someone'}: ${preview}${bodyText.length > 120 ? '…' : ''}`,
+      actionUrl: `/JobDetails?id=${application.jobPostingId}`,
+    });
     return res.status(201).json(created);
   } catch (err) {
     return next(err);
@@ -412,7 +454,7 @@ router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const job = await prisma.jobPosting.findFirst({
       where: { id: req.params.jobId, status: 'OPEN' },
-      include: { venue: { include: { owner: { select: { email: true } } } } },
+      include: { venue: { select: { name: true, ownerUserId: true, owner: { select: { id: true, email: true } } } } },
     });
     if (!job) return res.status(404).json({ error: 'Job not found or closed' });
     if (job.closingDate && new Date(job.closingDate) <= new Date()) return res.status(400).json({ error: 'Applications are closed for this job' });
@@ -455,6 +497,13 @@ router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
         text: `${user?.fullName || 'A user'} has applied. Review in your dashboard.`,
       }).catch(() => {});
     }
+    await createJobNotification({
+      userId: job.venue.ownerUserId,
+      type: 'job_application',
+      title: 'New job application',
+      body: `${user?.fullName || 'Someone'} applied for ${job.title} at ${job.venue.name}.`,
+      actionUrl: `/BusinessJobs`,
+    });
     return res.status(201).json(created);
   } catch (err) {
     return next(err);

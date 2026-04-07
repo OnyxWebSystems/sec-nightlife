@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch } from '@/api/client';
@@ -23,6 +23,7 @@ function getPublicVisibility(job) {
 
 export default function BusinessJobs() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
   const [activeJobId, setActiveJobId] = useState(null);
   const [editJobId, setEditJobId] = useState(null);
@@ -118,6 +119,24 @@ export default function BusinessJobs() {
     return () => window.removeEventListener('sec_active_mode_changed', guardMode);
   }, [navigate]);
 
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || !jobs.length) return;
+    const job = jobs.find((j) => j.id === editId);
+    if (!job) return;
+    setEditJobId(job.id);
+    setEditForm({
+      title: job.title || '',
+      description: job.description || '',
+      requirements: job.requirements || '',
+      totalSpots: job.totalSpots || 1,
+      closingDate: job.closingDate ? new Date(job.closingDate).toISOString().slice(0, 10) : '',
+    });
+    const next = new URLSearchParams(searchParams);
+    next.delete('edit');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, jobs, setSearchParams]);
+
   if (!venue?.id) {
     return (
       <div style={{ padding: 16 }}>
@@ -130,10 +149,10 @@ export default function BusinessJobs() {
   }
 
   return (
-    <div style={{ padding: 16, maxWidth: 480, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+    <div style={{ padding: 16, maxWidth: 560, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Jobs</h1>
-        <Link to={createPageUrl('CreateJob')} className="sec-btn sec-btn-primary" style={{ textDecoration: 'none', height: 44, minWidth: 44 }}>
+        <Link to={createPageUrl('CreateJob')} className="sec-btn sec-btn-primary sec-btn-md" style={{ textDecoration: 'none', flexShrink: 0 }}>
           Post Job
         </Link>
       </div>

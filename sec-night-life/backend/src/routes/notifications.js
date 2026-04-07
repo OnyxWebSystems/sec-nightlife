@@ -79,4 +79,16 @@ router.patch('/:id/read', authenticateToken, async (req, res, next) => {
   }
 });
 
+router.delete('/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const deleted = await prisma.notification.deleteMany({
+      where: { id: req.params.id, userId: req.userId },
+    });
+    if (deleted.count === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import * as authService from '@/services/authService';
-import { dataService } from '@/services/dataService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiGet, apiPatch, apiDelete } from '@/api/client';
 import { 
   Bell,
   Users,
@@ -63,18 +63,23 @@ export default function Notifications() {
 
   const { data: notifications = [], isLoading } = useQuery({
     queryKey: ['notifications', user?.id],
-    queryFn: () => dataService.Notification.filter({ user_id: user?.id }, '-created_date', 50),
+    queryFn: () => apiGet('/api/notifications')
+      .then((rows) => (Array.isArray(rows) ? rows : []).map((n) => ({
+        ...n,
+        message: n.body ?? n.message,
+        created_date: n.created_at ?? n.created_date,
+      }))),
     enabled: !!user?.id,
   });
 
   const markAsReadMutation = useMutation({
-    mutationFn: (id) => dataService.Notification.update(id, { is_read: true }),
-    onSuccess: () => queryClient.invalidateQueries(['notifications']),
+    mutationFn: (id) => apiPatch(`/api/notifications/${id}/read`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => dataService.Notification.delete(id),
-    onSuccess: () => queryClient.invalidateQueries(['notifications']),
+    mutationFn: (id) => apiDelete(`/api/notifications/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
   const markAllAsRead = async () => {
@@ -141,7 +146,7 @@ export default function Notifications() {
                       </div>
                       {notification.created_date && (
                         <span className="text-xs text-gray-600 flex-shrink-0 ml-2">
-                          {formatDistanceToNow(parseISO(notification.created_date), { addSuffix: false })}
+                          {formatDistanceToNow(typeof notification.created_date === 'string' ? parseISO(notification.created_date) : notification.created_date, { addSuffix: false })}
                         </span>
                       )}
                     </div>
