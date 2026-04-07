@@ -34,10 +34,6 @@ const messageSchema = z.object({
   body: z.string().trim().min(1).max(2000),
 });
 
-function isBusinessOwner(role) {
-  return role === 'VENUE';
-}
-
 function isRegularUser(role) {
   return role === 'USER';
 }
@@ -80,7 +76,6 @@ function formatCompensation(job) {
 
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
-    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
     const parsed = postingSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const payload = parsed.data;
@@ -115,7 +110,6 @@ router.post('/', authenticateToken, async (req, res, next) => {
 
 router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
   try {
-    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
     const venue = await getVenueOwnedByUser(req.params.venueId, req.userId);
     if (!venue) return res.status(403).json({ error: 'Forbidden' });
     const jobs = await prisma.jobPosting.findMany({
@@ -192,7 +186,6 @@ router.get('/public/:jobId', optionalAuth, async (req, res, next) => {
 router.get('/:jobId', authenticateToken, async (req, res, next) => {
   try {
     if (req.params.jobId === 'public') return next();
-    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
     const job = await prisma.jobPosting.findFirst({
       where: { id: req.params.jobId, venue: { ownerUserId: req.userId, deletedAt: null } },
       include: {
@@ -215,7 +208,6 @@ router.get('/:jobId', authenticateToken, async (req, res, next) => {
 
 router.patch('/:jobId', authenticateToken, async (req, res, next) => {
   try {
-    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
     const ownedJob = await getOwnedJob(req.params.jobId, req.userId);
     if (!ownedJob) return res.status(403).json({ error: 'Forbidden' });
     const schema = postingSchema.partial().omit({ venueId: true }).extend({ status: z.enum(['OPEN', 'CLOSED', 'FILLED']).optional() });
@@ -233,7 +225,6 @@ router.patch('/:jobId', authenticateToken, async (req, res, next) => {
 
 router.delete('/:jobId', authenticateToken, async (req, res, next) => {
   try {
-    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
     const ownedJob = await getOwnedJob(req.params.jobId, req.userId);
     if (!ownedJob) return res.status(403).json({ error: 'Forbidden' });
     const count = await prisma.jobApplication.count({ where: { jobPostingId: req.params.jobId } });
@@ -250,7 +241,6 @@ router.delete('/:jobId', authenticateToken, async (req, res, next) => {
 
 router.get('/:jobId/applications', authenticateToken, async (req, res, next) => {
   try {
-    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
     const ownedJob = await getOwnedJob(req.params.jobId, req.userId);
     if (!ownedJob) return res.status(403).json({ error: 'Forbidden' });
     const applications = await prisma.jobApplication.findMany({
@@ -266,7 +256,6 @@ router.get('/:jobId/applications', authenticateToken, async (req, res, next) => 
 
 router.patch('/applications/:applicationId/status', authenticateToken, async (req, res, next) => {
   try {
-    if (!isBusinessOwner(req.userRole)) return res.status(403).json({ error: 'Business owner access required' });
     const schema = z.object({ status: z.enum(['SHORTLISTED', 'REJECTED', 'HIRED']) });
     const parsed = schema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
