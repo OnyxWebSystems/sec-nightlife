@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch } from '@/api/client';
@@ -15,7 +15,14 @@ function compensationText(job) {
   return 'Compensation not set';
 }
 
+function getPublicVisibility(job) {
+  if (job.status !== 'OPEN') return { isVisible: false, reason: `Hidden from public (${job.status.toLowerCase()})` };
+  if (job.closingDate && new Date(job.closingDate) <= new Date()) return { isVisible: false, reason: 'Hidden from public (expired closing date)' };
+  return { isVisible: true, reason: 'Visible to party goers' };
+}
+
 export default function BusinessJobs() {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [activeJobId, setActiveJobId] = useState(null);
   const [editJobId, setEditJobId] = useState(null);
@@ -99,6 +106,18 @@ export default function BusinessJobs() {
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Update failed'),
   });
 
+  useEffect(() => {
+    const readMode = () => localStorage.getItem('sec_active_mode') || 'partygoer';
+    const guardMode = () => {
+      if (readMode() !== 'business') {
+        navigate(createPageUrl('Jobs'), { replace: true });
+      }
+    };
+    guardMode();
+    window.addEventListener('sec_active_mode_changed', guardMode);
+    return () => window.removeEventListener('sec_active_mode_changed', guardMode);
+  }, [navigate]);
+
   if (!venue?.id) {
     return (
       <div style={{ padding: 16 }}>
@@ -123,6 +142,16 @@ export default function BusinessJobs() {
       <div style={{ display: 'grid', gap: 12 }}>
         {jobs.map((job) => (
           <div key={job.id} className="sec-card" style={{ borderRadius: 12, padding: 14 }}>
+            {(() => {
+              const visibility = getPublicVisibility(job);
+              return (
+                <div style={{ marginBottom: 8 }}>
+                  <span className={`sec-badge ${visibility.isVisible ? 'sec-badge-success' : 'sec-badge-danger'}`}>
+                    {visibility.reason}
+                  </span>
+                </div>
+              );
+            })()}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
               <div>
                 <div style={{ fontWeight: 700 }}>{job.title}</div>

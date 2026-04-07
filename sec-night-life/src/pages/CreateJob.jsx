@@ -37,6 +37,7 @@ export default function CreateJob() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
+  const [activeMode, setActiveMode] = useState(() => localStorage.getItem('sec_active_mode') || 'partygoer');
 
   const [form, setForm] = useState({
     venue_id: '',
@@ -70,6 +71,21 @@ export default function CreateJob() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    const handleModeChange = (event) => {
+      const mode = event?.detail?.mode || localStorage.getItem('sec_active_mode') || 'partygoer';
+      setActiveMode(mode);
+    };
+    window.addEventListener('sec_active_mode_changed', handleModeChange);
+    return () => window.removeEventListener('sec_active_mode_changed', handleModeChange);
+  }, []);
+
+  useEffect(() => {
+    if (activeMode !== 'business') {
+      navigate(createPageUrl('Jobs'), { replace: true });
+    }
+  }, [activeMode, navigate]);
 
   const { data: venues = [] } = useQuery({
     queryKey: ['biz-venues', user?.id],

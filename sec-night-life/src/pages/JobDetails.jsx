@@ -17,6 +17,13 @@ function compensationText(job) {
   return 'Compensation not specified';
 }
 
+function getPublicVisibility(job) {
+  if (!job) return { isVisible: false, reason: 'Unknown visibility' };
+  if (job.status !== 'OPEN') return { isVisible: false, reason: `Hidden from public (${job.status.toLowerCase()})` };
+  if (job.closingDate && new Date(job.closingDate) <= new Date()) return { isVisible: false, reason: 'Hidden from public (expired closing date)' };
+  return { isVisible: true, reason: 'Visible to party goers' };
+}
+
 export default function JobDetails() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -32,6 +39,14 @@ export default function JobDetails() {
   const [uploading, setUploading] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [messageBody, setMessageBody] = useState('');
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    requirements: '',
+    totalSpots: 1,
+    closingDate: '',
+  });
 
   useEffect(() => {
     authService.getCurrentUser().then(setUser).catch(() => setUser(null));
@@ -45,9 +60,16 @@ export default function JobDetails() {
 
   const { data: ownerJob } = useQuery({
     queryKey: ['owner-job', jobId],
-    queryFn: () => apiGet(`/api/jobs/${jobId}`),
+    queryFn: async () => {
+      try {
+        return await apiGet(`/api/jobs/${jobId}`);
+      } catch (err) {
+        if (err?.status === 403 || err?.status === 404) return null;
+        throw err;
+      }
+    },
     retry: false,
-    enabled: !!jobId && !!user && user.role === 'VENUE',
+    enabled: !!jobId && !!user,
   });
 
   const { data: myApplications = [] } = useQuery({
@@ -93,6 +115,36 @@ export default function JobDetails() {
       queryClient.invalidateQueries({ queryKey: ['job-messages', activeApplicationId] });
     },
   });
+
+  const saveJobEdits = useMutation({
+    mutationFn: () => apiPatch(`/api/jobs/${jobId}`, {
+      title: editForm.title.trim(),
+      description: editForm.description.trim(),
+      requirements: editForm.requirements.trim(),
+      totalSpots: Number(editForm.totalSpots || 1),
+      closingDate: editForm.closingDate || null,
+    }),
+    onSuccess: () => {
+      toast.success('Job updated');
+      setShowEditForm(false);
+      queryClient.invalidateQueries({ queryKey: ['owner-job', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['public-job', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['biz-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['public-jobs'] });
+    },
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update job'),
+  });
+
+  useEffect(() => {
+    if (!ownerJob || showEditForm) return;
+    setEditForm({
+      title: ownerJob.title || '',
+      description: ownerJob.description || '',
+      requirements: ownerJob.requirements || '',
+      totalSpots: ownerJob.totalSpots || 1,
+      closingDate: ownerJob.closingDate ? new Date(ownerJob.closingDate).toISOString().slice(0, 10) : '',
+    });
+  }, [ownerJob, showEditForm]);
 
   async function uploadCv(file) {
     if (!file) return;
@@ -142,6 +194,7 @@ export default function JobDetails() {
 
   const spotsRemaining = Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
   const canApply = user?.role === 'USER' && !selectedMyApplication && job.status === 'OPEN' && spotsRemaining > 0;
+  const visibility = getPublicVisibility(ownerJob || job);
 
   return (
     <div style={{ minHeight: '100vh', padding: 16, paddingBottom: 120 }}>
@@ -164,10 +217,49 @@ export default function JobDetails() {
         <div className="sec-badge sec-badge-success" style={{ marginTop: 14 }}>Applied</div>
       ) : null}
 
-      {ownerJob?.applications?.length ? (
+      {ownerJob ? (
         <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-          <h2>Applicants</h2>
-          {ownerJob.applications.map((a) => (
+          <div>
+            <span className={`sec-badge ${visibility.isVisible ? 'sec-badge-success' : 'sec-badge-danger'}`}>{visibility.reason}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <h2>Applicants</h2>
+            <button
+              className="sec-btn sec-btn-secondary"
+              type="button"
+              style={{ height: 40 }}
+              onClick={() => {
+                setEditForm({
+                  title: ownerJob.title || '',
+                  description: ownerJob.description || '',
+                  requirements: ownerJob.requirements || '',
+                  totalSpots: ownerJob.totalSpots || 1,
+                  closingDate: ownerJob.closingDate ? new Date(ownerJob.closingDate).toISOString().slice(0, 10) : '',
+                });
+                setShowEditForm((v) => !v);
+              }}
+            >
+              {showEditForm ? 'Cancel Edit' : 'Edit Job'}
+            </button>
+          </div>
+          {showEditForm ? (
+            <div className="sec-card" style={{ padding: 14, borderRadius: 12, display: 'grid', gap: 8 }}>
+              <div>
+                <span className={`sec-badge ${visibility.isVisible ? 'sec-badge-success' : 'sec-badge-danger'}`}>{visibility.reason}</span>
+              </div>
+              <input className="sec-input" value={editForm.title} onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))} placeholder="Title" />
+              <textarea className="sec-input" value={editForm.description} onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))} placeholder="Description" />
+              <textarea className="sec-input" value={editForm.requirements} onChange={(e) => setEditForm((p) => ({ ...p, requirements: e.target.value }))} placeholder="Requirements" />
+              <input className="sec-input" type="number" min="1" value={editForm.totalSpots} onChange={(e) => setEditForm((p) => ({ ...p, totalSpots: e.target.value }))} />
+              <input className="sec-input" type="date" value={editForm.closingDate} onChange={(e) => setEditForm((p) => ({ ...p, closingDate: e.target.value }))} />
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button className="sec-btn sec-btn-primary" type="button" disabled={saveJobEdits.isPending} onClick={() => saveJobEdits.mutate()}>
+                  {saveJobEdits.isPending ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {ownerJob.applications?.length ? ownerJob.applications.map((a) => (
             <div key={a.id} className="sec-card" style={{ padding: 14, borderRadius: 12 }}>
               <p style={{ fontWeight: 700 }}>{a.applicant?.fullName || 'Applicant'}</p>
               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{a.applicant?.email}</p>
@@ -181,7 +273,11 @@ export default function JobDetails() {
                 <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} onClick={() => setSelectedApplication(a)}>Message</button>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="sec-card" style={{ padding: 14, borderRadius: 12, color: 'var(--sec-text-muted)' }}>
+              No applicants yet.
+            </div>
+          )}
         </div>
       ) : null}
 

@@ -35,6 +35,12 @@ function isVenueComplianceComplete(latestPayload) {
   return true;
 }
 
+function getPublicVisibility(job) {
+  if (job.status !== 'OPEN') return { isVisible: false, reason: `Hidden from public (${job.status.toLowerCase()})` };
+  if (job.closingDate && new Date(job.closingDate) <= new Date()) return { isVisible: false, reason: 'Hidden from public (expired closing date)' };
+  return { isVisible: true, reason: 'Visible to party goers' };
+}
+
 function StatCard({ icon: Icon, label, value, sub }) {
   return (
     <div className="sec-card" style={{ padding: 20 }}>
@@ -468,6 +474,16 @@ export default function BusinessDashboard() {
           <div style={{ display: 'grid', gap: 12 }}>
             {jobs.map((j) => (
               <div key={j.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 14 }}>
+                {(() => {
+                  const visibility = getPublicVisibility(j);
+                  return (
+                    <div style={{ marginBottom: 8 }}>
+                      <span className={`sec-badge ${visibility.isVisible ? 'sec-badge-success' : 'sec-badge-danger'}`}>
+                        {visibility.reason}
+                      </span>
+                    </div>
+                  );
+                })()}
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
                   <div>
                     <p style={{ fontWeight: 700, margin: 0 }}>{j.title}</p>

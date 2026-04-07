@@ -66,10 +66,15 @@ const ACTIONS = [
   },
 ];
 
-export default function CreateActionCenter({ open, onOpenChange, userRoles = { partygoer: true, host: false, business: false } }) {
+export default function CreateActionCenter({ open, onOpenChange, userRoles = { partygoer: true, host: false, business: false }, activeMode = 'partygoer' }) {
   const navigate = useNavigate();
 
-  const visibleActions = ACTIONS.filter((a) => a.show(userRoles));
+  const visibleActions = ACTIONS.filter((a) => {
+    if (a.id === 'post-job' || a.id === 'create-promotion') {
+      return activeMode === 'business' && a.show(userRoles);
+    }
+    return a.show(userRoles);
+  });
 
   const handleAction = (action) => {
     onOpenChange(false);

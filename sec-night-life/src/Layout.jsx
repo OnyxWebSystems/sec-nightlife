@@ -92,6 +92,7 @@ export default function Layout({ children, currentPageName }) {
   const switchMode = (mode) => {
     setActiveMode(mode);
     localStorage.setItem('sec_active_mode', mode);
+    window.dispatchEvent(new CustomEvent('sec_active_mode_changed', { detail: { mode } }));
   };
 
   const hideNav =
@@ -122,7 +123,7 @@ export default function Layout({ children, currentPageName }) {
       ],
       secondary: [
         { name: 'Events', icon: Calendar, page: 'Events' },
-        { name: 'Jobs', icon: Briefcase, page: 'BusinessJobs' },
+        { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
         ...(userRoles.host ? [{ name: 'Host Dashboard', icon: Crown, page: 'HostDashboard' }] : []),
@@ -156,7 +157,7 @@ export default function Layout({ children, currentPageName }) {
       ],
       secondary: [
         { name: 'Post Job', icon: Briefcase, page: 'CreateJob' },
-        { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
+        { name: 'Jobs', icon: Briefcase, page: 'BusinessJobs' },
         { name: 'Promotions', icon: Megaphone, page: 'BusinessPromotions' },
         { name: 'Insights', icon: Users, page: 'FeedbackInsights' },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
@@ -338,7 +339,7 @@ export default function Layout({ children, currentPageName }) {
         {children}
       </main>
 
-      <CreateActionCenter open={showCreateModal} onOpenChange={setShowCreateModal} userRoles={userRoles} />
+      <CreateActionCenter open={showCreateModal} onOpenChange={setShowCreateModal} userRoles={userRoles} activeMode={mode} />
 
       {/* ── Mobile profile switcher (Instagram-style) ── */}
       <Dialog open={showModeSwitcher} onOpenChange={setShowModeSwitcher}>
