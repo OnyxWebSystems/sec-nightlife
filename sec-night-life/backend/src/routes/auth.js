@@ -180,8 +180,7 @@ router.post('/login', async (req, res, next) => {
     const { email, password, role: loginRole } = parsed.data;
 
     // Require role so Party Goer and Business Owner stay separate (same email = different accounts).
-    // If no role is supplied and there is only one account for the email, allow that account
-    // so SUPER_ADMIN / ADMIN users can still sign in from the normal login page.
+    // If no role is supplied, pick the account whose password matches.
     let user = null;
     if (loginRole) {
       user = await prisma.user.findFirst({
@@ -196,18 +195,38 @@ router.post('/login', async (req, res, next) => {
       if (accounts.length === 1) {
         [user] = accounts;
       } else {
-        user = accounts.find((account) => account.role === 'USER') || null;
+        // Prefer staff roles first, but ultimately choose the first account that matches the password.
+        const rolePriority = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'VENUE', 'FREELANCER', 'USER'];
+        const sorted = [...accounts].sort((a, b) => {
+          const ai = rolePriority.indexOf(a.role);
+          const bi = rolePriority.indexOf(b.role);
+          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+
+        for (const account of sorted) {
+          // eslint-disable-next-line no-await-in-loop
+          const ok = await bcrypt.compare(password, account.passwordHash);
+          if (ok) {
+            user = account;
+            break;
+          }
+        }
       }
     }
 
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    // If a role was provided, we haven't compared yet; do it now.
+    if (loginRole && user && !(await bcrypt.compare(password, user.passwordHash))) {
+      user = null;
+    }
+
+    if (!user) {
       // SECURITY: log failed attempt; same error message for both wrong email and wrong password
       await audit({
         userId: user?.id || null,
         action: 'LOGIN_FAILED',
         entityType: 'user',
         entityId: user?.id || null,
-        metadata: { email: email.toLowerCase() },
+        metadata: { email: email.toLowerCase(), roleSupplied: loginRole || null },
         ipAddress: getIp(req)
       });
       return res.status(401).json({ error: 'Invalid email or password' });
