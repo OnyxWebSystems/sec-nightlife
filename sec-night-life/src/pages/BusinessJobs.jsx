@@ -6,6 +6,18 @@ import { apiDelete, apiGet, apiPatch } from '@/api/client';
 import { dataService } from '@/services/dataService';
 import * as authService from '@/services/authService';
 import { toast } from 'sonner';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  JOB_TYPES,
+  COMPENSATION_TYPES,
+  COMPENSATION_PER,
+  jobPostingToEditForm,
+  validateJobEditForm,
+  buildJobPatchBody,
+} from '@/constants/jobPostingForm';
 
 function compensationText(job) {
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
@@ -27,7 +39,7 @@ export default function BusinessJobs() {
   const qc = useQueryClient();
   const [activeJobId, setActiveJobId] = useState(null);
   const [editJobId, setEditJobId] = useState(null);
-  const [editForm, setEditForm] = useState({ title: '', description: '', requirements: '', totalSpots: 1, closingDate: '' });
+  const [editForm, setEditForm] = useState(() => jobPostingToEditForm(null));
 
   const { data: user } = useQuery({
     queryKey: ['business-jobs-me'],
@@ -92,20 +104,25 @@ export default function BusinessJobs() {
   });
 
   const editMutation = useMutation({
-    mutationFn: () => apiPatch(`/api/jobs/${editJobId}`, {
-      title: editForm.title,
-      description: editForm.description,
-      requirements: editForm.requirements,
-      totalSpots: Number(editForm.totalSpots),
-      closingDate: editForm.closingDate || null,
-    }),
+    mutationFn: () => apiPatch(`/api/jobs/${editJobId}`, buildJobPatchBody(editForm)),
     onSuccess: () => {
       toast.success('Job updated');
       setEditJobId(null);
+      setEditForm(jobPostingToEditForm(null));
       qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Update failed'),
   });
+
+  const handleSaveEdit = () => {
+    const job = jobs.find((j) => j.id === editJobId);
+    const v = validateJobEditForm(editForm, { filledSpots: job?.filledSpots ?? 0 });
+    if (!v.ok) {
+      toast.error(v.message);
+      return;
+    }
+    editMutation.mutate();
+  };
 
   useEffect(() => {
     const readMode = () => localStorage.getItem('sec_active_mode') || 'partygoer';
@@ -190,13 +207,7 @@ export default function BusinessJobs() {
                 style={{ height: 42, width: '100%' }}
                 onClick={() => {
                   setEditJobId(job.id);
-                  setEditForm({
-                    title: job.title || '',
-                    description: job.description || '',
-                    requirements: job.requirements || '',
-                    totalSpots: job.totalSpots || 1,
-                    closingDate: job.closingDate ? new Date(job.closingDate).toISOString().slice(0, 10) : '',
-                  });
+                  setEditForm(jobPostingToEditForm(job));
                 }}
               >
                 Edit
@@ -248,8 +259,14 @@ export default function BusinessJobs() {
                 <p style={{ marginTop: 8, fontSize: 13, whiteSpace: 'pre-wrap' }}>{a.coverMessage}</p>
                 <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} onClick={async () => {
-                    const cv = await apiGet(`/api/jobs/applications/${a.id}/cv`);
-                    if (cv?.cvUrl) window.open(cv.cvUrl, '_blank');
+                    try {
+                      const cv = await apiGet(`/api/jobs/applications/${a.id}/cv`);
+                      const url = cv?.viewUrl || cv?.cvUrl;
+                      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                      else toast.error('No CV on file');
+                    } catch (err) {
+                      toast.error(err?.data?.error || err?.message || 'Cannot access CV');
+                    }
                   }}>
                     View CV
                   </button>
@@ -265,17 +282,150 @@ export default function BusinessJobs() {
       ) : null}
 
       {editJobId ? (
-        <div className="sec-card" style={{ marginTop: 14, borderRadius: 12, padding: 14, display: 'grid', gap: 8 }}>
-          <h3 style={{ fontWeight: 700 }}>Edit Job</h3>
-          <input className="sec-input" value={editForm.title} onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))} placeholder="Title" />
-          <textarea className="sec-input" value={editForm.description} onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))} placeholder="Description" />
-          <textarea className="sec-input" value={editForm.requirements} onChange={(e) => setEditForm((p) => ({ ...p, requirements: e.target.value }))} placeholder="Requirements" />
-          <input className="sec-input" type="number" min="1" value={editForm.totalSpots} onChange={(e) => setEditForm((p) => ({ ...p, totalSpots: e.target.value }))} />
-          <input className="sec-input" type="date" value={editForm.closingDate} onChange={(e) => setEditForm((p) => ({ ...p, closingDate: e.target.value }))} />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44 }} onClick={() => setEditJobId(null)}>Cancel</button>
-            <button className="sec-btn sec-btn-primary" style={{ height: 44, minWidth: 44 }} onClick={() => editMutation.mutate()} disabled={editMutation.isPending}>
-              {editMutation.isPending ? 'Saving...' : 'Save'}
+        <div
+          className="sec-card"
+          style={{ marginTop: 14, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 0, maxHeight: 'min(85vh, 720px)', overflow: 'hidden' }}
+        >
+          <h3 style={{ fontWeight: 700, marginBottom: 12, flexShrink: 0 }}>Edit Job</h3>
+          <div style={{ overflowY: 'auto', paddingRight: 4, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <Label className="text-gray-400 text-sm">Job title *</Label>
+              <Input
+                value={editForm.title}
+                onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))}
+                className="mt-1.5 h-11 rounded-xl"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+              />
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Job type *</Label>
+              <Select value={editForm.jobType} onValueChange={(v) => setEditForm((p) => ({ ...p, jobType: v }))}>
+                <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                  {JOB_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Job description *</Label>
+              <Textarea
+                value={editForm.description}
+                onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))}
+                className="mt-1.5 rounded-xl resize-y min-h-[100px]"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                rows={4}
+              />
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Requirements *</Label>
+              <Textarea
+                value={editForm.requirements}
+                onChange={(e) => setEditForm((p) => ({ ...p, requirements: e.target.value }))}
+                className="mt-1.5 rounded-xl resize-y min-h-[100px]"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                rows={4}
+              />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <Label className="text-gray-400 text-sm">Compensation type *</Label>
+                <Select value={editForm.compensationType} onValueChange={(v) => setEditForm((p) => ({ ...p, compensationType: v }))}>
+                  <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                    {COMPENSATION_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-gray-400 text-sm">Currency</Label>
+                <Input
+                  value={editForm.currency}
+                  onChange={(e) => setEditForm((p) => ({ ...p, currency: e.target.value.toUpperCase() }))}
+                  className="mt-1.5 h-11 rounded-xl"
+                  style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                />
+              </div>
+            </div>
+            {['FIXED', 'NEGOTIABLE'].includes(editForm.compensationType) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <Label className="text-gray-400 text-sm">Amount</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editForm.compensationAmount}
+                    onChange={(e) => setEditForm((p) => ({ ...p, compensationAmount: e.target.value }))}
+                    className="mt-1.5 h-11 rounded-xl"
+                    style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                  />
+                </div>
+                <div>
+                  <Label className="text-gray-400 text-sm">Paid per</Label>
+                  <Select value={editForm.compensationPer} onValueChange={(v) => setEditForm((p) => ({ ...p, compensationPer: v }))}>
+                    <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                      {COMPENSATION_PER.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <Label className="text-gray-400 text-sm">Total spots</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={editForm.totalSpots}
+                  onChange={(e) => setEditForm((p) => ({ ...p, totalSpots: e.target.value }))}
+                  className="mt-1.5 h-11 rounded-xl"
+                  style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                />
+              </div>
+              <div>
+                <Label className="text-gray-400 text-sm">Closing date</Label>
+                <Input
+                  type="date"
+                  value={editForm.closingDate}
+                  onChange={(e) => setEditForm((p) => ({ ...p, closingDate: e.target.value }))}
+                  className="mt-1.5 h-11 rounded-xl"
+                  style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                />
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16, flexShrink: 0, paddingTop: 12, borderTop: '1px solid var(--sec-border)' }}>
+            <button
+              type="button"
+              className="sec-btn sec-btn-primary w-full"
+              style={{ height: 48, borderRadius: 12 }}
+              onClick={handleSaveEdit}
+              disabled={editMutation.isPending}
+            >
+              {editMutation.isPending ? 'Saving...' : 'Save changes'}
+            </button>
+            <button
+              type="button"
+              className="sec-btn sec-btn-secondary w-full"
+              style={{ height: 44, borderRadius: 12 }}
+              onClick={() => {
+                setEditJobId(null);
+                setEditForm(jobPostingToEditForm(null));
+              }}
+            >
+              Cancel
             </button>
           </div>
         </div>

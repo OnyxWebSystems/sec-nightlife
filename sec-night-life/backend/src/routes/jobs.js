@@ -356,6 +356,8 @@ router.get('/applications/:applicationId/cv', authenticateToken, async (req, res
     const viewUrl = raw
       ? (signCloudinaryUrl(raw) || privateDownloadUrl(raw) || raw)
       : null;
+    res.set('Cache-Control', 'no-store');
+    res.set('Pragma', 'no-cache');
     return res.json({ cvUrl: raw, viewUrl, cvFileName: application.cvFileName });
   } catch (err) {
     return next(err);

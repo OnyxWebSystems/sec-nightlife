@@ -12,26 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ChevronLeft, Briefcase, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiPost } from '@/api/client';
-
-const JOB_TYPES = [
-  { value: 'FULL_TIME', label: 'Full Time' },
-  { value: 'PART_TIME', label: 'Part Time' },
-  { value: 'ONCE_OFF', label: 'Once-Off' },
-  { value: 'CONTRACT', label: 'Contract' },
-];
-
-const COMPENSATION_TYPES = [
-  { value: 'FIXED', label: 'Fixed' },
-  { value: 'NEGOTIABLE', label: 'Negotiable' },
-  { value: 'UNPAID_TRIAL', label: 'Unpaid Trial' },
-];
-
-const COMPENSATION_PER = [
-  { value: 'HOUR', label: 'Per Hour' },
-  { value: 'MONTH', label: 'Per Month' },
-  { value: 'COMMISSION', label: 'Commission' },
-  { value: 'ONCE_OFF', label: 'Once-Off' },
-];
+import { JOB_TYPES, COMPENSATION_TYPES, COMPENSATION_PER } from '@/constants/jobPostingForm';
 
 export default function CreateJob() {
   const navigate = useNavigate();
@@ -296,17 +277,6 @@ export default function CreateJob() {
                   style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 />
               </div>
-            </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Compensation per</Label>
-              <Select value={form.compensationPer} onValueChange={v => setForm(p => ({ ...p, compensationPer: v }))}>
-                <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-                  {COMPENSATION_PER.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
             </div>
 
             <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
