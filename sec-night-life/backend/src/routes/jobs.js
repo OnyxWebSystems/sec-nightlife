@@ -354,7 +354,7 @@ router.get('/applications/:applicationId/cv', authenticateToken, async (req, res
     if (!application) return res.status(403).json({ error: 'Forbidden' });
     const raw = application.cvUrl;
     const viewUrl = raw
-      ? (signCloudinaryUrl(raw) || privateDownloadUrl(raw) || raw)
+      ? (privateDownloadUrl(raw) || signCloudinaryUrl(raw) || raw)
       : null;
     res.set('Cache-Control', 'no-store');
     res.set('Pragma', 'no-cache');
