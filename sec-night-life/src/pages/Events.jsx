@@ -78,14 +78,15 @@ export default function Events() {
     return ad - bd;
   });
 
-  const recommendedEvents = sortByFollowedVenueFirst(filteredEvents.filter(event => {
+  const recommendedEventsRaw = filteredEvents.filter((event) => {
     if (!userProfile) return false;
     if (userProfile.city && event.city === userProfile.city) return true;
     if (userProfile.music_preferences?.length > 0 && event.music_genres?.length > 0) {
-      return event.music_genres.some(genre => userProfile.music_preferences.includes(genre));
+      return event.music_genres.some((genre) => userProfile.music_preferences.includes(genre));
     }
     return false;
-  }, (a, b) => {
+  });
+  const recommendedEvents = sortByFollowedVenueFirst(recommendedEventsRaw, (a, b) => {
     const ad = a?.date ? new Date(a.date).getTime() : 0;
     const bd = b?.date ? new Date(b.date).getTime() : 0;
     return ad - bd;
