@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 
 export default function ChatRoom() {
   const navigate = useNavigate();
@@ -41,6 +42,10 @@ export default function ChatRoom() {
     scrollToBottom();
   }, []);
 
+  useEffect(() => {
+    if (messages.length > 0) scrollToBottom();
+  }, [messages.length]);
+
   const loadUser = async () => {
     try {
       const currentUser = await authService.getCurrentUser();
@@ -60,7 +65,7 @@ export default function ChatRoom() {
   };
 
   // Get or create chat for table
-  const { data: chat, isLoading: chatLoading } = useQuery({
+  const { data: chat, isLoading: chatLoading, isError: chatError } = useQuery({
     queryKey: ['chat', chatId, tableId],
     queryFn: async () => {
       if (chatId) {
@@ -100,7 +105,7 @@ export default function ChatRoom() {
     enabled: !!user && (!!chatId || !!tableId),
   });
 
-  const { data: messages = [] } = useQuery({
+  const { data: messages = [], isError: messagesError } = useQuery({
     queryKey: ['messages', chat?.id],
     queryFn: () => dataService.Message.filter({ chat_id: chat.id }, 'created_date', 500),
     enabled: !!chat?.id,
@@ -108,40 +113,53 @@ export default function ChatRoom() {
   });
 
   const { data: participants = [] } = useQuery({
-    queryKey: ['chat-participants', chat?.participants],
+    queryKey: ['chat-participants', chat?.id, chat?.participants, chat?.related_table_id, chat?.relatedTableId],
     queryFn: async () => {
-      if (!chat?.participants) return [];
+      const participantIds = new Set(chat?.participants || []);
+      const tableRef = chat?.related_table_id || chat?.relatedTableId;
+      if (participantIds.size === 0 && chat?.type === 'table' && tableRef) {
+        const tables = await dataService.Table.filter({ id: tableRef });
+        const table = tables?.[0];
+        if (table?.host_user_id) participantIds.add(table.host_user_id);
+        (table?.members || []).forEach((m) => {
+          if (m?.user_id) participantIds.add(m.user_id);
+        });
+      }
+      if (participantIds.size === 0) return [];
       const profiles = await Promise.all(
-        chat.participants.map(id => dataService.User.filter({ id }))
+        [...participantIds].map(id => dataService.User.filter({ id }))
       );
       return profiles.flat();
     },
-    enabled: !!chat?.participants,
+    enabled: !!chat?.id,
   });
 
   const sendMessageMutation = useMutation({
     mutationFn: async ({ content, type = 'text', mediaUrl = null }) => {
       const newMessage = await dataService.Message.create({
         chat_id: chat.id,
-        sender_id: userProfile.id,
+        sender_id: user.id,
         content,
         message_type: type,
         media_url: mediaUrl,
-        read_by: [userProfile.id],
+        read_by: [user.id],
       });
 
       await dataService.Chat.update(chat.id, {
         last_message: type === 'image' ? '📷 Image' : content,
         last_message_at: new Date().toISOString(),
-        last_message_by: userProfile.id,
+        last_message_by: user.id,
       });
 
       return newMessage;
     },
     onSuccess: () => {
       setMessage('');
-      queryClient.invalidateQueries(['messages', chat?.id]);
+      queryClient.invalidateQueries({ queryKey: ['messages', chat?.id] });
       setTimeout(scrollToBottom, 100);
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to send message');
     },
   });
 
@@ -149,7 +167,7 @@ export default function ChatRoom() {
     mutationFn: async ({ messageId, reaction }) => {
       const msg = messages.find(m => m.id === messageId);
       const reactions = msg.reactions || {};
-      const userReactions = reactions[userProfile.id] || [];
+      const userReactions = reactions[user.id] || [];
       
       const updatedReactions = userReactions.includes(reaction)
         ? userReactions.filter(r => r !== reaction)
@@ -158,13 +176,16 @@ export default function ChatRoom() {
       await dataService.Message.update(messageId, {
         reactions: {
           ...reactions,
-          [userProfile.id]: updatedReactions
+          [user.id]: updatedReactions
         }
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['messages', chat?.id]);
+      queryClient.invalidateQueries({ queryKey: ['messages', chat?.id] });
       setSelectedReaction(null);
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to react to message');
     },
   });
 
@@ -183,13 +204,13 @@ export default function ChatRoom() {
     setUploadingMedia(true);
     try {
       const { file_url } = await integrations.Core.UploadFile({ file });
-      await sendMessageMutation.mutate({ 
+      await sendMessageMutation.mutateAsync({ 
         content: file.name, 
         type: 'image',
         mediaUrl: file_url 
       });
     } catch (error) {
-      console.error('Media upload failed:', error);
+      toast.error(error?.message || 'Media upload failed');
     } finally {
       setUploadingMedia(false);
     }
@@ -224,6 +245,17 @@ export default function ChatRoom() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-12 h-12 rounded-full border-2 border-[var(--sec-success)] border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (chatError || messagesError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-bold mb-2">Unable to load chat</h2>
+          <Button onClick={() => navigate(-1)}>Go Back</Button>
+        </div>
       </div>
     );
   }
@@ -267,7 +299,7 @@ export default function ChatRoom() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.map((msg, index) => {
-          const isOwn = msg.sender_id === userProfile?.id;
+          const isOwn = msg.sender_id === user?.id;
           const sender = participants.find(p => p.id === msg.sender_id);
           const showAvatar = !isOwn && (index === 0 || messages[index - 1]?.sender_id !== msg.sender_id);
           const allReactions = msg.reactions || {};

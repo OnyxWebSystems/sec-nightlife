@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { createNotification } from '../lib/notifications.js';
 
 const router = Router();
 
@@ -91,6 +92,17 @@ router.post('/', authenticateToken, async (req, res, next) => {
     const r = await prisma.friendRequest.create({
       data: { fromUserId: fromUid, toUserId: toUid, status: d.status || 'pending' }
     });
+
+    const fromUser = await prisma.user.findUnique({ where: { id: fromUid }, select: { fullName: true } }).catch(() => null);
+    const fromName = fromUser?.fullName || 'Someone';
+    await createNotification({
+      userId: toUid,
+      type: 'friend_request',
+      title: 'New friend request',
+      body: `${fromName} sent you a friend request.`,
+      actionUrl: '/Friends',
+    });
+
     res.status(201).json({ id: r.id, from_user_id: r.fromUserId, to_user_id: r.toUserId, status: r.status });
   } catch (err) {
     next(err);
@@ -109,6 +121,39 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       where: { id: r.id },
       data: { status: parsed.data.status }
     });
+
+    if (updated.status === 'accepted') {
+      // Keep a durable server-side friendship list on profiles.
+      const [fromProfile, toProfile] = await Promise.all([
+        prisma.userProfile.findUnique({ where: { userId: updated.fromUserId } }).catch(() => null),
+        prisma.userProfile.findUnique({ where: { userId: updated.toUserId } }).catch(() => null),
+      ]);
+      const fromFriends = new Set([...(fromProfile?.friends || []), updated.toUserId]);
+      const toFriends = new Set([...(toProfile?.friends || []), updated.fromUserId]);
+      await Promise.all([
+        prisma.userProfile.upsert({
+          where: { userId: updated.fromUserId },
+          create: { userId: updated.fromUserId, friends: [...fromFriends] },
+          update: { friends: [...fromFriends] },
+        }),
+        prisma.userProfile.upsert({
+          where: { userId: updated.toUserId },
+          create: { userId: updated.toUserId, friends: [...toFriends] },
+          update: { friends: [...toFriends] },
+        }),
+      ]);
+
+      const toUser = await prisma.user.findUnique({ where: { id: updated.toUserId }, select: { fullName: true } }).catch(() => null);
+      const toName = toUser?.fullName || 'Someone';
+      await createNotification({
+        userId: updated.fromUserId,
+        type: 'friend_request',
+        title: 'Friend request accepted',
+        body: `${toName} accepted your friend request.`,
+        actionUrl: '/Friends',
+      });
+    }
+
     res.json({ id: updated.id, status: updated.status });
   } catch (err) {
     next(err);

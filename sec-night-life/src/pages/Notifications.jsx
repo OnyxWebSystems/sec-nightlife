@@ -24,6 +24,8 @@ const NOTIFICATION_ICONS = {
   friend_request: UserPlus,
   table_invite: Users,
   table_request: Users,
+  table_update: Users,
+  table_full: Users,
   job_application: Briefcase,
   message: MessageCircle,
   event_reminder: Calendar,
@@ -36,6 +38,8 @@ const NOTIFICATION_COLORS = {
   friend_request: 'sec-badge-silver',
   table_invite: 'sec-badge-success',
   table_request: 'sec-badge-success',
+  table_update: 'sec-badge-silver',
+  table_full: 'sec-badge-gold',
   job_application: 'sec-badge-gold',
   message: 'sec-badge-silver',
   event_reminder: 'sec-badge-silver',
@@ -70,6 +74,7 @@ export default function Notifications() {
         created_date: n.created_at ?? n.created_date,
       }))),
     enabled: !!user?.id,
+    refetchInterval: 30000,
   });
 
   const markAsReadMutation = useMutation({

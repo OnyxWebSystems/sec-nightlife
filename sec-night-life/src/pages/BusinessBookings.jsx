@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { apiPost } from '@/api/client';
 import {
   BookOpen, Users, Search, Loader2, Check, X, ChevronRight, Eye
 } from 'lucide-react';
@@ -70,28 +71,30 @@ export default function BusinessBookings() {
     onError: () => toast.error('Failed to update'),
   });
 
+  const approveRequestMutation = useMutation({
+    mutationFn: ({ tableId, userId }) => apiPost(`/api/tables/${tableId}/requests/${userId}/approve`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['biz-tables'] });
+      toast.success('Request approved');
+    },
+    onError: (err) => toast.error(err?.data?.error || 'Failed to approve'),
+  });
+
+  const rejectRequestMutation = useMutation({
+    mutationFn: ({ tableId, userId }) => apiPost(`/api/tables/${tableId}/requests/${userId}/reject`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['biz-tables'] });
+      toast.success('Request rejected');
+    },
+    onError: (err) => toast.error(err?.data?.error || 'Failed to reject'),
+  });
+
   const handleApproveRequest = (table, requestUserId) => {
-    const pending = (table.pending_requests || []).filter(r => {
-      const uid = typeof r === 'string' ? r : r.user_id;
-      return uid !== requestUserId;
-    });
-    const members = [...(table.members || []), requestUserId];
-    updateMutation.mutate({
-      id: table.id,
-      data: {
-        pending_requests: pending,
-        members,
-        current_guests: (table.current_guests || 0) + 1,
-      },
-    });
+    approveRequestMutation.mutate({ tableId: table.id, userId: requestUserId });
   };
 
   const handleRejectRequest = (table, requestUserId) => {
-    const pending = (table.pending_requests || []).filter(r => {
-      const uid = typeof r === 'string' ? r : r.user_id;
-      return uid !== requestUserId;
-    });
-    updateMutation.mutate({ id: table.id, data: { pending_requests: pending } });
+    rejectRequestMutation.mutate({ tableId: table.id, userId: requestUserId });
   };
 
   const eventMap = {};
@@ -251,7 +254,7 @@ export default function BusinessBookings() {
                           </span>
                           <button
                             onClick={() => handleApproveRequest(t, uid)}
-                            disabled={updateMutation.isPending}
+                            disabled={approveRequestMutation.isPending || rejectRequestMutation.isPending}
                             style={{
                               padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
                               backgroundColor: 'var(--sec-success-muted)', color: 'var(--sec-success)', fontSize: 11, fontWeight: 600,
@@ -262,7 +265,7 @@ export default function BusinessBookings() {
                           </button>
                           <button
                             onClick={() => handleRejectRequest(t, uid)}
-                            disabled={updateMutation.isPending}
+                            disabled={approveRequestMutation.isPending || rejectRequestMutation.isPending}
                             style={{
                               padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
                               backgroundColor: 'var(--sec-error-muted)', color: 'var(--sec-error)', fontSize: 11, fontWeight: 600,

@@ -4,7 +4,6 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
-import { apiGet } from '@/api/client';
 import { 
   MessageCircle,
   Search,
@@ -37,24 +36,21 @@ export default function Messages() {
 
   const { data: chats = [], isLoading } = useQuery({
     queryKey: ['chats', user?.id],
-    queryFn: async () => {
-      const allChats = await dataService.Chat.list('-last_message_at', 100);
-      return allChats.filter(chat => chat.participants?.includes(user?.id));
-    },
+    queryFn: async () => dataService.Chat.list('-last_message_at', 100),
     enabled: !!user?.id,
+    refetchInterval: 10000,
   });
 
   const filteredChats = chats.filter(chat => {
     const matchesSearch = chat.name?.toLowerCase().includes(searchQuery.toLowerCase());
     if (selectedTab === 'direct') return matchesSearch && chat.type === 'direct';
-    if (selectedTab === 'groups') return matchesSearch && (chat.type === 'group' || chat.type === 'table');
+    if (selectedTab === 'groups') return matchesSearch && chat.type === 'table';
     return matchesSearch;
   });
 
   const showEmptyChatState =
     filteredChats.length === 0 &&
-    !isLoading &&
-    (user?.role !== 'USER' ? true : !jobAppsLoading && jobApplications.length === 0);
+    !isLoading;
 
   const tabs = [
     { value: 'all', label: 'All' },
@@ -118,6 +114,8 @@ export default function Messages() {
         <div className="space-y-2">
           {filteredChats.map((chat, index) => {
             const unreadCount = chat.unread_counts?.[user?.id] || 0;
+            const lastMessageAt = chat.last_message_at || chat.lastMessageAt || null;
+            const lastMessagePreview = chat.last_message || chat.lastMessage || 'No messages yet';
             
             return (
               <motion.div
@@ -164,15 +162,15 @@ export default function Messages() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <h3 className="font-semibold truncate">{chat.name || 'Chat'}</h3>
-                      {chat.last_message_at && (
+                      {lastMessageAt && (
                         <span style={{ fontSize: 11, color: 'var(--sec-text-muted)', flexShrink: 0 }}>
-                          {formatDistanceToNow(parseISO(chat.last_message_at), { addSuffix: false })}
+                          {formatDistanceToNow(parseISO(lastMessageAt), { addSuffix: false })}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
                       <p className="text-sm text-gray-500 truncate pr-4">
-                        {chat.last_message || 'No messages yet'}
+                        {lastMessagePreview}
                       </p>
                       {unreadCount > 0 && (
                         <span style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: 'var(--sec-accent)', color: 'var(--sec-bg-base)', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

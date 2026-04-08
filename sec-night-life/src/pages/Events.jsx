@@ -42,8 +42,21 @@ export default function Events() {
   });
 
   const venuesMap = venues.reduce((acc, venue) => { acc[venue.id] = venue; return acc; }, {});
+  const followedVenueSet = new Set(userProfile?.followed_venues || []);
+  const sortByFollowedVenueFirst = (items, tieBreaker) => {
+    const withIndex = items.map((item, idx) => ({ item, idx }));
+    withIndex.sort((a, b) => {
+      const aFollowed = followedVenueSet.has(a.item?.venue_id);
+      const bFollowed = followedVenueSet.has(b.item?.venue_id);
+      if (aFollowed !== bFollowed) return aFollowed ? -1 : 1;
+      const tie = tieBreaker ? tieBreaker(a.item, b.item) : 0;
+      if (tie !== 0) return tie;
+      return a.idx - b.idx;
+    });
+    return withIndex.map((x) => x.item);
+  };
 
-  const filteredEvents = events.filter(event => {
+  const filteredEventsRaw = events.filter(event => {
     const matchesSearch = event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          event.city?.toLowerCase().includes(searchQuery.toLowerCase());
     const venue = venuesMap[event.venue_id];
@@ -59,14 +72,23 @@ export default function Events() {
     }
     return matchesSearch && matchesVenueType && matchesCity && matchesPrice;
   });
+  const filteredEvents = sortByFollowedVenueFirst(filteredEventsRaw, (a, b) => {
+    const ad = a?.date ? new Date(a.date).getTime() : 0;
+    const bd = b?.date ? new Date(b.date).getTime() : 0;
+    return ad - bd;
+  });
 
-  const recommendedEvents = filteredEvents.filter(event => {
+  const recommendedEvents = sortByFollowedVenueFirst(filteredEvents.filter(event => {
     if (!userProfile) return false;
     if (userProfile.city && event.city === userProfile.city) return true;
     if (userProfile.music_preferences?.length > 0 && event.music_genres?.length > 0) {
       return event.music_genres.some(genre => userProfile.music_preferences.includes(genre));
     }
     return false;
+  }, (a, b) => {
+    const ad = a?.date ? new Date(a.date).getTime() : 0;
+    const bd = b?.date ? new Date(b.date).getTime() : 0;
+    return ad - bd;
   }).slice(0, 4);
 
   const cities = [...new Set(events.map(e => e.city).filter(Boolean))];

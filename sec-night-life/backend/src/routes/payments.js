@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { createNotification, createNotifications } from '../lib/notifications.js';
 
 const router = Router();
 
@@ -86,11 +87,32 @@ async function applyReferenceSideEffects(reference, paystackData) {
       where: { id: promoId, deletedAt: null },
       data: { boostStatus: 'active', boostRef: reference, boostPaidAt: new Date() },
     });
+
+    const promo = await prisma.promotion.findFirst({
+      where: { id: promoId, deletedAt: null },
+      select: { id: true, title: true, venueId: true },
+    });
+    if (promo) {
+      const venue = await prisma.venue.findFirst({
+        where: { id: promo.venueId, deletedAt: null },
+        select: { ownerUserId: true, name: true },
+      });
+      await createNotification({
+        userId: venue?.ownerUserId,
+        type: 'payment',
+        title: 'Promotion boost active',
+        body: `"${promo.title}" is now boosted for ${venue?.name || 'your venue'}.`,
+        actionUrl: `/BusinessPromotions`,
+      });
+    }
   }
 
   const tableId = metadata.table_id;
   if (tableId && userId) {
-    const table = await prisma.table.findFirst({ where: { id: tableId, deletedAt: null } });
+    const table = await prisma.table.findFirst({
+      where: { id: tableId, deletedAt: null },
+      include: { venue: { select: { ownerUserId: true, name: true } } },
+    });
     if (table) {
       const members = Array.isArray(table.members) ? [...table.members] : [];
       const memberIdx = members.findIndex((m) => m?.user_id === userId);
@@ -101,7 +123,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         members.push({ user_id: userId, status: 'confirmed', contribution, joined_at: new Date().toISOString() });
       }
       const pendingRequests = Array.isArray(table.pendingRequests) ? table.pendingRequests.filter((id) => id !== userId) : [];
-      await prisma.table.update({
+      const updated = await prisma.table.update({
         where: { id: tableId },
         data: {
           members,
@@ -109,6 +131,35 @@ async function applyReferenceSideEffects(reference, paystackData) {
           currentGuests: members.length,
         },
       });
+
+      const payer = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+      const payerName = payer?.fullName || 'Someone';
+
+      await createNotifications({
+        userIds: [table.hostUserId, table.venue?.ownerUserId],
+        type: 'payment',
+        title: 'Table payment confirmed',
+        body: `${payerName} completed payment to join "${table.name}".`,
+        actionUrl: `/ManageTable?id=${tableId}`,
+      });
+
+      await createNotification({
+        userId,
+        type: 'payment',
+        title: 'Payment confirmed',
+        body: `Your payment for "${table.name}" was confirmed.`,
+        actionUrl: `/TableDetails?id=${tableId}`,
+      });
+
+      if (updated.status === 'full') {
+        await createNotifications({
+          userIds: [table.hostUserId, table.venue?.ownerUserId],
+          type: 'table_full',
+          title: 'Table is fully booked',
+          body: `"${table.name}" has reached max capacity.`,
+          actionUrl: `/ManageTable?id=${tableId}`,
+        });
+      }
     }
   }
 
@@ -116,7 +167,10 @@ async function applyReferenceSideEffects(reference, paystackData) {
   const ticketTier = metadata.ticket_tier_name;
   const qty = parseInt(metadata.quantity || '1', 10);
   if (eventId && ticketTier && qty > 0) {
-    const event = await prisma.event.findFirst({ where: { id: eventId, deletedAt: null } });
+    const event = await prisma.event.findFirst({
+      where: { id: eventId, deletedAt: null },
+      include: { venue: { select: { ownerUserId: true, name: true } } },
+    });
     if (event?.ticketTiers && Array.isArray(event.ticketTiers)) {
       const tiers = event.ticketTiers.map((t) =>
         t.name === ticketTier ? { ...t, sold: (t.sold || 0) + qty } : t
@@ -124,6 +178,24 @@ async function applyReferenceSideEffects(reference, paystackData) {
       await prisma.event.update({
         where: { id: eventId },
         data: { ticketTiers: tiers },
+      });
+
+      if (userId) {
+        await createNotification({
+          userId,
+          type: 'payment',
+          title: 'Tickets confirmed',
+          body: `Your ticket purchase for "${event.title}" was confirmed.`,
+          actionUrl: `/EventDetails?id=${eventId}`,
+        });
+      }
+
+      await createNotification({
+        userId: event.venue?.ownerUserId,
+        type: 'payment',
+        title: 'Ticket purchase',
+        body: `${qty} ticket(s) sold for "${event.title}" at ${event.venue?.name || 'your venue'}.`,
+        actionUrl: `/BusinessEvents`,
       });
     }
   }

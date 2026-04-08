@@ -43,6 +43,7 @@ const endpointMap = {
   Job: 'jobs',
   Notification: 'notifications',
   Chat: 'chats',
+  Message: 'messages',
   FriendRequest: 'friend-requests',
   HostEvent: 'host-events',
   Transaction: 'transactions',
@@ -62,10 +63,10 @@ export const dataService = {
   Job: adapterFor('Job'),
   Notification: adapterFor('Notification'),
   Chat: adapterFor('Chat'),
+  Message: adapterFor('Message'),
   FriendRequest: adapterFor('FriendRequest'),
   HostEvent: adapterFor('HostEvent'),
   Transaction: adapterFor('Transaction'),
   Review: adapterFor('Review'),
-  TableHistory: { filter: () => [], list: () => [], create: () => ({}), update: () => ({}), delete: () => {} },
-  Message: { filter: () => [], list: () => [], create: () => ({}), update: () => ({}), delete: () => {} }
+  TableHistory: { filter: () => [], list: () => [], create: () => ({}), update: () => ({}), delete: () => {} }
 };

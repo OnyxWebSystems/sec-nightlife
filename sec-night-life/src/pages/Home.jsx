@@ -56,6 +56,38 @@ export default function Home() {
   });
 
   const cities = [...new Set(venues.map(v => v.city).filter(Boolean))];
+  const followedVenueSet = new Set(userProfile?.followed_venues || []);
+  const sortByFollowedVenueFirst = (items, getVenueId, tieBreaker) => {
+    const withIndex = items.map((item, idx) => ({ item, idx }));
+    withIndex.sort((a, b) => {
+      const aFollowed = followedVenueSet.has(getVenueId(a.item));
+      const bFollowed = followedVenueSet.has(getVenueId(b.item));
+      if (aFollowed !== bFollowed) return aFollowed ? -1 : 1;
+      const tie = tieBreaker ? tieBreaker(a.item, b.item) : 0;
+      if (tie !== 0) return tie;
+      return a.idx - b.idx;
+    });
+    return withIndex.map((x) => x.item);
+  };
+
+  const prioritizedEvents = sortByFollowedVenueFirst(
+    events,
+    (e) => e.venue_id,
+    (a, b) => {
+      const ad = a?.date ? new Date(a.date).getTime() : 0;
+      const bd = b?.date ? new Date(b.date).getTime() : 0;
+      return bd - ad;
+    }
+  );
+  const prioritizedTables = sortByFollowedVenueFirst(
+    tables,
+    (t) => t.venue_id,
+    (a, b) => {
+      const ad = a?.created_date ? new Date(a.created_date).getTime() : 0;
+      const bd = b?.created_date ? new Date(b.created_date).getTime() : 0;
+      return bd - ad;
+    }
+  );
 
   const filteredVenues = venues.filter(venue => {
     const matchesSearch = venue.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -67,8 +99,8 @@ export default function Home() {
 
   const verifiedVenues = filteredVenues.filter(v => v.is_verified);
   const otherVenues = filteredVenues.filter(v => !v.is_verified);
-  const featuredEvents = events.filter(e => e.is_featured).slice(0, 5);
-  const upcomingEvents = events.slice(0, 6);
+  const featuredEvents = prioritizedEvents.filter(e => e.is_featured).slice(0, 5);
+  const upcomingEvents = prioritizedEvents.slice(0, 6);
 
   if (loading) {
     return (
@@ -208,14 +240,14 @@ export default function Home() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {tables.slice(0, 6).map((table, i) => (
+            {prioritizedTables.slice(0, 6).map((table, i) => (
               <motion.div key={table.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
                 <TrendingTableCard table={table} />
               </motion.div>
             ))}
           </div>
 
-          {tables.length === 0 && !tablesLoading && (
+          {prioritizedTables.length === 0 && !tablesLoading && (
             <div className="sec-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
               <div style={{
                 width: 56, height: 56, borderRadius: '50%',

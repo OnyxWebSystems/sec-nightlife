@@ -99,7 +99,10 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       if (!ok && req.query.venue_id) return res.status(403).json({ error: 'Forbidden' });
       await applyEventVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
     }
-    const events = await prisma.event.findMany({ where });
+    const sort = String(req.query.sort || 'date');
+    const orderBy = { date: sort === '-date' ? 'desc' : 'asc' };
+    const take = Math.min(parseInt(req.query.limit) || 100, 100);
+    const events = await prisma.event.findMany({ where, orderBy, take });
     res.json(events.map(mapEventRow));
   } catch (err) {
     next(err);

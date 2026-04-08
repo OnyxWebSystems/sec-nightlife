@@ -33,6 +33,16 @@ export default function Layout({ children, currentPageName }) {
   const longPressTimerRef = useRef(null);
 
   useEffect(() => { loadUser(); }, []);
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    const timer = window.setInterval(async () => {
+      try {
+        const notifs = await dataService.Notification.filter({ user_id: user.id, is_read: false });
+        setNotifications(notifs);
+      } catch {}
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [user?.id]);
 
   const loadUser = async () => {
     const token = localStorage?.getItem('access_token') || sessionStorage?.getItem('access_token');

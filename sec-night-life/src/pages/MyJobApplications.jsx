@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { apiGet, apiPost } from '@/api/client';
 import { ChevronLeft, Briefcase, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 function StatusPill({ status }) {
   const s = (status || 'pending').toLowerCase();
@@ -37,42 +38,74 @@ function StatusPill({ status }) {
 
 export default function MyJobApplications() {
   const navigate = useNavigate();
-  const [apps, setApps] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const [authed, setAuthed] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
-  const [messages, setMessages] = useState([]);
   const [body, setBody] = useState('');
 
   useEffect(() => {
     (async () => {
       try {
         await authService.getCurrentUser();
-        const data = await apiGet('/api/jobs/my-applications');
-        setApps(Array.isArray(data) ? data : []);
+        setAuthed(true);
       } catch {
         authService.redirectToLogin(createPageUrl('MyJobApplications'));
-      } finally {
-        setLoading(false);
       }
     })();
   }, []);
 
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const deepLinkApplicationId = urlParams.get('applicationId');
+  const deepLinkJobId = urlParams.get('jobId');
+
+  const { data: apps = [], isLoading: appsLoading } = useQuery({
+    queryKey: ['my-apps'],
+    queryFn: async () => {
+      const data = await apiGet('/api/jobs/my-applications');
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: authed,
+    refetchInterval: 30000,
+    retry: false,
+  });
+
+  const autoOpenCandidateId = useMemo(() => {
+    if (!apps.length) return null;
+    if (deepLinkApplicationId) return deepLinkApplicationId;
+    if (deepLinkJobId) return apps.find((a) => a.jobPostingId === deepLinkJobId)?.id || null;
+    const unread = apps.find((a) => (a.unreadCount || 0) > 0);
+    return unread?.id || null;
+  }, [apps, deepLinkApplicationId, deepLinkJobId]);
+
   useEffect(() => {
-    if (!selectedId) return undefined;
-    let mounted = true;
-    const load = async () => {
-      try {
-        const data = await apiGet(`/api/jobs/applications/${selectedId}/messages`);
-        if (mounted) setMessages(Array.isArray(data) ? data : []);
-      } catch {}
-    };
-    load();
-    const timer = setInterval(load, 30000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, [selectedId]);
+    if (selectedId) return;
+    if (!autoOpenCandidateId) return;
+    setSelectedId(autoOpenCandidateId);
+  }, [selectedId, autoOpenCandidateId]);
+
+  const { data: messages = [], isLoading: messagesLoading } = useQuery({
+    queryKey: ['job-messages', selectedId],
+    queryFn: async () => {
+      const data = await apiGet(`/api/jobs/applications/${selectedId}/messages`);
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!selectedId && authed,
+    refetchInterval: 30000,
+    retry: false,
+  });
+
+  const sendMessage = useMutation({
+    mutationFn: async () => {
+      const payload = { body: body.trim() };
+      if (!payload.body) return null;
+      return apiPost(`/api/jobs/applications/${selectedId}/messages`, payload);
+    },
+    onSuccess: async () => {
+      setBody('');
+      await queryClient.invalidateQueries({ queryKey: ['job-messages', selectedId] });
+      await queryClient.invalidateQueries({ queryKey: ['my-apps'] });
+    },
+  });
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
@@ -86,7 +119,7 @@ export default function MyJobApplications() {
       </header>
 
       <div style={{ padding: 16 }}>
-        {loading ? (
+        {appsLoading ? (
           <div style={{ padding: 24, textAlign: 'center' }}>
             <div className="sec-spinner" style={{ margin: '0 auto 12px' }} />
             <p style={{ color: 'var(--sec-text-muted)' }}>Loading…</p>
@@ -132,7 +165,11 @@ export default function MyJobApplications() {
         <div style={{ padding: 16, borderTop: '1px solid var(--sec-border)' }}>
           <h3 style={{ marginBottom: 8 }}>Messages</h3>
           <div className="sec-card" style={{ padding: 10, maxHeight: 240, overflowY: 'auto', borderRadius: 12, display: 'grid', gap: 8 }}>
-            {messages.map((m) => (
+            {messagesLoading ? (
+              <div style={{ padding: 10, color: 'var(--sec-text-muted)', fontSize: 13 }}>Loading messages…</div>
+            ) : messages.length === 0 ? (
+              <div style={{ padding: 10, color: 'var(--sec-text-muted)', fontSize: 13 }}>No messages yet.</div>
+            ) : messages.map((m) => (
               <div key={m.id} style={{ background: 'var(--sec-bg-elevated)', borderRadius: 10, padding: 10 }}>
                 <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{m.sender?.fullName || 'User'} · {new Date(m.sentAt).toLocaleString()}</div>
                 <div>{m.body}</div>
@@ -144,15 +181,10 @@ export default function MyJobApplications() {
             <button
               className="sec-btn sec-btn-primary"
               style={{ height: 44, minWidth: 44 }}
-              onClick={async () => {
-                if (!body.trim()) return;
-                await apiPost(`/api/jobs/applications/${selectedId}/messages`, { body });
-                setBody('');
-                const data = await apiGet(`/api/jobs/applications/${selectedId}/messages`);
-                setMessages(Array.isArray(data) ? data : []);
-              }}
+              disabled={!body.trim() || sendMessage.isPending}
+              onClick={() => sendMessage.mutate()}
             >
-              Send
+              {sendMessage.isPending ? 'Sending…' : 'Send'}
             </button>
           </div>
         </div>

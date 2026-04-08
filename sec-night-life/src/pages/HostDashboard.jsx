@@ -9,6 +9,7 @@ import SecLogo from '@/components/ui/SecLogo';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
+import { apiPost } from '@/api/client';
 
 export default function HostDashboard() {
   const navigate = useNavigate();
@@ -60,28 +61,7 @@ export default function HostDashboard() {
 
   const acceptRequestMutation = useMutation({
     mutationFn: async ({ tableId, userId }) => {
-      const tables = await dataService.Table.filter({ id: tableId });
-      const table = tables[0];
-      
-      const updatedMembers = table.members.map(m => 
-        m.user_id === userId ? { ...m, status: 'confirmed' } : m
-      );
-      const updatedPending = table.pending_requests.filter(id => id !== userId);
-      
-      await dataService.Table.update(tableId, {
-        members: updatedMembers,
-        pending_requests: updatedPending,
-        current_guests: (table.current_guests || 1) + 1
-      });
-
-      await dataService.Notification.create({
-        user_id: userId,
-        type: 'table_invite',
-        title: 'Request Accepted!',
-        message: `You've been accepted to join "${table.name}"`,
-        data: { table_id: tableId },
-        action_url: createPageUrl(`TableDetails?id=${tableId}`)
-      });
+      await apiPost(`/api/tables/${tableId}/requests/${userId}/approve`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['hosted-tables']);
@@ -90,16 +70,7 @@ export default function HostDashboard() {
 
   const rejectRequestMutation = useMutation({
     mutationFn: async ({ tableId, userId }) => {
-      const tables = await dataService.Table.filter({ id: tableId });
-      const table = tables[0];
-      
-      const updatedMembers = table.members.filter(m => m.user_id !== userId);
-      const updatedPending = table.pending_requests.filter(id => id !== userId);
-      
-      await dataService.Table.update(tableId, {
-        members: updatedMembers,
-        pending_requests: updatedPending
-      });
+      await apiPost(`/api/tables/${tableId}/requests/${userId}/reject`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['hosted-tables']);

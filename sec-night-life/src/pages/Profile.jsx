@@ -5,6 +5,7 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiPost } from '@/api/client';
 import {
   Settings,
   MapPin,
@@ -167,23 +168,43 @@ export default function Profile() {
         to_user_id: viewedProfile.id,
         status: 'pending'
       });
-      
-      await dataService.Notification.create({
-        user_id: viewedProfile.id,
-        type: 'friend_request',
-        title: 'New Friend Request',
-        message: `${userProfile.username || user.full_name} sent you a friend request`,
-        data: { from_user_id: userProfile.id }
-      });
     },
     onSuccess: () => {
       toast.success('Friend request sent!');
       queryClient.invalidateQueries(['friend-requests']);
+      queryClient.invalidateQueries(['friend-connection', userProfile?.id, viewedProfile?.id]);
     },
   });
 
-  const isFriend = userProfile?.friends?.includes(viewedProfile?.id);
-  const hasPendingRequest = friendRequests.some(req => req.from_user_id === viewedProfile?.id);
+  const { data: friendConnection } = useQuery({
+    queryKey: ['friend-connection', userProfile?.id, viewedProfile?.id],
+    queryFn: async () => {
+      if (!userProfile?.id || !viewedProfile?.id || isOwnProfile) return { isFriend: false, outgoingPending: false, incomingPending: false };
+      const [outgoing, incoming] = await Promise.all([
+        dataService.FriendRequest.filter({ from_user_id: userProfile.id }),
+        dataService.FriendRequest.filter({ to_user_id: userProfile.id }),
+      ]);
+      const isFriend = outgoing.some((r) => r.to_user_id === viewedProfile.id && r.status === 'accepted')
+        || incoming.some((r) => r.from_user_id === viewedProfile.id && r.status === 'accepted');
+      const outgoingPending = outgoing.some((r) => r.to_user_id === viewedProfile.id && r.status === 'pending');
+      const incomingPending = incoming.some((r) => r.from_user_id === viewedProfile.id && r.status === 'pending');
+      return { isFriend, outgoingPending, incomingPending };
+    },
+    enabled: !!userProfile?.id && !!viewedProfile?.id && !isOwnProfile,
+  });
+
+  const openDirectMessageMutation = useMutation({
+    mutationFn: async () => apiPost(`/api/chats/direct/${viewedProfile.id}`, {}),
+    onSuccess: (chat) => {
+      if (chat?.id) navigate(createPageUrl(`ChatRoom?id=${chat.id}`));
+    },
+    onError: (err) => {
+      toast.error(err?.data?.error || 'You can only message accepted friends.');
+    },
+  });
+
+  const isFriend = !!friendConnection?.isFriend;
+  const hasPendingRequest = !!friendConnection?.outgoingPending;
 
   const hostedCount = tableHistory.filter(t => t.role === 'host').length;
   const attendedCount = tableHistory.filter(t => t.role === 'attendee').length;
@@ -294,7 +315,13 @@ export default function Profile() {
                     Add Friend
                   </Button>
                 )}
-                <Button variant="outline" className="border-[#262629]">
+                <Button
+                  variant="outline"
+                  className="border-[#262629]"
+                  disabled={!isFriend || openDirectMessageMutation.isPending}
+                  onClick={() => openDirectMessageMutation.mutate()}
+                  title={isFriend ? 'Message' : 'Accept friend request first'}
+                >
                   <MessageCircle className="w-4 h-4" />
                 </Button>
               </div>

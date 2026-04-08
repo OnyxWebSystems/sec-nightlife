@@ -27,11 +27,27 @@ router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const where = { deletedAt: null, status: 'published' };
     if (req.query.venue_id) where.venueId = req.query.venue_id;
-    const list = await prisma.promotion.findMany({
+    let list = await prisma.promotion.findMany({
       where,
       orderBy: [{ boostStatus: 'desc' }, { createdAt: 'desc' }],
       take: Math.min(parseInt(req.query.limit) || 50, 100),
     });
+    if (req.userId) {
+      const profile = await prisma.userProfile.findUnique({
+        where: { userId: req.userId },
+        select: { followedVenues: true },
+      }).catch(() => null);
+      const followedSet = new Set(profile?.followedVenues || []);
+      list = list
+        .map((item, idx) => ({ item, idx }))
+        .sort((a, b) => {
+          const af = followedSet.has(a.item.venueId);
+          const bf = followedSet.has(b.item.venueId);
+          if (af !== bf) return af ? -1 : 1;
+          return a.idx - b.idx;
+        })
+        .map((x) => x.item);
+    }
     res.json(list.map(formatPromotion));
   } catch (err) {
     next(err);

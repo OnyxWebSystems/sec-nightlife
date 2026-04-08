@@ -125,6 +125,7 @@ export default function JobDetails() {
     onSuccess: () => {
       setMessageBody('');
       queryClient.invalidateQueries({ queryKey: ['job-messages', activeApplicationId] });
+      queryClient.invalidateQueries({ queryKey: ['my-apps'] });
     },
   });
 

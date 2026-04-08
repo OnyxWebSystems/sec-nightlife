@@ -288,6 +288,7 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
     if (!application) return res.status(403).json({ error: 'Forbidden' });
 
     const status = parsed.data.status;
+    let becameFilled = false;
     const txResult = await prisma.$transaction(async (tx) => {
       const updated = await tx.jobApplication.update({
         where: { id: application.id },
@@ -300,6 +301,7 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
         });
         if (posting.filledSpots >= posting.totalSpots) {
           await tx.jobPosting.update({ where: { id: posting.id }, data: { status: 'FILLED' } });
+          becameFilled = true;
         }
       }
       return updated;
@@ -331,6 +333,31 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
       body: `${jobTitle} at ${venueName}: status is now ${status}.`,
       actionUrl: `/JobDetails?id=${application.jobPostingId}`,
     });
+
+    if (status === 'HIRED' && becameFilled) {
+      // Notify owner
+      await createJobNotification({
+        userId: application.jobPosting.venue.ownerUserId,
+        type: 'job_application',
+        title: 'Job filled',
+        body: `${jobTitle} at ${venueName} is now filled.`,
+        actionUrl: `/BusinessJobs`,
+      });
+
+      // Notify other applicants (do not change their status automatically)
+      const otherApplicants = await prisma.jobApplication.findMany({
+        where: { jobPostingId: application.jobPostingId, applicantUserId: { not: application.applicant.id } },
+        select: { applicantUserId: true },
+      });
+      const otherIds = [...new Set(otherApplicants.map((a) => a.applicantUserId).filter(Boolean))];
+      await Promise.all(otherIds.map((uid) => createJobNotification({
+        userId: uid,
+        type: 'job_application',
+        title: 'Position filled',
+        body: `${jobTitle} at ${venueName} has been filled.`,
+        actionUrl: `/MyJobApplications`,
+      })));
+    }
     if (status === 'HIRED' && application.jobPosting.venue.owner.email) {
       await sendEmail({
         to: application.jobPosting.venue.owner.email,

@@ -4,6 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiPost } from '@/api/client';
 import { 
   ChevronLeft,
   Users,
@@ -121,25 +122,7 @@ export default function ManageTable() {
 
   const acceptRequestMutation = useMutation({
     mutationFn: async (requestUserId) => {
-      const updatedMembers = table.members.map(m => 
-        m.user_id === requestUserId ? { ...m, status: 'confirmed' } : m
-      );
-      const updatedPending = table.pending_requests.filter(id => id !== requestUserId);
-      
-      await dataService.Table.update(tableId, {
-        members: updatedMembers,
-        pending_requests: updatedPending,
-        current_guests: (table.current_guests || 1) + 1
-      });
-
-      await dataService.Notification.create({
-        user_id: requestUserId,
-        type: 'table_invite',
-        title: 'Request Accepted!',
-        message: `You've been accepted to join "${table.name}"`,
-        data: { table_id: tableId },
-        action_url: createPageUrl(`TableDetails?id=${tableId}`)
-      });
+      await apiPost(`/api/tables/${tableId}/requests/${requestUserId}/approve`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['table', tableId]);
@@ -149,21 +132,7 @@ export default function ManageTable() {
 
   const rejectRequestMutation = useMutation({
     mutationFn: async (requestUserId) => {
-      const updatedMembers = table.members.filter(m => m.user_id !== requestUserId);
-      const updatedPending = table.pending_requests.filter(id => id !== requestUserId);
-      
-      await dataService.Table.update(tableId, {
-        members: updatedMembers,
-        pending_requests: updatedPending
-      });
-
-      await dataService.Notification.create({
-        user_id: requestUserId,
-        type: 'table_invite',
-        title: 'Request Declined',
-        message: `Your request to join "${table.name}" was declined`,
-        data: { table_id: tableId }
-      });
+      await apiPost(`/api/tables/${tableId}/requests/${requestUserId}/reject`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['table', tableId]);
@@ -173,20 +142,7 @@ export default function ManageTable() {
 
   const removeMemberMutation = useMutation({
     mutationFn: async (memberId) => {
-      const updatedMembers = table.members.filter(m => m.user_id !== memberId);
-      
-      await dataService.Table.update(tableId, {
-        members: updatedMembers,
-        current_guests: Math.max((table.current_guests || 1) - 1, 1)
-      });
-
-      await dataService.Notification.create({
-        user_id: memberId,
-        type: 'table_invite',
-        title: 'Removed from Table',
-        message: `You've been removed from "${table.name}"`,
-        data: { table_id: tableId }
-      });
+      await apiPost(`/api/tables/${tableId}/members/${memberId}/remove`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['table', tableId]);
@@ -548,7 +504,7 @@ export default function ManageTable() {
             </Button>
             <Button
               onClick={() => {
-                updateTableMutation.mutate({ status: 'cancelled' });
+                updateTableMutation.mutate({ status: 'closed' });
                 setShowCancelDialog(false);
               }}
               className="flex-1"
