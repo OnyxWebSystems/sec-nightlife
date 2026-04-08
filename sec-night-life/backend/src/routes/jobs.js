@@ -35,8 +35,13 @@ const messageSchema = z.object({
   body: z.string().trim().min(1).max(2000),
 });
 
-function isRegularUser(role) {
-  return role === 'USER';
+async function canUsePartygoerFeatures(userId, role) {
+  if (role === 'USER') return true;
+  const accountRole = await prisma.accountRole.findFirst({
+    where: { userId, roleType: 'partygoer' },
+    select: { id: true },
+  });
+  return !!accountRole;
 }
 
 async function getVenueOwnedByUser(venueId, userId) {
@@ -90,6 +95,10 @@ function formatCompensation(job) {
   const amount = job.compensationAmount ? Number(job.compensationAmount).toFixed(0) : '0';
   const per = job.compensationPer?.toLowerCase() || 'month';
   return `R${amount} per ${per}`;
+}
+
+function myApplicationThreadPath(applicationId, jobPostingId) {
+  return `/MyJobApplications?applicationId=${applicationId}&jobId=${jobPostingId}`;
 }
 
 router.post('/', authenticateToken, async (req, res, next) => {
@@ -326,12 +335,13 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
       REJECTED: 'Application update',
       HIRED: "You're hired",
     };
+    const applicantThreadPath = myApplicationThreadPath(application.id, application.jobPostingId);
     await createJobNotification({
       userId: application.applicant.id,
       type: 'job_application',
       title: statusTitles[status] || 'Application update',
       body: `${jobTitle} at ${venueName}: status is now ${status}.`,
-      actionUrl: `/JobDetails?id=${application.jobPostingId}`,
+      actionUrl: applicantThreadPath,
     });
 
     if (status === 'HIRED' && becameFilled) {
@@ -441,8 +451,10 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
 
     const senderIsOwner = application.jobPosting.venue.owner.id === req.userId;
     const recipient = senderIsOwner ? application.applicant : application.jobPosting.venue.owner;
+    const threadPath = myApplicationThreadPath(application.id, application.jobPostingId);
     if (recipient?.email) {
-      const appUrl = process.env.APP_URL ? `${process.env.APP_URL}/MyJobApplications` : '';
+      const appBase = (process.env.APP_URL || '').replace(/\/+$/, '');
+      const appUrl = appBase ? `${appBase}${threadPath}` : '';
       await sendEmail({
         to: recipient.email,
         subject: `New message regarding your application — ${application.jobPosting.title}`,
@@ -457,7 +469,7 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
       type: 'message',
       title: `Message: ${application.jobPosting.title}`,
       body: `${created.sender.fullName || 'Someone'}: ${preview}${bodyText.length > 120 ? '…' : ''}`,
-      actionUrl: `/JobDetails?id=${application.jobPostingId}`,
+      actionUrl: threadPath,
     });
     return res.status(201).json(created);
   } catch (err) {
@@ -480,7 +492,8 @@ router.get('/applications/:applicationId/messages/unread-count', authenticateTok
 
 router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
   try {
-    if (!isRegularUser(req.userRole)) return res.status(403).json({ error: 'Only regular users can apply' });
+    const canApply = await canUsePartygoerFeatures(req.userId, req.userRole);
+    if (!canApply) return res.status(403).json({ error: 'Only party goers can apply' });
     const parsed = applicationSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const job = await prisma.jobPosting.findFirst({
@@ -543,7 +556,8 @@ router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
 
 router.get('/my-applications', authenticateToken, async (req, res, next) => {
   try {
-    if (!isRegularUser(req.userRole)) return res.status(403).json({ error: 'Only regular users can view this endpoint' });
+    const canView = await canUsePartygoerFeatures(req.userId, req.userRole);
+    if (!canView) return res.status(403).json({ error: 'Only party goers can view this endpoint' });
     const apps = await prisma.jobApplication.findMany({
       where: { applicantUserId: req.userId },
       orderBy: { appliedAt: 'desc' },

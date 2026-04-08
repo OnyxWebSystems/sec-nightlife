@@ -82,11 +82,14 @@ export default function JobDetails() {
     enabled: !!jobId && !!user,
   });
 
-  const { data: myApplications = [] } = useQuery({
+  const { data: myApplications = [], isLoading: myAppsLoading, isError: myAppsError } = useQuery({
     queryKey: ['my-apps'],
-    queryFn: () => apiGet('/api/jobs/my-applications'),
+    queryFn: async () => {
+      const rows = await apiGet('/api/jobs/my-applications');
+      return Array.isArray(rows) ? rows : [];
+    },
     retry: false,
-    enabled: !!user && user.role === 'USER',
+    enabled: !!user,
   });
 
   const selectedMyApplication = useMemo(() => myApplications.find((x) => x.jobPostingId === jobId), [myApplications, jobId]);
@@ -206,7 +209,7 @@ export default function JobDetails() {
   if (!job) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Job not found</div>;
 
   const spotsRemaining = Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
-  const canApply = user?.role === 'USER' && !selectedMyApplication && job.status === 'OPEN' && spotsRemaining > 0;
+  const canApply = !!user && !myAppsLoading && !myAppsError && !selectedMyApplication && job.status === 'OPEN' && spotsRemaining > 0;
   const visibility = getPublicVisibility(ownerJob || job);
 
   return (
@@ -227,7 +230,14 @@ export default function JobDetails() {
       {canApply ? (
         <button type="button" onClick={() => setShowApplyDialog(true)} className="sec-btn sec-btn-primary w-full" style={{ marginTop: 14, height: 48 }}>Apply</button>
       ) : selectedMyApplication ? (
-        <div className="sec-badge sec-badge-success" style={{ marginTop: 14 }}>Applied</div>
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="sec-badge sec-badge-success">Applied</div>
+          <div className="sec-badge sec-badge-muted">Status: {selectedMyApplication.status}</div>
+        </div>
+      ) : myAppsError ? (
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>
+          Unable to verify application state right now.
+        </p>
       ) : user && user.role !== 'USER' && !ownerJob ? (
         <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>Switch to Party Goer mode to apply for jobs.</p>
       ) : null}

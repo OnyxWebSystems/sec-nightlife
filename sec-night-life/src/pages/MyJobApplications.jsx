@@ -58,7 +58,7 @@ export default function MyJobApplications() {
   const deepLinkApplicationId = urlParams.get('applicationId');
   const deepLinkJobId = urlParams.get('jobId');
 
-  const { data: apps = [], isLoading: appsLoading } = useQuery({
+  const { data: apps = [], isLoading: appsLoading, isError: appsError, error: appsErrorDetails } = useQuery({
     queryKey: ['my-apps'],
     queryFn: async () => {
       const data = await apiGet('/api/jobs/my-applications');
@@ -123,6 +123,21 @@ export default function MyJobApplications() {
           <div style={{ padding: 24, textAlign: 'center' }}>
             <div className="sec-spinner" style={{ margin: '0 auto 12px' }} />
             <p style={{ color: 'var(--sec-text-muted)' }}>Loading…</p>
+          </div>
+        ) : appsError ? (
+          <div className="sec-card" style={{ padding: 24, borderRadius: 16, textAlign: 'center' }}>
+            <p style={{ fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 6 }}>Unable to load your applications</p>
+            <p style={{ color: 'var(--sec-text-muted)', fontSize: 13, marginBottom: 16 }}>
+              {appsErrorDetails?.message || 'Please try again.'}
+            </p>
+            <button
+              type="button"
+              className="sec-btn sec-btn-primary"
+              style={{ height: 42, minWidth: 120 }}
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['my-apps'] })}
+            >
+              Retry
+            </button>
           </div>
         ) : apps.length === 0 ? (
           <div className="sec-card" style={{ padding: 24, borderRadius: 16, textAlign: 'center' }}>
