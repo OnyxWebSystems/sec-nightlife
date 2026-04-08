@@ -36,6 +36,13 @@ export function parseCloudinaryFromUrl(fileUrl) {
     let publicSegments = parts.slice(deliveryIdx + 1);
     if (publicSegments.length === 0) return null;
 
+    /** Strip short URL signature segment (s--…--) from already-signed delivery URLs before public_id. */
+    const first = publicSegments[0];
+    if (first && first.startsWith('s--') && first.endsWith('--')) {
+      publicSegments = publicSegments.slice(1);
+    }
+    if (publicSegments.length === 0) return null;
+
     if (publicSegments[0] && /^v\d+$/.test(publicSegments[0])) {
       publicSegments = publicSegments.slice(1);
     }
@@ -103,6 +110,7 @@ export function signCloudinaryUrl(fileUrl) {
     return cloudinary.url(fullPublicId, {
       ...baseOpts,
       resource_type: 'raw',
+      long_url_signature: true,
     });
   }
 
