@@ -211,6 +211,36 @@ router.get('/public/:jobId', optionalAuth, async (req, res, next) => {
   }
 });
 
+// Must be registered before GET /:jobId or "my-applications" is captured as jobId (403).
+router.get('/my-applications', authenticateToken, async (req, res, next) => {
+  try {
+    const apps = await prisma.jobApplication.findMany({
+      where: { applicantUserId: req.userId },
+      orderBy: { appliedAt: 'desc' },
+      include: {
+        jobPosting: { include: { venue: { select: { name: true } } } },
+      },
+    });
+    const data = await Promise.all(apps.map(async (app) => {
+      const unread = await prisma.jobMessage.count({
+        where: { applicationId: app.id, readAt: null, senderUserId: { not: req.userId } },
+      });
+      return {
+        id: app.id,
+        jobPostingId: app.jobPostingId,
+        jobTitle: app.jobPosting.title,
+        venueName: app.jobPosting.venue.name,
+        status: app.status,
+        appliedAt: app.appliedAt,
+        unreadCount: unread,
+      };
+    }));
+    return res.json(data);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get('/:jobId', authenticateToken, async (req, res, next) => {
   try {
     if (req.params.jobId === 'public') return next();
@@ -550,36 +580,6 @@ router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
       actionUrl: `/BusinessJobs`,
     });
     return res.status(201).json(created);
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.get('/my-applications', authenticateToken, async (req, res, next) => {
-  try {
-    // Always allow: results are scoped to applicantUserId === req.userId only.
-    const apps = await prisma.jobApplication.findMany({
-      where: { applicantUserId: req.userId },
-      orderBy: { appliedAt: 'desc' },
-      include: {
-        jobPosting: { include: { venue: { select: { name: true } } } },
-      },
-    });
-    const data = await Promise.all(apps.map(async (app) => {
-      const unread = await prisma.jobMessage.count({
-        where: { applicationId: app.id, readAt: null, senderUserId: { not: req.userId } },
-      });
-      return {
-        id: app.id,
-        jobPostingId: app.jobPostingId,
-        jobTitle: app.jobPosting.title,
-        venueName: app.jobPosting.venue.name,
-        status: app.status,
-        appliedAt: app.appliedAt,
-        unreadCount: unread,
-      };
-    }));
-    return res.json(data);
   } catch (err) {
     return next(err);
   }
