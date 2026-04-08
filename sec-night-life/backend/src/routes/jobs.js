@@ -35,8 +35,9 @@ const messageSchema = z.object({
   body: z.string().trim().min(1).max(2000),
 });
 
-async function canUsePartygoerFeatures(userId, role) {
-  if (role === 'USER') return true;
+/** Who may submit a new job application (not listing own apps — that is always self-scoped). */
+async function canApplyToJobs(userId, role) {
+  if (['USER', 'FREELANCER', 'VENUE'].includes(role)) return true;
   const accountRole = await prisma.accountRole.findFirst({
     where: { userId, roleType: 'partygoer' },
     select: { id: true },
@@ -492,8 +493,8 @@ router.get('/applications/:applicationId/messages/unread-count', authenticateTok
 
 router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
   try {
-    const canApply = await canUsePartygoerFeatures(req.userId, req.userRole);
-    if (!canApply) return res.status(403).json({ error: 'Only party goers can apply' });
+    const canApply = await canApplyToJobs(req.userId, req.userRole);
+    if (!canApply) return res.status(403).json({ error: 'Your account cannot apply to jobs' });
     const parsed = applicationSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const job = await prisma.jobPosting.findFirst({
@@ -556,8 +557,7 @@ router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
 
 router.get('/my-applications', authenticateToken, async (req, res, next) => {
   try {
-    const canView = await canUsePartygoerFeatures(req.userId, req.userRole);
-    if (!canView) return res.status(403).json({ error: 'Only party goers can view this endpoint' });
+    // Always allow: results are scoped to applicantUserId === req.userId only.
     const apps = await prisma.jobApplication.findMany({
       where: { applicantUserId: req.userId },
       orderBy: { appliedAt: 'desc' },
