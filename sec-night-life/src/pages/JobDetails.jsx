@@ -68,7 +68,7 @@ export default function JobDetails() {
     enabled: !!jobId,
   });
 
-  const { data: ownerJob } = useQuery({
+  const { data: ownerJob, isLoading: ownerJobLoading } = useQuery({
     queryKey: ['owner-job', jobId],
     queryFn: async () => {
       try {
@@ -209,7 +209,14 @@ export default function JobDetails() {
   if (!job) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Job not found</div>;
 
   const spotsRemaining = Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
-  const canApply = !!user && !myAppsLoading && !myAppsError && !selectedMyApplication && job.status === 'OPEN' && spotsRemaining > 0;
+  const canApply = !!user &&
+    !ownerJobLoading &&
+    !ownerJob &&
+    !myAppsLoading &&
+    !myAppsError &&
+    !selectedMyApplication &&
+    job.status === 'OPEN' &&
+    spotsRemaining > 0;
   const visibility = getPublicVisibility(ownerJob || job);
 
   return (

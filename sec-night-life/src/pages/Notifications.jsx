@@ -52,6 +52,31 @@ export default function Notifications() {
   const [user, setUser] = useState(null);
   const queryClient = useQueryClient();
 
+  const resolveActionUrl = (notification) => {
+    const raw = notification?.action_url;
+    if (!raw) return raw;
+    if (notification?.type !== 'message') return raw;
+
+    const mode = (() => {
+      try {
+        return localStorage.getItem('sec_active_mode');
+      } catch {
+        return null;
+      }
+    })();
+    const isBusinessViewer = user?.role === 'VENUE' || mode === 'business';
+    if (!isBusinessViewer) return raw;
+
+    try {
+      const parsed = new URL(raw, window.location.origin);
+      if (parsed.pathname !== '/MyJobApplications') return raw;
+      const jobId = parsed.searchParams.get('jobId');
+      return jobId ? `/JobDetails?id=${jobId}` : raw;
+    } catch {
+      return raw;
+    }
+  };
+
   useEffect(() => {
     loadUser();
   }, []);
@@ -185,7 +210,7 @@ export default function Notifications() {
 
                     {notification.action_url && !['friend_request', 'table_request'].includes(notification.type) && (
                       <Link
-                        to={notification.action_url}
+                        to={resolveActionUrl(notification)}
                         className="inline-flex items-center gap-1 mt-2 text-sm sec-link"
                     style={{ color: 'var(--sec-accent)' }}
                         onClick={() => markAsReadMutation.mutate(notification.id)}

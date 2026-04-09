@@ -102,6 +102,10 @@ function myApplicationThreadPath(applicationId, jobPostingId) {
   return `/MyJobApplications?applicationId=${applicationId}&jobId=${jobPostingId}`;
 }
 
+function ownerJobDetailsPath(jobPostingId) {
+  return `/JobDetails?id=${jobPostingId}`;
+}
+
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
     const parsed = postingSchema.safeParse(req.body || {});
@@ -482,10 +486,12 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
 
     const senderIsOwner = application.jobPosting.venue.owner.id === req.userId;
     const recipient = senderIsOwner ? application.applicant : application.jobPosting.venue.owner;
-    const threadPath = myApplicationThreadPath(application.id, application.jobPostingId);
+    const recipientActionPath = senderIsOwner
+      ? myApplicationThreadPath(application.id, application.jobPostingId)
+      : ownerJobDetailsPath(application.jobPostingId);
     if (recipient?.email) {
       const appBase = (process.env.APP_URL || '').replace(/\/+$/, '');
-      const appUrl = appBase ? `${appBase}${threadPath}` : '';
+      const appUrl = appBase ? `${appBase}${recipientActionPath}` : '';
       await sendEmail({
         to: recipient.email,
         subject: `New message regarding your application — ${application.jobPosting.title}`,
@@ -500,7 +506,7 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
       type: 'message',
       title: `Message: ${application.jobPosting.title}`,
       body: `${created.sender.fullName || 'Someone'}: ${preview}${bodyText.length > 120 ? '…' : ''}`,
-      actionUrl: threadPath,
+      actionUrl: recipientActionPath,
     });
     return res.status(201).json(created);
   } catch (err) {
