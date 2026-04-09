@@ -355,27 +355,37 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
     const venueName = application.jobPosting.venue.name;
     if (application.applicant.email) {
       const subjects = {
-        SHORTLISTED: `You've been shortlisted — ${jobTitle} at ${venueName}`,
-        REJECTED: `Application Update — ${jobTitle} at ${venueName}`,
-        HIRED: `You're hired! — ${jobTitle} at ${venueName}`,
+        SHORTLISTED: `Great news — you've been shortlisted for ${jobTitle}`,
+        REJECTED: `Update on your ${jobTitle} application`,
+        HIRED: `Congratulations, you've been hired — ${jobTitle}`,
+      };
+      const messageText = {
+        SHORTLISTED: `Great news! You have been shortlisted for ${jobTitle} at ${venueName}. Open the app to view details and messages.`,
+        REJECTED: `Unfortunately, your application for ${jobTitle} at ${venueName} was not selected. Thank you for applying.`,
+        HIRED: `Congratulations, you've been hired for ${jobTitle} at ${venueName}. Open the app for next steps and messages.`,
       };
       await sendEmail({
         to: application.applicant.email,
         subject: subjects[status],
-        text: `Your application status was updated to ${status}. Open the app to view details and messages.`,
+        text: messageText[status] || `Your application status was updated. Open the app to view details.`,
       }).catch(() => {});
     }
     const statusTitles = {
-      SHORTLISTED: 'Application shortlisted',
+      SHORTLISTED: "Great news, you're shortlisted",
       REJECTED: 'Application update',
-      HIRED: "You're hired",
+      HIRED: "Congratulations, you've been hired",
+    };
+    const statusBodies = {
+      SHORTLISTED: `Great news! You have been shortlisted for ${jobTitle} at ${venueName}.`,
+      REJECTED: `Unfortunately, your application for ${jobTitle} at ${venueName} was not selected.`,
+      HIRED: `Congratulations, you've been hired for ${jobTitle} at ${venueName}.`,
     };
     const applicantThreadPath = myApplicationThreadPath(application.id, application.jobPostingId);
     await createJobNotification({
       userId: application.applicant.id,
       type: 'job_application',
       title: statusTitles[status] || 'Application update',
-      body: `${jobTitle} at ${venueName}: status is now ${status}.`,
+      body: statusBodies[status] || `${jobTitle} at ${venueName}: your application was updated.`,
       actionUrl: applicantThreadPath,
     });
 
@@ -474,6 +484,10 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const application = await getApplicationWithAccess(req.params.applicationId, req.userId);
     if (!application) return res.status(403).json({ error: 'Forbidden' });
+    const senderIsOwner = application.jobPosting.venue.owner.id === req.userId;
+    if (!senderIsOwner && application.status === 'REJECTED') {
+      return res.status(403).json({ error: 'You cannot message this business while your application is rejected.' });
+    }
     const created = await prisma.jobMessage.create({
       data: {
         applicationId: application.id,
@@ -484,7 +498,6 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
       include: { sender: { select: { id: true, fullName: true, email: true } } },
     });
 
-    const senderIsOwner = application.jobPosting.venue.owner.id === req.userId;
     const recipient = senderIsOwner ? application.applicant : application.jobPosting.venue.owner;
     const recipientActionPath = senderIsOwner
       ? myApplicationThreadPath(application.id, application.jobPostingId)

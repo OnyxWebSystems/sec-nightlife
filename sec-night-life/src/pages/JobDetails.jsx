@@ -50,6 +50,7 @@ export default function JobDetails() {
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [messageBody, setMessageBody] = useState('');
   const [showEditForm, setShowEditForm] = useState(false);
+  const [statusConfirm, setStatusConfirm] = useState({ open: false, applicationId: null, status: null, applicantName: '' });
   const [editForm, setEditForm] = useState({
     title: '',
     description: '',
@@ -130,6 +131,7 @@ export default function JobDetails() {
       queryClient.invalidateQueries({ queryKey: ['job-messages', activeApplicationId] });
       queryClient.invalidateQueries({ queryKey: ['my-apps'] });
     },
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to send message'),
   });
 
   const saveJobEdits = useMutation({
@@ -153,6 +155,21 @@ export default function JobDetails() {
       return;
     }
     saveJobEdits.mutate();
+  };
+
+  const openStatusConfirm = ({ applicationId, status, applicantName }) => {
+    setStatusConfirm({
+      open: true,
+      applicationId,
+      status,
+      applicantName: applicantName || 'this applicant',
+    });
+  };
+
+  const confirmStatusChange = () => {
+    if (!statusConfirm.applicationId || !statusConfirm.status) return;
+    updateStatus.mutate({ applicationId: statusConfirm.applicationId, status: statusConfirm.status });
+    setStatusConfirm({ open: false, applicationId: null, status: null, applicantName: '' });
   };
 
   useEffect(() => {
@@ -431,8 +448,8 @@ export default function JobDetails() {
               <div style={{ marginTop: 4, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }}>
                 <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => viewCv(a.id)}>View CV</button>
                 {a.status !== 'SHORTLISTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'SHORTLISTED' })}>Shortlist</button> : null}
-                {a.status !== 'REJECTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'REJECTED' })}>Reject</button> : null}
-                {a.status !== 'HIRED' ? <button type="button" className="sec-btn sec-btn-primary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'HIRED' })}>Hire</button> : null}
+                {a.status !== 'REJECTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => openStatusConfirm({ applicationId: a.id, status: 'REJECTED', applicantName: a.applicant?.fullName })}>Reject</button> : null}
+                {a.status !== 'HIRED' ? <button type="button" className="sec-btn sec-btn-primary sec-btn-sm" style={{ width: '100%' }} onClick={() => openStatusConfirm({ applicationId: a.id, status: 'HIRED', applicantName: a.applicant?.fullName })}>Hire</button> : null}
                 <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => setSelectedApplication(a)}>Message</button>
               </div>
             </div>
@@ -464,6 +481,43 @@ export default function JobDetails() {
           </div>
         </div>
       ) : null}
+
+      <Dialog
+        open={statusConfirm.open}
+        onOpenChange={(open) => setStatusConfirm((prev) => ({ ...prev, open }))}
+      >
+        <DialogContent className="max-w-md border-[var(--sec-border)] bg-[var(--sec-bg-card)] text-[var(--sec-text-primary)]">
+          <DialogHeader>
+            <DialogTitle>
+              {statusConfirm.status === 'HIRED' ? 'Confirm hiring decision' : 'Confirm rejection'}
+            </DialogTitle>
+            <DialogDescription style={{ color: 'var(--sec-text-muted)' }}>
+              {statusConfirm.status === 'HIRED'
+                ? `Are you sure you want to mark ${statusConfirm.applicantName} as hired?`
+                : `Are you sure you want to reject ${statusConfirm.applicantName}? They will no longer be able to message you unless their status is later changed to shortlisted or hired.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+            <button
+              type="button"
+              className="sec-btn sec-btn-secondary"
+              style={{ height: 44, flex: 1 }}
+              onClick={() => setStatusConfirm({ open: false, applicationId: null, status: null, applicantName: '' })}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="sec-btn sec-btn-primary"
+              style={{ height: 44, flex: 1 }}
+              onClick={confirmStatusChange}
+              disabled={updateStatus.isPending}
+            >
+              {updateStatus.isPending ? 'Updating...' : 'Confirm'}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showApplyDialog} onOpenChange={setShowApplyDialog}>
         <DialogContent className="max-w-md border-[var(--sec-border)] bg-[var(--sec-bg-card)] text-[var(--sec-text-primary)]">
