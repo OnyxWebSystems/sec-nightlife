@@ -80,11 +80,60 @@ async function trackFeedImpressions(items, userId, sessionId) {
 
 const emptyToNull = (v) => (v === '' || v === undefined ? null : v);
 
+/** For PATCH: omit field means undefined (do not overwrite); '' or null clears. */
+const emptyToNullKeepUndefined = (v) => {
+  if (v === undefined) return undefined;
+  if (v === '' || v === null) return null;
+  return v;
+};
+
 /** Accepts ISO strings from Date#toISOString(); avoids Zod .datetime() strict RFC edge cases in some environments. */
 const isoDateTimeString = z
   .string()
   .min(1)
   .refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid date' });
+
+/** Zod .url() rejects some valid Cloudinary / CDN URLs; accept any absolute http(s) URL. */
+function isHttpUrl(s) {
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+const httpUrlOrNull = z.preprocess(
+  emptyToNull,
+  z.union([z.string().min(1).max(2048).refine(isHttpUrl, { message: 'Invalid image URL' }), z.null()]).optional()
+);
+
+const patchHttpUrlOrNull = z.preprocess(
+  emptyToNullKeepUndefined,
+  z.union([z.string().min(1).max(2048).refine(isHttpUrl, { message: 'Invalid image URL' }), z.null()]).optional()
+);
+
+function normalizePromotionCreateBody(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw !== 'object') return {};
+  const b = { ...raw };
+  if (b.venue_id && !b.venueId) b.venueId = b.venue_id;
+  if (b.event_id != null && b.eventId == null) b.eventId = b.event_id;
+  if (b.promotion_type && !b.promotionType) b.promotionType = b.promotion_type;
+  if (b.starts_at && !b.startsAt) b.startsAt = b.starts_at;
+  if (b.ends_at && !b.endsAt) b.endsAt = b.ends_at;
+  if (b.image_url && !b.imageUrl) b.imageUrl = b.image_url;
+  if (b.image_public_id && !b.imagePublicId) b.imagePublicId = b.image_public_id;
+  if (b.target_city != null && b.targetCity == null) b.targetCity = b.target_city;
+  return b;
+}
 
 const createSchema = z.object({
   venueId: z.string().trim().min(1),
@@ -92,7 +141,7 @@ const createSchema = z.object({
   promotionType: z.enum(PROMOTION_TYPES),
   title: z.string().trim().min(1).max(100),
   body: z.string().trim().min(1).max(500),
-  imageUrl: z.preprocess(emptyToNull, z.union([z.string().url(), z.null()]).optional()),
+  imageUrl: httpUrlOrNull,
   imagePublicId: z.preprocess(emptyToNull, z.union([z.string().trim().min(1), z.null()]).optional()),
   targetCity: z.preprocess(emptyToNull, z.union([z.string().trim().max(100), z.null()]).optional()),
   startsAt: isoDateTimeString,
@@ -102,9 +151,9 @@ const createSchema = z.object({
 const patchSchema = z.object({
   title: z.string().trim().min(1).max(100).optional(),
   body: z.string().trim().min(1).max(500).optional(),
-  imageUrl: z.preprocess(emptyToNull, z.union([z.string().url(), z.null()]).optional()),
-  imagePublicId: z.preprocess(emptyToNull, z.union([z.string().trim().min(1), z.null()]).optional()),
-  targetCity: z.preprocess(emptyToNull, z.union([z.string().trim().max(100), z.null()]).optional()),
+  imageUrl: patchHttpUrlOrNull,
+  imagePublicId: z.preprocess(emptyToNullKeepUndefined, z.union([z.string().trim().min(1), z.null()]).optional()),
+  targetCity: z.preprocess(emptyToNullKeepUndefined, z.union([z.string().trim().max(100), z.null()]).optional()),
   startsAt: isoDateTimeString.optional(),
   endsAt: isoDateTimeString.optional(),
   status: z.enum(['ACTIVE', 'PAUSED']).optional(),
@@ -118,7 +167,7 @@ const trackSchema = z.object({
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
     if (!assertVenueRole(req, res)) return;
-    const parsed = createSchema.safeParse(req.body || {});
+    const parsed = createSchema.safeParse(normalizePromotionCreateBody(req.body));
     if (!parsed.success) {
       return res.status(400).json({
         error: 'Invalid promotion payload',

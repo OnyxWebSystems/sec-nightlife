@@ -228,8 +228,9 @@ const initSchema = z.object({
   amount: z.number().positive().max(1_000_000),
   email: z.string().email().optional(),
   description: z.string().max(2000).optional().nullable(),
-  venue_id: z.string().uuid().optional().nullable(),
-  event_id: z.string().uuid().optional().nullable(),
+  /** Venue/event IDs may be UUID or Cuid depending on DB row; do not over-restrict. */
+  venue_id: z.union([z.string().min(1).max(64), z.null()]).optional(),
+  event_id: z.union([z.string().min(1).max(64), z.null()]).optional(),
   metadata: z.record(z.any()).optional().nullable(),
 });
 

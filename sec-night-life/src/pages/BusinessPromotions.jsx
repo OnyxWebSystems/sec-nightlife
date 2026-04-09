@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import * as authService from '@/services/authService';
@@ -47,15 +47,7 @@ function localDateTimeToIso(value) {
   return d.toISOString();
 }
 
-export default function BusinessPromotions() {
-  const [user, setUser] = useState(null);
-  const [selectedVenue, setSelectedVenue] = useState('');
-  const [promotions, setPromotions] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [saving, setSaving] = useState(false);
-  const [loadingList, setLoadingList] = useState(false);
-  const [justPublished, setJustPublished] = useState(null);
-  const [formError, setFormError] = useState('');
+const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVenue, events, onPublished }) {
   const [form, setForm] = useState({
     promoteWhat: 'venue',
     eventId: '',
@@ -68,51 +60,8 @@ export default function BusinessPromotions() {
     startsAt: '',
     endsAt: '',
   });
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setUser(await authService.getCurrentUser());
-      } catch {
-        authService.redirectToLogin();
-      }
-    })();
-  }, []);
-
-  const { data: venues = [] } = useQuery({
-    queryKey: ['promotions-venues', user?.id],
-    queryFn: () => dataService.Venue.filter({ owner_user_id: user.id }),
-    enabled: !!user,
-  });
-
-  async function loadPromotions(venueId) {
-    if (!venueId) return;
-    setLoadingList(true);
-    try {
-      const data = await apiGet(`/api/promotions/venue/${venueId}`);
-      setPromotions(Array.isArray(data) ? data : []);
-    } catch (e) {
-      toast.error(e?.data?.error || e.message || 'Failed to load promotions');
-    } finally {
-      setLoadingList(false);
-    }
-  }
-
-  async function loadEvents(venueId) {
-    if (!venueId) return;
-    try {
-      const list = await dataService.Event.filter({ venue_id: venueId, status: 'published' }, 'date', 50);
-      setEvents(Array.isArray(list) ? list : []);
-    } catch {
-      setEvents([]);
-    }
-  }
-
-  useEffect(() => {
-    if (!selectedVenue) return;
-    loadPromotions(selectedVenue);
-    loadEvents(selectedVenue);
-  }, [selectedVenue]);
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const durationText = useMemo(() => {
     if (!form.startsAt || !form.endsAt) return '';
@@ -195,7 +144,6 @@ export default function BusinessPromotions() {
       });
 
       toast.success('Your promotion is live!');
-      setJustPublished(created);
       setForm({
         promoteWhat: 'venue',
         eventId: '',
@@ -208,7 +156,7 @@ export default function BusinessPromotions() {
         startsAt: '',
         endsAt: '',
       });
-      await loadPromotions(selectedVenue);
+      await onPublished(created);
     } catch (e) {
       setFormError(formatApiError(e, 'Failed to publish promotion'));
     } finally {
@@ -216,7 +164,174 @@ export default function BusinessPromotions() {
     }
   }
 
-  async function startBoost(promotion) {
+  return (
+    <div className="sec-card" style={{ padding: 12, marginBottom: 12 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Create Promotion</h2>
+      <Label>What are you promoting?</Label>
+      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'venue', eventId: '' }))} style={{ flex: 1, opacity: form.promoteWhat === 'venue' ? 1 : 0.6 }}>My Venue</button>
+        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'event' }))} style={{ flex: 1, opacity: form.promoteWhat === 'event' ? 1 : 0.6 }}>An Event</button>
+      </div>
+
+      {form.promoteWhat === 'event' && (
+        <div style={{ marginTop: 10 }}>
+          <Label>Event</Label>
+          <select className="sec-input-rect" value={form.eventId} onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
+            <option value="">Select upcoming event</option>
+            {events.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
+          </select>
+        </div>
+      )}
+
+      <div style={{ marginTop: 10 }}>
+        <Label>Promotion Type</Label>
+        <select className="sec-input-rect" value={form.promotionType} onChange={(e) => setForm((f) => ({ ...f, promotionType: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
+          {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <Label>Title ({form.title.length}/100)</Label>
+        <input className="sec-input-rect" value={form.title} maxLength={100} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <Label>Body ({form.body.length}/500)</Label>
+        <textarea className="sec-input-rect" value={form.body} maxLength={500} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} style={{ marginTop: 6, minHeight: 90 }} />
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <Label>Image Upload (optional)</Label>
+        <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={(e) => uploadImage(e.target.files?.[0])} style={{ marginTop: 6 }} />
+        {form.imageUrl && (
+          <div style={{ marginTop: 8 }}>
+            <img src={form.imageUrl} alt="Promotion" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover' }} />
+            <button type="button" className="sec-btn sec-btn-ghost" style={{ marginTop: 6 }} onClick={() => setForm((f) => ({ ...f, imageUrl: '', imagePublicId: '' }))}>Remove image</button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <Label>Target City</Label>
+        <select className="sec-input-rect" value={form.targetCity} onChange={(e) => setForm((f) => ({ ...f, targetCity: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
+          <option value="">National — Show to everyone</option>
+          {SA_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <Label>Start Date + Time</Label>
+        <input type="datetime-local" className="sec-input-rect" value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <Label>End Date + Time</Label>
+        <input type="datetime-local" className="sec-input-rect" value={form.endsAt} onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
+      </div>
+      {durationText && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>{durationText}</p>}
+      {formError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{formError}</p>}
+
+      <button type="button" className="sec-btn sec-btn-primary sec-btn-full" disabled={saving} style={{ marginTop: 12 }} onClick={handlePublish}>
+        {saving ? 'Publishing...' : 'Publish Promotion'}
+      </button>
+    </div>
+  );
+});
+
+const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, loadingList, onPatch, onDelete, onBoost }) {
+  return (
+    <div className="sec-card" style={{ padding: 12 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Your Promotions</h2>
+      {loadingList && <p style={{ fontSize: 12 }}>Loading...</p>}
+      {!loadingList && promotions.length === 0 && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>No promotions yet.</p>}
+      <div style={{ display: 'grid', gap: 8 }}>
+        {promotions.map((p) => (
+          <div key={p.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <strong style={{ fontSize: 14 }}>{p.title}</strong>
+              <span style={{ fontSize: 11, background: getStatusColor(p.status), color: '#fff', borderRadius: 999, padding: '2px 8px' }}>{p.status}</span>
+            </div>
+            <p style={{ fontSize: 11, marginTop: 4 }}>{p.promotionType}</p>
+            <p style={{ fontSize: 11, marginTop: 2 }}>Target: {p.targetCity || 'National'}</p>
+            <p style={{ fontSize: 11 }}>Views {p.boostImpressions + p.organicImpressions} · Clicks {p.totalClicks}</p>
+            {p.eventId && <p style={{ fontSize: 11 }}>Promoting: {p.eventName || 'Event'}</p>}
+            {p.boosted && <p style={{ fontSize: 11, color: '#facc15' }}>Boosted until {new Date(p.boostExpiresAt).toLocaleDateString()}</p>}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
+              {(p.status === 'ACTIVE' || p.status === 'DRAFT') && <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: p.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' })}>{p.status === 'ACTIVE' ? 'Pause' : 'Resume'}</button>}
+              <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onBoost(p)}>Boost (R150)</button>
+              {(p.status === 'ACTIVE' || p.status === 'DRAFT') && <button type="button" className="sec-btn sec-btn-ghost" onClick={() => {
+                const nextTitle = window.prompt('Edit title', p.title);
+                if (nextTitle) onPatch(p.id, { title: nextTitle });
+              }}>Edit</button>}
+              {(p.status === 'DRAFT' || p.status === 'ENDED') && <button type="button" className="sec-btn sec-btn-ghost" onClick={() => onDelete(p.id)}>Delete</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+export default function BusinessPromotions() {
+  const [user, setUser] = useState(null);
+  const [selectedVenue, setSelectedVenue] = useState('');
+  const [promotions, setPromotions] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [loadingList, setLoadingList] = useState(false);
+  const [justPublished, setJustPublished] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setUser(await authService.getCurrentUser());
+      } catch {
+        authService.redirectToLogin();
+      }
+    })();
+  }, []);
+
+  const { data: venues = [] } = useQuery({
+    queryKey: ['promotions-venues', user?.id],
+    queryFn: () => dataService.Venue.filter({ owner_user_id: user.id }),
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  });
+
+  const loadPromotions = useCallback(async (venueId) => {
+    if (!venueId) return;
+    setLoadingList(true);
+    try {
+      const data = await apiGet(`/api/promotions/venue/${venueId}`);
+      setPromotions(Array.isArray(data) ? data : []);
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Failed to load promotions');
+    } finally {
+      setLoadingList(false);
+    }
+  }, []);
+
+  const loadEvents = useCallback(async (venueId) => {
+    if (!venueId) return;
+    try {
+      const list = await dataService.Event.filter({ venue_id: venueId, status: 'published' }, 'date', 50);
+      setEvents(Array.isArray(list) ? list : []);
+    } catch {
+      setEvents([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedVenue) return;
+    void (async () => {
+      await Promise.all([loadPromotions(selectedVenue), loadEvents(selectedVenue)]);
+    })();
+  }, [selectedVenue, loadPromotions, loadEvents]);
+
+  const handlePromotionPublished = useCallback(async (created) => {
+    setJustPublished(created);
+    await loadPromotions(selectedVenue);
+  }, [selectedVenue, loadPromotions]);
+
+  const startBoost = useCallback(async (promotion) => {
     try {
       const payment = await apiPost(`/api/promotions/${promotion.id}/boost`, {});
       if (payment?.authorization_url) window.location.href = payment.authorization_url;
@@ -224,25 +339,25 @@ export default function BusinessPromotions() {
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Failed to initialize boost payment');
     }
-  }
+  }, []);
 
-  async function patchPromotion(id, payload) {
+  const patchPromotion = useCallback(async (id, payload) => {
     try {
       await apiPatch(`/api/promotions/${id}`, payload);
       await loadPromotions(selectedVenue);
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Update failed');
     }
-  }
+  }, [selectedVenue, loadPromotions]);
 
-  async function deletePromotion(id) {
+  const deletePromotion = useCallback(async (id) => {
     try {
       await apiDelete(`/api/promotions/${id}`);
       await loadPromotions(selectedVenue);
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Delete failed');
     }
-  }
+  }, [selectedVenue, loadPromotions]);
 
   if (!user) return null;
 
@@ -259,74 +374,7 @@ export default function BusinessPromotions() {
         </select>
       </div>
 
-      <div className="sec-card" style={{ padding: 12, marginBottom: 12 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Create Promotion</h2>
-        <Label>What are you promoting?</Label>
-        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-          <button className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'venue', eventId: '' }))} style={{ flex: 1, opacity: form.promoteWhat === 'venue' ? 1 : 0.6 }}>My Venue</button>
-          <button className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'event' }))} style={{ flex: 1, opacity: form.promoteWhat === 'event' ? 1 : 0.6 }}>An Event</button>
-        </div>
-
-        {form.promoteWhat === 'event' && (
-          <div style={{ marginTop: 10 }}>
-            <Label>Event</Label>
-            <select className="sec-input-rect" value={form.eventId} onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
-              <option value="">Select upcoming event</option>
-              {events.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
-            </select>
-          </div>
-        )}
-
-        <div style={{ marginTop: 10 }}>
-          <Label>Promotion Type</Label>
-          <select className="sec-input-rect" value={form.promotionType} onChange={(e) => setForm((f) => ({ ...f, promotionType: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
-            {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          <Label>Title ({form.title.length}/100)</Label>
-          <input className="sec-input-rect" value={form.title} maxLength={100} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <Label>Body ({form.body.length}/500)</Label>
-          <textarea className="sec-input-rect" value={form.body} maxLength={500} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} style={{ marginTop: 6, minHeight: 90 }} />
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          <Label>Image Upload (optional)</Label>
-          <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={(e) => uploadImage(e.target.files?.[0])} style={{ marginTop: 6 }} />
-          {form.imageUrl && (
-            <div style={{ marginTop: 8 }}>
-              <img src={form.imageUrl} alt="Promotion" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover' }} />
-              <button className="sec-btn sec-btn-ghost" style={{ marginTop: 6 }} onClick={() => setForm((f) => ({ ...f, imageUrl: '', imagePublicId: '' }))}>Remove image</button>
-            </div>
-          )}
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          <Label>Target City</Label>
-          <select className="sec-input-rect" value={form.targetCity} onChange={(e) => setForm((f) => ({ ...f, targetCity: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
-            <option value="">National — Show to everyone</option>
-            {SA_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          <Label>Start Date + Time</Label>
-          <input type="datetime-local" className="sec-input-rect" value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <Label>End Date + Time</Label>
-          <input type="datetime-local" className="sec-input-rect" value={form.endsAt} onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
-        </div>
-        {durationText && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>{durationText}</p>}
-        {formError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{formError}</p>}
-
-        <button className="sec-btn sec-btn-primary sec-btn-full" disabled={saving} style={{ marginTop: 12 }} onClick={handlePublish}>
-          {saving ? 'Publishing...' : 'Publish Promotion'}
-        </button>
-      </div>
+      <PromotionCreateForm selectedVenue={selectedVenue} events={events} onPublished={handlePromotionPublished} />
 
       {justPublished && (
         <div className="sec-card" style={{ padding: 12, marginBottom: 12, border: '1px solid #facc15' }}>
@@ -340,35 +388,13 @@ export default function BusinessPromotions() {
         </div>
       )}
 
-      <div className="sec-card" style={{ padding: 12 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Your Promotions</h2>
-        {loadingList && <p style={{ fontSize: 12 }}>Loading...</p>}
-        {!loadingList && promotions.length === 0 && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>No promotions yet.</p>}
-        <div style={{ display: 'grid', gap: 8 }}>
-          {promotions.map((p) => (
-            <div key={p.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <strong style={{ fontSize: 14 }}>{p.title}</strong>
-                <span style={{ fontSize: 11, background: getStatusColor(p.status), color: '#fff', borderRadius: 999, padding: '2px 8px' }}>{p.status}</span>
-              </div>
-              <p style={{ fontSize: 11, marginTop: 4 }}>{p.promotionType}</p>
-              <p style={{ fontSize: 11, marginTop: 2 }}>Target: {p.targetCity || 'National'}</p>
-              <p style={{ fontSize: 11 }}>Views {p.boostImpressions + p.organicImpressions} · Clicks {p.totalClicks}</p>
-              {p.eventId && <p style={{ fontSize: 11 }}>Promoting: {p.eventName || 'Event'}</p>}
-              {p.boosted && <p style={{ fontSize: 11, color: '#facc15' }}>Boosted until {new Date(p.boostExpiresAt).toLocaleDateString()}</p>}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
-                {(p.status === 'ACTIVE' || p.status === 'DRAFT') && <button className="sec-btn sec-btn-secondary" onClick={() => patchPromotion(p.id, { status: p.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' })}>{p.status === 'ACTIVE' ? 'Pause' : 'Resume'}</button>}
-                <button className="sec-btn sec-btn-secondary" onClick={() => startBoost(p)}>Boost (R150)</button>
-                {(p.status === 'ACTIVE' || p.status === 'DRAFT') && <button className="sec-btn sec-btn-ghost" onClick={() => {
-                  const nextTitle = window.prompt('Edit title', p.title);
-                  if (nextTitle) patchPromotion(p.id, { title: nextTitle });
-                }}>Edit</button>}
-                {(p.status === 'DRAFT' || p.status === 'ENDED') && <button className="sec-btn sec-btn-ghost" onClick={() => deletePromotion(p.id)}>Delete</button>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <PromotionCardsList
+        promotions={promotions}
+        loadingList={loadingList}
+        onPatch={patchPromotion}
+        onDelete={deletePromotion}
+        onBoost={startBoost}
+      />
     </div>
   );
 }
