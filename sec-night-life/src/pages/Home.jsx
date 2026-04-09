@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
+import { apiGet, apiPost } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { format, isToday, isTomorrow, parseISO } from 'date-fns';
@@ -16,6 +17,18 @@ import QuickActions from '@/components/home/QuickActions';
 import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
 
+function getOrCreateSessionId() {
+  try {
+    const existing = localStorage.getItem('sec_session_id');
+    if (existing) return existing;
+    const generated = crypto?.randomUUID ? crypto.randomUUID() : `sec_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem('sec_session_id', generated);
+    return generated;
+  } catch {
+    return `sec_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -25,10 +38,45 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCity, setSelectedCity] = useState('all');
   const [selectedVenueType, setSelectedVenueType] = useState('all');
+  const [promotionPage, setPromotionPage] = useState(1);
+  const [promotionLoading, setPromotionLoading] = useState(false);
+  const [promotions, setPromotions] = useState([]);
+  const [hasMorePromotions, setHasMorePromotions] = useState(true);
+  const [sessionId] = useState(() => getOrCreateSessionId());
 
   const { logout } = useAuth();
 
   useEffect(() => { loadUser(); }, []);
+  useEffect(() => {
+    if (!user && loading) return;
+    loadPromotions(1, false);
+  }, [user, loading]);
+
+  const loadPromotions = async (page, append = true) => {
+    if (promotionLoading) return;
+    setPromotionLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '10' });
+      if (userProfile?.city) params.set('city', userProfile.city);
+      const data = await apiGet(`/api/promotions/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
+      const incoming = data?.results || [];
+      setPromotions((prev) => (append ? [...prev, ...incoming] : incoming));
+      setPromotionPage(page);
+      setHasMorePromotions((page * 10) < (data?.total || 0));
+      incoming.forEach((promo) => {
+        void apiPost(`/api/promotions/${promo.id}/track`, { type: 'VIEW', sessionId }, { skipAuth: false }).catch(() => {});
+      });
+    } catch {
+      if (!append) setPromotions([]);
+    } finally {
+      setPromotionLoading(false);
+    }
+  };
+
+  const handlePromotionClick = async (promotion) => {
+    void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});
+    navigate(createPageUrl(`VenueProfile?id=${promotion.venueId}`));
+  };
 
   const loadUser = async () => {
     try {
@@ -317,6 +365,47 @@ export default function Home() {
             </div>
           </section>
         )}
+
+        {/* ── Explore Venues ── */}
+        <section style={{ marginBottom: 30 }}>
+          <div className="sec-section-header">
+            <div>
+              <span className="sec-label">Sponsored & Offers</span>
+              <h2 style={{ fontSize: 19, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '4px 0 0', letterSpacing: '-0.02em' }}>
+                Promotions
+              </h2>
+            </div>
+          </div>
+          {promotionLoading && promotions.length === 0 && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {[1, 2, 3].map((x) => <div key={x} className="sec-card" style={{ height: 120, opacity: 0.6 }} />)}
+            </div>
+          )}
+          {!promotionLoading && promotions.length === 0 && (
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No promotions available in your area right now.</p>
+          )}
+          <div style={{ display: 'grid', gap: 10 }}>
+            {promotions.map((p) => (
+              <div key={p.id} className="sec-card" style={{ padding: 12 }}>
+                {p.imageUrl && <img src={p.imageUrl} alt={p.title} style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover', marginBottom: 10 }} />}
+                <p style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{p.venueName} · {p.venueType}</p>
+                <h3 style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{p.title}</h3>
+                <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 6, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.body}</p>
+                {p.eventName && <p style={{ fontSize: 12, marginTop: 6 }}>Event: {p.eventName}</p>}
+                <p style={{ fontSize: 11, marginTop: 6 }}>{p.targetCity || 'Nationwide'} · Offer ends {new Date(p.endsAt).toLocaleDateString()}</p>
+                {p.boosted && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Sponsored</p>}
+                <button className="sec-btn sec-btn-ghost" style={{ marginTop: 8, paddingLeft: 0 }} onClick={() => handlePromotionClick(p)}>
+                  View {p.venueName}
+                </button>
+              </div>
+            ))}
+          </div>
+          {hasMorePromotions && (
+            <button className="sec-btn sec-btn-secondary sec-btn-full" disabled={promotionLoading} onClick={() => loadPromotions(promotionPage + 1, true)} style={{ marginTop: 10 }}>
+              {promotionLoading ? 'Loading...' : 'Load more'}
+            </button>
+          )}
+        </section>
 
         {/* ── Explore Venues ── */}
         <section style={{ marginBottom: 24 }}>

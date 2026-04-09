@@ -10,7 +10,7 @@ export const integrations = {
       return { file_url: data.file_url };
     },
     async InvokeLLM() {
-      return { output: 'AI integration not configured.', is_valid_document: true, is_18_plus: true, dob_matches: true, extracted_dob: '', reason: 'Not configured' };
+      return { output: 'Automated analysis is unavailable.', is_valid_document: true, is_18_plus: true, dob_matches: true, extracted_dob: '', reason: 'Unavailable' };
     }
   }
 };
@@ -29,14 +29,8 @@ export async function invokeFunction(name, params) {
     const res = await apiPost('/api/payments/initialize', { amount, email, description, metadata });
     return { data: { url: res?.authorization_url } };
   }
-  if (name === 'generateVenueDescription') {
-    return { data: { success: true, description: 'AI description generation is not yet configured. Please use the Promotions page for local content generation.' } };
-  }
-  if (name === 'generatePromotion') {
-    return { data: { success: true, promotions: [{ title: 'Promotion Stub', description: 'AI promotion generation is not yet configured. Please use the Promotions page.', target: 'All', impact: 'N/A' }] } };
-  }
   if (name === 'analyzeFeedback') {
-    return { data: { success: true, summary: 'Feedback analysis is not yet configured.', positive_themes: [], negative_themes: [], recommendations: [] } };
+    return { data: { success: true, summary: 'Feedback review is currently unavailable.', positive_themes: [], negative_themes: [], recommendations: [] } };
   }
   throw new Error(`Function "${name}" is not available.`);
 }

@@ -68,7 +68,7 @@ export default function FeedbackInsights() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold gradient-text">Feedback Insights</h1>
-            <p className="text-gray-500 mt-1">AI-powered analysis of customer reviews</p>
+            <p className="text-gray-500 mt-1">Analysis of customer reviews</p>
           </div>
           <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
             <Brain className="w-6 h-6 text-white" />
@@ -152,7 +152,7 @@ export default function FeedbackInsights() {
           </div>
         )}
 
-        {/* AI Insights */}
+        {/* Insights */}
         {insights && (
           <>
             {/* Sentiment Summary */}
@@ -212,7 +212,7 @@ export default function FeedbackInsights() {
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Brain className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
-                  AI Recommendations
+                  Recommendations
                 </CardTitle>
               </CardHeader>
               <CardContent>

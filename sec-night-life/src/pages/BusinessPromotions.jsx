@@ -1,500 +1,335 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sparkles, TrendingUp, Copy, Loader2, Megaphone, Tag, Clock, Star } from 'lucide-react';
-import { toast } from 'sonner';
-import { apiGet, apiPost } from '@/api/client';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 
-const PROMO_TEMPLATES = [
-  { type: 'happy_hour', label: 'Happy Hour', icon: Clock, desc: '2-for-1 drinks or discounted prices during off-peak hours' },
-  { type: 'ladies_night', label: 'Ladies Night', icon: Star, desc: 'Free entry or drink specials for women' },
-  { type: 'vip_package', label: 'VIP Package', icon: Tag, desc: 'Premium table + bottle service bundles' },
-  { type: 'event_promo', label: 'Event Promotion', icon: Megaphone, desc: 'Promote upcoming events with early-bird pricing' },
+const SA_CITIES = ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein', 'Port Elizabeth', 'East London', 'Polokwane', 'Nelspruit', 'Rustenburg'];
+const TYPES = [
+  { value: 'VENUE_PROMOTION', label: 'Venue Promotion' },
+  { value: 'EVENT_PROMOTION', label: 'Event Promotion' },
+  { value: 'SPECIAL_OFFER', label: 'Special Offer' },
+  { value: 'ANNOUNCEMENT', label: 'Announcement' },
 ];
 
-function generateDescription(keywords, venueType, atmosphere) {
-  const adjectives = ['vibrant', 'exclusive', 'electrifying', 'sophisticated', 'unforgettable'];
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const kw = keywords.split(',').map(k => k.trim()).filter(Boolean);
-  const kwText = kw.length > 0 ? kw.join(', ') : 'great music and an amazing atmosphere';
-
-  const templates = [
-    `Step into the ${adj} world of ${venueType === 'nightclub' ? 'nightlife' : venueType} at its finest. Known for ${kwText}, this ${atmosphere || 'stunning'} venue delivers an experience like no other. Whether you're looking for a night out with friends or a VIP celebration, every visit promises memories that last.`,
-    `Welcome to a ${atmosphere || 'remarkable'} destination where ${kwText} come together to create the ultimate ${venueType} experience. From the moment you walk in, you'll be immersed in an ${adj} atmosphere designed to elevate your night. Premium drinks, world-class entertainment, and impeccable service await.`,
-    `Discover the heartbeat of the city's ${venueType} scene. Featuring ${kwText}, this ${adj} venue sets the standard for nightlife excellence. With a ${atmosphere || 'captivating'} ambiance and a commitment to delivering extraordinary experiences, every night here is one for the books.`,
-  ];
-  return templates[Math.floor(Math.random() * templates.length)];
-}
-
-function generatePromotions(eventType, audience, season, budget) {
-  const promos = [
-    {
-      title: `${season.charAt(0).toUpperCase() + season.slice(1)} Launch Party`,
-      description: `Kick off the ${season} season with an exclusive launch event. ${budget === 'high' ? 'Premium open bar and VIP lounge access included.' : 'Early bird tickets at 50% off.'}`,
-      target: audience, impact: budget === 'high' ? 'High Impact' : 'Medium Impact',
-    },
-    {
-      title: 'Social Media Challenge',
-      description: `Run a TikTok/Instagram challenge targeting ${audience}. Best video wins free VIP entry for a group of 6. ${budget === 'low' ? 'Zero cost, maximum reach.' : 'Boost with paid promotion for wider reach.'}`,
-      target: audience, impact: 'High Engagement',
-    },
-    {
-      title: `${eventType === 'nightclub' ? 'Friday Frenzy' : eventType === 'concert' ? 'Encore Nights' : 'Weekend Special'}`,
-      description: `Create a recurring ${eventType} night brand. Consistent theme, DJ lineup, and pricing. Build loyalty with a stamp card — 5 visits = free entry.`,
-      target: audience, impact: 'Long-term Growth',
-    },
-    {
-      title: 'Refer a Friend',
-      description: `Each guest gets a unique code. When 3 friends use it, the referrer gets free entry + a complimentary drink. ${budget !== 'low' ? 'Add a monthly leaderboard with prizes for top referrers.' : ''}`,
-      target: 'All audiences', impact: 'Viral Potential',
-    },
-  ];
-  return promos;
+function getStatusColor(status) {
+  if (status === 'ACTIVE') return '#22c55e';
+  if (status === 'PAUSED') return '#eab308';
+  if (status === 'ENDED') return '#9ca3af';
+  return '#3b82f6';
 }
 
 export default function BusinessPromotions() {
   const [user, setUser] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
-  const [generatedDescription, setGeneratedDescription] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
   const [promotions, setPromotions] = useState([]);
-  const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
-  const [activePromoType, setActivePromoType] = useState(null);
-  const [draft, setDraft] = useState({ title: '', description: '', start_at: '', end_at: '', status: 'published' });
+  const [events, setEvents] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [existingPromos, setExistingPromos] = useState([]);
-
-  const [descForm, setDescForm] = useState({ keywords: '', venue_type: 'nightclub', atmosphere: '' });
-  const [promoForm, setPromoForm] = useState({ event_type: 'nightclub', target_audience: 'young professionals', season: 'summer', budget_level: 'medium' });
-
-  const sty = {
-    input: { backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' },
-    select: { backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' },
-    dropdown: { backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' },
-  };
+  const [loadingList, setLoadingList] = useState(false);
+  const [justPublished, setJustPublished] = useState(null);
+  const [formError, setFormError] = useState('');
+  const [form, setForm] = useState({
+    promoteWhat: 'venue',
+    eventId: '',
+    promotionType: 'VENUE_PROMOTION',
+    title: '',
+    body: '',
+    imageUrl: '',
+    imagePublicId: '',
+    targetCity: '',
+    startsAt: '',
+    endsAt: '',
+  });
 
   useEffect(() => {
     (async () => {
-      try { setUser(await authService.getCurrentUser()); }
-      catch { authService.redirectToLogin(); }
+      try {
+        setUser(await authService.getCurrentUser());
+      } catch {
+        authService.redirectToLogin();
+      }
     })();
   }, []);
 
   const { data: venues = [] } = useQuery({
-    queryKey: ['biz-venues', user?.id],
+    queryKey: ['promotions-venues', user?.id],
     queryFn: () => dataService.Venue.filter({ owner_user_id: user.id }),
     enabled: !!user,
   });
 
-  const handleGenerateDescription = async () => {
-    if (!descForm.keywords) { toast.error('Enter some keywords'); return; }
-    setIsGenerating(true);
-    await new Promise(r => setTimeout(r, 1200));
-    setGeneratedDescription(generateDescription(descForm.keywords, descForm.venue_type, descForm.atmosphere));
-    setIsGenerating(false);
-    toast.success('Description generated!');
-  };
+  async function loadPromotions(venueId) {
+    if (!venueId) return;
+    setLoadingList(true);
+    try {
+      const data = await apiGet(`/api/promotions/venue/${venueId}`);
+      setPromotions(Array.isArray(data) ? data : []);
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Failed to load promotions');
+    } finally {
+      setLoadingList(false);
+    }
+  }
 
-  const handleGeneratePromotions = async () => {
-    setIsGeneratingPromo(true);
-    await new Promise(r => setTimeout(r, 1000));
-    setPromotions(generatePromotions(promoForm.event_type, promoForm.target_audience, promoForm.season, promoForm.budget_level));
-    setIsGeneratingPromo(false);
-    toast.success('Promotions generated!');
-  };
-
-  const copy = (text) => { navigator.clipboard.writeText(text); toast.success('Copied!'); };
-
-  const loadExisting = async (venueId) => {
+  async function loadEvents(venueId) {
     if (!venueId) return;
     try {
-      const list = await apiGet(`/api/promotions/owner?venue_id=${venueId}`);
-      setExistingPromos(Array.isArray(list) ? list : []);
-    } catch {}
-  };
+      const list = await dataService.Event.filter({ venue_id: venueId, status: 'published' }, 'date', 50);
+      setEvents(Array.isArray(list) ? list : []);
+    } catch {
+      setEvents([]);
+    }
+  }
 
   useEffect(() => {
-    if (selectedVenue) loadExisting(selectedVenue);
+    if (!selectedVenue) return;
+    loadPromotions(selectedVenue);
+    loadEvents(selectedVenue);
   }, [selectedVenue]);
 
-  const handleTemplateClick = (t) => {
-    setActivePromoType(activePromoType === t.type ? null : t.type);
-    setDraft((p) => ({
-      ...p,
-      title: `${t.label} @ ${venues.find(v => v.id === selectedVenue)?.name || 'Your Venue'}`,
-      description: p.description || t.desc,
-    }));
-  };
+  const durationText = useMemo(() => {
+    if (!form.startsAt || !form.endsAt) return '';
+    const start = new Date(form.startsAt);
+    const end = new Date(form.endsAt);
+    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    return `This promotion runs for ${days} day${days === 1 ? '' : 's'}`;
+  }, [form.startsAt, form.endsAt]);
 
-  const publishPromotion = async ({ boostAmount } = {}) => {
-    if (!selectedVenue) { toast.error('Select a venue first'); return; }
-    if (!activePromoType) { toast.error('Pick a template first'); return; }
-    if (!draft.title?.trim()) { toast.error('Add a title'); return; }
+  async function uploadImage(file) {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Only JPG, PNG, WEBP are allowed');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be 5MB or smaller');
+      return;
+    }
+
+    const cloud = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+    const preset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+    if (!cloud || !preset) {
+      toast.error('Cloudinary is not configured');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', preset);
+    formData.append('resource_type', 'image');
+    formData.append('folder', 'sec-nightlife/promotions');
+
+    const response = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/image/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json?.error?.message || 'Upload failed');
+
+    setForm((prev) => ({
+      ...prev,
+      imageUrl: json.secure_url,
+      imagePublicId: json.public_id,
+    }));
+  }
+
+  async function handlePublish() {
+    setFormError('');
+    if (!selectedVenue) return setFormError('Please select a venue.');
+    if (form.promoteWhat === 'event' && !form.eventId) return setFormError('Choose an event to promote.');
+    if (!form.title.trim()) return setFormError('Title is required.');
+    if (!form.body.trim()) return setFormError('Body is required.');
+    if (!form.startsAt || !form.endsAt) return setFormError('Start and end dates are required.');
+
     setSaving(true);
     try {
       const created = await apiPost('/api/promotions', {
-        venue_id: selectedVenue,
-        type: activePromoType,
-        title: draft.title.trim(),
-        description: draft.description?.trim() || '',
-        status: 'published',
-        start_at: draft.start_at ? new Date(draft.start_at).toISOString() : null,
-        end_at: draft.end_at ? new Date(draft.end_at).toISOString() : null,
+        venueId: selectedVenue,
+        eventId: form.promoteWhat === 'event' ? form.eventId : null,
+        promotionType: form.promotionType,
+        title: form.title.trim(),
+        body: form.body.trim(),
+        imageUrl: form.imageUrl || null,
+        imagePublicId: form.imagePublicId || null,
+        targetCity: form.targetCity || null,
+        startsAt: new Date(form.startsAt).toISOString(),
+        endsAt: new Date(form.endsAt).toISOString(),
       });
-      toast.success('Promotion published');
-      await loadExisting(selectedVenue);
 
-      if (boostAmount && boostAmount > 0) {
-        const pay = await apiPost('/api/payments/paystack/initialize', {
-          amount: boostAmount,
-          description: `Boost promotion: ${created.title}`,
-          venue_id: selectedVenue,
-          metadata: { promotion_id: created.id, purpose: 'promotion_boost' },
-        });
-        if (pay?.authorization_url) window.location.href = pay.authorization_url;
-      }
+      toast.success('Your promotion is live!');
+      setJustPublished(created);
+      setForm({
+        promoteWhat: 'venue',
+        eventId: '',
+        promotionType: 'VENUE_PROMOTION',
+        title: '',
+        body: '',
+        imageUrl: '',
+        imagePublicId: '',
+        targetCity: '',
+        startsAt: '',
+        endsAt: '',
+      });
+      await loadPromotions(selectedVenue);
     } catch (e) {
-      toast.error(e?.data?.error || e?.message || 'Failed to publish promotion');
+      setFormError(e?.data?.error || e.message || 'Failed to publish promotion');
     } finally {
       setSaving(false);
     }
-  };
+  }
+
+  async function startBoost(promotion) {
+    try {
+      const payment = await apiPost(`/api/promotions/${promotion.id}/boost`, {});
+      if (payment?.authorization_url) window.location.href = payment.authorization_url;
+      else toast.error('Could not initialize Paystack payment');
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Failed to initialize boost payment');
+    }
+  }
+
+  async function patchPromotion(id, payload) {
+    try {
+      await apiPatch(`/api/promotions/${id}`, payload);
+      await loadPromotions(selectedVenue);
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Update failed');
+    }
+  }
+
+  async function deletePromotion(id) {
+    try {
+      await apiDelete(`/api/promotions/${id}`);
+      await loadPromotions(selectedVenue);
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Delete failed');
+    }
+  }
 
   if (!user) return null;
 
   return (
-    <div style={{ padding: '24px 20px', maxWidth: 800, margin: '0 auto' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Promotions & AI Tools</h1>
-        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Generate content and manage your venue promotions</p>
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: '16px 12px 100px' }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Promotions</h1>
+      <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 14 }}>Create and manage your venue promotions.</p>
+
+      <div className="sec-card" style={{ padding: 12, marginBottom: 12 }}>
+        <Label>Select Venue</Label>
+        <select className="sec-input-rect" value={selectedVenue} onChange={(e) => setSelectedVenue(e.target.value)} style={{ marginTop: 6, height: 42 }}>
+          <option value="">Choose a venue</option>
+          {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
       </div>
 
-      {/* Venue Selector */}
-      {venues.length > 0 && (
-        <div style={{
-          padding: 16, borderRadius: 14, marginBottom: 20,
-          backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-        }}>
-          <Label className="text-gray-400 text-sm">Select Venue</Label>
-          <Select value={selectedVenue} onValueChange={setSelectedVenue}>
-            <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}>
-              <SelectValue placeholder="Choose a venue" />
-            </SelectTrigger>
-            <SelectContent style={sty.dropdown} className="text-white">
-              {venues.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+      <div className="sec-card" style={{ padding: 12, marginBottom: 12 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Create Promotion</h2>
+        <Label>What are you promoting?</Label>
+        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          <button className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'venue', eventId: '' }))} style={{ flex: 1, opacity: form.promoteWhat === 'venue' ? 1 : 0.6 }}>My Venue</button>
+          <button className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'event' }))} style={{ flex: 1, opacity: form.promoteWhat === 'event' ? 1 : 0.6 }}>An Event</button>
+        </div>
+
+        {form.promoteWhat === 'event' && (
+          <div style={{ marginTop: 10 }}>
+            <Label>Event</Label>
+            <select className="sec-input-rect" value={form.eventId} onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
+              <option value="">Select upcoming event</option>
+              {events.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Promotion Type</Label>
+          <select className="sec-input-rect" value={form.promotionType} onChange={(e) => setForm((f) => ({ ...f, promotionType: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
+            {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Title ({form.title.length}/100)</Label>
+          <input className="sec-input-rect" value={form.title} maxLength={100} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <Label>Body ({form.body.length}/500)</Label>
+          <textarea className="sec-input-rect" value={form.body} maxLength={500} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} style={{ marginTop: 6, minHeight: 90 }} />
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Image Upload (optional)</Label>
+          <input type="file" accept=".jpg,.jpeg,.png,.webp" onChange={(e) => uploadImage(e.target.files?.[0])} style={{ marginTop: 6 }} />
+          {form.imageUrl && (
+            <div style={{ marginTop: 8 }}>
+              <img src={form.imageUrl} alt="Promotion" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover' }} />
+              <button className="sec-btn sec-btn-ghost" style={{ marginTop: 6 }} onClick={() => setForm((f) => ({ ...f, imageUrl: '', imagePublicId: '' }))}>Remove image</button>
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Target City</Label>
+          <select className="sec-input-rect" value={form.targetCity} onChange={(e) => setForm((f) => ({ ...f, targetCity: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
+            <option value="">National — Show to everyone</option>
+            {SA_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Start Date + Time</Label>
+          <input type="datetime-local" className="sec-input-rect" value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <Label>End Date + Time</Label>
+          <input type="datetime-local" className="sec-input-rect" value={form.endsAt} onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
+        </div>
+        {durationText && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>{durationText}</p>}
+        {formError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{formError}</p>}
+
+        <button className="sec-btn sec-btn-primary sec-btn-full" disabled={saving} style={{ marginTop: 12 }} onClick={handlePublish}>
+          {saving ? 'Publishing...' : 'Publish Promotion'}
+        </button>
+      </div>
+
+      {justPublished && (
+        <div className="sec-card" style={{ padding: 12, marginBottom: 12, border: '1px solid #facc15' }}>
+          <p style={{ fontSize: 13, marginBottom: 10 }}>
+            Want more reach? Boost this promotion for R150 and get priority placement for 7 days.
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="sec-btn sec-btn-primary" style={{ flex: 1 }} onClick={() => startBoost(justPublished)}>Boost Now</button>
+            <button className="sec-btn sec-btn-secondary" style={{ flex: 1 }} onClick={() => setJustPublished(null)}>Maybe Later</button>
+          </div>
         </div>
       )}
 
-      {/* Promotion Templates */}
-      <div style={{ marginBottom: 24 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Promotion Templates</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-          {PROMO_TEMPLATES.map(t => (
-            <button
-              key={t.type}
-              onClick={() => handleTemplateClick(t)}
-              style={{
-                padding: 14, borderRadius: 12, textAlign: 'left', cursor: 'pointer',
-                backgroundColor: activePromoType === t.type ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
-                border: `1px solid ${activePromoType === t.type ? 'var(--sec-accent-border)' : 'var(--sec-border)'}`,
-                transition: 'all 0.15s',
-              }}
-            >
-              <t.icon size={18} style={{ color: 'var(--sec-accent)', marginBottom: 6 }} />
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>{t.label}</div>
-              <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2, lineHeight: 1.4 }}>{t.desc}</div>
-            </button>
+      <div className="sec-card" style={{ padding: 12 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Your Promotions</h2>
+        {loadingList && <p style={{ fontSize: 12 }}>Loading...</p>}
+        {!loadingList && promotions.length === 0 && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>No promotions yet.</p>}
+        <div style={{ display: 'grid', gap: 8 }}>
+          {promotions.map((p) => (
+            <div key={p.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <strong style={{ fontSize: 14 }}>{p.title}</strong>
+                <span style={{ fontSize: 11, background: getStatusColor(p.status), color: '#fff', borderRadius: 999, padding: '2px 8px' }}>{p.status}</span>
+              </div>
+              <p style={{ fontSize: 11, marginTop: 4 }}>{p.promotionType}</p>
+              <p style={{ fontSize: 11, marginTop: 2 }}>Target: {p.targetCity || 'National'}</p>
+              <p style={{ fontSize: 11 }}>Views {p.boostImpressions + p.organicImpressions} · Clicks {p.totalClicks}</p>
+              {p.eventId && <p style={{ fontSize: 11 }}>Promoting: {p.eventName || 'Event'}</p>}
+              {p.boosted && <p style={{ fontSize: 11, color: '#facc15' }}>Boosted until {new Date(p.boostExpiresAt).toLocaleDateString()}</p>}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
+                {(p.status === 'ACTIVE' || p.status === 'DRAFT') && <button className="sec-btn sec-btn-secondary" onClick={() => patchPromotion(p.id, { status: p.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' })}>{p.status === 'ACTIVE' ? 'Pause' : 'Resume'}</button>}
+                <button className="sec-btn sec-btn-secondary" onClick={() => startBoost(p)}>Boost (R150)</button>
+                {(p.status === 'ACTIVE' || p.status === 'DRAFT') && <button className="sec-btn sec-btn-ghost" onClick={() => {
+                  const nextTitle = window.prompt('Edit title', p.title);
+                  if (nextTitle) patchPromotion(p.id, { title: nextTitle });
+                }}>Edit</button>}
+                {(p.status === 'DRAFT' || p.status === 'ENDED') && <button className="sec-btn sec-btn-ghost" onClick={() => deletePromotion(p.id)}>Delete</button>}
+              </div>
+            </div>
           ))}
-        </div>
-      </div>
-
-      {/* Publish Promotion */}
-      {activePromoType && (
-        <div style={{
-          padding: 20, borderRadius: 14, marginBottom: 16,
-          backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <Megaphone size={18} style={{ color: 'var(--sec-accent)' }} />
-            <h3 style={{ fontSize: 15, fontWeight: 600 }}>Publish Promotion</h3>
-          </div>
-          <div className="space-y-3">
-            <div>
-              <Label className="text-gray-400 text-sm">Title</Label>
-              <Input
-                value={draft.title}
-                onChange={(e) => setDraft(p => ({ ...p, title: e.target.value }))}
-                className="mt-1.5 h-10 rounded-xl"
-                style={sty.input}
-                placeholder="e.g. Ladies Night – Free entry before 10PM"
-              />
-            </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Caption / Details</Label>
-              <Input
-                value={draft.description}
-                onChange={(e) => setDraft(p => ({ ...p, description: e.target.value }))}
-                className="mt-1.5 h-10 rounded-xl"
-                style={sty.input}
-                placeholder="Short promo text users can copy/share"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-gray-400 text-sm">Start (optional)</Label>
-                <Input type="datetime-local" value={draft.start_at} onChange={(e) => setDraft(p => ({ ...p, start_at: e.target.value }))} className="mt-1.5 h-10 rounded-xl" style={sty.input} />
-              </div>
-              <div>
-                <Label className="text-gray-400 text-sm">End (optional)</Label>
-                <Input type="datetime-local" value={draft.end_at} onChange={(e) => setDraft(p => ({ ...p, end_at: e.target.value }))} className="mt-1.5 h-10 rounded-xl" style={sty.input} />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => publishPromotion()}
-                disabled={saving}
-                className="sec-btn sec-btn-primary"
-                style={{ flex: 1, height: 44, borderRadius: 12 }}
-              >
-                {saving ? 'Publishing…' : 'Publish'}
-              </button>
-              <button
-                onClick={() => publishPromotion({ boostAmount: 150 })}
-                disabled={saving}
-                className="sec-btn sec-btn-secondary"
-                style={{ flex: 1, height: 44, borderRadius: 12 }}
-              >
-                Boost (R150)
-              </button>
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
-              Publish creates the promotion inside SecNightlife. Boost uses Paystack and increases visibility.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Your Promotions */}
-      {selectedVenue && (
-        <div style={{
-          padding: 20, borderRadius: 14, marginBottom: 16,
-          backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600 }}>Your Promotions</h3>
-            <button onClick={() => loadExisting(selectedVenue)} className="sec-btn sec-btn-ghost" style={{ height: 34, padding: '0 12px', borderRadius: 999 }}>
-              Refresh
-            </button>
-          </div>
-          {existingPromos.length === 0 ? (
-            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No promotions yet. Publish one above.</p>
-          ) : (
-            <div className="space-y-2">
-              {existingPromos.map((p) => (
-                <div key={p.id} style={{ padding: 14, borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 8 }}>
-                    <div>
-                      <h4 style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>{p.title}</h4>
-                      <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>{p.description}</p>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, backgroundColor: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}>{p.status}</span>
-                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, backgroundColor: 'var(--sec-silver-muted)', color: 'var(--sec-silver-bright)' }}>{p.boost_status}</span>
-                      </div>
-                    </div>
-                    <button onClick={() => copy(`${p.title}\n${p.description || ''}`)} style={{ padding: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--sec-text-muted)', flexShrink: 0 }}>
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                  {p.boost_status !== 'active' && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          const pay = await apiPost('/api/payments/paystack/initialize', {
-                            amount: 150,
-                            description: `Boost promotion: ${p.title}`,
-                            venue_id: selectedVenue,
-                            metadata: { promotion_id: p.id, purpose: 'promotion_boost' },
-                          });
-                          if (pay?.authorization_url) window.location.href = pay.authorization_url;
-                        } catch (e) {
-                          toast.error(e?.data?.error || e?.message || 'Failed to start boost payment');
-                        }
-                      }}
-                      className="sec-btn sec-btn-secondary w-full mt-3"
-                      style={{ height: 40, borderRadius: 12 }}
-                    >
-                      Boost with Paystack (R150)
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* AI Description Generator */}
-      <div style={{
-        padding: 20, borderRadius: 14, marginBottom: 16,
-        backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <Sparkles size={18} style={{ color: 'var(--sec-accent)' }} />
-          <h3 style={{ fontSize: 15, fontWeight: 600 }}>AI Description Generator</h3>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <Label className="text-gray-400 text-sm">Keywords</Label>
-            <Input
-              placeholder="upscale, modern, rooftop, cocktails"
-              value={descForm.keywords}
-              onChange={e => setDescForm(p => ({ ...p, keywords: e.target.value }))}
-              className="mt-1.5 h-10 rounded-xl" style={sty.input}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-gray-400 text-sm">Venue Type</Label>
-              <Select value={descForm.venue_type} onValueChange={v => setDescForm(p => ({ ...p, venue_type: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
-                <SelectContent style={sty.dropdown} className="text-white">
-                  <SelectItem value="nightclub">Nightclub</SelectItem>
-                  <SelectItem value="lounge">Lounge</SelectItem>
-                  <SelectItem value="bar">Bar</SelectItem>
-                  <SelectItem value="rooftop">Rooftop</SelectItem>
-                  <SelectItem value="beach_club">Beach Club</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Atmosphere</Label>
-              <Input
-                placeholder="vibrant, intimate, upscale"
-                value={descForm.atmosphere}
-                onChange={e => setDescForm(p => ({ ...p, atmosphere: e.target.value }))}
-                className="mt-1.5 h-10 rounded-xl" style={sty.input}
-              />
-            </div>
-          </div>
-          <Button
-            onClick={handleGenerateDescription}
-            disabled={isGenerating}
-            className="w-full h-10 rounded-xl font-semibold"
-            style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
-          >
-            {isGenerating ? <Loader2 size={15} className="animate-spin mr-1.5" /> : <Sparkles size={15} className="mr-1.5" />}
-            Generate Description
-          </Button>
-          {generatedDescription && (
-            <div style={{ padding: 14, borderRadius: 10, backgroundColor: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', lineHeight: 1.6 }}>{generatedDescription}</p>
-                <button onClick={() => copy(generatedDescription)} style={{ padding: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--sec-text-muted)', flexShrink: 0 }}>
-                  <Copy size={15} />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* AI Promotion Suggestions */}
-      <div style={{
-        padding: 20, borderRadius: 14,
-        backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <TrendingUp size={18} style={{ color: 'var(--sec-accent)' }} />
-          <h3 style={{ fontSize: 15, fontWeight: 600 }}>AI Promotion Ideas</h3>
-        </div>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-gray-400 text-sm">Event Type</Label>
-              <Select value={promoForm.event_type} onValueChange={v => setPromoForm(p => ({ ...p, event_type: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
-                <SelectContent style={sty.dropdown} className="text-white">
-                  <SelectItem value="nightclub">Nightclub Event</SelectItem>
-                  <SelectItem value="concert">Concert</SelectItem>
-                  <SelectItem value="festival">Festival</SelectItem>
-                  <SelectItem value="special_occasion">Special Occasion</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Target Audience</Label>
-              <Select value={promoForm.target_audience} onValueChange={v => setPromoForm(p => ({ ...p, target_audience: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
-                <SelectContent style={sty.dropdown} className="text-white">
-                  <SelectItem value="young professionals">Young Professionals</SelectItem>
-                  <SelectItem value="students">Students</SelectItem>
-                  <SelectItem value="couples">Couples</SelectItem>
-                  <SelectItem value="groups">Groups</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Season</Label>
-              <Select value={promoForm.season} onValueChange={v => setPromoForm(p => ({ ...p, season: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
-                <SelectContent style={sty.dropdown} className="text-white">
-                  <SelectItem value="summer">Summer</SelectItem>
-                  <SelectItem value="winter">Winter</SelectItem>
-                  <SelectItem value="spring">Spring</SelectItem>
-                  <SelectItem value="fall">Fall</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Budget Level</Label>
-              <Select value={promoForm.budget_level} onValueChange={v => setPromoForm(p => ({ ...p, budget_level: v }))}>
-                <SelectTrigger className="mt-1.5 h-10 rounded-xl" style={sty.select}><SelectValue /></SelectTrigger>
-                <SelectContent style={sty.dropdown} className="text-white">
-                  <SelectItem value="low">Low Budget</SelectItem>
-                  <SelectItem value="medium">Medium Budget</SelectItem>
-                  <SelectItem value="high">High Budget</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <Button
-            onClick={handleGeneratePromotions}
-            disabled={isGeneratingPromo}
-            className="w-full h-10 rounded-xl font-semibold"
-            style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
-          >
-            {isGeneratingPromo ? <Loader2 size={15} className="animate-spin mr-1.5" /> : <TrendingUp size={15} className="mr-1.5" />}
-            Generate Promotion Ideas
-          </Button>
-          {promotions.length > 0 && (
-            <div className="space-y-2 mt-3">
-              {promotions.map((p, i) => (
-                <div key={i} style={{ padding: 14, borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 8 }}>
-                    <div>
-                      <h4 style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 4 }}>{p.title}</h4>
-                      <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>{p.description}</p>
-                    </div>
-                    <button onClick={() => copy(`${p.title}\n${p.description}`)} style={{ padding: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--sec-text-muted)', flexShrink: 0 }}>
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, backgroundColor: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}>{p.target}</span>
-                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, backgroundColor: 'var(--sec-silver-muted)', color: 'var(--sec-silver-bright)' }}>{p.impact}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </div>

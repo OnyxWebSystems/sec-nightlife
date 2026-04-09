@@ -2,147 +2,403 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
+import { sendEmail } from '../lib/email.js';
 
 const router = Router();
+const PROMOTION_TYPES = ['VENUE_PROMOTION', 'EVENT_PROMOTION', 'SPECIAL_OFFER', 'ANNOUNCEMENT'];
 
-function formatPromotion(p) {
+function formatOwnerPromotion(p) {
   return {
     id: p.id,
-    venue_id: p.venueId,
-    type: p.type,
+    venueId: p.venueId,
+    eventId: p.eventId,
+    promotionType: p.type,
     title: p.title,
-    description: p.description,
+    body: p.description,
+    imageUrl: p.imageUrl,
+    imagePublicId: p.imagePublicId,
+    targetCity: p.targetCity,
     status: p.status,
-    start_at: p.startAt,
-    end_at: p.endAt,
-    boost_status: p.boostStatus,
-    boost_ref: p.boostRef,
-    boost_paid_at: p.boostPaidAt,
-    created_at: p.createdAt,
+    startsAt: p.startAt,
+    endsAt: p.endAt,
+    boosted: p.boosted,
+    boostedAt: p.boostedAt,
+    boostExpiresAt: p.boostExpiresAt,
+    boostImpressions: p.boostImpressions,
+    organicImpressions: p.organicImpressions,
+    totalClicks: p.totalClicks,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+    eventName: p.event?.title || null,
   };
 }
 
-// Public list (published promotions) - optional venue filter
-router.get('/', optionalAuth, async (req, res, next) => {
-  try {
-    const where = { deletedAt: null, status: 'published' };
-    if (req.query.venue_id) where.venueId = req.query.venue_id;
-    let list = await prisma.promotion.findMany({
-      where,
-      orderBy: [{ boostStatus: 'desc' }, { createdAt: 'desc' }],
-      take: Math.min(parseInt(req.query.limit) || 50, 100),
-    });
-    if (req.userId) {
-      const profile = await prisma.userProfile.findUnique({
-        where: { userId: req.userId },
-        select: { followedVenues: true },
-      }).catch(() => null);
-      const followedSet = new Set(profile?.followedVenues || []);
-      list = list
-        .map((item, idx) => ({ item, idx }))
-        .sort((a, b) => {
-          const af = followedSet.has(a.item.venueId);
-          const bf = followedSet.has(b.item.venueId);
-          if (af !== bf) return af ? -1 : 1;
-          return a.idx - b.idx;
-        })
-        .map((x) => x.item);
+function assertVenueRole(req, res) {
+  if (req.userRole !== 'VENUE') {
+    res.status(403).json({ error: 'Only business owners can perform this action' });
+    return false;
+  }
+  return true;
+}
+
+function calculateScore(promotion) {
+  const hours = (Date.now() - new Date(promotion.createdAt).getTime()) / (1000 * 60 * 60);
+  const recency = hours <= 24 ? 10 : hours <= 48 ? 5 : 0;
+  return (promotion.boosted ? 1000 : 0) + (promotion.boostImpressions < 500 ? 50 : 0) + (promotion.organicImpressions < 100 ? 20 : 0) + recency;
+}
+
+function interleavePromotions(boosted, organic) {
+  const result = [];
+  let b = 0;
+  let o = 0;
+  const slots = ['B', 'B', 'O', 'B', 'O'];
+
+  while (b < boosted.length || o < organic.length) {
+    for (const slot of slots) {
+      if (slot === 'B') {
+        if (b < boosted.length) result.push(boosted[b++]);
+        else if (o < organic.length) result.push(organic[o++]);
+      } else if (o < organic.length) result.push(organic[o++]);
+      else if (b < boosted.length) result.push(boosted[b++]);
+      if (b >= boosted.length && o >= organic.length) break;
     }
-    res.json(list.map(formatPromotion));
-  } catch (err) {
-    next(err);
   }
-});
+  return result;
+}
 
-// Owner list for a venue (includes drafts)
-router.get('/owner', authenticateToken, async (req, res, next) => {
-  try {
-    const venueId = req.query.venue_id;
-    if (!venueId) return res.status(400).json({ error: 'venue_id required' });
-    const venue = await prisma.venue.findFirst({ where: { id: venueId, deletedAt: null } });
-    if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    const list = await prisma.promotion.findMany({
-      where: { venueId, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      take: 100
+async function trackFeedImpressions(items, userId, sessionId) {
+  await Promise.all((items || []).map(async (item) => {
+    await prisma.promotion.update({
+      where: { id: item.id },
+      data: item.boosted ? { boostImpressions: { increment: 1 } } : { organicImpressions: { increment: 1 } },
     });
-    res.json(list.map(formatPromotion));
-  } catch (err) {
-    next(err);
-  }
+    await prisma.promotionImpression.create({
+      data: { promotedPostId: item.id, userId: userId || null, sessionId, type: 'VIEW' },
+    });
+  }));
+}
+
+const createSchema = z.object({
+  venueId: z.string().uuid(),
+  eventId: z.string().uuid().optional().nullable(),
+  promotionType: z.enum(PROMOTION_TYPES),
+  title: z.string().trim().min(1).max(100),
+  body: z.string().trim().min(1).max(500),
+  imageUrl: z.string().url().optional().nullable(),
+  imagePublicId: z.string().optional().nullable(),
+  targetCity: z.string().trim().max(100).optional().nullable(),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
 });
 
-// Create or publish a promotion for a venue
+const patchSchema = z.object({
+  title: z.string().trim().min(1).max(100).optional(),
+  body: z.string().trim().min(1).max(500).optional(),
+  imageUrl: z.string().url().optional().nullable(),
+  imagePublicId: z.string().optional().nullable(),
+  targetCity: z.string().trim().max(100).optional().nullable(),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+  status: z.enum(['ACTIVE', 'PAUSED']).optional(),
+});
+
+const trackSchema = z.object({
+  type: z.enum(['VIEW', 'CLICK']),
+  sessionId: z.string().min(8).max(128),
+});
+
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
-    const schema = z.object({
-      venue_id: z.string().uuid(),
-      type: z.string().min(1),
-      title: z.string().min(1).max(120),
-      description: z.string().max(5000).optional().nullable(),
-      status: z.enum(['draft', 'published']).optional(),
-      start_at: z.string().datetime().optional().nullable(),
-      end_at: z.string().datetime().optional().nullable(),
-    });
-    const parsed = schema.safeParse(req.body || {});
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-    const d = parsed.data;
-    const venue = await prisma.venue.findFirst({ where: { id: d.venue_id, deletedAt: null } });
-    if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (!assertVenueRole(req, res)) return;
+    const parsed = createSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid promotion payload', details: parsed.error.flatten() });
 
-    const p = await prisma.promotion.create({
-      data: {
-        venueId: d.venue_id,
-        type: d.type,
-        title: d.title,
-        description: d.description || null,
-        status: d.status || 'draft',
-        startAt: d.start_at ? new Date(d.start_at) : null,
-        endAt: d.end_at ? new Date(d.end_at) : null,
-      }
+    const data = parsed.data;
+    const startsAt = new Date(data.startsAt);
+    const endsAt = new Date(data.endsAt);
+    const now = new Date();
+    if (startsAt < now) return res.status(400).json({ error: 'startsAt must be now or in the future' });
+    if (endsAt <= startsAt) return res.status(400).json({ error: 'endsAt must be after startsAt' });
+    if (endsAt > new Date(startsAt.getTime() + 30 * 24 * 60 * 60 * 1000)) return res.status(400).json({ error: 'Promotion duration cannot exceed 30 days' });
+
+    const venue = await prisma.venue.findFirst({
+      where: { id: data.venueId, ownerUserId: req.userId, deletedAt: null },
+      include: { owner: { select: { email: true } } },
     });
-    res.status(201).json(formatPromotion(p));
+    if (!venue) return res.status(403).json({ error: 'You can only create promotions for your own venue' });
+
+    if (data.eventId) {
+      const event = await prisma.event.findFirst({ where: { id: data.eventId, venueId: data.venueId, deletedAt: null } });
+      if (!event) return res.status(400).json({ error: 'Selected event does not belong to this venue' });
+    }
+
+    const created = await prisma.promotion.create({
+      data: {
+        venueId: data.venueId,
+        eventId: data.eventId || null,
+        type: data.promotionType,
+        title: data.title,
+        description: data.body,
+        imageUrl: data.imageUrl || null,
+        imagePublicId: data.imagePublicId || null,
+        targetCity: data.targetCity || null,
+        status: 'ACTIVE',
+        startAt: startsAt,
+        endAt: endsAt,
+      },
+      include: { event: { select: { title: true } } },
+    });
+
+    if (venue.owner?.email) {
+      sendEmail({
+        to: venue.owner.email,
+        subject: `Your promotion is live — ${created.title}`,
+        text: `Your promotion "${created.title}" is live from ${startsAt.toISOString()} to ${endsAt.toISOString()} targeting ${created.targetCity || 'National'}. Boost for more reach.`,
+      }).catch(() => {});
+    }
+
+    res.status(201).json(formatOwnerPromotion(created));
   } catch (err) {
     next(err);
   }
 });
 
-// Update promotion (owner only)
-router.patch('/:id', authenticateToken, async (req, res, next) => {
+router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
   try {
-    const schema = z.object({
-      title: z.string().min(1).max(120).optional(),
-      description: z.string().max(5000).optional().nullable(),
-      status: z.enum(['draft', 'published', 'archived']).optional(),
-      start_at: z.string().datetime().optional().nullable(),
-      end_at: z.string().datetime().optional().nullable(),
-      boost_status: z.enum(['none', 'pending', 'active']).optional(),
-      boost_ref: z.string().optional().nullable(),
-      boost_paid_at: z.string().datetime().optional().nullable(),
-    });
-    const parsed = schema.safeParse(req.body || {});
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-    const d = parsed.data;
+    if (!assertVenueRole(req, res)) return;
+    const venue = await prisma.venue.findFirst({ where: { id: req.params.venueId, ownerUserId: req.userId, deletedAt: null } });
+    if (!venue) return res.status(403).json({ error: 'Forbidden' });
 
-    const existing = await prisma.promotion.findFirst({ where: { id: req.params.id, deletedAt: null } });
-    if (!existing) return res.status(404).json({ error: 'Not found' });
-    const venue = await prisma.venue.findFirst({ where: { id: existing.venueId, deletedAt: null } });
-    if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const promotions = await prisma.promotion.findMany({
+      where: { venueId: req.params.venueId, deletedAt: null },
+      include: { event: { select: { title: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(promotions.map(formatOwnerPromotion));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/:promotionId', authenticateToken, async (req, res, next) => {
+  try {
+    if (!assertVenueRole(req, res)) return;
+    const parsed = patchSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+    const existing = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, include: { venue: true } });
+    if (!existing) return res.status(404).json({ error: 'Promotion not found' });
+    if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    const startsAt = parsed.data.startsAt ? new Date(parsed.data.startsAt) : existing.startAt;
+    const endsAt = parsed.data.endsAt ? new Date(parsed.data.endsAt) : existing.endAt;
+    if (endsAt <= startsAt) return res.status(400).json({ error: 'endsAt must be after startsAt' });
+    if (endsAt > new Date(startsAt.getTime() + 30 * 24 * 60 * 60 * 1000)) return res.status(400).json({ error: 'Promotion duration cannot exceed 30 days' });
 
     const updated = await prisma.promotion.update({
       where: { id: existing.id },
       data: {
-        title: d.title ?? undefined,
-        description: d.description === undefined ? undefined : d.description,
-        status: d.status ?? undefined,
-        startAt: d.start_at === undefined ? undefined : (d.start_at ? new Date(d.start_at) : null),
-        endAt: d.end_at === undefined ? undefined : (d.end_at ? new Date(d.end_at) : null),
-        boostStatus: d.boost_status ?? undefined,
-        boostRef: d.boost_ref === undefined ? undefined : d.boost_ref,
-        boostPaidAt: d.boost_paid_at === undefined ? undefined : (d.boost_paid_at ? new Date(d.boost_paid_at) : null),
-      }
+        title: parsed.data.title,
+        description: parsed.data.body,
+        imageUrl: parsed.data.imageUrl,
+        imagePublicId: parsed.data.imagePublicId,
+        targetCity: parsed.data.targetCity,
+        startAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : undefined,
+        endAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : undefined,
+        status: parsed.data.status,
+      },
+      include: { event: { select: { title: true } } },
     });
-    res.json(formatPromotion(updated));
+
+    res.json(formatOwnerPromotion(updated));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:promotionId', authenticateToken, async (req, res, next) => {
+  try {
+    if (!assertVenueRole(req, res)) return;
+    const existing = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, include: { venue: true } });
+    if (!existing) return res.status(404).json({ error: 'Promotion not found' });
+    if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (!['DRAFT', 'ENDED'].includes(existing.status)) return res.status(400).json({ error: 'Only DRAFT or ENDED promotions can be deleted' });
+
+    await prisma.promotion.update({ where: { id: existing.id }, data: { status: 'ENDED' } });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => {
+  try {
+    if (!assertVenueRole(req, res)) return;
+    const promotion = await prisma.promotion.findFirst({
+      where: { id: req.params.promotionId, deletedAt: null },
+      include: { venue: true },
+    });
+    if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
+    if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    const key = process.env.PAYSTACK_SECRET_KEY;
+    if (!key) return res.status(500).json({ error: 'Paystack is not configured' });
+
+    const owner = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true },
+    });
+    const reference = `boost_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const amountInCents = 15000;
+    const metadata = { promotedPostId: promotion.id, type: 'BOOST', venueId: promotion.venueId };
+
+    await prisma.payment.create({
+      data: {
+        userId: req.userId,
+        email: owner?.email || 'user@secnightlife.app',
+        amount: 150,
+        reference,
+        status: 'pending',
+        type: 'promotion',
+        metadata,
+      },
+    });
+
+    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: owner?.email || 'user@secnightlife.app',
+        amount: amountInCents,
+        reference,
+        metadata: { user_id: req.userId, ...metadata },
+      }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json?.status) {
+      return res.status(400).json({ error: json?.message || 'Failed to initialize boost payment' });
+    }
+
+    res.json({
+      reference,
+      authorization_url: json.data.authorization_url,
+      access_code: json.data.access_code,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:promotionId/track', optionalAuth, async (req, res, next) => {
+  try {
+    const parsed = trackSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+    const promotion = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, select: { id: true } });
+    if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
+
+    if (parsed.data.type === 'VIEW') {
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const existingView = await prisma.promotionImpression.findFirst({
+        where: { promotedPostId: promotion.id, sessionId: parsed.data.sessionId, type: 'VIEW', createdAt: { gte: hourAgo } },
+      });
+      if (existingView) return res.status(200).json({ ok: true });
+    }
+
+    await prisma.promotionImpression.create({
+      data: {
+        promotedPostId: promotion.id,
+        userId: req.userId || null,
+        sessionId: parsed.data.sessionId,
+        type: parsed.data.type,
+      },
+    });
+    if (parsed.data.type === 'CLICK') {
+      await prisma.promotion.update({ where: { id: promotion.id }, data: { totalClicks: { increment: 1 } } });
+    }
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/feed', optionalAuth, async (req, res, next) => {
+  try {
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 20);
+    const overrideCity = typeof req.query.city === 'string' ? req.query.city.trim() : '';
+    const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : 'anon-session';
+    const now = new Date();
+
+    let city = overrideCity;
+    if (!city && req.userId) {
+      const profile = await prisma.userProfile.findUnique({ where: { userId: req.userId }, select: { city: true } });
+      city = profile?.city || '';
+    }
+
+    await prisma.promotion.updateMany({
+      where: { boosted: true, boostExpiresAt: { lt: now } },
+      data: { boosted: false },
+    });
+
+    const promotions = await prisma.promotion.findMany({
+      where: {
+        deletedAt: null,
+        status: 'ACTIVE',
+        startAt: { lte: now },
+        endAt: { gt: now },
+        ...(city ? { OR: [{ targetCity: city }, { targetCity: null }] } : {}),
+      },
+      include: {
+        venue: { select: { id: true, name: true, city: true, venueType: true } },
+        event: { select: { id: true, title: true, date: true } },
+      },
+    });
+
+    const scored = promotions
+      .map((p) => ({
+        ...p,
+        score: calculateScore(p),
+        cityMatch: city && p.targetCity && p.targetCity.toLowerCase() === city.toLowerCase() ? 1 : 0,
+      }))
+      .sort((a, b) => {
+        if (a.cityMatch !== b.cityMatch) return b.cityMatch - a.cityMatch;
+        if (a.score !== b.score) return b.score - a.score;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+    const mixed = interleavePromotions(scored.filter((p) => p.boosted), scored.filter((p) => !p.boosted));
+    const offset = (page - 1) * limit;
+    const results = mixed.slice(offset, offset + limit);
+
+    void trackFeedImpressions(results, req.userId, sessionId).catch(() => {});
+
+    res.json({
+      page,
+      limit,
+      total: mixed.length,
+      results: results.map((p) => ({
+        id: p.id,
+        promotionType: p.type,
+        title: p.title,
+        body: p.description,
+        imageUrl: p.imageUrl,
+        targetCity: p.targetCity,
+        boosted: p.boosted,
+        startsAt: p.startAt,
+        endsAt: p.endAt,
+        venueId: p.venue.id,
+        venueName: p.venue.name,
+        venueCity: p.venue.city,
+        venueType: p.venue.venueType,
+        eventId: p.event?.id || null,
+        eventName: p.event?.title || null,
+        eventDate: p.event?.date || null,
+      })),
+    });
   } catch (err) {
     next(err);
   }

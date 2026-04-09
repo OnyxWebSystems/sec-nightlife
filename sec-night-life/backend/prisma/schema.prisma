@@ -88,6 +88,25 @@ enum ApplicationStatus {
   HIRED
 }
 
+enum PromotionType {
+  VENUE_PROMOTION
+  EVENT_PROMOTION
+  SPECIAL_OFFER
+  ANNOUNCEMENT
+}
+
+enum PromotionStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+enum ImpressionType {
+  VIEW
+  CLICK
+}
+
 // ─── Users & Auth ─────────────────────────────────────────────────────────
 // Party Goers (USER) and Business Owners (VENUE) can share the same email as separate accounts
 model User {
@@ -212,7 +231,7 @@ model Venue {
   tables              Table[]
   jobs                Job[]
   jobPostings         JobPosting[]
-  promotions          Promotion[]
+  promotedPosts       Promotion[]
   reviews             VenueReview[]
   blockedUsers        VenueBlockedUser[]
   popularity          VenuePopularity[]
@@ -318,10 +337,11 @@ model Event {
   updatedAt         DateTime    @updatedAt @map("updated_at")
   deletedAt         DateTime?   @map("deleted_at")
 
-  venue     Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
-  tables    Table[]
-  jobs      Job[]
-  attendees EventAttendance[]
+  venue         Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  tables        Table[]
+  jobs          Job[]
+  attendees     EventAttendance[]
+  promotedPosts Promotion[]
 
   @@index([venueId])
   @@index([date])
@@ -498,27 +518,54 @@ model ServiceRating {
 }
 
 model Promotion {
-  id          String    @id @default(uuid())
-  venueId     String    @map("venue_id")
-  type        String
-  title       String
-  description String?   @db.Text
-  status      String    @default("draft") // draft | published | archived
-  startAt     DateTime? @map("start_at")
-  endAt       DateTime? @map("end_at")
-  boostStatus String    @default("none") @map("boost_status") // none | pending | active
-  boostRef    String?   @map("boost_ref")
-  boostPaidAt DateTime? @map("boost_paid_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
+  id                 String          @id @default(cuid())
+  venueId            String          @map("venue_id")
+  eventId            String?         @map("event_id")
+  type               PromotionType   @map("promotion_type")
+  title              String
+  description        String          @db.Text
+  imageUrl           String?         @map("image_url")
+  imagePublicId      String?         @map("image_public_id")
+  targetCity         String?         @map("target_city")
+  status             PromotionStatus @default(DRAFT)
+  startAt            DateTime        @map("start_at")
+  endAt              DateTime        @map("end_at")
+  boosted            Boolean         @default(false)
+  boostedAt          DateTime?       @map("boosted_at")
+  boostExpiresAt     DateTime?       @map("boost_expires_at")
+  boostPaystackRef   String?         @map("boost_paystack_ref")
+  boostImpressions   Int             @default(0) @map("boost_impressions")
+  organicImpressions Int             @default(0) @map("organic_impressions")
+  totalClicks        Int             @default(0) @map("total_clicks")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  deletedAt          DateTime?       @map("deleted_at")
 
-  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  venue       Venue                 @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  event       Event?                @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  impressions PromotionImpression[]
 
   @@index([venueId])
   @@index([status])
-  @@index([boostStatus])
+  @@index([eventId])
+  @@index([targetCity])
+  @@index([boosted, boostExpiresAt])
   @@map("promotions")
+}
+
+model PromotionImpression {
+  id             String         @id @default(cuid())
+  promotedPostId String         @map("promoted_post_id")
+  userId         String?        @map("user_id")
+  sessionId      String         @map("session_id")
+  type           ImpressionType
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  promotedPost Promotion @relation(fields: [promotedPostId], references: [id], onDelete: Cascade)
+
+  @@index([promotedPostId, createdAt])
+  @@index([sessionId, promotedPostId, type, createdAt])
+  @@map("promotion_impressions")
 }
 
 // ─── Tier 3: User Social / Blocks & Reports ───────────────────────────────

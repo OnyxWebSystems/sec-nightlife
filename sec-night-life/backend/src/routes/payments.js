@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
+import { sendEmail } from '../lib/email.js';
 
 const router = Router();
 
@@ -81,21 +82,36 @@ async function applyReferenceSideEffects(reference, paystackData) {
   });
 
   // Type-specific side effects
-  const promoId = metadata.promotion_id;
+  const isBoost = metadata.type === 'BOOST';
+  const promoId = metadata.promotedPostId || metadata.promotion_id;
   if (promoId) {
+    const boostExpiry = new Date(Date.now() + (7 * 24 * 60 * 60 * 1000));
     await prisma.promotion.updateMany({
       where: { id: promoId, deletedAt: null },
-      data: { boostStatus: 'active', boostRef: reference, boostPaidAt: new Date() },
+      data: isBoost
+        ? {
+            boosted: true,
+            boostedAt: new Date(),
+            boostExpiresAt: boostExpiry,
+            boostPaystackRef: reference,
+            status: 'ACTIVE',
+          }
+        : {
+            boosted: true,
+            boostedAt: new Date(),
+            boostExpiresAt: boostExpiry,
+            boostPaystackRef: reference,
+          },
     });
 
     const promo = await prisma.promotion.findFirst({
       where: { id: promoId, deletedAt: null },
-      select: { id: true, title: true, venueId: true },
+      select: { id: true, title: true, venueId: true, boostExpiresAt: true },
     });
     if (promo) {
       const venue = await prisma.venue.findFirst({
         where: { id: promo.venueId, deletedAt: null },
-        select: { ownerUserId: true, name: true },
+        select: { ownerUserId: true, name: true, owner: { select: { email: true } } },
       });
       await createNotification({
         userId: venue?.ownerUserId,
@@ -104,6 +120,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
         body: `"${promo.title}" is now boosted for ${venue?.name || 'your venue'}.`,
         actionUrl: `/BusinessPromotions`,
       });
+      if (isBoost && venue?.owner?.email) {
+        sendEmail({
+          to: venue.owner.email,
+          subject: `Boost activated — ${promo.title}`,
+          text: `Your promotion "${promo.title}" is now boosted for 7 days. Boost expires on ${promo.boostExpiresAt?.toISOString() || 'N/A'}.`,
+        }).catch(() => {});
+      }
     }
   }
 
@@ -383,7 +406,10 @@ export async function paystackWebhookHandler(req, res) {
 
   if (event === 'charge.success') {
     try {
-      await applyReferenceSideEffects(reference, data);
+      const verified = await paystackFetch(`/transaction/verify/${encodeURIComponent(reference)}`);
+      if (verified?.data?.status === 'success') {
+        await applyReferenceSideEffects(reference, verified.data);
+      }
     } catch (e) {
       // Log but don't fail — Paystack may retry
       console.error('Paystack webhook applyReferenceSideEffects error:', e?.message);

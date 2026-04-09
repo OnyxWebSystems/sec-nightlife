@@ -11,6 +11,12 @@
       "src": "/api/(.*)",
       "dest": "/api/index.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/expire-promotions",
+      "schedule": "0 2 * * *"
+    }
   ]
 }
 
