@@ -78,27 +78,35 @@ async function trackFeedImpressions(items, userId, sessionId) {
   }));
 }
 
+const emptyToNull = (v) => (v === '' || v === undefined ? null : v);
+
+/** Accepts ISO strings from Date#toISOString(); avoids Zod .datetime() strict RFC edge cases in some environments. */
+const isoDateTimeString = z
+  .string()
+  .min(1)
+  .refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid date' });
+
 const createSchema = z.object({
-  venueId: z.string().uuid(),
-  eventId: z.string().uuid().optional().nullable(),
+  venueId: z.string().trim().min(1),
+  eventId: z.preprocess(emptyToNull, z.union([z.string().trim().min(1), z.null()]).optional()),
   promotionType: z.enum(PROMOTION_TYPES),
   title: z.string().trim().min(1).max(100),
   body: z.string().trim().min(1).max(500),
-  imageUrl: z.string().url().optional().nullable(),
-  imagePublicId: z.string().optional().nullable(),
-  targetCity: z.string().trim().max(100).optional().nullable(),
-  startsAt: z.string().datetime(),
-  endsAt: z.string().datetime(),
+  imageUrl: z.preprocess(emptyToNull, z.union([z.string().url(), z.null()]).optional()),
+  imagePublicId: z.preprocess(emptyToNull, z.union([z.string().trim().min(1), z.null()]).optional()),
+  targetCity: z.preprocess(emptyToNull, z.union([z.string().trim().max(100), z.null()]).optional()),
+  startsAt: isoDateTimeString,
+  endsAt: isoDateTimeString,
 });
 
 const patchSchema = z.object({
   title: z.string().trim().min(1).max(100).optional(),
   body: z.string().trim().min(1).max(500).optional(),
-  imageUrl: z.string().url().optional().nullable(),
-  imagePublicId: z.string().optional().nullable(),
-  targetCity: z.string().trim().max(100).optional().nullable(),
-  startsAt: z.string().datetime().optional(),
-  endsAt: z.string().datetime().optional(),
+  imageUrl: z.preprocess(emptyToNull, z.union([z.string().url(), z.null()]).optional()),
+  imagePublicId: z.preprocess(emptyToNull, z.union([z.string().trim().min(1), z.null()]).optional()),
+  targetCity: z.preprocess(emptyToNull, z.union([z.string().trim().max(100), z.null()]).optional()),
+  startsAt: isoDateTimeString.optional(),
+  endsAt: isoDateTimeString.optional(),
   status: z.enum(['ACTIVE', 'PAUSED']).optional(),
 });
 
@@ -111,7 +119,13 @@ router.post('/', authenticateToken, async (req, res, next) => {
   try {
     if (!assertVenueRole(req, res)) return;
     const parsed = createSchema.safeParse(req.body || {});
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid promotion payload', details: parsed.error.flatten() });
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Invalid promotion payload',
+        details: parsed.error.flatten(),
+        issues: parsed.error.issues,
+      });
+    }
 
     const data = parsed.data;
     const startsAt = new Date(data.startsAt);
@@ -132,10 +146,12 @@ router.post('/', authenticateToken, async (req, res, next) => {
       if (!event) return res.status(400).json({ error: 'Selected event does not belong to this venue' });
     }
 
+    const eventIdForDb = data.eventId || null;
+
     const created = await prisma.promotion.create({
       data: {
         venueId: data.venueId,
-        eventId: data.eventId || null,
+        eventId: eventIdForDb,
         type: data.promotionType,
         title: data.title,
         description: data.body,

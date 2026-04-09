@@ -21,6 +21,32 @@ function getStatusColor(status) {
   return '#3b82f6';
 }
 
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']);
+
+function isAllowedPromotionImage(file) {
+  if (ALLOWED_IMAGE_TYPES.has(file.type)) return true;
+  const name = (file.name || '').toLowerCase();
+  return name.endsWith('.svg') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp');
+}
+
+function formatApiError(e, fallback) {
+  const base = e?.data?.error || e?.message || fallback;
+  const fieldErrors = e?.data?.details?.fieldErrors;
+  if (fieldErrors && typeof fieldErrors === 'object') {
+    const parts = Object.entries(fieldErrors).flatMap(([k, v]) =>
+      Array.isArray(v) ? v.map((x) => `${k}: ${x}`) : [`${k}: ${v}`]
+    );
+    if (parts.length) return `${base} — ${parts.join('; ')}`;
+  }
+  return base;
+}
+
+function localDateTimeToIso(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) throw new Error('Invalid start or end date');
+  return d.toISOString();
+}
+
 export default function BusinessPromotions() {
   const [user, setUser] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
@@ -98,8 +124,8 @@ export default function BusinessPromotions() {
 
   async function uploadImage(file) {
     if (!file) return;
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      toast.error('Only JPG, PNG, WEBP are allowed');
+    if (!isAllowedPromotionImage(file)) {
+      toast.error('Only JPG, PNG, WEBP, or SVG are allowed');
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -144,17 +170,28 @@ export default function BusinessPromotions() {
 
     setSaving(true);
     try {
+      let startsAtIso;
+      let endsAtIso;
+      try {
+        startsAtIso = localDateTimeToIso(form.startsAt);
+        endsAtIso = localDateTimeToIso(form.endsAt);
+      } catch {
+        setFormError('Invalid start or end date. Please pick valid date and time values.');
+        setSaving(false);
+        return;
+      }
+
       const created = await apiPost('/api/promotions', {
-        venueId: selectedVenue,
-        eventId: form.promoteWhat === 'event' ? form.eventId : null,
+        venueId: selectedVenue.trim(),
+        eventId: form.promoteWhat === 'event' ? form.eventId.trim() : null,
         promotionType: form.promotionType,
         title: form.title.trim(),
         body: form.body.trim(),
-        imageUrl: form.imageUrl || null,
-        imagePublicId: form.imagePublicId || null,
-        targetCity: form.targetCity || null,
-        startsAt: new Date(form.startsAt).toISOString(),
-        endsAt: new Date(form.endsAt).toISOString(),
+        imageUrl: form.imageUrl ? form.imageUrl.trim() : null,
+        imagePublicId: form.imagePublicId ? form.imagePublicId.trim() : null,
+        targetCity: form.targetCity ? form.targetCity.trim() : null,
+        startsAt: startsAtIso,
+        endsAt: endsAtIso,
       });
 
       toast.success('Your promotion is live!');
@@ -173,7 +210,7 @@ export default function BusinessPromotions() {
       });
       await loadPromotions(selectedVenue);
     } catch (e) {
-      setFormError(e?.data?.error || e.message || 'Failed to publish promotion');
+      setFormError(formatApiError(e, 'Failed to publish promotion'));
     } finally {
       setSaving(false);
     }
@@ -258,7 +295,7 @@ export default function BusinessPromotions() {
 
         <div style={{ marginTop: 10 }}>
           <Label>Image Upload (optional)</Label>
-          <input type="file" accept=".jpg,.jpeg,.png,.webp" onChange={(e) => uploadImage(e.target.files?.[0])} style={{ marginTop: 6 }} />
+          <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={(e) => uploadImage(e.target.files?.[0])} style={{ marginTop: 6 }} />
           {form.imageUrl && (
             <div style={{ marginTop: 8 }}>
               <img src={form.imageUrl} alt="Promotion" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover' }} />
