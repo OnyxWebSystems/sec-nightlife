@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { isStaff } from '../lib/access.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { sendEmail } from '../lib/email.js';
 
@@ -33,12 +34,23 @@ function formatOwnerPromotion(p) {
   };
 }
 
-function assertVenueRole(req, res) {
-  if (req.userRole !== 'VENUE') {
-    res.status(403).json({ error: 'Only business owners can perform this action' });
+/**
+ * Business UI can show "Business" mode when the user owns venues even if `User.role` is still USER.
+ * Align promotions with that: VENUE role, staff, or at least one owned venue.
+ */
+async function assertPromotionsAccess(req, res) {
+  if (!req.userId) {
+    res.status(401).json({ error: 'Authentication required' });
     return false;
   }
-  return true;
+  if (isStaff(req.userRole)) return true;
+  if (req.userRole === 'VENUE') return true;
+  const ownedCount = await prisma.venue.count({
+    where: { ownerUserId: req.userId, deletedAt: null },
+  });
+  if (ownedCount > 0) return true;
+  res.status(403).json({ error: 'Only business owners can perform this action' });
+  return false;
 }
 
 function calculateScore(promotion) {
@@ -174,7 +186,7 @@ const trackSchema = z.object({
 
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
-    if (!assertVenueRole(req, res)) return;
+    if (!(await assertPromotionsAccess(req, res))) return;
     const parsed = createSchema.safeParse(normalizePromotionCreateBody(req.body));
     if (!parsed.success) {
       return res.status(400).json({
@@ -238,7 +250,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
 
 router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
   try {
-    if (!assertVenueRole(req, res)) return;
+    if (!(await assertPromotionsAccess(req, res))) return;
     const venue = await prisma.venue.findFirst({ where: { id: req.params.venueId, ownerUserId: req.userId, deletedAt: null } });
     if (!venue) return res.status(403).json({ error: 'Forbidden' });
 
@@ -255,7 +267,7 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
 
 router.patch('/:promotionId', authenticateToken, async (req, res, next) => {
   try {
-    if (!assertVenueRole(req, res)) return;
+    if (!(await assertPromotionsAccess(req, res))) return;
     const parsed = patchSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
 
@@ -291,7 +303,7 @@ router.patch('/:promotionId', authenticateToken, async (req, res, next) => {
 
 router.delete('/:promotionId', authenticateToken, async (req, res, next) => {
   try {
-    if (!assertVenueRole(req, res)) return;
+    if (!(await assertPromotionsAccess(req, res))) return;
     const existing = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, include: { venue: true } });
     if (!existing) return res.status(404).json({ error: 'Promotion not found' });
     if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
@@ -306,7 +318,7 @@ router.delete('/:promotionId', authenticateToken, async (req, res, next) => {
 
 router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => {
   try {
-    if (!assertVenueRole(req, res)) return;
+    if (!(await assertPromotionsAccess(req, res))) return;
     const promotion = await prisma.promotion.findFirst({
       where: { id: req.params.promotionId, deletedAt: null },
       include: { venue: true },
