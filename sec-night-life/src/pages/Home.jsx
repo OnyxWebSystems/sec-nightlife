@@ -408,17 +408,32 @@ export default function Home() {
           {promotions.length > 0 && (
             <div style={{ display: 'grid', gap: 10, marginTop: 4 }}>
               {promotions.map((p) => (
-                <div key={p.id} className="sec-card" style={{ padding: 12 }}>
-                  {p.imageUrl && <img src={p.imageUrl} alt={p.title} style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover', marginBottom: 10 }} />}
+                <div
+                  key={p.id}
+                  className="sec-card"
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`Open ${p.venueName}`}
+                  onClick={() => handlePromotionClick(p)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handlePromotionClick(p);
+                    }
+                  }}
+                  style={{ padding: 12, cursor: 'pointer' }}
+                >
+                  {p.imageUrl && <img src={p.imageUrl} alt="" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover', marginBottom: 10, pointerEvents: 'none' }} />}
                   <p style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{p.venueName} · {p.venueType}</p>
                   <h3 style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{p.title}</h3>
                   <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 6, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.body}</p>
                   {p.eventName && <p style={{ fontSize: 12, marginTop: 6 }}>Event: {p.eventName}</p>}
                   <p style={{ fontSize: 11, marginTop: 6 }}>{p.targetCity || 'Nationwide'} · Offer ends {new Date(p.endsAt).toLocaleDateString()}</p>
                   {p.boosted && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Sponsored</p>}
-                  <button className="sec-btn sec-btn-ghost" style={{ marginTop: 8, paddingLeft: 0 }} onClick={() => handlePromotionClick(p)}>
+                  <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 10, fontWeight: 600 }}>
                     View {p.venueName}
-                  </button>
+                    <ChevronRight size={14} strokeWidth={2} style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 4 }} />
+                  </p>
                 </div>
               ))}
             </div>
