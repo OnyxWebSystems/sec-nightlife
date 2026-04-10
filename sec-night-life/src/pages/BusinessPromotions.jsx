@@ -47,6 +47,11 @@ function localDateTimeToIso(value) {
   return d.toISOString();
 }
 
+function isInvalidInputError(error) {
+  const message = String(error?.data?.error || error?.message || '').toLowerCase();
+  return message.includes('invalid input') || message.includes('invalid payload');
+}
+
 const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVenue, events, onPublished }) {
   const [form, setForm] = useState({
     promoteWhat: 'venue',
@@ -130,7 +135,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         return;
       }
 
-      const created = await apiPost('/api/promotions', {
+      const payload = {
         venueId: selectedVenue.trim(),
         eventId: form.promoteWhat === 'event' ? form.eventId.trim() : null,
         promotionType: form.promotionType,
@@ -141,7 +146,31 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         targetCity: form.targetCity ? form.targetCity.trim() : null,
         startsAt: startsAtIso,
         endsAt: endsAtIso,
-      });
+      };
+
+      let created;
+      try {
+        created = await apiPost('/api/promotions', payload);
+      } catch (error) {
+        if (!isInvalidInputError(error)) throw error;
+
+        // Backward compatibility for older backend payload contracts.
+        created = await apiPost('/api/promotions', {
+          venue_id: payload.venueId,
+          event_id: payload.eventId,
+          promotion_type: payload.promotionType,
+          title: payload.title,
+          body: payload.body,
+          description: payload.body,
+          image_url: payload.imageUrl,
+          image_public_id: payload.imagePublicId,
+          target_city: payload.targetCity,
+          starts_at: payload.startsAt,
+          ends_at: payload.endsAt,
+          startsAt: payload.startsAt,
+          endsAt: payload.endsAt,
+        });
+      }
 
       toast.success('Your promotion is live!');
       setForm({
