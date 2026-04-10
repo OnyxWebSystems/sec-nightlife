@@ -177,6 +177,8 @@ const patchSchema = z.object({
   startsAt: isoDateTimeString.optional(),
   endsAt: isoDateTimeString.optional(),
   status: z.enum(['ACTIVE', 'PAUSED']).optional(),
+  promotionType: z.enum(PROMOTION_TYPES).optional(),
+  eventId: z.preprocess(emptyToNullKeepUndefined, z.union([z.string().trim().min(1), z.null()]).optional()),
 });
 
 const trackSchema = z.object({
@@ -275,23 +277,39 @@ router.patch('/:promotionId', authenticateToken, async (req, res, next) => {
     if (!existing) return res.status(404).json({ error: 'Promotion not found' });
     if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
 
+    const venueId = existing.venueId;
+    let nextEventId = existing.eventId;
+    if (parsed.data.eventId !== undefined) {
+      if (parsed.data.eventId) {
+        const event = await prisma.event.findFirst({ where: { id: parsed.data.eventId, venueId, deletedAt: null } });
+        if (!event) return res.status(400).json({ error: 'Selected event does not belong to this venue' });
+        nextEventId = parsed.data.eventId;
+      } else {
+        nextEventId = null;
+      }
+    }
+
     const startsAt = parsed.data.startsAt ? new Date(parsed.data.startsAt) : existing.startAt;
     const endsAt = parsed.data.endsAt ? new Date(parsed.data.endsAt) : existing.endAt;
     if (endsAt <= startsAt) return res.status(400).json({ error: 'endsAt must be after startsAt' });
     if (endsAt > new Date(startsAt.getTime() + 30 * 24 * 60 * 60 * 1000)) return res.status(400).json({ error: 'Promotion duration cannot exceed 30 days' });
 
+    const updateData = {
+      title: parsed.data.title,
+      description: parsed.data.body,
+      imageUrl: parsed.data.imageUrl,
+      imagePublicId: parsed.data.imagePublicId,
+      targetCity: parsed.data.targetCity,
+      startAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : undefined,
+      endAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : undefined,
+      status: parsed.data.status,
+      type: parsed.data.promotionType,
+      eventId: parsed.data.eventId !== undefined ? nextEventId : undefined,
+    };
+
     const updated = await prisma.promotion.update({
       where: { id: existing.id },
-      data: {
-        title: parsed.data.title,
-        description: parsed.data.body,
-        imageUrl: parsed.data.imageUrl,
-        imagePublicId: parsed.data.imagePublicId,
-        targetCity: parsed.data.targetCity,
-        startAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : undefined,
-        endAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : undefined,
-        status: parsed.data.status,
-      },
+      data: updateData,
       include: { event: { select: { title: true } } },
     });
 
@@ -307,9 +325,11 @@ router.delete('/:promotionId', authenticateToken, async (req, res, next) => {
     const existing = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, include: { venue: true } });
     if (!existing) return res.status(404).json({ error: 'Promotion not found' });
     if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    if (!['DRAFT', 'ENDED'].includes(existing.status)) return res.status(400).json({ error: 'Only DRAFT or ENDED promotions can be deleted' });
 
-    await prisma.promotion.update({ where: { id: existing.id }, data: { status: 'ENDED' } });
+    await prisma.promotion.update({
+      where: { id: existing.id },
+      data: { deletedAt: new Date(), status: 'ENDED' },
+    });
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -435,7 +455,14 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
         status: 'ACTIVE',
         startAt: { lte: now },
         endAt: { gt: now },
-        ...(city ? { OR: [{ targetCity: city }, { targetCity: null }] } : {}),
+        ...(city
+          ? {
+              OR: [
+                { targetCity: null },
+                { targetCity: { equals: city, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
       },
       include: {
         venue: { select: { id: true, name: true, city: true, venueType: true } },

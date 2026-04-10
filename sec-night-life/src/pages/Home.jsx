@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -47,17 +47,19 @@ export default function Home() {
   const { logout } = useAuth();
 
   useEffect(() => { loadUser(); }, []);
-  useEffect(() => {
-    if (!user && loading) return;
-    loadPromotions(1, false);
-  }, [user, loading]);
 
-  const loadPromotions = async (page, append = true) => {
-    if (promotionLoading) return;
+  /** City for the promotions feed: explicit Home filter wins, else party-goer profile city. */
+  const promotionFeedCity = useMemo(() => {
+    if (selectedCity && selectedCity !== 'all') return String(selectedCity).trim();
+    const c = userProfile?.city;
+    return c ? String(c).trim() : '';
+  }, [selectedCity, userProfile?.city]);
+
+  const loadPromotions = useCallback(async (page, append = true) => {
     setPromotionLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: '10' });
-      if (userProfile?.city) params.set('city', userProfile.city);
+      if (promotionFeedCity) params.set('city', promotionFeedCity);
       const data = await apiGet(`/api/promotions/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
       const incoming = data?.results || [];
       setPromotions((prev) => (append ? [...prev, ...incoming] : incoming));
@@ -71,7 +73,12 @@ export default function Home() {
     } finally {
       setPromotionLoading(false);
     }
-  };
+  }, [promotionFeedCity, sessionId]);
+
+  useEffect(() => {
+    if (!user && loading) return;
+    void loadPromotions(1, false);
+  }, [user, loading, promotionFeedCity, loadPromotions]);
 
   const handlePromotionClick = async (promotion) => {
     void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});

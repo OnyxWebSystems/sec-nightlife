@@ -14,11 +14,32 @@ const TYPES = [
   { value: 'ANNOUNCEMENT', label: 'Announcement' },
 ];
 
-function getStatusColor(status) {
-  if (status === 'ACTIVE') return '#22c55e';
-  if (status === 'PAUSED') return '#eab308';
-  if (status === 'ENDED') return '#9ca3af';
-  return '#3b82f6';
+function isoToDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function PromotionStatusBadge({ status }) {
+  const base = {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    borderRadius: 999,
+    padding: '4px 10px',
+    border: '1px solid var(--sec-border)',
+    textTransform: 'uppercase',
+    flexShrink: 0,
+  };
+  const by = {
+    ACTIVE: { color: 'var(--sec-text-primary)', background: 'var(--sec-success-muted)', borderColor: 'var(--sec-border-strong)' },
+    PAUSED: { color: 'var(--sec-text-primary)', background: 'var(--sec-warning-muted)', borderColor: 'var(--sec-border-strong)' },
+    ENDED: { color: 'var(--sec-text-muted)', background: 'var(--sec-bg-hover)', borderColor: 'var(--sec-border)' },
+    DRAFT: { color: 'var(--sec-text-primary)', background: 'var(--sec-info-muted)', borderColor: 'var(--sec-border-strong)' },
+  };
+  return <span style={{ ...base, ...(by[status] || by.DRAFT) }}>{status}</span>;
 }
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']);
@@ -27,6 +48,36 @@ function isAllowedPromotionImage(file) {
   if (ALLOWED_IMAGE_TYPES.has(file.type)) return true;
   const name = (file.name || '').toLowerCase();
   return name.endsWith('.svg') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp');
+}
+
+async function uploadPromotionImageFile(file) {
+  if (!file) return null;
+  if (!isAllowedPromotionImage(file)) {
+    toast.error('Only JPG, PNG, WEBP, or SVG are allowed');
+    return null;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    toast.error('Image must be 5MB or smaller');
+    return null;
+  }
+  const cloud = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+  const preset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+  if (!cloud || !preset) {
+    toast.error('Cloudinary is not configured');
+    return null;
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', preset);
+  formData.append('resource_type', 'image');
+  formData.append('folder', 'sec-nightlife/promotions');
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/image/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  const json = await response.json();
+  if (!response.ok) throw new Error(json?.error?.message || 'Upload failed');
+  return { imageUrl: json.secure_url, imagePublicId: json.public_id };
 }
 
 function formatApiError(e, fallback) {
@@ -105,41 +156,13 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
   }, [form.startsAt, form.endsAt]);
 
   async function uploadImage(file) {
-    if (!file) return;
-    if (!isAllowedPromotionImage(file)) {
-      toast.error('Only JPG, PNG, WEBP, or SVG are allowed');
-      return;
+    try {
+      const result = await uploadPromotionImageFile(file);
+      if (!result) return;
+      setForm((prev) => ({ ...prev, imageUrl: result.imageUrl, imagePublicId: result.imagePublicId }));
+    } catch (e) {
+      toast.error(e?.message || 'Upload failed');
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Image must be 5MB or smaller');
-      return;
-    }
-
-    const cloud = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-    const preset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-    if (!cloud || !preset) {
-      toast.error('Cloudinary is not configured');
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', preset);
-    formData.append('resource_type', 'image');
-    formData.append('folder', 'sec-nightlife/promotions');
-
-    const response = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/image/upload`, {
-      method: 'POST',
-      body: formData,
-    });
-    const json = await response.json();
-    if (!response.ok) throw new Error(json?.error?.message || 'Upload failed');
-
-    setForm((prev) => ({
-      ...prev,
-      imageUrl: json.secure_url,
-      imagePublicId: json.public_id,
-    }));
   }
 
   async function handlePublish() {
@@ -309,7 +332,253 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
   );
 });
 
-const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, loadingList, onPatch, onDelete, onBoost }) {
+const PromotionEditModal = React.memo(function PromotionEditModal({ open, promotion, events, onClose, onSave }) {
+  const [form, setForm] = useState(null);
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open || !promotion) return;
+    setForm({
+      promoteWhat: promotion.eventId ? 'event' : 'venue',
+      eventId: promotion.eventId || '',
+      promotionType: promotion.promotionType || 'VENUE_PROMOTION',
+      title: promotion.title || '',
+      body: promotion.body || '',
+      imageUrl: promotion.imageUrl || '',
+      imagePublicId: promotion.imagePublicId || '',
+      targetCity: promotion.targetCity || '',
+      startsAt: isoToDatetimeLocal(promotion.startsAt),
+      endsAt: isoToDatetimeLocal(promotion.endsAt),
+    });
+    setFormError('');
+    setSaving(false);
+  }, [open, promotion]);
+
+  const durationText = useMemo(() => {
+    if (!form?.startsAt || !form?.endsAt) return '';
+    const start = new Date(form.startsAt);
+    const end = new Date(form.endsAt);
+    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    return `This promotion runs for ${days} day${days === 1 ? '' : 's'}`;
+  }, [form?.startsAt, form?.endsAt]);
+
+  async function uploadImage(file) {
+    try {
+      const result = await uploadPromotionImageFile(file);
+      if (!result) return;
+      setForm((prev) => (prev ? { ...prev, imageUrl: result.imageUrl, imagePublicId: result.imagePublicId } : prev));
+    } catch (e) {
+      toast.error(e?.message || 'Upload failed');
+    }
+  }
+
+  async function handleSave() {
+    if (!form || !promotion) return;
+    setFormError('');
+    if (form.promoteWhat === 'event' && !form.eventId) return setFormError('Choose an event to promote.');
+    if (!form.title.trim()) return setFormError('Title is required.');
+    if (!form.body.trim()) return setFormError('Body is required.');
+    if (!form.startsAt || !form.endsAt) return setFormError('Start and end dates are required.');
+    let startsAtIso;
+    let endsAtIso;
+    try {
+      startsAtIso = localDateTimeToIso(form.startsAt);
+      endsAtIso = localDateTimeToIso(form.endsAt);
+    } catch {
+      return setFormError('Invalid start or end date.');
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        title: form.title.trim(),
+        body: form.body.trim(),
+        promotionType: form.promotionType,
+        eventId: form.promoteWhat === 'event' ? form.eventId.trim() : null,
+        imageUrl: form.imageUrl ? form.imageUrl.trim() : null,
+        imagePublicId: form.imagePublicId ? form.imagePublicId.trim() : null,
+        targetCity: form.targetCity ? form.targetCity.trim() : null,
+        startsAt: startsAtIso,
+        endsAt: endsAtIso,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open || !promotion || !form) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'rgba(0,0,0,0.65)',
+        display: 'flex',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+        padding: 12,
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="sec-card"
+        style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 14 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Edit promotion</h2>
+          <button type="button" className="sec-btn sec-btn-ghost" onClick={onClose} style={{ minWidth: 36 }} aria-label="Close">
+            ×
+          </button>
+        </div>
+
+        <Label>What are you promoting?</Label>
+        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          <button
+            type="button"
+            className="sec-btn sec-btn-secondary"
+            onClick={() => setForm((f) => ({ ...f, promoteWhat: 'venue', eventId: '' }))}
+            style={{ flex: 1, opacity: form.promoteWhat === 'venue' ? 1 : 0.6 }}
+          >
+            My Venue
+          </button>
+          <button
+            type="button"
+            className="sec-btn sec-btn-secondary"
+            onClick={() => setForm((f) => ({ ...f, promoteWhat: 'event' }))}
+            style={{ flex: 1, opacity: form.promoteWhat === 'event' ? 1 : 0.6 }}
+          >
+            An Event
+          </button>
+        </div>
+
+        {form.promoteWhat === 'event' && (
+          <div style={{ marginTop: 10 }}>
+            <Label>Event</Label>
+            <select
+              className="sec-input-rect"
+              value={form.eventId}
+              onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))}
+              style={{ marginTop: 6, height: 42 }}
+            >
+              <option value="">Select upcoming event</option>
+              {events.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.title}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Promotion Type</Label>
+          <select
+            className="sec-input-rect"
+            value={form.promotionType}
+            onChange={(e) => setForm((f) => ({ ...f, promotionType: e.target.value }))}
+            style={{ marginTop: 6, height: 42 }}
+          >
+            {TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Title ({form.title.length}/100)</Label>
+          <input
+            className="sec-input-rect"
+            value={form.title}
+            maxLength={100}
+            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+            style={{ marginTop: 6, height: 42 }}
+          />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <Label>Body ({form.body.length}/500)</Label>
+          <textarea
+            className="sec-input-rect"
+            value={form.body}
+            maxLength={500}
+            onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+            style={{ marginTop: 6, minHeight: 90 }}
+          />
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Image Upload (optional)</Label>
+          <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={(e) => uploadImage(e.target.files?.[0])} style={{ marginTop: 6 }} />
+          {form.imageUrl && (
+            <div style={{ marginTop: 8 }}>
+              <img src={form.imageUrl} alt="Promotion" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover' }} />
+              <button type="button" className="sec-btn sec-btn-ghost" style={{ marginTop: 6 }} onClick={() => setForm((f) => ({ ...f, imageUrl: '', imagePublicId: '' }))}>
+                Remove image
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Target City</Label>
+          <select
+            className="sec-input-rect"
+            value={form.targetCity}
+            onChange={(e) => setForm((f) => ({ ...f, targetCity: e.target.value }))}
+            style={{ marginTop: 6, height: 42 }}
+          >
+            <option value="">National — Show to everyone</option>
+            {SA_CITIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <Label>Start Date + Time</Label>
+          <input
+            type="datetime-local"
+            className="sec-input-rect"
+            value={form.startsAt}
+            onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))}
+            style={{ marginTop: 6, height: 42 }}
+          />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <Label>End Date + Time</Label>
+          <input
+            type="datetime-local"
+            className="sec-input-rect"
+            value={form.endsAt}
+            onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))}
+            style={{ marginTop: 6, height: 42 }}
+          />
+        </div>
+        {durationText && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>{durationText}</p>}
+        {formError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{formError}</p>}
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <button type="button" className="sec-btn sec-btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="sec-btn sec-btn-primary" style={{ flex: 1 }} disabled={saving} onClick={handleSave}>
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, loadingList, onPatch, onDelete, onBoost, onEditOpen }) {
   return (
     <div className="sec-card" style={{ padding: 12 }}>
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Your Promotions</h2>
@@ -318,23 +587,46 @@ const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, 
       <div style={{ display: 'grid', gap: 8 }}>
         {promotions.map((p) => (
           <div key={p.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
               <strong style={{ fontSize: 14 }}>{p.title}</strong>
-              <span style={{ fontSize: 11, background: getStatusColor(p.status), color: '#fff', borderRadius: 999, padding: '2px 8px' }}>{p.status}</span>
+              <PromotionStatusBadge status={p.status} />
             </div>
             <p style={{ fontSize: 11, marginTop: 4 }}>{p.promotionType}</p>
             <p style={{ fontSize: 11, marginTop: 2 }}>Target: {p.targetCity || 'National'}</p>
             <p style={{ fontSize: 11 }}>Views {p.boostImpressions + p.organicImpressions} · Clicks {p.totalClicks}</p>
             {p.eventId && <p style={{ fontSize: 11 }}>Promoting: {p.eventName || 'Event'}</p>}
-            {p.boosted && <p style={{ fontSize: 11, color: '#facc15' }}>Boosted until {new Date(p.boostExpiresAt).toLocaleDateString()}</p>}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
-              {(p.status === 'ACTIVE' || p.status === 'DRAFT') && <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: p.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' })}>{p.status === 'ACTIVE' ? 'Pause' : 'Resume'}</button>}
-              <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onBoost(p)}>Boost (R150)</button>
-              {(p.status === 'ACTIVE' || p.status === 'DRAFT') && <button type="button" className="sec-btn sec-btn-ghost" onClick={() => {
-                const nextTitle = window.prompt('Edit title', p.title);
-                if (nextTitle) onPatch(p.id, { title: nextTitle });
-              }}>Edit</button>}
-              {(p.status === 'DRAFT' || p.status === 'ENDED') && <button type="button" className="sec-btn sec-btn-ghost" onClick={() => onDelete(p.id)}>Delete</button>}
+            {p.boosted && <p style={{ fontSize: 11, color: 'var(--sec-warning)' }}>Boosted until {new Date(p.boostExpiresAt).toLocaleDateString()}</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+              {p.status !== 'ENDED' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {p.status === 'ACTIVE' && (
+                    <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: 'PAUSED' })}>
+                      Pause
+                    </button>
+                  )}
+                  {p.status === 'PAUSED' && (
+                    <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: 'ACTIVE' })}>
+                      Resume
+                    </button>
+                  )}
+                  {p.status === 'DRAFT' && (
+                    <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: 'ACTIVE' })}>
+                      Activate
+                    </button>
+                  )}
+                  <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onBoost(p)}>
+                    Boost (R150)
+                  </button>
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onEditOpen(p)}>
+                  Edit
+                </button>
+                <button type="button" className="sec-btn sec-btn-ghost" onClick={() => onDelete(p.id)}>
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         ))}
@@ -350,6 +642,7 @@ export default function BusinessPromotions() {
   const [events, setEvents] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
   const [justPublished, setJustPublished] = useState(null);
+  const [editingPromotion, setEditingPromotion] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -423,10 +716,27 @@ export default function BusinessPromotions() {
     }
   }, [selectedVenue, loadPromotions]);
 
+  const saveEditedPromotion = useCallback(
+    async (payload) => {
+      if (!editingPromotion) return;
+      try {
+        await apiPatch(`/api/promotions/${editingPromotion.id}`, payload);
+        await loadPromotions(selectedVenue);
+        setEditingPromotion(null);
+        toast.success('Promotion updated');
+      } catch (e) {
+        toast.error(e?.data?.error || e.message || 'Update failed');
+      }
+    },
+    [editingPromotion, selectedVenue, loadPromotions]
+  );
+
   const deletePromotion = useCallback(async (id) => {
+    if (!window.confirm('Delete this promotion? It will be removed from discovery.')) return;
     try {
       await apiDelete(`/api/promotions/${id}`);
       await loadPromotions(selectedVenue);
+      toast.success('Promotion deleted');
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Delete failed');
     }
@@ -461,12 +771,21 @@ export default function BusinessPromotions() {
         </div>
       )}
 
+      <PromotionEditModal
+        open={!!editingPromotion}
+        promotion={editingPromotion}
+        events={events}
+        onClose={() => setEditingPromotion(null)}
+        onSave={saveEditedPromotion}
+      />
+
       <PromotionCardsList
         promotions={promotions}
         loadingList={loadingList}
         onPatch={patchPromotion}
         onDelete={deletePromotion}
         onBoost={startBoost}
+        onEditOpen={(p) => setEditingPromotion(p)}
       />
     </div>
   );
