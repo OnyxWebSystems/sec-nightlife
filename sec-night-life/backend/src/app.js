@@ -70,7 +70,8 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  // Home promotions feed sends x-session-id; preflight fails if not listed (feed appeared empty on Vercel).
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id'],
 }));
 
 // Paystack webhooks — raw body required for HMAC signature verification

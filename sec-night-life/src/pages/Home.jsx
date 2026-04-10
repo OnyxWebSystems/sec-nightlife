@@ -41,7 +41,7 @@ export default function Home() {
   const [promotionPage, setPromotionPage] = useState(1);
   const [promotionLoading, setPromotionLoading] = useState(false);
   const [promotions, setPromotions] = useState([]);
-  const [hasMorePromotions, setHasMorePromotions] = useState(true);
+  const [hasMorePromotions, setHasMorePromotions] = useState(false);
   const [sessionId] = useState(() => getOrCreateSessionId());
 
   const { logout } = useAuth();
@@ -67,11 +67,13 @@ export default function Home() {
       } else {
         params.set('scope', 'all');
       }
+      params.set('sessionId', sessionId);
       const data = await apiGet(`/api/promotions/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
       const incoming = data?.results || [];
       setPromotions((prev) => (append ? [...prev, ...incoming] : incoming));
       setPromotionPage(page);
-      setHasMorePromotions((page * 10) < (data?.total || 0));
+      const total = typeof data?.total === 'number' ? data.total : 0;
+      setHasMorePromotions(page * 10 < total);
       incoming.forEach((promo) => {
         void apiPost(`/api/promotions/${promo.id}/track`, { type: 'VIEW', sessionId }, { skipAuth: false }).catch(() => {});
       });
@@ -380,7 +382,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* ── Explore Venues ── */}
+        {/* ── Promotions (empty state until feed returns items) ── */}
         <section style={{ marginBottom: 30 }}>
           <div className="sec-section-header">
             <div>
@@ -390,31 +392,39 @@ export default function Home() {
               </h2>
             </div>
           </div>
+
           {promotionLoading && promotions.length === 0 && (
             <div style={{ display: 'grid', gap: 8 }}>
               {[1, 2, 3].map((x) => <div key={x} className="sec-card" style={{ height: 120, opacity: 0.6 }} />)}
             </div>
           )}
+
           {!promotionLoading && promotions.length === 0 && (
-            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No promotions available in your area right now.</p>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+              No promotions available in your area right now.
+            </p>
           )}
-          <div style={{ display: 'grid', gap: 10 }}>
-            {promotions.map((p) => (
-              <div key={p.id} className="sec-card" style={{ padding: 12 }}>
-                {p.imageUrl && <img src={p.imageUrl} alt={p.title} style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover', marginBottom: 10 }} />}
-                <p style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{p.venueName} · {p.venueType}</p>
-                <h3 style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{p.title}</h3>
-                <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 6, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.body}</p>
-                {p.eventName && <p style={{ fontSize: 12, marginTop: 6 }}>Event: {p.eventName}</p>}
-                <p style={{ fontSize: 11, marginTop: 6 }}>{p.targetCity || 'Nationwide'} · Offer ends {new Date(p.endsAt).toLocaleDateString()}</p>
-                {p.boosted && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Sponsored</p>}
-                <button className="sec-btn sec-btn-ghost" style={{ marginTop: 8, paddingLeft: 0 }} onClick={() => handlePromotionClick(p)}>
-                  View {p.venueName}
-                </button>
-              </div>
-            ))}
-          </div>
-          {hasMorePromotions && (
+
+          {promotions.length > 0 && (
+            <div style={{ display: 'grid', gap: 10, marginTop: 4 }}>
+              {promotions.map((p) => (
+                <div key={p.id} className="sec-card" style={{ padding: 12 }}>
+                  {p.imageUrl && <img src={p.imageUrl} alt={p.title} style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover', marginBottom: 10 }} />}
+                  <p style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{p.venueName} · {p.venueType}</p>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{p.title}</h3>
+                  <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 6, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.body}</p>
+                  {p.eventName && <p style={{ fontSize: 12, marginTop: 6 }}>Event: {p.eventName}</p>}
+                  <p style={{ fontSize: 11, marginTop: 6 }}>{p.targetCity || 'Nationwide'} · Offer ends {new Date(p.endsAt).toLocaleDateString()}</p>
+                  {p.boosted && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Sponsored</p>}
+                  <button className="sec-btn sec-btn-ghost" style={{ marginTop: 8, paddingLeft: 0 }} onClick={() => handlePromotionClick(p)}>
+                    View {p.venueName}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {promotions.length > 0 && hasMorePromotions && (
             <button className="sec-btn sec-btn-secondary sec-btn-full" disabled={promotionLoading} onClick={() => loadPromotions(promotionPage + 1, true)} style={{ marginTop: 10 }}>
               {promotionLoading ? 'Loading...' : 'Load more'}
             </button>

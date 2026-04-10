@@ -437,7 +437,9 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const overrideCity = typeof req.query.city === 'string' ? req.query.city.trim() : '';
     /** When set (e.g. Home "All Cities"), do not filter by city or use profile fallback — show all in-window ACTIVE promos. */
     const scopeAll = req.query.scope === 'all' || req.query.all === '1' || req.query.all === 'true';
-    const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : 'anon-session';
+    const sessionIdHeader = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'].trim() : '';
+    const sessionIdQuery = typeof req.query.sessionId === 'string' ? req.query.sessionId.trim() : '';
+    const sessionId = sessionIdHeader || sessionIdQuery || 'anon-session';
     const now = new Date();
 
     let city = '';
