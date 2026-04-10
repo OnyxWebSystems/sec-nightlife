@@ -48,18 +48,25 @@ export default function Home() {
 
   useEffect(() => { loadUser(); }, []);
 
-  /** City for the promotions feed: explicit Home filter wins, else party-goer profile city. */
-  const promotionFeedCity = useMemo(() => {
+  /**
+   * Promotions feed city: only when the user picks a city in Home filters.
+   * When "All Cities" is selected we send scope=all so the API does not apply profile-based
+   * city filtering (which hid promos that target another city or only the venue's city).
+   */
+  const promotionsExplicitCity = useMemo(() => {
     if (selectedCity && selectedCity !== 'all') return String(selectedCity).trim();
-    const c = userProfile?.city;
-    return c ? String(c).trim() : '';
-  }, [selectedCity, userProfile?.city]);
+    return '';
+  }, [selectedCity]);
 
   const loadPromotions = useCallback(async (page, append = true) => {
     setPromotionLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: '10' });
-      if (promotionFeedCity) params.set('city', promotionFeedCity);
+      if (promotionsExplicitCity) {
+        params.set('city', promotionsExplicitCity);
+      } else {
+        params.set('scope', 'all');
+      }
       const data = await apiGet(`/api/promotions/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
       const incoming = data?.results || [];
       setPromotions((prev) => (append ? [...prev, ...incoming] : incoming));
@@ -73,12 +80,12 @@ export default function Home() {
     } finally {
       setPromotionLoading(false);
     }
-  }, [promotionFeedCity, sessionId]);
+  }, [promotionsExplicitCity, sessionId]);
 
   useEffect(() => {
     if (!user && loading) return;
     void loadPromotions(1, false);
-  }, [user, loading, promotionFeedCity, loadPromotions]);
+  }, [user, loading, promotionsExplicitCity, loadPromotions]);
 
   const handlePromotionClick = async (promotion) => {
     void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});

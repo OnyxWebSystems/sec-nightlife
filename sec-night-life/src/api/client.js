@@ -96,6 +96,14 @@ export async function api(method, path, body = null, opts = {}) {
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
+    const trimmed = (text || '').trim();
+    if (trimmed.startsWith('<!') || trimmed.startsWith('<html')) {
+      const err = new Error(
+        'Received a web page instead of API data. Set VITE_API_URL in your Vercel (or hosting) environment to your backend URL so /api calls reach the API, then redeploy.'
+      );
+      err.data = { code: 'HTML_INSTEAD_OF_JSON' };
+      throw err;
+    }
     data = null;
   }
   const tokenExpired = (res.status === 401 || res.status === 403) && (

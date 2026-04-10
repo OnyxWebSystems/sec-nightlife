@@ -435,13 +435,20 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 20);
     const overrideCity = typeof req.query.city === 'string' ? req.query.city.trim() : '';
+    /** When set (e.g. Home "All Cities"), do not filter by city or use profile fallback — show all in-window ACTIVE promos. */
+    const scopeAll = req.query.scope === 'all' || req.query.all === '1' || req.query.all === 'true';
     const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : 'anon-session';
     const now = new Date();
 
-    let city = overrideCity;
-    if (!city && req.userId) {
-      const profile = await prisma.userProfile.findUnique({ where: { userId: req.userId }, select: { city: true } });
-      city = profile?.city || '';
+    let city = '';
+    if (scopeAll) {
+      city = '';
+    } else {
+      city = overrideCity;
+      if (!city && req.userId) {
+        const profile = await prisma.userProfile.findUnique({ where: { userId: req.userId }, select: { city: true } });
+        city = profile?.city || '';
+      }
     }
 
     await prisma.promotion.updateMany({
@@ -460,6 +467,7 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
               OR: [
                 { targetCity: null },
                 { targetCity: { equals: city, mode: 'insensitive' } },
+                { venue: { city: { equals: city, mode: 'insensitive' } } },
               ],
             }
           : {}),
@@ -474,7 +482,12 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
       .map((p) => ({
         ...p,
         score: calculateScore(p),
-        cityMatch: city && p.targetCity && p.targetCity.toLowerCase() === city.toLowerCase() ? 1 : 0,
+        cityMatch:
+          city &&
+          ((p.targetCity && p.targetCity.toLowerCase() === city.toLowerCase()) ||
+            (p.venue?.city && p.venue.city.toLowerCase() === city.toLowerCase()))
+            ? 1
+            : 0,
       }))
       .sort((a, b) => {
         if (a.cityMatch !== b.cityMatch) return b.cityMatch - a.cityMatch;
