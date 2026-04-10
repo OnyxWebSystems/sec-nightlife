@@ -1,5 +1,8 @@
--- Promotions table for BusinessPromotions page
--- Run in Neon SQL editor (safe to re-run).
+-- DEPRECATED: This legacy DDL used column name `type` (not `promotion_type`) and does not match Prisma.
+-- For new databases use: `cd backend && npx prisma migrate deploy`
+-- To fix an existing Neon DB created from this script, run:
+--   scripts/migrations/align-promotions-with-prisma.sql
+-- (same SQL as prisma/migrations/20260410140000_align_promotions_with_prisma/migration.sql)
 
 CREATE TABLE IF NOT EXISTS promotions (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -21,4 +24,3 @@ CREATE TABLE IF NOT EXISTS promotions (
 CREATE INDEX IF NOT EXISTS promotions_venue_idx ON promotions (venue_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS promotions_status_idx ON promotions (status);
 CREATE INDEX IF NOT EXISTS promotions_boost_status_idx ON promotions (boost_status);
-
