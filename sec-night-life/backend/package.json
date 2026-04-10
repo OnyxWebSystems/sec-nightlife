@@ -13,6 +13,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:neon-schema": "node scripts/run-neon-schema.js",
     "db:migrate-hardening": "node scripts/run-hardening-migration.js",
