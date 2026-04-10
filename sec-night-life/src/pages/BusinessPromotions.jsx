@@ -52,6 +52,34 @@ function isInvalidInputError(error) {
   return message.includes('invalid input') || message.includes('invalid payload');
 }
 
+function extractErrorDetails(error) {
+  const details = error?.data?.details;
+  const fieldErrors = details?.fieldErrors;
+  if (fieldErrors && typeof fieldErrors === 'object') {
+    const parts = Object.entries(fieldErrors).flatMap(([k, v]) =>
+      Array.isArray(v) ? v.map((x) => `${k}: ${x}`) : [`${k}: ${v}`]
+    );
+    if (parts.length) return parts.join('; ');
+  }
+
+  const issues = error?.data?.issues;
+  if (Array.isArray(issues) && issues.length) {
+    const parts = issues
+      .map((i) => {
+        const path = Array.isArray(i?.path) ? i.path.join('.') : '';
+        return path ? `${path}: ${i?.message || 'Invalid value'}` : i?.message;
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  }
+
+  if (Array.isArray(details)) {
+    const parts = details.map((d) => (typeof d === 'string' ? d : d?.message)).filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  }
+  return '';
+}
+
 const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVenue, events, onPublished }) {
   const [form, setForm] = useState({
     promoteWhat: 'venue',
@@ -139,13 +167,25 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         venueId: selectedVenue.trim(),
         eventId: form.promoteWhat === 'event' ? form.eventId.trim() : null,
         promotionType: form.promotionType,
+        type: form.promotionType,
         title: form.title.trim(),
         body: form.body.trim(),
+        description: form.body.trim(),
         imageUrl: form.imageUrl ? form.imageUrl.trim() : null,
         imagePublicId: form.imagePublicId ? form.imagePublicId.trim() : null,
         targetCity: form.targetCity ? form.targetCity.trim() : null,
         startsAt: startsAtIso,
         endsAt: endsAtIso,
+        startAt: startsAtIso,
+        endAt: endsAtIso,
+        starts_at: startsAtIso,
+        ends_at: endsAtIso,
+        venue_id: selectedVenue.trim(),
+        event_id: form.promoteWhat === 'event' ? form.eventId.trim() : null,
+        promotion_type: form.promotionType,
+        image_url: form.imageUrl ? form.imageUrl.trim() : null,
+        image_public_id: form.imagePublicId ? form.imagePublicId.trim() : null,
+        target_city: form.targetCity ? form.targetCity.trim() : null,
       };
 
       let created;
@@ -159,6 +199,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
           venue_id: payload.venueId,
           event_id: payload.eventId,
           promotion_type: payload.promotionType,
+          type: payload.promotionType,
           title: payload.title,
           body: payload.body,
           description: payload.body,
@@ -169,6 +210,8 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
           ends_at: payload.endsAt,
           startsAt: payload.startsAt,
           endsAt: payload.endsAt,
+          startAt: payload.startsAt,
+          endAt: payload.endsAt,
         });
       }
 
@@ -187,7 +230,8 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
       });
       await onPublished(created);
     } catch (e) {
-      setFormError(formatApiError(e, 'Failed to publish promotion'));
+      const extra = extractErrorDetails(e);
+      setFormError(extra ? `${formatApiError(e, 'Failed to publish promotion')} — ${extra}` : formatApiError(e, 'Failed to publish promotion'));
     } finally {
       setSaving(false);
     }

@@ -127,11 +127,19 @@ function normalizePromotionCreateBody(raw) {
   if (b.venue_id && !b.venueId) b.venueId = b.venue_id;
   if (b.event_id != null && b.eventId == null) b.eventId = b.event_id;
   if (b.promotion_type && !b.promotionType) b.promotionType = b.promotion_type;
+  if (b.type && !b.promotionType) b.promotionType = b.type;
   if (b.starts_at && !b.startsAt) b.startsAt = b.starts_at;
   if (b.ends_at && !b.endsAt) b.endsAt = b.ends_at;
+  if (b.start_at && !b.startsAt) b.startsAt = b.start_at;
+  if (b.end_at && !b.endsAt) b.endsAt = b.end_at;
+  if (b.startAt && !b.startsAt) b.startsAt = b.startAt;
+  if (b.endAt && !b.endsAt) b.endsAt = b.endAt;
+  if (b.startDate && !b.startsAt) b.startsAt = b.startDate;
+  if (b.endDate && !b.endsAt) b.endsAt = b.endDate;
   if (b.image_url && !b.imageUrl) b.imageUrl = b.image_url;
   if (b.image_public_id && !b.imagePublicId) b.imagePublicId = b.image_public_id;
   if (b.target_city != null && b.targetCity == null) b.targetCity = b.target_city;
+  if (b.description && !b.body) b.body = b.description;
   return b;
 }
 
