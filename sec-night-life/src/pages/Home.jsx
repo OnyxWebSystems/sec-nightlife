@@ -48,14 +48,18 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
         }
       }}
       style={{
+        flex: 1,
         width: '100%',
         maxWidth: '100%',
         minWidth: 0,
+        minHeight: 0,
         boxSizing: 'border-box',
         padding: 12,
         cursor: 'pointer',
         border: boosted ? '1px solid var(--sec-accent-border)' : '1px solid var(--sec-border)',
         background: boosted ? 'var(--sec-bg-elevated)' : 'var(--sec-bg-card)',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
       {boosted && (
@@ -72,6 +76,7 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
             borderRadius: 999,
             padding: '3px 8px',
             marginBottom: 8,
+            flexShrink: 0,
           }}
         >
           Sponsored
@@ -83,6 +88,7 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
             width: '100%',
             maxWidth: '100%',
             aspectRatio: '16 / 9',
+            flexShrink: 0,
             overflow: 'hidden',
             borderRadius: 10,
             marginBottom: 10,
@@ -103,24 +109,44 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
           />
         </div>
       ) : null}
-      <p style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{p.venueName} · {p.venueType}</p>
-      <h3 style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{p.title}</h3>
-      <p
-        style={{
-          fontSize: 13,
-          color: 'var(--sec-text-secondary)',
-          marginTop: 6,
-          display: '-webkit-box',
-          WebkitLineClamp: 3,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}
-      >
-        {p.body}
-      </p>
-      {p.eventName && <p style={{ fontSize: 12, marginTop: 6 }}>Event: {p.eventName}</p>}
-      <p style={{ fontSize: 11, marginTop: 6 }}>{p.targetCity || 'Nationwide'} · Offer ends {new Date(p.endsAt).toLocaleDateString()}</p>
-      <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 10, fontWeight: 600 }}>
+      <div style={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', flexShrink: 0 }}>{p.venueName} · {p.venueType}</p>
+        <h3
+          style={{
+            fontSize: 16,
+            fontWeight: 700,
+            marginTop: 4,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}
+        >
+          {p.title}
+        </h3>
+        <p
+          style={{
+            fontSize: 13,
+            color: 'var(--sec-text-secondary)',
+            marginTop: 6,
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}
+        >
+          {p.body}
+        </p>
+        <p style={{ fontSize: 12, marginTop: 6, minHeight: '2.6em', color: 'var(--sec-text-secondary)', flexShrink: 0 }}>
+          {p.eventName ? `Event: ${p.eventName}` : '\u00a0'}
+        </p>
+        <p style={{ fontSize: 11, marginTop: 6, color: 'var(--sec-text-muted)', flexShrink: 0 }}>
+          {p.targetCity || 'Nationwide'} · Offer ends {new Date(p.endsAt).toLocaleDateString()}
+        </p>
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', paddingTop: 10, fontWeight: 600, flexShrink: 0 }}>
         View {p.venueName}
         <ChevronRight size={14} strokeWidth={2} style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 4 }} />
       </p>
@@ -531,6 +557,7 @@ export default function Home() {
             <div
               style={{
                 display: 'flex',
+                alignItems: 'stretch',
                 gap: 14,
                 overflowX: 'auto',
                 scrollSnapType: 'x mandatory',
@@ -549,7 +576,14 @@ export default function Home() {
                   initial={{ opacity: 0, x: 10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: Math.min(i * 0.05, 0.3) }}
-                  style={{ flexShrink: 0, width: PROMO_CARD_OUTER_WIDTH, scrollSnapAlign: 'start' }}
+                  style={{
+                    flexShrink: 0,
+                    width: PROMO_CARD_OUTER_WIDTH,
+                    scrollSnapAlign: 'start',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignSelf: 'stretch',
+                  }}
                 >
                   <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
                 </motion.div>
