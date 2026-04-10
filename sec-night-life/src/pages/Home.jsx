@@ -29,6 +29,105 @@ function getOrCreateSessionId() {
   }
 }
 
+/** Fixed width for horizontal snap row; fits small screens without overflowing. */
+const PROMO_CARD_OUTER_WIDTH = 'min(320px, calc(100vw - 56px))';
+
+const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, onOpen }) {
+  const boosted = Boolean(p.boosted);
+  return (
+    <div
+      className="sec-card"
+      role="link"
+      tabIndex={0}
+      aria-label={`Open ${p.venueName}`}
+      onClick={() => onOpen(p)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(p);
+        }
+      }}
+      style={{
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        boxSizing: 'border-box',
+        padding: 12,
+        cursor: 'pointer',
+        border: boosted ? '1px solid var(--sec-accent-border)' : '1px solid var(--sec-border)',
+        background: boosted ? 'var(--sec-bg-elevated)' : 'var(--sec-bg-card)',
+      }}
+    >
+      {boosted && (
+        <span
+          style={{
+            display: 'inline-block',
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: 'var(--sec-text-primary)',
+            background: 'var(--sec-success-muted)',
+            border: '1px solid var(--sec-border-strong)',
+            borderRadius: 999,
+            padding: '3px 8px',
+            marginBottom: 8,
+          }}
+        >
+          Sponsored
+        </span>
+      )}
+      {p.imageUrl ? (
+        <div
+          style={{
+            width: '100%',
+            maxWidth: '100%',
+            aspectRatio: '16 / 9',
+            overflow: 'hidden',
+            borderRadius: 10,
+            marginBottom: 10,
+            background: 'var(--sec-bg-hover)',
+          }}
+        >
+          <img
+            src={p.imageUrl}
+            alt=""
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: 'center',
+              display: 'block',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
+      ) : null}
+      <p style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{p.venueName} · {p.venueType}</p>
+      <h3 style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{p.title}</h3>
+      <p
+        style={{
+          fontSize: 13,
+          color: 'var(--sec-text-secondary)',
+          marginTop: 6,
+          display: '-webkit-box',
+          WebkitLineClamp: 3,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}
+      >
+        {p.body}
+      </p>
+      {p.eventName && <p style={{ fontSize: 12, marginTop: 6 }}>Event: {p.eventName}</p>}
+      <p style={{ fontSize: 11, marginTop: 6 }}>{p.targetCity || 'Nationwide'} · Offer ends {new Date(p.endsAt).toLocaleDateString()}</p>
+      <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 10, fontWeight: 600 }}>
+        View {p.venueName}
+        <ChevronRight size={14} strokeWidth={2} style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 4 }} />
+      </p>
+    </div>
+  );
+});
+
 export default function Home() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -394,8 +493,31 @@ export default function Home() {
           </div>
 
           {promotionLoading && promotions.length === 0 && (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {[1, 2, 3].map((x) => <div key={x} className="sec-card" style={{ height: 120, opacity: 0.6 }} />)}
+            <div
+              style={{
+                display: 'flex',
+                gap: 14,
+                overflowX: 'auto',
+                marginLeft: -20,
+                paddingLeft: 20,
+                paddingRight: 20,
+                paddingBottom: 4,
+              }}
+              className="scrollbar-hide"
+            >
+              {[1, 2, 3].map((x) => (
+                <div
+                  key={x}
+                  className="sec-card"
+                  style={{
+                    flexShrink: 0,
+                    width: PROMO_CARD_OUTER_WIDTH,
+                    height: 280,
+                    opacity: 0.55,
+                    scrollSnapAlign: 'start',
+                  }}
+                />
+              ))}
             </div>
           )}
 
@@ -406,41 +528,37 @@ export default function Home() {
           )}
 
           {promotions.length > 0 && (
-            <div style={{ display: 'grid', gap: 10, marginTop: 4 }}>
-              {promotions.map((p) => (
-                <div
+            <div
+              style={{
+                display: 'flex',
+                gap: 14,
+                overflowX: 'auto',
+                scrollSnapType: 'x mandatory',
+                WebkitOverflowScrolling: 'touch',
+                marginLeft: -20,
+                marginTop: 4,
+                paddingLeft: 20,
+                paddingRight: 20,
+                paddingBottom: 8,
+              }}
+              className="scrollbar-hide"
+            >
+              {promotions.map((p, i) => (
+                <motion.div
                   key={p.id}
-                  className="sec-card"
-                  role="link"
-                  tabIndex={0}
-                  aria-label={`Open ${p.venueName}`}
-                  onClick={() => handlePromotionClick(p)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      handlePromotionClick(p);
-                    }
-                  }}
-                  style={{ padding: 12, cursor: 'pointer' }}
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: Math.min(i * 0.05, 0.3) }}
+                  style={{ flexShrink: 0, width: PROMO_CARD_OUTER_WIDTH, scrollSnapAlign: 'start' }}
                 >
-                  {p.imageUrl && <img src={p.imageUrl} alt="" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover', marginBottom: 10, pointerEvents: 'none' }} />}
-                  <p style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{p.venueName} · {p.venueType}</p>
-                  <h3 style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{p.title}</h3>
-                  <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 6, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.body}</p>
-                  {p.eventName && <p style={{ fontSize: 12, marginTop: 6 }}>Event: {p.eventName}</p>}
-                  <p style={{ fontSize: 11, marginTop: 6 }}>{p.targetCity || 'Nationwide'} · Offer ends {new Date(p.endsAt).toLocaleDateString()}</p>
-                  {p.boosted && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Sponsored</p>}
-                  <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginTop: 10, fontWeight: 600 }}>
-                    View {p.venueName}
-                    <ChevronRight size={14} strokeWidth={2} style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 4 }} />
-                  </p>
-                </div>
+                  <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
+                </motion.div>
               ))}
             </div>
           )}
 
           {promotions.length > 0 && hasMorePromotions && (
-            <button className="sec-btn sec-btn-secondary sec-btn-full" disabled={promotionLoading} onClick={() => loadPromotions(promotionPage + 1, true)} style={{ marginTop: 10 }}>
+            <button className="sec-btn sec-btn-secondary sec-btn-full" disabled={promotionLoading} onClick={() => loadPromotions(promotionPage + 1, true)} style={{ marginTop: 12 }}>
               {promotionLoading ? 'Loading...' : 'Load more'}
             </button>
           )}

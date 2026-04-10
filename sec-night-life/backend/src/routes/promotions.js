@@ -56,14 +56,15 @@ async function assertPromotionsAccess(req, res) {
 function calculateScore(promotion) {
   const hours = (Date.now() - new Date(promotion.createdAt).getTime()) / (1000 * 60 * 60);
   const recency = hours <= 24 ? 10 : hours <= 48 ? 5 : 0;
-  return (promotion.boosted ? 1000 : 0) + (promotion.boostImpressions < 500 ? 50 : 0) + (promotion.organicImpressions < 100 ? 20 : 0) + recency;
+  return (promotion.boosted ? 1500 : 0) + (promotion.boostImpressions < 500 ? 50 : 0) + (promotion.organicImpressions < 100 ? 20 : 0) + recency;
 }
 
 function interleavePromotions(boosted, organic) {
   const result = [];
   let b = 0;
   let o = 0;
-  const slots = ['B', 'B', 'O', 'B', 'O'];
+  /** More B slots than before so paid boosts surface more often in the feed. */
+  const slots = ['B', 'B', 'B', 'O', 'B', 'O'];
 
   while (b < boosted.length || o < organic.length) {
     for (const slot of slots) {
