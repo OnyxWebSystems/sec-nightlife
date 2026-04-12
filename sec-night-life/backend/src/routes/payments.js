@@ -10,6 +10,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
+import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { sendEmail } from '../lib/email.js';
 
 const router = Router();
@@ -182,6 +183,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         referenceType: 'TABLE',
         description: 'joined a table',
       });
+      await upsertConfirmedAttendance(userId, table.eventId);
 
       if (updated.status === 'full') {
         await createNotifications({
@@ -227,6 +229,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           referenceType: 'EVENT',
           description: 'joined an event',
         });
+        await upsertConfirmedAttendance(userId, eventId);
       }
 
       await createNotification({

@@ -7,6 +7,7 @@ import { ChevronLeft, UserPlus, MessageCircle, Ban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
+import UserProfileReviewsSection from '@/components/reviews/UserProfileReviewsSection';
 
 export default function UserProfile() {
   const navigate = useNavigate();
@@ -82,6 +83,12 @@ export default function UserProfile() {
   }
 
   const st = profile.friendshipStatus;
+
+  const activityLink = (a) => {
+    if (a.referenceType === 'EVENT' && a.referenceId) return createPageUrl(`EventDetails?id=${a.referenceId}`);
+    if (a.referenceType === 'TABLE' && a.referenceId) return createPageUrl(`TableDetails?id=${a.referenceId}`);
+    return null;
+  };
 
   return (
     <div className="min-h-screen pb-24 max-w-[480px] mx-auto px-4">
@@ -230,6 +237,8 @@ export default function UserProfile() {
         </div>
       </div>
 
+      <UserProfileReviewsSection profileUserId={userId} profileUsername={profile.username} />
+
       <div className="mt-10">
         <h3 className="text-sm font-semibold text-gray-500 mb-2">Activity</h3>
         {st !== 'ACCEPTED' && !isSelf ? (
@@ -238,11 +247,25 @@ export default function UserProfile() {
           </p>
         ) : (
           <ul className="space-y-2">
-            {(profile.recentActivity || []).map((a) => (
-              <li key={a.createdAt + a.description} className="text-sm text-gray-400 border-b border-[#262629] pb-2">
-                {a.description} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
-              </li>
-            ))}
+            {(profile.recentActivity || []).map((a) => {
+              const href = activityLink(a);
+              const line = (
+                <>
+                  {a.description} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
+                </>
+              );
+              return (
+                <li key={`${a.createdAt}-${a.description}-${a.referenceId || ''}`} className="text-sm text-gray-400 border-b border-[#262629] pb-2">
+                  {href ? (
+                    <Link to={href} className="flex min-h-[44px] flex-col justify-center text-gray-300 hover:text-[var(--sec-accent)]">
+                      {line}
+                    </Link>
+                  ) : (
+                    line
+                  )}
+                </li>
+              );
+            })}
             {(!profile.recentActivity || profile.recentActivity.length === 0) && (
               <p className="text-sm text-gray-600">No recent activity.</p>
             )}

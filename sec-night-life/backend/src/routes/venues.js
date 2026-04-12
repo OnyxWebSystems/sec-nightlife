@@ -7,6 +7,31 @@ import { isStaff } from '../lib/access.js';
 
 const router = Router();
 
+function reviewAverageOneDecimal(avg) {
+  if (avg == null || Number.isNaN(Number(avg))) return 0;
+  return Math.round(Number(avg) * 10) / 10;
+}
+
+/** Aggregated venue review stats (non-flagged only). */
+async function venueReviewStatsByVenueIds(venueIds) {
+  const ids = [...new Set(venueIds)].filter(Boolean);
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.venueReview.groupBy({
+    by: ['venueId'],
+    where: { venueId: { in: ids }, flagged: false },
+    _avg: { rating: true },
+    _count: { _all: true },
+  });
+  const m = new Map();
+  for (const r of rows) {
+    m.set(r.venueId, {
+      review_average: reviewAverageOneDecimal(r._avg.rating),
+      review_count: r._count._all,
+    });
+  }
+  return m;
+}
+
 const venueCreateSchema = z.object({
   name: z.string().min(1).max(200),
   venue_type: z.string().min(1),
@@ -43,23 +68,30 @@ router.get('/', optionalAuth, async (req, res, next) => {
       take: Math.min(parseInt(limit) || 50, 100)
     });
 
-    const list = venues.map(v => ({
-      id: v.id,
-      name: v.name,
-      venue_type: v.venueType,
-      city: v.city,
-      address: v.address,
-      suburb: v.suburb,
-      province: v.province,
-      latitude: v.latitude,
-      longitude: v.longitude,
-      is_verified: v.isVerified,
-      compliance_status: v.complianceStatus,
-      logo_url: v.logoUrl,
-      cover_image_url: v.coverImageUrl,
-      rating: v.rating,
-      owner_user_id: v.ownerUserId
-    }));
+    const stats = await venueReviewStatsByVenueIds(venues.map((v) => v.id));
+
+    const list = venues.map((v) => {
+      const s = stats.get(v.id);
+      return {
+        id: v.id,
+        name: v.name,
+        venue_type: v.venueType,
+        city: v.city,
+        address: v.address,
+        suburb: v.suburb,
+        province: v.province,
+        latitude: v.latitude,
+        longitude: v.longitude,
+        is_verified: v.isVerified,
+        compliance_status: v.complianceStatus,
+        logo_url: v.logoUrl,
+        cover_image_url: v.coverImageUrl,
+        rating: v.rating,
+        owner_user_id: v.ownerUserId,
+        review_average: s?.review_average ?? 0,
+        review_count: s?.review_count ?? 0,
+      };
+    });
     res.json(list);
   } catch (err) {
     next(err);
@@ -86,23 +118,30 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       take: Math.min(parseInt(limit) || 50, 100)
     });
 
-    const list = venues.map(v => ({
-      id: v.id,
-      name: v.name,
-      venue_type: v.venueType,
-      city: v.city,
-      address: v.address,
-      suburb: v.suburb,
-      province: v.province,
-      latitude: v.latitude,
-      longitude: v.longitude,
-      is_verified: v.isVerified,
-      compliance_status: v.complianceStatus,
-      logo_url: v.logoUrl,
-      cover_image_url: v.coverImageUrl,
-      rating: v.rating,
-      owner_user_id: v.ownerUserId
-    }));
+    const stats = await venueReviewStatsByVenueIds(venues.map((v) => v.id));
+
+    const list = venues.map((v) => {
+      const s = stats.get(v.id);
+      return {
+        id: v.id,
+        name: v.name,
+        venue_type: v.venueType,
+        city: v.city,
+        address: v.address,
+        suburb: v.suburb,
+        province: v.province,
+        latitude: v.latitude,
+        longitude: v.longitude,
+        is_verified: v.isVerified,
+        compliance_status: v.complianceStatus,
+        logo_url: v.logoUrl,
+        cover_image_url: v.coverImageUrl,
+        rating: v.rating,
+        owner_user_id: v.ownerUserId,
+        review_average: s?.review_average ?? 0,
+        review_count: s?.review_count ?? 0,
+      };
+    });
     res.json(list);
   } catch (err) {
     next(err);
@@ -115,6 +154,9 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       where: { id: req.params.id, deletedAt: null }
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
+
+    const stats = await venueReviewStatsByVenueIds([venue.id]);
+    const s = stats.get(venue.id);
 
     res.json({
       id: venue.id,
@@ -138,7 +180,9 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       capacity: venue.capacity,
       age_limit: venue.ageLimit,
       rating: venue.rating,
-      owner_user_id: venue.ownerUserId
+      owner_user_id: venue.ownerUserId,
+      review_average: s?.review_average ?? 0,
+      review_count: s?.review_count ?? 0,
     });
   } catch (err) {
     next(err);

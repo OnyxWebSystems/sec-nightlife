@@ -98,10 +98,10 @@ export default function VenueCard({ venue }) {
                 {venue.city}
               </span>
             )}
-            {venue.rating > 0 && (
+            {venue.review_count > 0 && venue.review_average > 0 && (
               <span style={{ fontSize: 11, color: 'var(--sec-text-muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
                 <Star size={10} strokeWidth={1.5} fill="var(--sec-accent)" stroke="var(--sec-accent)" />
-                {venue.rating.toFixed(1)}
+                {Number(venue.review_average).toFixed(1)}
               </span>
             )}
           </div>

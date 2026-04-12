@@ -14,6 +14,7 @@ import { auditFromReq } from '../lib/audit.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
 import { addUserToEventGroupChat } from '../lib/groupChatHelpers.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
+import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 
 const router = Router();
 
@@ -366,6 +367,7 @@ router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified,
       referenceType: 'TABLE',
       description: 'joined a table',
     });
+    if (hydrated?.eventId) await upsertConfirmedAttendance(targetUserId, hydrated.eventId);
 
     res.json({ success: true, table: formatTable(updated) });
   } catch (err) {
@@ -575,6 +577,7 @@ router.post('/:id/join', authenticateToken, requireVerified, async (req, res, ne
       referenceType: 'TABLE',
       description: 'joined a table',
     });
+    if (hydrated?.eventId) await upsertConfirmedAttendance(userId, hydrated.eventId);
 
     res.json({ success: true, table: formatTable(result) });
   } catch (err) {

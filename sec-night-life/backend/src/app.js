@@ -38,6 +38,7 @@ import legalRoutes from './routes/legal.js';
 import complianceDocumentsRoutes from './routes/compliance-documents.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { optionalAuth } from './middleware/auth.js';
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -139,7 +140,7 @@ app.use('/api/messages', generalLimiter, messageRoutes);
 app.use('/api/analytics', generalLimiter, analyticsRoutes);
 app.use('/api/friend-requests', generalLimiter, friendRequestRoutes);
 app.use('/api/transactions', generalLimiter, transactionRoutes);
-app.use('/api/reviews', generalLimiter, reviewRoutes);
+app.use('/api/reviews', generalLimiter, optionalAuth, reviewRoutes);
 app.use('/api/ratings', generalLimiter, ratingRoutes);
 app.use('/api/payments', paymentLimiter, paymentRoutes);
 app.use('/api/promotions', generalLimiter, promotionRoutes);

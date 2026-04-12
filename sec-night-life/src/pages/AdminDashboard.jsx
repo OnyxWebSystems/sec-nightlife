@@ -69,7 +69,19 @@ export default function AdminDashboard() {
   const [addingReviewer, setAddingReviewer] = useState(false);
   const [deletingReviewerId, setDeletingReviewerId] = useState(null);
   const [previewDocument, setPreviewDocument] = useState(null);
+  const [flaggedReviews, setFlaggedReviews] = useState({ userReviews: [], venueReviews: [] });
 
+  const loadFlaggedReviews = async () => {
+    try {
+      const res = await apiGet('/api/reviews/admin/flagged');
+      setFlaggedReviews({
+        userReviews: res?.userReviews || [],
+        venueReviews: res?.venueReviews || [],
+      });
+    } catch {
+      setFlaggedReviews({ userReviews: [], venueReviews: [] });
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -91,6 +103,7 @@ export default function AdminDashboard() {
         }
 
         const shouldLoadAdminQueues = !!(access?.isSuperAdmin || u?.role === 'SUPER_ADMIN');
+        const isSuperAdminUser = !!(access?.isSuperAdmin || u?.role === 'SUPER_ADMIN');
         if (shouldLoadAdminQueues) {
           const [dashboardRes, paymentsRes, usersRes, venuesRes] = await Promise.all([
             apiGet('/api/admin/dashboard'),
@@ -102,6 +115,17 @@ export default function AdminDashboard() {
           setPayments(paymentsRes?.payments || []);
           setUserVerifications(usersRes?.profiles || []);
           setVenueVerifications(venuesRes?.venues || []);
+          if (isSuperAdminUser) {
+            try {
+              const flaggedRes = await apiGet('/api/reviews/admin/flagged');
+              setFlaggedReviews({
+                userReviews: flaggedRes?.userReviews || [],
+                venueReviews: flaggedRes?.venueReviews || [],
+              });
+            } catch {
+              setFlaggedReviews({ userReviews: [], venueReviews: [] });
+            }
+          }
         }
       } catch (e) {
         if (e?.status === 403) navigate(createPageUrl('Home'));
@@ -219,6 +243,36 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDismissFlagged = async (reviewType, reviewId) => {
+    setActionLoading(`dismiss-${reviewId}`);
+    try {
+      await apiPatch(`/api/reviews/admin/${reviewType}/${reviewId}/dismiss`, {});
+      await loadFlaggedReviews();
+      toast.success('Flag dismissed');
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRemoveFlagged = async (reviewType, reviewId) => {
+    const ok = window.confirm(
+      'Permanently delete this review? This cannot be undone.'
+    );
+    if (!ok) return;
+    setActionLoading(`remove-${reviewId}`);
+    try {
+      await apiDelete(`/api/reviews/admin/${reviewType}/${reviewId}/remove`);
+      await loadFlaggedReviews();
+      toast.success('Review removed');
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleDeleteReviewer = async (reviewerId) => {
     const ok = window.confirm(
       'Remove this person from compliance reviewers? This cannot be undone. Their user account will not be deleted—they only lose reviewer access.'
@@ -302,23 +356,27 @@ export default function AdminDashboard() {
           </h1>
           <p className="text-sm text-[var(--sec-text-muted)] mt-1">Payments, users & verification</p>
         </div>
-        <div className="flex border-b border-[#262629]">
+        <div className="flex border-b border-[#262629] overflow-x-auto">
           {((complianceAccess?.isSuperAdmin || user.role === 'SUPER_ADMIN')
-            ? ['overview', 'payments', 'users', 'venues', 'compliance-documents']
+            ? ['overview', 'payments', 'users', 'venues', 'flagged-reviews', 'compliance-documents']
             : ['compliance-documents']
-          ).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className="flex-1 py-3 text-sm font-medium capitalize"
-              style={{
-                color: tab === t ? 'var(--sec-accent)' : 'var(--sec-text-muted)',
-                borderBottom: tab === t ? '2px solid var(--sec-accent)' : '2px solid transparent',
-              }}
-            >
-              {t === 'compliance-documents' ? 'Compliance' : t}
-            </button>
-          ))}
+          ).map((t) => {
+            const flaggedCount =
+              (flaggedReviews.userReviews?.length || 0) + (flaggedReviews.venueReviews?.length || 0);
+            return (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className="flex-1 py-3 text-sm font-medium capitalize whitespace-nowrap px-1 min-h-[44px]"
+                style={{
+                  color: tab === t ? 'var(--sec-accent)' : 'var(--sec-text-muted)',
+                  borderBottom: tab === t ? '2px solid var(--sec-accent)' : '2px solid transparent',
+                }}
+              >
+                {t === 'compliance-documents' ? 'Compliance' : t === 'flagged-reviews' ? `Flags (${flaggedCount})` : t}
+              </button>
+            );
+          })}
         </div>
       </header>
 
@@ -500,6 +558,118 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               ))
+            )}
+          </div>
+        )}
+
+        {tab === 'flagged-reviews' && (
+          <div className="space-y-6">
+            <h3 className="font-semibold">Flagged reviews</h3>
+            {flaggedReviews.userReviews?.length === 0 && flaggedReviews.venueReviews?.length === 0 ? (
+              <p className="text-sm text-[var(--sec-text-muted)]">No flagged reviews at this time.</p>
+            ) : (
+              <>
+                <div>
+                  <h4 className="text-sm font-medium text-[var(--sec-text-muted)] mb-2">User reviews</h4>
+                  <div className="space-y-3">
+                    {(flaggedReviews.userReviews || []).length === 0 ? (
+                      <p className="text-xs text-[var(--sec-text-muted)]">None</p>
+                    ) : (
+                      flaggedReviews.userReviews.map((r) => (
+                        <div
+                          key={r.id}
+                          className="p-4 rounded-xl bg-[#141416] border border-[#262629] space-y-2"
+                        >
+                          <p className="text-sm">
+                            <span className="font-medium">{r.reviewer?.fullName || r.reviewer?.username}</span>
+                            <span className="text-[var(--sec-text-muted)]"> @{r.reviewer?.username}</span>
+                            {' → '}
+                            <span className="font-medium">{r.subject?.fullName || r.subject?.username}</span>
+                            <span className="text-[var(--sec-text-muted)]"> @{r.subject?.username}</span>
+                          </p>
+                          {r.event?.name && (
+                            <p className="text-xs text-[var(--sec-text-muted)]">Event: {r.event.name}</p>
+                          )}
+                          <p className="text-sm">Rating: {r.rating}/5</p>
+                          <p className="text-sm text-gray-300 whitespace-pre-wrap">{r.comment}</p>
+                          <p className="text-xs text-amber-500">Flag: {r.flagReason}</p>
+                          <p className="text-xs text-[var(--sec-text-muted)]">
+                            {r.flaggedAt ? new Date(r.flaggedAt).toLocaleString() : ''}
+                          </p>
+                          <div className="flex gap-2 pt-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="min-h-[44px] flex-1"
+                              disabled={actionLoading === `dismiss-${r.id}`}
+                              onClick={() => handleDismissFlagged('user', r.id)}
+                            >
+                              Dismiss Flag
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="min-h-[44px] flex-1 border-red-500/40 text-red-400"
+                              disabled={actionLoading === `remove-${r.id}`}
+                              onClick={() => handleRemoveFlagged('user', r.id)}
+                            >
+                              Remove Review
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-[var(--sec-text-muted)] mb-2">Venue reviews</h4>
+                  <div className="space-y-3">
+                    {(flaggedReviews.venueReviews || []).length === 0 ? (
+                      <p className="text-xs text-[var(--sec-text-muted)]">None</p>
+                    ) : (
+                      flaggedReviews.venueReviews.map((r) => (
+                        <div
+                          key={r.id}
+                          className="p-4 rounded-xl bg-[#141416] border border-[#262629] space-y-2"
+                        >
+                          <p className="text-sm">
+                            <span className="font-medium">{r.reviewer?.fullName || r.reviewer?.username}</span>
+                            <span className="text-[var(--sec-text-muted)]"> @{r.reviewer?.username}</span>
+                            {' → '}
+                            <span className="font-medium">{r.venue?.name}</span>
+                          </p>
+                          <p className="text-sm">Rating: {r.rating}/5</p>
+                          <p className="text-sm text-gray-300 whitespace-pre-wrap">{r.comment}</p>
+                          <p className="text-xs text-amber-500">Flag: {r.flagReason}</p>
+                          <p className="text-xs text-[var(--sec-text-muted)]">
+                            {r.flaggedAt ? new Date(r.flaggedAt).toLocaleString() : ''}
+                          </p>
+                          <div className="flex gap-2 pt-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="min-h-[44px] flex-1"
+                              disabled={actionLoading === `dismiss-${r.id}`}
+                              onClick={() => handleDismissFlagged('venue', r.id)}
+                            >
+                              Dismiss Flag
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="min-h-[44px] flex-1 border-red-500/40 text-red-400"
+                              disabled={actionLoading === `remove-${r.id}`}
+                              onClick={() => handleRemoveFlagged('venue', r.id)}
+                            >
+                              Remove Review
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}

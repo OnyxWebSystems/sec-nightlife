@@ -40,6 +40,23 @@ async function syncUserUsername(userId, rawUsername) {
   return v.username;
 }
 
+/** event_id may live on Paystack root or nested metadata (initialize vs verify payload). */
+function collectEventIdsFromPaymentMetadata(meta) {
+  const ids = new Set();
+  if (!meta || typeof meta !== 'object') return ids;
+  const add = (v) => {
+    if (typeof v === 'string' && v.length > 0 && v.length <= 64) ids.add(v);
+  };
+  add(meta.event_id);
+  add(meta.eventId);
+  const inner = meta.metadata;
+  if (inner && typeof inner === 'object') {
+    add(inner.event_id);
+    add(inner.eventId);
+  }
+  return ids;
+}
+
 /** Max 10 items, each max 30 chars, trim, dedupe case-insensitively */
 function normalizeInterestList(input) {
   if (input == null) return [];
@@ -146,7 +163,7 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
     }
 
     let recentActivity = [];
-    if (friendshipStatus === 'ACCEPTED') {
+    if (friendshipStatus === 'ACCEPTED' || viewerId === targetId) {
       recentActivity = await prisma.friendActivity.findMany({
         where: { userId: targetId },
         orderBy: { createdAt: 'desc' },
@@ -218,6 +235,53 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       seenAtt.add(ev.id);
       pastEventsAttended.push(ev);
     }
+
+    const extraEventIds = new Set();
+    const purchaseRows = await prisma.payment.findMany({
+      where: { userId: targetId, status: 'success' },
+      select: { metadata: true },
+      take: 200,
+    });
+    for (const row of purchaseRows) {
+      for (const eid of collectEventIdsFromPaymentMetadata(row.metadata)) {
+        if (!seenAtt.has(eid)) extraEventIds.add(eid);
+      }
+    }
+    const txEventRows = await prisma.transaction.findMany({
+      where: { userId: targetId, status: 'paid', eventId: { not: null } },
+      select: { eventId: true },
+      distinct: ['eventId'],
+      take: 100,
+    });
+    for (const row of txEventRows) {
+      if (row.eventId && !seenAtt.has(row.eventId)) extraEventIds.add(row.eventId);
+    }
+    if (extraEventIds.size > 0) {
+      const extraEvents = await prisma.event.findMany({
+        where: {
+          id: { in: [...extraEventIds] },
+          deletedAt: null,
+          status: 'published',
+          date: { lt: now },
+        },
+        select: {
+          id: true,
+          title: true,
+          date: true,
+          city: true,
+          coverImageUrl: true,
+        },
+        orderBy: { date: 'desc' },
+        take: 40,
+      });
+      for (const ev of extraEvents) {
+        if (!ev || seenAtt.has(ev.id)) continue;
+        seenAtt.add(ev.id);
+        pastEventsAttended.push(ev);
+      }
+    }
+    pastEventsAttended.sort((a, b) => new Date(b.date) - new Date(a.date));
+    if (pastEventsAttended.length > 25) pastEventsAttended.length = 25;
 
     const hostedTables = await prisma.table.findMany({
       where: {

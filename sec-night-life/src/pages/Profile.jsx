@@ -630,7 +630,7 @@ export default function Profile() {
               </TabsContent>
 
               <TabsContent value="reviews" className="mt-4">
-                <MyReviews userId={userProfile?.id} />
+                <MyReviews userId={userProfile?.id} username={userProfile?.username} />
               </TabsContent>
 
               <TabsContent value="interests" className="mt-4">

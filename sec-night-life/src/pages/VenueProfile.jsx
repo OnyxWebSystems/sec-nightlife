@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import { motion } from 'framer-motion';
+import VenueReviewsSection from '@/components/reviews/VenueReviewsSection';
 
 
 export default function VenueProfile() {
@@ -152,7 +153,7 @@ export default function VenueProfile() {
   };
 
   return (
-    <div className="min-h-screen pb-8">
+    <div className="min-h-screen pb-8 max-w-[480px] mx-auto">
       {/* Hero */}
       <div className="relative h-72">
         {venue.cover_image_url ? (
@@ -201,9 +202,18 @@ export default function VenueProfile() {
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
+            <div className="flex items-center gap-3 mt-1 text-sm text-gray-400 flex-wrap">
               <span className="capitalize">{venue.venue_type?.replace('_', ' ')}</span>
-              {venue.rating > 0 && (
+              {venue.review_count > 0 && venue.review_average > 0 && (
+                <>
+                  <span>•</span>
+                  <span className="flex items-center gap-1">
+                    <Star className="w-4 h-4 fill-[var(--sec-warning)] text-[var(--sec-warning)]" />
+                    {Number(venue.review_average).toFixed(1)}
+                  </span>
+                </>
+              )}
+              {(!venue.review_count || venue.review_count === 0) && venue.rating > 0 && (
                 <>
                   <span>•</span>
                   <span className="flex items-center gap-1">
@@ -419,6 +429,14 @@ export default function VenueProfile() {
             )}
           </TabsContent>
         </Tabs>
+
+        <VenueReviewsSection
+          venueId={resolvedVenueId}
+          venueName={venue.name}
+          ownerUserId={venue.owner_user_id}
+          currentUserId={currentUser?.id}
+          isAuthenticated={!!currentUser}
+        />
       </div>
     </div>
   );
