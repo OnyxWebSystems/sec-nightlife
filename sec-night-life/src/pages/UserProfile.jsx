@@ -5,7 +5,7 @@ import { apiGet, apiPost, apiDelete } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, UserPlus, MessageCircle, Ban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
 
 export default function UserProfile() {
@@ -110,15 +110,6 @@ export default function UserProfile() {
         <p className="text-gray-500 text-sm">@{profile.username || 'user'}</p>
         {profile.city && <p className="text-sm text-gray-400 mt-1">{profile.city}</p>}
         <p className="text-sm mt-3 text-left w-full text-gray-300">{profile.bio || ''}</p>
-        {profile.interests?.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-3 justify-center">
-            {profile.interests.map((i) => (
-              <span key={i} className="text-xs px-2 py-1 rounded-full bg-[#141416] border border-[#262629]">
-                {i}
-              </span>
-            ))}
-          </div>
-        )}
 
         <p className="text-sm text-gray-500 mt-4">{profile.mutualFriendsCount || 0} mutual friends</p>
 
@@ -171,6 +162,72 @@ export default function UserProfile() {
             Edit profile
           </Link>
         )}
+      </div>
+
+      <div className="mt-10 w-full text-left space-y-8">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-500 mb-2">Interests</h3>
+          {Array.isArray(profile.interests) && profile.interests.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {profile.interests.map((i) => (
+                <span key={i} className="text-xs px-2 py-1 rounded-full bg-[#141416] border border-[#262629]">
+                  {i}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-600">No interests listed yet.</p>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold text-gray-500 mb-2">Past events</h3>
+          {Array.isArray(profile.pastEventsAttended) && profile.pastEventsAttended.length > 0 ? (
+            <ul className="space-y-2">
+              {profile.pastEventsAttended.map((ev) => (
+                <li key={ev.id}>
+                  <Link
+                    to={createPageUrl(`EventDetails?id=${ev.id}`)}
+                    className="text-sm text-gray-200 hover:text-[var(--sec-accent)] flex flex-col gap-0.5 min-h-[44px] justify-center border-b border-[#262629] pb-2"
+                  >
+                    <span className="font-medium">{ev.title}</span>
+                    <span className="text-xs text-gray-500">
+                      {ev.city ? `${ev.city} · ` : ''}
+                      {ev.date ? format(new Date(ev.date), 'd MMM yyyy') : ''}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-600">No past events to show.</p>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold text-gray-500 mb-2">Events hosted</h3>
+          {Array.isArray(profile.hostedEvents) && profile.hostedEvents.length > 0 ? (
+            <ul className="space-y-2">
+              {profile.hostedEvents.map((ev) => (
+                <li key={`${ev.id}-${ev.tableName}`}>
+                  <Link
+                    to={createPageUrl(`EventDetails?id=${ev.id}`)}
+                    className="text-sm text-gray-200 hover:text-[var(--sec-accent)] flex flex-col gap-0.5 min-h-[44px] justify-center border-b border-[#262629] pb-2"
+                  >
+                    <span className="font-medium">{ev.title}</span>
+                    <span className="text-xs text-gray-500">
+                      Table: {ev.tableName}
+                      {ev.city ? ` · ${ev.city}` : ''}
+                      {ev.date ? ` · ${format(new Date(ev.date), 'd MMM yyyy')}` : ''}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-600">No hosted events yet.</p>
+          )}
+        </div>
       </div>
 
       <div className="mt-10">

@@ -164,6 +164,79 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
     const canUnblock =
       friendship?.status === 'BLOCKED' && friendship.requesterId === viewerId;
 
+    const now = new Date();
+    const interests = user.userProfile?.interests ?? [];
+
+    const attendedRows = await prisma.eventAttendance.findMany({
+      where: {
+        userId: targetId,
+        event: {
+          deletedAt: null,
+          status: 'published',
+          date: { lt: now },
+        },
+      },
+      select: {
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            city: true,
+            coverImageUrl: true,
+          },
+        },
+      },
+      orderBy: { event: { date: 'desc' } },
+      take: 25,
+    });
+    const pastEventsAttended = [];
+    const seenAtt = new Set();
+    for (const row of attendedRows) {
+      const ev = row.event;
+      if (!ev || seenAtt.has(ev.id)) continue;
+      seenAtt.add(ev.id);
+      pastEventsAttended.push(ev);
+    }
+
+    const hostedTables = await prisma.table.findMany({
+      where: {
+        hostUserId: targetId,
+        deletedAt: null,
+        event: { deletedAt: null, status: 'published' },
+      },
+      select: {
+        name: true,
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            city: true,
+            coverImageUrl: true,
+          },
+        },
+      },
+      orderBy: { event: { date: 'desc' } },
+      take: 40,
+    });
+    const hostedEvents = [];
+    const seenHost = new Set();
+    for (const t of hostedTables) {
+      const ev = t.event;
+      if (!ev || seenHost.has(ev.id)) continue;
+      seenHost.add(ev.id);
+      hostedEvents.push({
+        id: ev.id,
+        title: ev.title,
+        date: ev.date,
+        city: ev.city,
+        coverImageUrl: ev.coverImageUrl,
+        tableName: t.name,
+      });
+      if (hostedEvents.length >= 20) break;
+    }
+
     res.json({
       id: user.id,
       username: user.username || user.userProfile?.username || '',
@@ -171,7 +244,9 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       avatarUrl: user.userProfile?.avatarUrl || null,
       city: user.userProfile?.city || null,
       bio: user.userProfile?.bio || null,
-      interests: user.userProfile?.interests ?? [],
+      interests,
+      pastEventsAttended,
+      hostedEvents,
       friendshipStatus,
       friendshipId: friendship?.id || null,
       mutualFriendsCount,

@@ -3,9 +3,6 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { canAccessTable } from '../lib/access.js';
-import { createInAppNotification } from '../lib/inAppNotifications.js';
-import { normalizeUsername } from '../lib/username.js';
-
 const router = Router();
 const DIRECT_PREFIX = 'direct:';
 
@@ -131,6 +128,50 @@ router.get('/conversations', authenticateToken, async (req, res, next) => {
   }
 });
 
+/** Total unread across DMs + group chats (for Messages nav badge / sound) */
+router.get('/unread-total', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.userId;
+    const convs = await prisma.conversation.findMany({
+      where: { OR: [{ participantAId: me }, { participantBId: me }] },
+    });
+    let dmUnread = 0;
+    for (const c of convs) {
+      const otherId = otherParticipantId(c, me);
+      if (!(await hasAcceptedFriendship(me, otherId))) continue;
+      dmUnread += await prisma.directMessage.count({
+        where: {
+          conversationId: c.id,
+          readAt: null,
+          senderUserId: { not: me },
+        },
+      });
+    }
+
+    const memberships = await prisma.groupChatMember.findMany({ where: { userId: me } });
+    let groupUnread = 0;
+    for (const m of memberships) {
+      const last = await prisma.groupChatMessage.findFirst({
+        where: { groupChatId: m.groupChatId },
+        orderBy: { sentAt: 'desc' },
+      });
+      if (!last) continue;
+      const since = m.lastReadAt || new Date(0);
+      groupUnread += await prisma.groupChatMessage.count({
+        where: {
+          groupChatId: m.groupChatId,
+          senderUserId: { not: me },
+          sentAt: { gt: since },
+        },
+      });
+    }
+
+    res.json({ total: dmUnread + groupUnread });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/conversations/:conversationId/unread', authenticateToken, async (req, res, next) => {
   try {
     const me = req.userId;
@@ -243,22 +284,6 @@ router.post('/conversations/:conversationId', authenticateToken, async (req, res
         data: { lastMessageAt: new Date() },
       });
       return msg;
-    });
-
-    const sender = await prisma.user.findUnique({
-      where: { id: me },
-      select: { username: true, fullName: true },
-    });
-    const sname = normalizeUsername(sender?.username || '') || sender?.fullName || 'someone';
-    const preview = `${parsed.data.body.slice(0, 50)}${parsed.data.body.length > 50 ? '...' : ''}`;
-
-    await createInAppNotification({
-      userId: otherId,
-      type: 'DIRECT_MESSAGE',
-      title: `New message from @${sname}`,
-      body: preview,
-      referenceId: c.id,
-      referenceType: 'DIRECT_MESSAGE',
     });
 
     res.status(201).json({

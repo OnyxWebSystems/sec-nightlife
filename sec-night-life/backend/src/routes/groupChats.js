@@ -2,9 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { createInAppNotificationsForUsers } from '../lib/inAppNotifications.js';
-import { normalizeUsername } from '../lib/username.js';
-
 const router = Router();
 
 router.get('/my-chats', authenticateToken, async (req, res, next) => {
@@ -215,23 +212,6 @@ router.post('/:groupChatId/messages', authenticateToken, async (req, res, next) 
         data: { lastMessageAt: new Date() },
       });
       return created;
-    });
-
-    const sender = await prisma.user.findUnique({
-      where: { id: me },
-      select: { username: true, fullName: true },
-    });
-    const sname = normalizeUsername(sender?.username || '') || sender?.fullName || 'someone';
-    const preview = `${parsed.data.body.slice(0, 50)}${parsed.data.body.length > 50 ? '...' : ''}`;
-    const eventTitle = gc.event?.title || gc.name || 'Event';
-
-    const others = gc.members.map((m) => m.userId).filter((id) => id !== me);
-    await createInAppNotificationsForUsers(others, {
-      type: 'GROUP_MESSAGE',
-      title: `${eventTitle} group chat`,
-      body: `@${sname}: ${preview}`,
-      referenceId: gc.id,
-      referenceType: 'GROUP_CHAT',
     });
 
     res.status(201).json({

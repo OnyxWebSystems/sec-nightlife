@@ -6,6 +6,9 @@ import { isStaff } from '../lib/access.js';
 
 const router = Router();
 
+/** Shown on Messages (badge/sound), not the Notifications screen */
+const EXCLUDED_IN_APP_TYPES = ['DIRECT_MESSAGE', 'GROUP_MESSAGE'];
+
 function mapLegacy(n) {
   return {
     id: n.id,
@@ -40,7 +43,7 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
     const inAppWhere = {
       userId: req.userId,
       read: false,
-      ...(type ? { type } : {}),
+      ...(type ? { type } : { NOT: { type: { in: EXCLUDED_IN_APP_TYPES } } }),
     };
     const [inApp, legacy] = await Promise.all([
       prisma.inAppNotification.count({ where: inAppWhere }),
@@ -60,7 +63,10 @@ router.get('/', authenticateToken, async (req, res, next) => {
 
     const [inAppRows, legacyRows] = await Promise.all([
       prisma.inAppNotification.findMany({
-        where: { userId: req.userId },
+        where: {
+          userId: req.userId,
+          NOT: { type: { in: EXCLUDED_IN_APP_TYPES } },
+        },
         orderBy: { createdAt: 'desc' },
         take,
       }),

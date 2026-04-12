@@ -26,6 +26,8 @@ export default function Layout({ children, currentPageName }) {
   const [userProfile, setUserProfile] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [messageUnread, setMessageUnread] = useState(0);
+  const prevMessageUnreadRef = useRef(null);
   const [activeMode, setActiveMode] = useState(null);
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -34,16 +36,47 @@ export default function Layout({ children, currentPageName }) {
   const longPressTimerRef = useRef(null);
 
   useEffect(() => { loadUser(); }, []);
+  function playMessageChime() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 880;
+      g.gain.value = 0.06;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start();
+      setTimeout(() => {
+        o.stop();
+        ctx.close();
+      }, 140);
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (prevMessageUnreadRef.current !== null && messageUnread > prevMessageUnreadRef.current) {
+      playMessageChime();
+    }
+    prevMessageUnreadRef.current = messageUnread;
+  }, [messageUnread]);
+
   useEffect(() => {
     if (!user?.id) return undefined;
-    const timer = window.setInterval(async () => {
+    const tick = async () => {
       try {
         const notifs = await dataService.Notification.filter({ user_id: user.id, is_read: false });
         setNotifications(notifs);
         const u = await apiGet('/api/notifications/unread-count');
         setNotificationCount(u?.count ?? 0);
+        const m = await apiGet('/api/messages/unread-total');
+        setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
       } catch {}
-    }, 30000);
+    };
+    tick();
+    const timer = window.setInterval(tick, 30000);
     return () => clearInterval(timer);
   }, [user?.id]);
 
@@ -73,6 +106,12 @@ export default function Layout({ children, currentPageName }) {
         setNotificationCount(u?.count ?? 0);
       } catch {
         setNotificationCount(notifs?.length || 0);
+      }
+      try {
+        const m = await apiGet('/api/messages/unread-total');
+        setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
+      } catch {
+        setMessageUnread(0);
       }
 
       let hasBusiness = currentUser.role === 'VENUE';
@@ -190,8 +229,15 @@ export default function Layout({ children, currentPageName }) {
   const mode = activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : userRoles.host ? 'host' : 'partygoer');
   const { primary: primaryNav, secondary: secondaryNav } = NAV[mode];
 
+  const withMessageBadge = (items) =>
+    items.map((item) =>
+      item.page === 'Messages' && messageUnread > 0 ? { ...item, badge: messageUnread } : item,
+    );
+  const primaryNavB = withMessageBadge(primaryNav);
+  const secondaryNavB = withMessageBadge(secondaryNav);
+
   // Mobile: Unified 5-tab bottom nav — Home, Events, Create, Messages, Profile
-  const mobileNav = mode === 'business'
+  let mobileNav = mode === 'business'
     ? [
         { name: 'Home', icon: LayoutDashboard, page: 'BusinessDashboard' },
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
@@ -214,6 +260,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ];
+  mobileNav = withMessageBadge(mobileNav);
 
   const isActive = (page) => {
     if (page === 'CreateJob' && currentPageName === 'CreateJob') return true;
@@ -267,7 +314,7 @@ export default function Layout({ children, currentPageName }) {
         )}
 
         <nav style={{ flex: 1, padding: '14px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {primaryNav.map((item) =>
+          {primaryNavB.map((item) =>
             item.isCreate ? (
               <button
                 key={item.page + item.name}
@@ -284,15 +331,20 @@ export default function Layout({ children, currentPageName }) {
                 key={item.page + item.name}
                 to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
                 className="sec-nav-item"
-                style={isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}}
+                style={{ position: 'relative', ...(isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}) }}
               >
                 <item.icon {...iconProps} />
                 <span>{item.name}</span>
+                {item.badge > 0 && (
+                  <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, borderRadius: 9, backgroundColor: 'var(--sec-accent)', color: '#000', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
+                )}
               </Link>
             )
           )}
           <div style={{ margin: '10px 2px', height: 1, backgroundColor: 'var(--sec-border)' }} />
-          {secondaryNav.map((item) => (
+          {secondaryNavB.map((item) => (
             <Link
               key={item.page + item.name}
               to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
@@ -302,8 +354,8 @@ export default function Layout({ children, currentPageName }) {
               <item.icon {...iconProps} />
               <span>{item.name}</span>
               {item.badge > 0 && (
-                <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, borderRadius: 9, backgroundColor: 'var(--sec-error)', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
-                  {item.badge}
+                <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, borderRadius: 9, backgroundColor: item.page === 'Messages' ? 'var(--sec-accent)' : 'var(--sec-error)', color: item.page === 'Messages' ? '#000' : '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
+                  {item.badge > 99 ? '99+' : item.badge}
                 </span>
               )}
             </Link>
@@ -440,7 +492,14 @@ export default function Layout({ children, currentPageName }) {
                     <item.icon size={22} strokeWidth={2} />
                   </div>
                 ) : (
-                  <item.icon size={24} strokeWidth={1.5} />
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <item.icon size={24} strokeWidth={1.5} />
+                    {item.page === 'Messages' && item.badge > 0 && (
+                      <span style={{ position: 'absolute', top: -6, right: -10, minWidth: 16, height: 16, borderRadius: 8, background: 'var(--sec-accent)', color: '#000', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', lineHeight: 1 }}>
+                        {item.badge > 99 ? '99+' : item.badge}
+                      </span>
+                    )}
+                  </div>
                 )}
                 <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'inherit' }}>{item.name}</span>
               </>
