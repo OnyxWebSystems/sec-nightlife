@@ -2,20 +2,48 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { Flag, Loader2 } from 'lucide-react';
-import { apiGet, apiPatch, apiPost } from '@/api/client';
+import { apiGet, apiPatch, apiPost, apiDelete } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { StarRatingDisplay, StarRatingInput } from './StarRating';
 
 function ReviewsIGave({ onEdit }) {
+  const queryClient = useQueryClient();
+  const [deleteId, setDeleteId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['reviews-me-given'],
     queryFn: () => apiGet('/api/reviews/me/given'),
   });
   const rows = data?.reviews ?? [];
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    setDeleting(true);
+    try {
+      await apiDelete(`/api/reviews/users/review/${deleteId}`);
+      toast.success('Review deleted');
+      setDeleteId(null);
+      queryClient.invalidateQueries({ queryKey: ['reviews-me-given'] });
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (isLoading) {
     return <p className="text-sm text-gray-500 py-4">Loading…</p>;
@@ -36,12 +64,41 @@ function ReviewsIGave({ onEdit }) {
               <StarRatingDisplay value={r.rating} size={14} className="mt-1" />
               <p className="text-sm text-gray-300 mt-2 whitespace-pre-wrap">{r.comment}</p>
             </div>
-            <Button type="button" variant="outline" className="shrink-0 min-h-[44px]" onClick={() => onEdit(r)}>
-              Edit
-            </Button>
+            <div className="flex flex-col gap-2 shrink-0">
+              <Button type="button" variant="outline" className="min-h-[44px]" onClick={() => onEdit(r)}>
+                Edit
+              </Button>
+              <Button type="button" variant="outline" className="min-h-[44px] text-red-400 border-red-900/50" onClick={() => setDeleteId(r.id)}>
+                Delete
+              </Button>
+            </div>
           </li>
         ))}
       </ul>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(o) => { if (!o) setDeleteId(null); }}>
+        <AlertDialogContent className="bg-[#0A0A0B] border-[#262629]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete review?</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-400">
+              Are you sure you want to delete this review? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-transparent border-[#262629]">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDelete();
+              }}
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

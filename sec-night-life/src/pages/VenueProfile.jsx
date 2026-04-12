@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { createPageUrl, getVenueProfileShareUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
+import { apiGet, apiPost } from '@/api/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
+import {
   ChevronLeft,
   Share2,
   MapPin,
@@ -17,14 +18,57 @@ import {
   Briefcase,
   Navigation,
   ChevronRight,
-  Shield
+  Shield,
 } from 'lucide-react';
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { format, parseISO, isToday, isTomorrow, differenceInDays } from 'date-fns';
 import { motion } from 'framer-motion';
 import VenueReviewsSection from '@/components/reviews/VenueReviewsSection';
+import VenueShareModal from '@/components/venues/VenueShareModal';
 
+function spotsLeft(job) {
+  return Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
+}
+
+function jobTypeBadge(jobType) {
+  return String(jobType || '').replace(/_/g, ' ');
+}
+
+function compensationLine(job) {
+  if (job.compensationLabel) return job.compensationLabel;
+  if (job.compensationPer === 'COMMISSION') return 'Commission based';
+  if (job.compensationType === 'NEGOTIABLE') return 'Negotiable';
+  if (job.compensationType === 'UNPAID_TRIAL') return 'Unpaid trial';
+  if (job.compensationAmount != null) {
+    return `R${Number(job.compensationAmount).toFixed(0)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
+  }
+  return 'Compensation not specified';
+}
+
+function closingLabel(closingDate) {
+  if (!closingDate) return 'No closing date';
+  const days = differenceInDays(new Date(closingDate), new Date());
+  if (days < 0) return 'Closed';
+  if (days === 0) return 'Closes today';
+  return `Closes in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+function setOrRemoveMeta(attrName, value, isProperty = true) {
+  const attr = isProperty ? 'property' : 'name';
+  const selector = `meta[${attr}="${attrName}"]`;
+  let el = document.head.querySelector(selector);
+  if (!value) {
+    if (el) el.remove();
+    return;
+  }
+  if (!el) {
+    el = document.createElement('meta');
+    el.setAttribute(attr, attrName);
+    document.head.appendChild(el);
+  }
+  el.setAttribute('content', value);
+}
 
 export default function VenueProfile() {
   const navigate = useNavigate();
@@ -33,6 +77,7 @@ export default function VenueProfile() {
   const venueIdFromUrl = searchParams.get('id');
   const [currentUser, setCurrentUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -50,21 +95,11 @@ export default function VenueProfile() {
   const canFetchOwnedVenue = authReady && !!currentUser?.id && !venueIdFromUrl;
   const venueQueryEnabled = Boolean(venueIdFromUrl || canFetchOwnedVenue);
 
-  const { data: userProfile } = useQuery({
-    queryKey: ['user-profile', currentUser?.email],
-    queryFn: async () => {
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      return profiles[0];
-    },
-    enabled: !!currentUser?.email,
-  });
-
   const { data: venue, isLoading: venueLoading, isFetching: venueFetching } = useQuery({
     queryKey: ['venue', venueIdFromUrl, currentUser?.id, 'profile'],
     queryFn: async () => {
       if (venueIdFromUrl) {
-        const venues = await dataService.Venue.filter({ id: venueIdFromUrl });
-        return venues[0];
+        return apiGet(`/api/venues/${venueIdFromUrl}`);
       }
       if (currentUser?.id) {
         const venues = await dataService.Venue.filter({ owner_user_id: currentUser.id });
@@ -77,25 +112,30 @@ export default function VenueProfile() {
 
   const resolvedVenueId = venue?.id ?? venueIdFromUrl ?? null;
 
-  const isFollowing =
-    Boolean(resolvedVenueId) &&
-    Array.isArray(userProfile?.followed_venues) &&
-    userProfile.followed_venues.includes(resolvedVenueId);
-  const [followLoading, setFollowLoading] = useState(false);
+  const { data: followStatus } = useQuery({
+    queryKey: ['venue-follow-status', resolvedVenueId, currentUser?.id],
+    queryFn: () => apiGet(`/api/venues/${resolvedVenueId}/follow-status`),
+    enabled: !!resolvedVenueId && !!currentUser?.id,
+  });
+  const isFollowing = followStatus?.following ?? false;
 
   const followMutation = useMutation({
-    mutationFn: async (follow) => {
-      const vid = venue?.id ?? venueIdFromUrl;
-      if (!vid || !userProfile?.id) return;
-      const list = Array.isArray(userProfile?.followed_venues) ? [...userProfile.followed_venues] : [];
-      const next = follow ? (list.includes(vid) ? list : [...list, vid]) : list.filter((id) => id !== vid);
-      await dataService.User.update(userProfile.id, { followed_venues: next });
-      return next;
+    mutationFn: () => apiPost(`/api/venues/${resolvedVenueId}/follow`, {}),
+    onMutate: async () => {
+      const key = ['venue-follow-status', resolvedVenueId, currentUser?.id];
+      await queryClient.cancelQueries({ queryKey: key });
+      const prev = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, { following: !isFollowing });
+      return { prev, key };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['user-profile', currentUser?.email]);
+    onError: (_e, _v, ctx) => {
+      if (ctx?.key && ctx.prev !== undefined) queryClient.setQueryData(ctx.key, ctx.prev);
     },
-    onSettled: () => setFollowLoading(false),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['venue-follow-status', resolvedVenueId] });
+      queryClient.invalidateQueries({ queryKey: ['venue', venueIdFromUrl, currentUser?.id, 'profile'] });
+      queryClient.invalidateQueries({ queryKey: ['user-profile', currentUser?.email] });
+    },
   });
 
   const handleFollowClick = () => {
@@ -103,8 +143,8 @@ export default function VenueProfile() {
       authService.redirectToLogin(window.location.pathname + window.location.search);
       return;
     }
-    setFollowLoading(true);
-    followMutation.mutate(!isFollowing);
+    if (!resolvedVenueId) return;
+    followMutation.mutate();
   };
 
   const { data: events = [] } = useQuery({
@@ -115,13 +155,50 @@ export default function VenueProfile() {
 
   const { data: jobs = [] } = useQuery({
     queryKey: ['venue-jobs', resolvedVenueId],
-    queryFn: () => dataService.Job.filter({ venue_id: resolvedVenueId, status: 'open' }),
+    queryFn: () =>
+      apiGet(`/api/jobs/public?${new URLSearchParams({ venueId: resolvedVenueId })}`),
     enabled: !!resolvedVenueId,
   });
 
+  /* Many crawlers (WhatsApp, Telegram, Facebook) do not execute JavaScript; Open Graph tags set here may not appear in link previews for SPA-only pages. */
+  useEffect(() => {
+    if (!venue?.id) return;
+    const canonical = getVenueProfileShareUrl(venue.id);
+    const title = venue.name || 'Venue';
+    const desc = (venue.bio || '').slice(0, 150);
+    const image = venue.cover_image_url || venue.logo_url || '';
+    document.title = `${title} | SEC Nightlife`;
+    setOrRemoveMeta('og:title', title);
+    setOrRemoveMeta('og:description', desc);
+    setOrRemoveMeta('og:image', image);
+    setOrRemoveMeta('og:url', canonical);
+    let link = document.querySelector('link[rel="canonical"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.setAttribute('rel', 'canonical');
+      document.head.appendChild(link);
+    }
+    link.setAttribute('href', canonical);
+    return () => {
+      document.title = 'SEC Nightlife';
+      ['og:title', 'og:description', 'og:image', 'og:url'].forEach((k) => setOrRemoveMeta(k, ''));
+      if (link?.parentNode) link.remove();
+    };
+  }, [venue?.id, venue?.name, venue?.bio, venue?.cover_image_url, venue?.logo_url]);
+
+  /* Deep linking requires the app to be registered on Play Store / App Store with the matching package name and URL scheme before this will work end-to-end. */
+  useEffect(() => {
+    if (!resolvedVenueId) return;
+    const ua = navigator.userAgent || '';
+    const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    if (!mobile) return;
+    const t = setTimeout(() => {}, 2000);
+    window.location.href = `secnightlife://venue?id=${encodeURIComponent(resolvedVenueId)}`;
+    return () => clearTimeout(t);
+  }, [resolvedVenueId]);
+
   const waitingForAuth = !venueIdFromUrl && !authReady;
-  const showLoader =
-    waitingForAuth || (venueQueryEnabled && (venueLoading || venueFetching));
+  const showLoader = waitingForAuth || (venueQueryEnabled && (venueLoading || venueFetching));
 
   if (showLoader) {
     return (
@@ -152,37 +229,46 @@ export default function VenueProfile() {
     return format(d, 'EEE, MMM d');
   };
 
+  const isOwner = currentUser?.id && venue.owner_user_id === currentUser.id;
+  const showApply = currentUser && !isOwner;
+
   return (
     <div className="min-h-screen pb-8 max-w-[480px] mx-auto">
-      {/* Hero */}
+      <VenueShareModal
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        venueId={resolvedVenueId}
+        venueName={venue.name}
+      />
+
       <div className="relative h-72">
         {venue.cover_image_url ? (
-          <img 
-            src={venue.cover_image_url} 
-            alt={venue.name}
-            className="w-full h-full object-cover"
-          />
+          <img src={venue.cover_image_url} alt={venue.name} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full bg-[var(--sec-gradient-silver)]" />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0B] via-transparent to-transparent" />
-        
-        {/* Header */}
+
         <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4">
           <button
+            type="button"
             onClick={() => navigate(-1)}
             className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="flex gap-2">
-            <button className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center"
+              aria-label="Share venue"
+            >
               <Share2 className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Logo */}
         {venue.logo_url && (
           <div className="absolute bottom-4 left-4 w-20 h-20 rounded-2xl overflow-hidden border-4 border-[#0A0A0B]">
             <img src={venue.logo_url} alt="" className="w-full h-full object-cover" />
@@ -191,7 +277,6 @@ export default function VenueProfile() {
       </div>
 
       <div className="px-4 lg:px-8 space-y-6">
-        {/* Title & Verification */}
         <div className="flex items-start justify-between pt-2">
           <div>
             <div className="flex items-center gap-2">
@@ -204,6 +289,14 @@ export default function VenueProfile() {
             </div>
             <div className="flex items-center gap-3 mt-1 text-sm text-gray-400 flex-wrap">
               <span className="capitalize">{venue.venue_type?.replace('_', ' ')}</span>
+              {typeof venue.follower_count === 'number' && (
+                <>
+                  <span>•</span>
+                  <span>
+                    {venue.follower_count} follower{venue.follower_count === 1 ? '' : 's'}
+                  </span>
+                </>
+              )}
               {venue.review_count > 0 && venue.review_average > 0 && (
                 <>
                   <span>•</span>
@@ -232,15 +325,14 @@ export default function VenueProfile() {
           </div>
           <Button
             onClick={handleFollowClick}
-            disabled={followLoading}
+            disabled={followMutation.isPending}
             variant={isFollowing ? 'outline' : 'default'}
             className={isFollowing ? 'border-[#262629]' : 'bg-[var(--sec-accent)]'}
           >
-            {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+            {followMutation.isPending ? '...' : isFollowing ? 'Following' : 'Follow'}
           </Button>
         </div>
 
-        {/* Verification Badge */}
         {venue.is_verified && (
           <div className="flex items-center gap-3 p-3 rounded-xl bg-[var(--sec-warning)]/10 border border-[var(--sec-warning)]/20">
             <Shield className="w-5 h-5 text-[var(--sec-warning)]" />
@@ -251,15 +343,11 @@ export default function VenueProfile() {
           </div>
         )}
 
-        {/* Bio */}
-        {venue.bio && (
-          <p className="text-gray-400">{venue.bio}</p>
-        )}
+        {venue.bio && <p className="text-gray-400">{venue.bio}</p>}
 
-        {/* Contact & Info */}
         <div className="glass-card rounded-2xl overflow-hidden">
           {venue.address && (
-            <a 
+            <a
               href={`https://maps.google.com/?q=${encodeURIComponent(venue.address)}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -271,7 +359,7 @@ export default function VenueProfile() {
             </a>
           )}
           {venue.phone && (
-            <a 
+            <a
               href={`tel:${venue.phone}`}
               className="flex items-center gap-3 p-4 border-t border-[#262629] hover:bg-white/5 transition-colors"
             >
@@ -280,7 +368,7 @@ export default function VenueProfile() {
             </a>
           )}
           {venue.website && (
-            <a 
+            <a
               href={venue.website}
               target="_blank"
               rel="noopener noreferrer"
@@ -291,7 +379,7 @@ export default function VenueProfile() {
             </a>
           )}
           {venue.instagram && (
-            <a 
+            <a
               href={`https://instagram.com/${venue.instagram.replace('@', '')}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -303,7 +391,6 @@ export default function VenueProfile() {
           )}
         </div>
 
-        {/* Music & Amenities */}
         {(venue.music_genres?.length > 0 || venue.amenities?.length > 0) && (
           <div className="space-y-4">
             {venue.music_genres?.length > 0 && (
@@ -311,7 +398,10 @@ export default function VenueProfile() {
                 <h3 className="font-semibold mb-2">Music</h3>
                 <div className="flex flex-wrap gap-2">
                   {venue.music_genres.map((genre, index) => (
-                    <span key={index} className="px-3 py-1 rounded-full bg-[var(--sec-accent)]/20 text-[var(--sec-accent)] text-sm">
+                    <span
+                      key={index}
+                      className="px-3 py-1 rounded-full bg-[var(--sec-accent)]/20 text-[var(--sec-accent)] text-sm"
+                    >
                       {genre}
                     </span>
                   ))}
@@ -333,7 +423,6 @@ export default function VenueProfile() {
           </div>
         )}
 
-        {/* Tabs */}
         <Tabs defaultValue="events" className="w-full">
           <TabsList className="w-full bg-[#141416] p-1 rounded-xl">
             <TabsTrigger value="events" className="flex-1 rounded-lg data-[state=active]:bg-[#262629]">
@@ -354,7 +443,7 @@ export default function VenueProfile() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
                   >
-                    <Link 
+                    <Link
                       to={createPageUrl(`EventDetails?id=${event.id}`)}
                       className="flex items-center gap-4 p-3 glass-card rounded-xl hover:bg-white/5 transition-colors"
                     >
@@ -399,32 +488,41 @@ export default function VenueProfile() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
+                    className="glass-card rounded-xl p-3 space-y-3"
                   >
-                    <Link 
-                      to={createPageUrl(`JobDetails?id=${job.id}`)}
-                      className="flex items-center gap-4 p-3 glass-card rounded-xl hover:bg-white/5 transition-colors"
-                    >
-                      <div className="w-12 h-12 rounded-xl bg-[var(--sec-warning)]/20 flex items-center justify-center">
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-[var(--sec-warning)]/20 flex items-center justify-center shrink-0">
                         <Briefcase className="w-5 h-5 text-[var(--sec-warning)]" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-semibold">{job.title}</h4>
-                        <div className="flex items-center gap-2 mt-1 text-sm">
-                          <span className="text-gray-500 capitalize">{job.job_type?.replace('_', ' ')}</span>
-                          {job.suggested_pay_amount && (
-                            <span className="text-[var(--sec-success)]">R{job.suggested_pay_amount}</span>
-                          )}
-                        </div>
+                        <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-xs bg-[#262629] text-gray-300 capitalize">
+                          {jobTypeBadge(job.jobType)}
+                        </span>
+                        <p className="text-sm text-[var(--sec-success)] mt-2">{compensationLine(job)}</p>
+                        <p className="text-sm text-gray-400 mt-1">
+                          {spotsLeft(job)} spot{spotsLeft(job) === 1 ? '' : 's'} left
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">{closingLabel(job.closingDate)}</p>
                       </div>
-                      <ChevronRight className="w-5 h-5 text-gray-600" />
-                    </Link>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to={createPageUrl(`JobDetails?id=${job.id}`)}>View</Link>
+                      </Button>
+                      {showApply && (
+                        <Button size="sm" className="bg-[var(--sec-accent)]" asChild>
+                          <Link to={createPageUrl(`JobDetails?id=${job.id}`)}>Apply</Link>
+                        </Button>
+                      )}
+                    </div>
                   </motion.div>
                 ))}
               </div>
             ) : (
               <div className="text-center py-12">
                 <Briefcase className="w-10 h-10 text-gray-600 mx-auto mb-2" />
-                <p className="text-gray-500">No open positions</p>
+                <p className="text-gray-500">No open positions at this venue</p>
               </div>
             )}
           </TabsContent>

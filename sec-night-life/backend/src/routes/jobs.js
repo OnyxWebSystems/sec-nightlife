@@ -66,6 +66,8 @@ function publicJobWhere(query = {}) {
     status: 'OPEN',
     OR: [{ closingDate: null }, { closingDate: { gt: new Date() } }],
   };
+  const venueId = query.venueId || query.venue_id;
+  if (venueId) where.venueId = String(venueId);
   if (query.city) where.venue = { city: query.city, deletedAt: null };
   if (query.jobType) where.jobType = query.jobType;
   if (query.compensationType) where.compensationType = query.compensationType;
@@ -150,6 +152,38 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
       include: { _count: { select: { applications: true, messages: true } } },
     });
     return res.json(jobs);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/filter', optionalAuth, async (req, res, next) => {
+  try {
+    const jobs = await prisma.jobPosting.findMany({
+      where: publicJobWhere(req.query),
+      orderBy: { createdAt: 'desc' },
+      include: { venue: { select: { id: true, name: true, city: true, venueType: true } } },
+    });
+    return res.json(
+      jobs.map((job) => ({
+        id: job.id,
+        venue: job.venue,
+        title: job.title,
+        jobType: job.jobType,
+        compensationType: job.compensationType,
+        compensationAmount: job.compensationAmount,
+        compensationPer: job.compensationPer,
+        currency: job.currency,
+        compensationLabel: formatCompensation(job),
+        description: job.description,
+        requirements: job.requirements,
+        totalSpots: job.totalSpots,
+        filledSpots: job.filledSpots,
+        closingDate: job.closingDate,
+        createdAt: job.createdAt,
+        status: job.status,
+      })),
+    );
   } catch (err) {
     return next(err);
   }

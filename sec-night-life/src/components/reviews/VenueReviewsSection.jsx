@@ -2,8 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { Flag, Loader2 } from 'lucide-react';
-import { apiGet, apiPatch, apiPost } from '@/api/client';
+import { apiGet, apiPatch, apiPost, apiDelete } from '@/api/client';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -22,6 +32,8 @@ export default function VenueReviewsSection({
   const [modalOpen, setModalOpen] = useState(false);
   const [flagReview, setFlagReview] = useState(null);
   const [flagReason, setFlagReason] = useState('');
+  const [deleteReviewId, setDeleteReviewId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -92,6 +104,25 @@ export default function VenueReviewsSection({
       toast.error(e?.data?.error || e?.message || 'Failed');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const confirmDeleteVenueReview = async () => {
+    if (!deleteReviewId) return;
+    const removedId = deleteReviewId;
+    setDeleting(true);
+    try {
+      await apiDelete(`/api/reviews/venues/review/${removedId}`);
+      toast.success('Review deleted');
+      setDeleteReviewId(null);
+      setAccReviews((prev) => prev.filter((x) => x.id !== removedId));
+      queryClient.invalidateQueries({ queryKey: ['venue-reviews', venueId] });
+      queryClient.invalidateQueries({ queryKey: ['venue-my-review', venueId] });
+      queryClient.invalidateQueries({ queryKey: ['venues'] });
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -172,16 +203,29 @@ export default function VenueReviewsSection({
                 <p className="text-xs text-gray-600 mt-2">
                   {formatDistanceToNow(new Date(r.createdAt), { addSuffix: true })}
                 </p>
-                {isOwner && (
-                  <button
-                    type="button"
-                    className="mt-2 min-h-[44px] inline-flex items-center gap-1 text-xs text-amber-500"
-                    onClick={() => setFlagReview(r)}
-                  >
-                    <Flag className="w-4 h-4" />
-                    Flag
-                  </button>
-                )}
+                <div className="mt-2 flex flex-wrap gap-2 items-center">
+                  {currentUserId && r.reviewer?.id === currentUserId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] text-red-400 border-red-900/50"
+                      onClick={() => setDeleteReviewId(r.id)}
+                    >
+                      Delete
+                    </Button>
+                  )}
+                  {isOwner && (
+                    <button
+                      type="button"
+                      className="min-h-[44px] inline-flex items-center gap-1 text-xs text-amber-500"
+                      onClick={() => setFlagReview(r)}
+                    >
+                      <Flag className="w-4 h-4" />
+                      Flag
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </li>
@@ -222,6 +266,30 @@ export default function VenueReviewsSection({
           </Button>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteReviewId} onOpenChange={(o) => { if (!o) setDeleteReviewId(null); }}>
+        <AlertDialogContent className="bg-[#0A0A0B] border-[#262629]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete review?</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-400">
+              Are you sure you want to delete this review? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-transparent border-[#262629]">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDeleteVenueReview();
+              }}
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={!!flagReview} onOpenChange={(o) => { if (!o) setFlagReview(null); }}>
         <DialogContent className="max-w-[480px] bg-[#0A0A0B] border-[#262629]">

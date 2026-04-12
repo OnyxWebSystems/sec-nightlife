@@ -441,6 +441,21 @@ router.patch('/users/review/:reviewId', authenticateToken, async (req, res, next
   }
 });
 
+router.delete('/users/review/:reviewId', authenticateToken, async (req, res, next) => {
+  try {
+    const { reviewId } = req.params;
+    const existing = await prisma.userReview.findUnique({ where: { id: reviewId } });
+    if (!existing) return res.status(404).json({ error: 'Review not found' });
+    if (existing.reviewerId !== req.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await prisma.userReview.delete({ where: { id: reviewId } });
+    res.json({ deleted: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/users/review/:reviewId/flag', authenticateToken, async (req, res, next) => {
   try {
     const { reviewId } = req.params;
@@ -634,6 +649,21 @@ router.patch('/venues/:venueId', authenticateToken, async (req, res, next) => {
       comment: updated.comment,
       updatedAt: updated.updatedAt.toISOString(),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/venues/review/:reviewId', authenticateToken, async (req, res, next) => {
+  try {
+    const { reviewId } = req.params;
+    const existing = await prisma.venueReview.findUnique({ where: { id: reviewId } });
+    if (!existing) return res.status(404).json({ error: 'Review not found' });
+    if (existing.reviewerId !== req.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await prisma.venueReview.delete({ where: { id: reviewId } });
+    res.json({ deleted: true });
   } catch (e) {
     next(e);
   }

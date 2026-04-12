@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { canAccessTable } from '../lib/access.js';
+import { orderedParticipants } from '../lib/conversationHelpers.js';
 const router = Router();
 const DIRECT_PREFIX = 'direct:';
 
@@ -59,6 +60,47 @@ function otherParticipantId(conv, me) {
 }
 
 /** ── Direct message conversations (friends) ─────────────────────────── */
+
+router.post('/conversations/find-or-create', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = z.object({ participantId: z.string().min(1) }).safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    const participantId = parsed.data.participantId;
+    const me = req.userId;
+    if (participantId === me) return res.status(400).json({ error: 'Invalid participant' });
+
+    const friends = await hasAcceptedFriendship(me, participantId);
+    if (!friends) {
+      return res.status(403).json({ error: 'You can only message friends' });
+    }
+
+    const parts = orderedParticipants(me, participantId);
+    let conv = await prisma.conversation.findUnique({
+      where: {
+        participantAId_participantBId: {
+          participantAId: parts.participantAId,
+          participantBId: parts.participantBId,
+        },
+      },
+    });
+    if (!conv) {
+      conv = await prisma.conversation.create({
+        data: {
+          participantAId: parts.participantAId,
+          participantBId: parts.participantBId,
+        },
+      });
+    }
+    res.json({
+      id: conv.id,
+      participantAId: conv.participantAId,
+      participantBId: conv.participantBId,
+      createdAt: conv.createdAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/conversations', authenticateToken, async (req, res, next) => {
   try {

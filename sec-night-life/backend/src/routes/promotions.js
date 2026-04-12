@@ -491,10 +491,21 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
       },
     });
 
+    const followedVenueIds = req.userId
+      ? new Set(
+          (
+            await prisma.venueFollow.findMany({
+              where: { userId: req.userId },
+              select: { venueId: true },
+            })
+          ).map((x) => x.venueId),
+        )
+      : new Set();
+
     const scored = promotions
       .map((p) => ({
         ...p,
-        score: calculateScore(p),
+        score: calculateScore(p) + (followedVenueIds.has(p.venueId) ? 500 : 0),
         cityMatch:
           city &&
           ((p.targetCity && p.targetCity.toLowerCase() === city.toLowerCase()) ||

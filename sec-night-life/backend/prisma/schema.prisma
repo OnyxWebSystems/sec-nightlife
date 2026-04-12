@@ -181,6 +181,7 @@ model User {
   reviewsGiven                UserReview[]         @relation("ReviewsGiven")
   reviewsReceived             UserReview[]         @relation("ReviewsReceived")
   venueReviewsGiven           VenueReview[]        @relation("VenueReviewsGiven")
+  venueFollows                VenueFollow[]
 
   @@unique([email, role])
   @@index([email])
@@ -278,11 +279,27 @@ model Venue {
   blockedUsers        VenueBlockedUser[]
   popularity          VenuePopularity[]
   complianceDocuments ComplianceDocument[]
+  follows             VenueFollow[]
 
   @@index([ownerUserId])
   @@index([city])
   @@index([complianceStatus])
   @@map("venues")
+}
+
+model VenueFollow {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  venueId   String   @map("venue_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, venueId])
+  @@index([userId])
+  @@index([venueId])
+  @@map("venue_follows")
 }
 
 model ComplianceDocument {

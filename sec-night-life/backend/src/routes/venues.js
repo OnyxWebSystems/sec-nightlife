@@ -3,6 +3,20 @@ import { ensureUserRole } from '../lib/userRoles.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
+
+/** Keep legacy user_profiles.followed_venues in sync for older clients. */
+async function syncProfileFollowedVenues(userId, venueId, following) {
+  const profile = await prisma.userProfile.findUnique({ where: { userId } });
+  if (!profile) return;
+  const arr = [...(profile.followedVenues || [])];
+  const set = new Set(arr);
+  if (following) set.add(venueId);
+  else set.delete(venueId);
+  await prisma.userProfile.update({
+    where: { userId },
+    data: { followedVenues: [...set] },
+  });
+}
 import { isStaff } from '../lib/access.js';
 
 const router = Router();
@@ -69,6 +83,16 @@ router.get('/', optionalAuth, async (req, res, next) => {
     });
 
     const stats = await venueReviewStatsByVenueIds(venues.map((v) => v.id));
+    const vidListRoot = venues.map((v) => v.id);
+    const followRowsRoot =
+      vidListRoot.length === 0
+        ? []
+        : await prisma.venueFollow.groupBy({
+            by: ['venueId'],
+            where: { venueId: { in: vidListRoot } },
+            _count: { _all: true },
+          });
+    const fcMapRoot = new Map(followRowsRoot.map((r) => [r.venueId, r._count._all]));
 
     const list = venues.map((v) => {
       const s = stats.get(v.id);
@@ -90,6 +114,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
         owner_user_id: v.ownerUserId,
         review_average: s?.review_average ?? 0,
         review_count: s?.review_count ?? 0,
+        follower_count: fcMapRoot.get(v.id) ?? 0,
       };
     });
     res.json(list);
@@ -119,6 +144,16 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     });
 
     const stats = await venueReviewStatsByVenueIds(venues.map((v) => v.id));
+    const vidList = venues.map((v) => v.id);
+    const followRows =
+      vidList.length === 0
+        ? []
+        : await prisma.venueFollow.groupBy({
+            by: ['venueId'],
+            where: { venueId: { in: vidList } },
+            _count: { _all: true },
+          });
+    const fcMap = new Map(followRows.map((r) => [r.venueId, r._count._all]));
 
     const list = venues.map((v) => {
       const s = stats.get(v.id);
@@ -140,6 +175,7 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
         owner_user_id: v.ownerUserId,
         review_average: s?.review_average ?? 0,
         review_count: s?.review_count ?? 0,
+        follower_count: fcMap.get(v.id) ?? 0,
       };
     });
     res.json(list);
@@ -148,10 +184,57 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
   }
 });
 
+router.get('/:id/follow-status', authenticateToken, async (req, res, next) => {
+  try {
+    const venueId = req.params.id;
+    const venue = await prisma.venue.findFirst({
+      where: { id: venueId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!venue) return res.status(404).json({ error: 'Venue not found' });
+    const row = await prisma.venueFollow.findUnique({
+      where: { userId_venueId: { userId: req.userId, venueId } },
+    });
+    res.json({ following: !!row });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/follow', authenticateToken, async (req, res, next) => {
+  try {
+    const venueId = req.params.id;
+    const venue = await prisma.venue.findFirst({
+      where: { id: venueId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!venue) return res.status(404).json({ error: 'Venue not found' });
+
+    const existing = await prisma.venueFollow.findUnique({
+      where: { userId_venueId: { userId: req.userId, venueId } },
+    });
+
+    if (existing) {
+      await prisma.venueFollow.delete({ where: { id: existing.id } });
+      await syncProfileFollowedVenues(req.userId, venueId, false);
+      return res.json({ following: false });
+    }
+
+    await prisma.venueFollow.create({
+      data: { userId: req.userId, venueId },
+    });
+    await syncProfileFollowedVenues(req.userId, venueId, true);
+    return res.json({ following: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', optionalAuth, async (req, res, next) => {
   try {
     const venue = await prisma.venue.findFirst({
-      where: { id: req.params.id, deletedAt: null }
+      where: { id: req.params.id, deletedAt: null },
+      include: { _count: { select: { follows: true } } },
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
 
@@ -183,6 +266,7 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       owner_user_id: venue.ownerUserId,
       review_average: s?.review_average ?? 0,
       review_count: s?.review_count ?? 0,
+      follower_count: venue._count.follows,
     });
   } catch (err) {
     next(err);

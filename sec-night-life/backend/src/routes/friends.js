@@ -465,10 +465,59 @@ router.delete('/block/:userId', authenticateToken, async (req, res, next) => {
   }
 });
 
-/** GET / — list friends */
+/** GET / — list friends; GET /?q= — search accepted friends by name (for share, etc.) */
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
     const me = req.userId;
+    const q = String(req.query.q || '').trim();
+
+    if (q.length >= 1) {
+      const ql = q.toLowerCase();
+      const rows = await prisma.friendship.findMany({
+        where: {
+          status: 'ACCEPTED',
+          OR: [{ requesterId: me }, { receiverId: me }],
+        },
+        include: {
+          requester: { select: publicUserSelect() },
+          receiver: { select: publicUserSelect() },
+        },
+      });
+
+      const matches = [];
+      for (const r of rows) {
+        const friendUser = r.requesterId === me ? r.receiver : r.requester;
+        const uname = (friendUser.username || '').toLowerCase();
+        const fname = (friendUser.fullName || '').toLowerCase();
+        if (!uname.includes(ql) && !fname.includes(ql)) continue;
+
+        const parts = orderedParticipants(r.requesterId, r.receiverId);
+        const conv = await prisma.conversation.findUnique({
+          where: {
+            participantAId_participantBId: {
+              participantAId: parts.participantAId,
+              participantBId: parts.participantBId,
+            },
+          },
+          select: { id: true },
+        });
+
+        matches.push({
+          id: friendUser.id,
+          username: friendUser.username || '',
+          fullName: friendUser.fullName || '',
+          avatarUrl: friendUser.userProfile?.avatarUrl || null,
+          city: friendUser.userProfile?.city || null,
+          conversationId: conv?.id || null,
+          friendshipStatus: 'ACCEPTED',
+        });
+        if (matches.length >= 20) break;
+      }
+
+      matches.sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+      return res.json(matches);
+    }
+
     const rows = await prisma.friendship.findMany({
       where: {
         status: 'ACCEPTED',

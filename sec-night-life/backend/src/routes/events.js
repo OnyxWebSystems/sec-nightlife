@@ -49,6 +49,27 @@ function mapEventRow(e) {
   };
 }
 
+async function followedVenueIdSet(userId) {
+  if (!userId) return new Set();
+  const rows = await prisma.venueFollow.findMany({
+    where: { userId },
+    select: { venueId: true },
+  });
+  return new Set(rows.map((r) => r.venueId));
+}
+
+/** When logged in, followed venues first; within each group order by event date. */
+function sortEventsByFollowThenDate(events, followedSet, sortDesc) {
+  return [...events].sort((a, b) => {
+    const ap = followedSet.has(a.venueId) ? 0 : 1;
+    const bp = followedSet.has(b.venueId) ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    const at = a.date.getTime();
+    const bt = b.date.getTime();
+    return sortDesc ? bt - at : at - bt;
+  });
+}
+
 function mapEventDetail(event) {
   return {
     id: event.id,
@@ -79,12 +100,20 @@ router.get('/', optionalAuth, async (req, res, next) => {
       if (!ok && req.query.venue_id) return res.status(403).json({ error: 'Forbidden' });
       await applyEventVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
     }
+    const take = Math.min(parseInt(req.query.limit) || 50, 100);
+    const sortDesc = req.query.sort === '-date';
+    const followedSet = await followedVenueIdSet(req.userId);
+    const fetchCap = req.userId && followedSet.size > 0 ? Math.min(take * 15, 500) : take;
     const events = await prisma.event.findMany({
       where,
-      orderBy: { date: req.query.sort === '-date' ? 'desc' : 'asc' },
-      take: Math.min(parseInt(req.query.limit) || 50, 100),
+      orderBy: { date: sortDesc ? 'desc' : 'asc' },
+      take: fetchCap,
     });
-    res.json(events.map(mapEventRow));
+    const ordered =
+      req.userId && followedSet.size > 0
+        ? sortEventsByFollowThenDate(events, followedSet, sortDesc).slice(0, take)
+        : events;
+    res.json(ordered.map(mapEventRow));
   } catch (err) {
     next(err);
   }
@@ -102,10 +131,20 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       await applyEventVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
     }
     const sort = String(req.query.sort || 'date');
-    const orderBy = { date: sort === '-date' ? 'desc' : 'asc' };
+    const sortDesc = sort === '-date';
     const take = Math.min(parseInt(req.query.limit) || 100, 100);
-    const events = await prisma.event.findMany({ where, orderBy, take });
-    res.json(events.map(mapEventRow));
+    const followedSet = await followedVenueIdSet(req.userId);
+    const fetchCap = req.userId && followedSet.size > 0 ? Math.min(take * 15, 500) : take;
+    const events = await prisma.event.findMany({
+      where,
+      orderBy: { date: sortDesc ? 'desc' : 'asc' },
+      take: fetchCap,
+    });
+    const ordered =
+      req.userId && followedSet.size > 0
+        ? sortEventsByFollowThenDate(events, followedSet, sortDesc).slice(0, take)
+        : events;
+    res.json(ordered.map(mapEventRow));
   } catch (err) {
     next(err);
   }
