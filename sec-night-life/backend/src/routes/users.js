@@ -40,6 +40,25 @@ async function syncUserUsername(userId, rawUsername) {
   return v.username;
 }
 
+/** Max 10 items, each max 30 chars, trim, dedupe case-insensitively */
+function normalizeInterestList(input) {
+  if (input == null) return [];
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const t = raw.trim().slice(0, 30);
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
 /** GET /check-username/:username — public, rate-limited; with Bearer token, current user's handle counts as available */
 router.get('/check-username/:username', usernameCheckLimiter, optionalAuth, async (req, res, next) => {
   try {
@@ -165,7 +184,8 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       friendship?.status === 'BLOCKED' && friendship.requesterId === viewerId;
 
     const now = new Date();
-    const interests = user.userProfile?.interests ?? [];
+    const rawInterests = user.userProfile?.interests;
+    const interests = Array.isArray(rawInterests) ? rawInterests : [];
 
     const attendedRows = await prisma.eventAttendance.findMany({
       where: {
@@ -273,8 +293,8 @@ const profileUpdateSchema = z.object({
   age_verified: z.boolean().optional().nullable(),
   verification_status: z.enum(['pending', 'submitted', 'verified', 'rejected']).optional().nullable(),
   payment_setup_complete: z.boolean().optional().nullable(),
-  interests: z.array(z.string()).optional().nullable(),
-  music_preferences: z.array(z.string()).optional().nullable(),
+  interests: z.array(z.string().max(30)).max(10).optional().nullable(),
+  music_preferences: z.array(z.string().max(30)).max(10).optional().nullable(),
   friends: z.array(z.string()).optional().nullable(),
   followed_venues: z.array(z.string()).optional().nullable(),
   onboarding_complete: z.boolean().optional().nullable()
@@ -522,8 +542,12 @@ router.post('/', authenticateToken, async (req, res, next) => {
       ...(data.verification_status != null && { verificationStatus: data.verification_status }),
       ...(data.payment_setup_complete != null && { paymentSetupComplete: data.payment_setup_complete }),
       ...(data.onboarding_complete != null && { onboardingComplete: data.onboarding_complete }),
-      ...(data.interests != null && { interests: data.interests }),
-      ...(data.music_preferences != null && { musicPreferences: data.music_preferences }),
+      ...(data.interests !== undefined && {
+        interests: data.interests === null ? [] : normalizeInterestList(data.interests),
+      }),
+      ...(data.music_preferences !== undefined && {
+        musicPreferences: data.music_preferences === null ? [] : normalizeInterestList(data.music_preferences),
+      }),
       ...(data.friends != null && { friends: data.friends }),
       ...(data.followed_venues != null && { followedVenues: data.followed_venues })
     };
@@ -548,8 +572,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
       date_of_birth: profile.dateOfBirth,
       verification_status: profile.verificationStatus,
       payment_setup_complete: profile.paymentSetupComplete,
-      interests: profile.interests,
-      music_preferences: profile.musicPreferences,
+      interests: profile.interests ?? [],
+      music_preferences: profile.musicPreferences ?? [],
       friends: profile.friends ?? [],
       followed_venues: profile.followedVenues ?? [],
       onboarding_complete: profile.onboardingComplete
@@ -594,8 +618,12 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       ...(data.verification_status != null && { verificationStatus: data.verification_status }),
       ...(data.payment_setup_complete != null && { paymentSetupComplete: data.payment_setup_complete }),
       ...(data.onboarding_complete != null && { onboardingComplete: data.onboarding_complete }),
-      ...(data.interests != null && { interests: data.interests }),
-      ...(data.music_preferences != null && { musicPreferences: data.music_preferences }),
+      ...(data.interests !== undefined && {
+        interests: data.interests === null ? [] : normalizeInterestList(data.interests),
+      }),
+      ...(data.music_preferences !== undefined && {
+        musicPreferences: data.music_preferences === null ? [] : normalizeInterestList(data.music_preferences),
+      }),
       ...(data.friends != null && { friends: data.friends }),
       ...(data.followed_venues != null && { followedVenues: data.followed_venues })
     };
@@ -620,8 +648,8 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       date_of_birth: profile.dateOfBirth,
       verification_status: profile.verificationStatus,
       payment_setup_complete: profile.paymentSetupComplete,
-      interests: profile.interests,
-      music_preferences: profile.musicPreferences,
+      interests: profile.interests ?? [],
+      music_preferences: profile.musicPreferences ?? [],
       friends: profile.friends ?? [],
       followed_venues: profile.followedVenues ?? [],
       onboarding_complete: profile.onboardingComplete
@@ -671,8 +699,12 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.age_verified != null) updates.ageVerified = data.age_verified;
     if (data.verification_status != null) updates.verificationStatus = data.verification_status;
     if (data.payment_setup_complete != null) updates.paymentSetupComplete = data.payment_setup_complete;
-    if (data.interests != null) updates.interests = data.interests;
-    if (data.music_preferences != null) updates.musicPreferences = data.music_preferences;
+    if (data.interests !== undefined) {
+      updates.interests = data.interests === null ? [] : normalizeInterestList(data.interests);
+    }
+    if (data.music_preferences !== undefined) {
+      updates.musicPreferences = data.music_preferences === null ? [] : normalizeInterestList(data.music_preferences);
+    }
     if (data.friends != null) updates.friends = data.friends;
     if (data.followed_venues != null) updates.followedVenues = data.followed_venues;
     if (data.onboarding_complete != null) updates.onboardingComplete = data.onboarding_complete;
@@ -697,8 +729,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       date_of_birth: updated.dateOfBirth,
       verification_status: updated.verificationStatus,
       payment_setup_complete: updated.paymentSetupComplete,
-      interests: updated.interests,
-      music_preferences: updated.musicPreferences,
+      interests: updated.interests ?? [],
+      music_preferences: updated.musicPreferences ?? [],
       friends: updated.friends ?? [],
       followed_venues: updated.followedVenues ?? [],
       onboarding_complete: updated.onboardingComplete

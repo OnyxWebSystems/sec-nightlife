@@ -67,6 +67,11 @@ export default function Profile() {
     }
   };
 
+  /** Merge PATCH /api/users/profile response into local state (Profile does not use React Query for own profile). */
+  const mergeSelfProfileFromApi = (patch) => {
+    setUserProfile((prev) => (prev ? { ...prev, ...patch } : prev));
+  };
+
   const isOwnProfile = !viewingUserId || viewingUserId === userProfile?.id;
 
   const { data: viewedProfile } = useQuery({
@@ -629,7 +634,7 @@ export default function Profile() {
               </TabsContent>
 
               <TabsContent value="interests" className="mt-4">
-                <InterestsEditor userProfile={userProfile} />
+                <InterestsEditor userProfile={userProfile} onProfileUpdated={mergeSelfProfileFromApi} />
               </TabsContent>
             </Tabs>
           </div>
