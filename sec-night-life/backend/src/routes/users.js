@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../lib/prisma.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { isStaff } from '../lib/access.js';
 import { requirePremium } from '../middleware/premium.js';
 import { requireVerified } from '../middleware/requireVerified.js';
@@ -40,14 +40,19 @@ async function syncUserUsername(userId, rawUsername) {
   return v.username;
 }
 
-/** GET /check-username/:username — public, rate-limited */
-router.get('/check-username/:username', usernameCheckLimiter, async (req, res, next) => {
+/** GET /check-username/:username — public, rate-limited; with Bearer token, current user's handle counts as available */
+router.get('/check-username/:username', usernameCheckLimiter, optionalAuth, async (req, res, next) => {
   try {
     const raw = req.params.username || '';
     const v = validateUsernameFormat(raw);
     if (!v.ok) return res.json({ available: false });
+    const where = {
+      username: v.username,
+      deletedAt: null,
+      ...(req.userId ? { NOT: { id: req.userId } } : {}),
+    };
     const existing = await prisma.user.findFirst({
-      where: { username: v.username, deletedAt: null },
+      where,
       select: { id: true },
     });
     res.json({ available: !existing });
@@ -414,10 +419,11 @@ router.post('/', authenticateToken, async (req, res, next) => {
     const data = parsed.data;
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (data.full_name) {
+    if (data.full_name !== undefined) {
+      const fullName = data.full_name === null || data.full_name === '' ? null : data.full_name;
       await prisma.user.update({
         where: { id: req.userId },
-        data: { fullName: data.full_name }
+        data: { fullName }
       });
     }
     let canonicalUsername = null;
@@ -451,11 +457,15 @@ router.post('/', authenticateToken, async (req, res, next) => {
       create: { userId: req.userId, ...profileData },
       update: profileData
     });
+    const userFresh = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true, fullName: true, username: true }
+    });
     res.status(201).json({
       id: profile.id,
-      created_by: user.email,
+      created_by: userFresh.email,
       username: profile.username,
-      full_name: user.fullName || profile.username,
+      full_name: userFresh.fullName || profile.username,
       bio: profile.bio,
       city: profile.city,
       avatar_url: profile.avatarUrl,
@@ -481,10 +491,11 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
     const data = parsed.data;
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (data.full_name) {
+    if (data.full_name !== undefined) {
+      const fullName = data.full_name === null || data.full_name === '' ? null : data.full_name;
       await prisma.user.update({
         where: { id: req.userId },
-        data: { fullName: data.full_name }
+        data: { fullName }
       });
     }
     let canonicalUsername = null;
@@ -518,11 +529,15 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       create: { userId: req.userId, ...profileData },
       update: profileData
     });
+    const userFresh = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true, fullName: true, username: true }
+    });
     res.json({
       id: profile.id,
-      created_by: user.email,
+      created_by: userFresh.email,
       username: profile.username,
-      full_name: user.fullName || profile.username,
+      full_name: userFresh.fullName || profile.username,
       bio: profile.bio,
       city: profile.city,
       avatar_url: profile.avatarUrl,
@@ -554,10 +569,11 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (id !== req.userId && targetUserId !== req.userId && !isStaff(req.userRole)) {
       return res.status(403).json({ error: 'Cannot update another user' });
     }
-    if (data.full_name) {
+    if (data.full_name !== undefined) {
+      const fullName = data.full_name === null || data.full_name === '' ? null : data.full_name;
       await prisma.user.update({
         where: { id: targetUserId },
-        data: { fullName: data.full_name }
+        data: { fullName }
       });
     }
     let canonicalUsername = null;
@@ -590,7 +606,10 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       create: { userId: targetUserId, ...updates },
       update: updates
     });
-    const user = await prisma.user.findUnique({ where: { id: targetUserId } });
+    const user = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { email: true, fullName: true, username: true }
+    });
     res.json({
       id: updated.id,
       created_by: user.email,

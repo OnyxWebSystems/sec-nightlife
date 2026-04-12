@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { requireRole } from '../middleware/rbac.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { normalizeUsername } from '../lib/username.js';
@@ -275,7 +274,7 @@ router.get('/suggestions', authenticateToken, async (req, res, next) => {
 const receiverIdSchema = z.object({ receiverId: z.string().min(1) });
 
 /** POST /request */
-router.post('/request', authenticateToken, requireRole('USER'), async (req, res, next) => {
+router.post('/request', authenticateToken, async (req, res, next) => {
   try {
     const parsed = receiverIdSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });

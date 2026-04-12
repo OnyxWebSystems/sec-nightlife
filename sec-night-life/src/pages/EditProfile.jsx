@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
-import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
-import { ChevronLeft, Camera, User, MapPin, Wine, FileText, BadgeCheck } from 'lucide-react';
+import { apiGet, apiPatch } from '@/api/client';
+import { ChevronLeft, Camera, User, MapPin, Wine, FileText, BadgeCheck, Loader2, Check, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -22,12 +22,13 @@ const DRINKS = [
 
 export default function EditProfile() {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [usernameCheck, setUsernameCheck] = useState(null);
 
   const [formData, setFormData] = useState({
+    full_name: '',
     username: '',
     bio: '',
     city: '',
@@ -35,25 +36,55 @@ export default function EditProfile() {
     avatar_url: '',
   });
 
-  useEffect(() => { loadData(); }, []);
+  const normalizedUsername = useMemo(
+    () => formData.username.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''),
+    [formData.username]
+  );
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    if (normalizedUsername.length < 3) {
+      setUsernameCheck(normalizedUsername.length === 0 ? null : 'invalid');
+      return;
+    }
+    setUsernameCheck('loading');
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiGet(`/api/users/check-username/${encodeURIComponent(normalizedUsername)}`);
+        setUsernameCheck(res.available ? 'ok' : 'taken');
+      } catch {
+        setUsernameCheck(null);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [normalizedUsername]);
+
+  const usernameBlocking =
+    !normalizedUsername || normalizedUsername.length < 3 || usernameCheck !== 'ok';
 
   const loadData = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
-      setUser(currentUser);
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) {
-        const profile = profiles[0];
-        setUserProfile(profile);
-        setFormData({
-          username: profile.username || '',
-          bio: profile.bio || '',
-          city: profile.city || '',
-          favorite_drink: profile.favorite_drink || '',
-          avatar_url: profile.avatar_url || '',
-        });
+      const rows = await apiGet('/api/users/profile');
+      const profile = Array.isArray(rows) ? rows[0] : rows;
+      if (!profile) {
+        toast.error('Profile not found');
+        authService.redirectToLogin();
+        return;
       }
-    } catch (e) {
+      setUserProfile(profile);
+      const u = (profile.username || '').toString().replace(/^@/, '');
+      setFormData({
+        full_name: profile.full_name || '',
+        username: u,
+        bio: profile.bio || '',
+        city: profile.city || '',
+        favorite_drink: profile.favorite_drink || '',
+        avatar_url: profile.avatar_url || '',
+      });
+    } catch {
       authService.redirectToLogin();
     } finally {
       setIsLoading(false);
@@ -65,20 +96,32 @@ export default function EditProfile() {
     if (!file) return;
     try {
       const { file_url } = await integrations.Core.UploadFile({ file });
-      setFormData(prev => ({ ...prev, avatar_url: file_url }));
+      setFormData((prev) => ({ ...prev, avatar_url: file_url }));
     } catch {
       toast.error('Failed to upload image');
     }
   };
 
   const handleSave = async () => {
+    if (usernameBlocking) {
+      toast.error('Choose an available username (3–30 characters, letters, numbers, underscores)');
+      return;
+    }
     setIsSaving(true);
     try {
-      await dataService.User.update(userProfile.id, formData);
+      await apiPatch('/api/users/profile', {
+        full_name: formData.full_name.trim(),
+        username: normalizedUsername,
+        bio: formData.bio,
+        city: formData.city || null,
+        favorite_drink: formData.favorite_drink || null,
+        avatar_url: formData.avatar_url || null,
+      });
       toast.success('Profile updated');
       navigate(createPageUrl('Profile'));
-    } catch {
-      toast.error('Failed to update profile');
+    } catch (err) {
+      const msg = err?.data?.error || err?.message || 'Failed to update profile';
+      toast.error(msg);
     } finally {
       setIsSaving(false);
     }
@@ -92,7 +135,6 @@ export default function EditProfile() {
     );
   }
 
-  /* ── shared field label style ── */
   const labelStyle = {
     display: 'flex', alignItems: 'center', gap: 6,
     fontSize: 11, fontWeight: 600, letterSpacing: '0.09em',
@@ -100,10 +142,11 @@ export default function EditProfile() {
     marginBottom: 8,
   };
 
+  const citySelectValue = formData.city && CITIES.includes(formData.city) ? formData.city : '';
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 40 }}>
 
-      {/* ── Header ── */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 40,
         backgroundColor: 'rgba(0,0,0,0.92)',
@@ -115,6 +158,7 @@ export default function EditProfile() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
+            type="button"
             onClick={() => navigate(-1)}
             style={{
               width: 36, height: 36, borderRadius: '50%',
@@ -132,8 +176,9 @@ export default function EditProfile() {
         </div>
 
         <button
+          type="button"
           onClick={handleSave}
-          disabled={isSaving}
+          disabled={isSaving || usernameBlocking}
           className="sec-btn sec-btn-primary"
           style={{ padding: '8px 20px', fontSize: 13 }}
         >
@@ -143,11 +188,9 @@ export default function EditProfile() {
 
       <div style={{ maxWidth: 480, margin: '0 auto', padding: '32px 20px', display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-        {/* ── Avatar ── */}
         <div style={{ display: 'flex', justifyContent: 'center' }}>
           <label style={{ cursor: 'pointer' }}>
             <div style={{ position: 'relative' }}>
-              {/* Avatar ring — single silver border, no gradient */}
               <div style={{
                 width: 96, height: 96, borderRadius: '50%',
                 border: '1px solid var(--sec-border-strong)',
@@ -162,7 +205,6 @@ export default function EditProfile() {
                 )}
               </div>
 
-              {/* Camera badge — dark circle with silver border */}
               <div style={{
                 position: 'absolute', bottom: 0, right: 0,
                 width: 30, height: 30, borderRadius: '50%',
@@ -177,7 +219,6 @@ export default function EditProfile() {
           </label>
         </div>
 
-        {/* ── Verified promoter banner ── */}
         {userProfile?.is_verified_promoter && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
@@ -192,19 +233,17 @@ export default function EditProfile() {
           </div>
         )}
 
-        {/* ── Form fields ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-          {/* Username */}
           <div>
             <div style={labelStyle}>
               <User size={12} strokeWidth={2} />
-              Username
+              Full name
             </div>
             <Input
-              value={formData.username}
-              onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))}
-              placeholder="Choose a unique username"
+              value={formData.full_name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, full_name: e.target.value }))}
+              placeholder="Your display name"
               style={{
                 height: 46,
                 backgroundColor: 'var(--sec-bg-elevated)',
@@ -215,14 +254,64 @@ export default function EditProfile() {
                 paddingLeft: 14,
               }}
             />
-            {formData.username && (
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>
+              Others can search for you by this name. Duplicates are allowed.
+            </p>
+          </div>
+
+          <div>
+            <div style={labelStyle}>
+              <User size={12} strokeWidth={2} />
+              Username
+            </div>
+            <Input
+              value={formData.username}
+              onChange={(e) => setFormData((prev) => ({
+                ...prev,
+                username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''),
+              }))}
+              placeholder="Unique handle"
+              autoComplete="username"
+              style={{
+                height: 46,
+                backgroundColor: 'var(--sec-bg-elevated)',
+                border: '1px solid var(--sec-border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--sec-text-primary)',
+                fontSize: 14,
+                paddingLeft: 14,
+              }}
+            />
+            {formData.username ? (
               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>
                 @{formData.username}
               </p>
-            )}
+            ) : null}
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, minHeight: 22 }}>
+              {usernameCheck === 'loading' && (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--sec-text-muted)' }} />
+                  <span style={{ color: 'var(--sec-text-muted)' }}>Checking…</span>
+                </>
+              )}
+              {usernameCheck === 'ok' && (
+                <>
+                  <Check size={16} style={{ color: 'var(--sec-accent, #22c55e)' }} />
+                  <span style={{ color: 'var(--sec-accent, #22c55e)' }}>Username available</span>
+                </>
+              )}
+              {usernameCheck === 'taken' && (
+                <>
+                  <X size={16} style={{ color: '#ef4444' }} />
+                  <span style={{ color: '#ef4444' }}>Username already taken</span>
+                </>
+              )}
+              {usernameCheck === 'invalid' && (
+                <span style={{ color: '#f59e0b' }}>3–30 characters, letters, numbers, underscores only</span>
+              )}
+            </div>
           </div>
 
-          {/* Bio */}
           <div>
             <div style={labelStyle}>
               <FileText size={12} strokeWidth={2} />
@@ -230,7 +319,7 @@ export default function EditProfile() {
             </div>
             <Textarea
               value={formData.bio}
-              onChange={(e) => setFormData(prev => ({ ...prev, bio: e.target.value }))}
+              onChange={(e) => setFormData((prev) => ({ ...prev, bio: e.target.value }))}
               placeholder="Tell people about yourself…"
               rows={4}
               style={{
@@ -245,13 +334,15 @@ export default function EditProfile() {
             />
           </div>
 
-          {/* City */}
           <div>
             <div style={labelStyle}>
               <MapPin size={12} strokeWidth={2} />
               City
             </div>
-            <Select value={formData.city} onValueChange={(v) => setFormData(prev => ({ ...prev, city: v }))}>
+            <Select
+              value={citySelectValue}
+              onValueChange={(v) => setFormData((prev) => ({ ...prev, city: v }))}
+            >
               <SelectTrigger style={{
                 height: 46,
                 backgroundColor: 'var(--sec-bg-elevated)',
@@ -269,7 +360,8 @@ export default function EditProfile() {
               }}>
                 {CITIES.map((city) => (
                   <SelectItem
-                    key={city} value={city}
+                    key={city}
+                    value={city}
                     style={{ color: 'var(--sec-text-primary)', cursor: 'pointer' }}
                   >
                     {city}
@@ -279,13 +371,12 @@ export default function EditProfile() {
             </Select>
           </div>
 
-          {/* Favourite drink */}
           <div>
             <div style={labelStyle}>
               <Wine size={12} strokeWidth={2} />
               Favourite Drink
             </div>
-            <Select value={formData.favorite_drink} onValueChange={(v) => setFormData(prev => ({ ...prev, favorite_drink: v }))}>
+            <Select value={formData.favorite_drink} onValueChange={(v) => setFormData((prev) => ({ ...prev, favorite_drink: v }))}>
               <SelectTrigger style={{
                 height: 46,
                 backgroundColor: 'var(--sec-bg-elevated)',
@@ -303,7 +394,8 @@ export default function EditProfile() {
               }}>
                 {DRINKS.map((drink) => (
                   <SelectItem
-                    key={drink} value={drink}
+                    key={drink}
+                    value={drink}
                     style={{ color: 'var(--sec-text-primary)', cursor: 'pointer' }}
                   >
                     {drink}
@@ -314,10 +406,10 @@ export default function EditProfile() {
           </div>
         </div>
 
-        {/* ── Save — full-width bottom CTA ── */}
         <button
+          type="button"
           onClick={handleSave}
-          disabled={isSaving}
+          disabled={isSaving || usernameBlocking}
           className="sec-btn sec-btn-primary sec-btn-full"
           style={{ marginTop: 8, fontSize: 15 }}
         >
