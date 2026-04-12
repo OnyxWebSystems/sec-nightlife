@@ -9,6 +9,7 @@ import { audit } from '../lib/audit.js';
 import { logger } from '../lib/logger.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../lib/email.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { validateUsernameFormat } from '../lib/username.js';
 
 const router = Router();
 const SALT_ROUNDS = 12;
@@ -78,6 +79,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
   full_name: z.string().min(1).max(200).optional(),
+  username: z.union([z.string(), z.null(), z.undefined()]).optional(),
   role: z.enum(['USER', 'VENUE', 'FREELANCER']).default('USER')
 });
 
@@ -112,7 +114,30 @@ router.post('/register', async (req, res, next) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     }
-    const { email, password, full_name, role } = parsed.data;
+    const { email, password, full_name, username, role } = parsed.data;
+
+    const usernameTrimmed =
+      username === null || username === undefined ? '' : String(username).trim();
+    if (!usernameTrimmed) {
+      return res.status(400).json({ field: 'username', message: 'Username is required.' });
+    }
+
+    const v = validateUsernameFormat(usernameTrimmed);
+    if (!v.ok) {
+      return res.status(400).json({ field: 'username', message: v.message });
+    }
+
+    const usernameNormalized = v.username;
+    const taken = await prisma.user.findFirst({
+      where: { username: usernameNormalized, deletedAt: null },
+      select: { id: true },
+    });
+    if (taken) {
+      return res.status(409).json({
+        field: 'username',
+        message: 'This username is already taken. Please choose a different one.',
+      });
+    }
 
     const existing = await prisma.user.findFirst({
       where: { email: email.toLowerCase(), role, deletedAt: null }
@@ -132,6 +157,7 @@ router.post('/register', async (req, res, next) => {
         email: email.toLowerCase(),
         passwordHash,
         fullName: full_name || null,
+        username: usernameNormalized,
         role,
         emailVerified: skipVerification,
         verificationTokenHash: skipVerification ? null : verificationTokenHash,
@@ -147,6 +173,12 @@ router.post('/register', async (req, res, next) => {
     }
 
     const { accessToken, refreshToken } = await issueTokens(user);
+
+    await prisma.userProfile.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, username: usernameNormalized },
+      update: { username: usernameNormalized },
+    }).catch(() => {});
 
     await audit({
       userId: user.id,

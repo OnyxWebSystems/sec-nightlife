@@ -6,19 +6,77 @@ import { isStaff } from '../lib/access.js';
 
 const router = Router();
 
+function mapLegacy(n) {
+  return {
+    id: n.id,
+    type: n.type,
+    title: n.title,
+    body: n.body ?? '',
+    referenceId: n.actionUrl || null,
+    referenceType: n.actionUrl ? 'LEGACY' : null,
+    read: n.isRead,
+    createdAt: n.createdAt,
+    _source: 'legacy',
+  };
+}
+
+function mapInApp(n) {
+  return {
+    id: n.id,
+    type: n.type,
+    title: n.title,
+    body: n.body,
+    referenceId: n.referenceId,
+    referenceType: n.referenceType,
+    read: n.read,
+    createdAt: n.createdAt,
+    _source: 'in_app',
+  };
+}
+
+router.get('/unread-count', authenticateToken, async (req, res, next) => {
+  try {
+    const type = req.query.type ? String(req.query.type) : null;
+    const inAppWhere = {
+      userId: req.userId,
+      read: false,
+      ...(type ? { type } : {}),
+    };
+    const [inApp, legacy] = await Promise.all([
+      prisma.inAppNotification.count({ where: inAppWhere }),
+      prisma.notification.count({ where: { userId: req.userId, isRead: false } }),
+    ]);
+    res.json({ count: inApp + legacy });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const where = { userId: req.userId };
-    if (req.query.is_read !== undefined) where.isRead = req.query.is_read === 'true';
-    const notifications = await prisma.notification.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: Math.min(parseInt(req.query.limit) || 50, 100)
-    });
-    res.json(notifications.map(n => ({
-      id: n.id, user_id: n.userId, type: n.type, title: n.title, body: n.body,
-      action_url: n.actionUrl, is_read: n.isRead, created_at: n.createdAt
-    })));
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+    const take = page * limit;
+
+    const [inAppRows, legacyRows] = await Promise.all([
+      prisma.inAppNotification.findMany({
+        where: { userId: req.userId },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      prisma.notification.findMany({
+        where: { userId: req.userId },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+    ]);
+
+    const merged = [...inAppRows.map(mapInApp), ...legacyRows.map(mapLegacy)].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+    const slice = merged.slice((page - 1) * limit, page * limit);
+    res.json(slice.map(({ _source, ...rest }) => rest));
   } catch (err) {
     next(err);
   }
@@ -43,7 +101,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       title: z.string(),
       body: z.string().optional(),
       message: z.string().optional(),
-      action_url: z.string().optional()
+      action_url: z.string().optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
@@ -57,8 +115,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
         type: d.type,
         title: d.title,
         body: d.body ?? d.message,
-        actionUrl: d.action_url
-      }
+        actionUrl: d.action_url,
+      },
     });
     res.status(201).json({ id: n.id });
   } catch (err) {
@@ -66,14 +124,55 @@ router.post('/', authenticateToken, async (req, res, next) => {
   }
 });
 
-router.patch('/:id/read', authenticateToken, async (req, res, next) => {
+router.patch('/read-all', authenticateToken, async (req, res, next) => {
   try {
-    const updated = await prisma.notification.updateMany({
-      where: { id: req.params.id, userId: req.userId },
-      data: { isRead: true }
+    const type = req.body?.type ? String(req.body.type) : null;
+    let updated = 0;
+    if (type) {
+      const r = await prisma.inAppNotification.updateMany({
+        where: { userId: req.userId, type, read: false },
+        data: { read: true },
+      });
+      updated += r.count;
+    } else {
+      const [a, b] = await Promise.all([
+        prisma.inAppNotification.updateMany({
+          where: { userId: req.userId, read: false },
+          data: { read: true },
+        }),
+        prisma.notification.updateMany({
+          where: { userId: req.userId, isRead: false },
+          data: { isRead: true },
+        }),
+      ]);
+      updated = a.count + b.count;
+    }
+    res.json({ updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/:notificationId/read', authenticateToken, async (req, res, next) => {
+  try {
+    const id = req.params.notificationId;
+
+    const inApp = await prisma.inAppNotification.updateMany({
+      where: { id, userId: req.userId },
+      data: { read: true },
     });
-    if (updated.count === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ success: true });
+    if (inApp.count > 0) {
+      const row = await prisma.inAppNotification.findFirst({ where: { id, userId: req.userId } });
+      return res.json(row);
+    }
+
+    const legacy = await prisma.notification.updateMany({
+      where: { id, userId: req.userId },
+      data: { isRead: true },
+    });
+    if (legacy.count === 0) return res.status(404).json({ error: 'Not found' });
+    const row = await prisma.notification.findFirst({ where: { id, userId: req.userId } });
+    res.json(row);
   } catch (err) {
     next(err);
   }

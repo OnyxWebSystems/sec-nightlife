@@ -16,7 +16,18 @@ async function resolveUserId(id) {
 }
 
 async function areUsersFriends(userAId, userBId) {
-  const accepted = await prisma.friendRequest.findFirst({
+  const modern = await prisma.friendship.findFirst({
+    where: {
+      status: 'ACCEPTED',
+      OR: [
+        { requesterId: userAId, receiverId: userBId },
+        { requesterId: userBId, receiverId: userAId },
+      ],
+    },
+    select: { id: true },
+  });
+  if (modern) return true;
+  const legacy = await prisma.friendRequest.findFirst({
     where: {
       status: 'accepted',
       OR: [
@@ -26,7 +37,7 @@ async function areUsersFriends(userAId, userBId) {
     },
     select: { id: true },
   });
-  return !!accepted;
+  return !!legacy;
 }
 
 async function decorateChat(chat, viewerUserId) {

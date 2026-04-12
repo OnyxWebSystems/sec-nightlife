@@ -1,215 +1,191 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
-import { dataService } from '@/services/dataService';
+import { apiGet } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  MessageCircle,
-  Search,
-  Plus,
-  Users,
-  User,
-  Briefcase
-} from 'lucide-react';
-import { Input } from "@/components/ui/input";
-import { formatDistanceToNow, parseISO } from 'date-fns';
-import { motion } from 'framer-motion';
+import { MessageCircle, Search, Plus, Users, User } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { formatDistanceToNow } from 'date-fns';
+import DMThread from '@/components/messaging/DMThread';
+import GroupThread from '@/components/messaging/GroupThread';
 
 export default function Messages() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const dm = searchParams.get('dm');
+  const group = searchParams.get('group');
   const [user, setUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState('all');
 
   useEffect(() => {
-    loadUser();
+    authService.getCurrentUser().then(setUser).catch(() => authService.redirectToLogin());
   }, []);
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await authService.getCurrentUser();
-      setUser(currentUser);
-    } catch (e) {
-      authService.redirectToLogin();
-    }
+  const { data: dms = [], isLoading: dmLoading } = useQuery({
+    queryKey: ['dm-conversations'],
+    queryFn: () => apiGet('/api/messages/conversations'),
+    enabled: !!user?.id,
+    refetchInterval: 20000,
+  });
+
+  const { data: groups = [], isLoading: gLoading } = useQuery({
+    queryKey: ['group-chats-mine'],
+    queryFn: () => apiGet('/api/group-chats/my-chats'),
+    enabled: !!user?.id,
+    refetchInterval: 20000,
+  });
+
+  const combined = useMemo(() => {
+    const a = (dms || []).map((c) => ({
+      kind: 'dm',
+      id: c.conversationId,
+      name: c.participant?.fullName || c.participant?.username,
+      sub: `@${c.participant?.username || 'user'}`,
+      preview: c.lastMessage?.body || '',
+      at: c.lastMessage?.sentAt ? new Date(c.lastMessage.sentAt) : null,
+      unread: c.unreadCount || 0,
+      avatarUrl: c.participant?.avatarUrl,
+    }));
+    const b = (groups || []).map((g) => ({
+      kind: 'group',
+      id: g.groupChatId,
+      name: g.eventName || 'Event',
+      sub: `${g.memberCount || 0} members`,
+      preview: g.lastMessage?.body || '',
+      at: g.lastMessage?.sentAt ? new Date(g.lastMessage.sentAt) : null,
+      unread: g.unreadCount || 0,
+      imageUrl: g.eventImageUrl,
+    }));
+    return [...a, ...b].sort((x, y) => (y.at?.getTime() || 0) - (x.at?.getTime() || 0));
+  }, [dms, groups]);
+
+  const filtered = combined.filter((c) => {
+    const q = searchQuery.toLowerCase();
+    const matches = !q || c.name?.toLowerCase().includes(q) || c.sub?.toLowerCase().includes(q);
+    if (selectedTab === 'direct') return matches && c.kind === 'dm';
+    if (selectedTab === 'groups') return matches && c.kind === 'group';
+    return matches;
+  });
+
+  const openChat = (c) => {
+    if (c.kind === 'dm') setSearchParams({ dm: c.id });
+    else setSearchParams({ group: c.id });
   };
 
-  const { data: chats = [], isLoading } = useQuery({
-    queryKey: ['chats', user?.id],
-    queryFn: async () => dataService.Chat.list('-last_message_at', 100),
-    enabled: !!user?.id,
-    refetchInterval: 10000,
-  });
+  const closeThread = () => {
+    setSearchParams({});
+  };
 
-  const filteredChats = chats.filter(chat => {
-    const matchesSearch = chat.name?.toLowerCase().includes(searchQuery.toLowerCase());
-    if (selectedTab === 'direct') return matchesSearch && chat.type === 'direct';
-    if (selectedTab === 'groups') return matchesSearch && chat.type === 'table';
-    return matchesSearch;
-  });
+  if (dm) {
+    return (
+      <div className="max-w-[480px] mx-auto px-2 py-4">
+        <DMThread conversationId={dm} onBack={closeThread} />
+      </div>
+    );
+  }
 
-  const showEmptyChatState =
-    filteredChats.length === 0 &&
-    !isLoading;
-
-  const tabs = [
-    { value: 'all', label: 'All' },
-    { value: 'direct', label: 'Direct' },
-    { value: 'groups', label: 'Groups' },
-  ];
+  if (group) {
+    return (
+      <div className="max-w-[480px] mx-auto px-2 py-4">
+        <GroupThread groupChatId={group} onBack={closeThread} />
+      </div>
+    );
+  }
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
-      {/* Header */}
-      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
-        <div className="px-4 lg:px-8 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <h1 style={{ fontSize: 24, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Messages</h1>
-            <Link 
-              to={createPageUrl('Friends')}
-              style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'var(--sec-accent)', color: 'var(--sec-bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
-            >
-              <Plus className="w-5 h-5" />
-            </Link>
-          </div>
-          
-          {/* Search */}
-          <div className="relative">
-            <Search size={20} strokeWidth={1.5} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
-            <Input
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="sec-input w-full pl-12 h-12"
-            />
-          </div>
+    <div className="min-h-screen max-w-[480px] mx-auto pb-24" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+      <header className="sticky top-0 z-40 border-b border-[var(--sec-border)] bg-black/90 backdrop-blur px-4 py-3">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-semibold">Messages</h1>
+          <Link
+            to={createPageUrl('Friends')}
+            className="min-h-[44px] min-w-[44px] rounded-full bg-[var(--sec-accent)] text-black flex items-center justify-center"
+          >
+            <Plus className="w-5 h-5" />
+          </Link>
         </div>
-
-        {/* Tabs */}
-        <div className="px-4 lg:px-8 pb-4">
-          <div className="flex gap-2">
-            {tabs.map((tab) => (
-              <button
-                key={tab.value}
-                onClick={() => setSelectedTab(tab.value)}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: 999,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  backgroundColor: selectedTab === tab.value ? 'var(--sec-accent)' : 'var(--sec-bg-card)',
-                  color: selectedTab === tab.value ? 'var(--sec-bg-base)' : 'var(--sec-text-muted)',
-                  border: `1px solid ${selectedTab === tab.value ? 'var(--sec-accent)' : 'var(--sec-border)'}`
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+          <Input
+            placeholder="Search conversations..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 min-h-[44px]"
+          />
+        </div>
+        <div className="flex gap-2">
+          {['all', 'direct', 'groups'].map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setSelectedTab(t)}
+              className={`min-h-[44px] px-4 rounded-full text-sm font-medium ${
+                selectedTab === t ? 'bg-[var(--sec-accent)] text-black' : 'bg-[#141416] text-gray-400'
+              }`}
+            >
+              {t === 'all' ? 'All' : t === 'direct' ? 'Direct' : 'Groups'}
+            </button>
+          ))}
         </div>
       </header>
 
-      <div className="px-4 lg:px-8 py-4">
-        {/* Chats List */}
-        <div className="space-y-2">
-          {filteredChats.map((chat, index) => {
-            const unreadCount = chat.unread_counts?.[user?.id] || 0;
-            const lastMessageAt = chat.last_message_at || chat.lastMessageAt || null;
-            const lastMessagePreview = chat.last_message || chat.lastMessage || 'No messages yet';
-            
-            return (
-              <motion.div
-                key={chat.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.03 }}
-              >
-                <Link
-                  to={createPageUrl(`ChatRoom?id=${chat.id}`)}
-                  className="sec-card flex items-center gap-3 p-3 rounded-xl transition-colors"
-                >
-                  {/* Avatar */}
-                  <div style={{
-                    position: 'relative',
-                    width: 48,
-                    height: 48,
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: 'var(--sec-accent-muted)',
-                    border: '1px solid var(--sec-accent-border)'
-                  }}>
-                    {chat.avatar_url ? (
-                      <img src={chat.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
-                    ) : chat.type === 'table' ? (
-                      <Users size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-                    ) : chat.type === 'group' ? (
-                      <Users size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-                    ) : chat.type === 'job_negotiation' ? (
-                      <Briefcase size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-                    ) : (
-                      <User size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-                    )}
-                    
-                    {/* Online indicator */}
-                    {chat.type === 'direct' && (
-                      <div style={{ position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, borderRadius: '50%', backgroundColor: 'var(--sec-success)', border: '2px solid var(--sec-bg-card)' }} />
-                    )}
-                  </div>
+      <div className="px-4 py-3 space-y-2">
+        {(dmLoading || gLoading) && <p className="text-sm text-gray-500">Loading…</p>}
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold truncate">{chat.name || 'Chat'}</h3>
-                      {lastMessageAt && (
-                        <span style={{ fontSize: 11, color: 'var(--sec-text-muted)', flexShrink: 0 }}>
-                          {formatDistanceToNow(parseISO(lastMessageAt), { addSuffix: false })}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className="text-sm text-gray-500 truncate pr-4">
-                        {lastMessagePreview}
-                      </p>
-                      {unreadCount > 0 && (
-                        <span style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: 'var(--sec-accent)', color: 'var(--sec-bg-base)', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          {unreadCount}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </Link>
-              </motion.div>
-            );
-          })}
-        </div>
+        {selectedTab === 'direct' && !dmLoading && filtered.length === 0 && (
+          <div className="text-center py-12 space-y-4">
+            <p className="text-gray-500 text-sm">Message your friends directly. Go to the Friends page to connect.</p>
+            <Link to={createPageUrl('Friends')} className="inline-block min-h-[44px] px-6 rounded-full bg-[var(--sec-accent)] text-black font-medium leading-[44px]">
+              Go to Friends
+            </Link>
+          </div>
+        )}
 
-        {/* Empty State */}
-        {showEmptyChatState && (
-          <div className="text-center py-20">
-            <div style={{ width: 80, height: 80, borderRadius: '50%', backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-              <MessageCircle size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
+        {selectedTab === 'groups' && !gLoading && filtered.length === 0 && (
+          <p className="text-gray-500 text-sm text-center py-12">
+            Group chats appear here when your join request to an event is accepted.
+          </p>
+        )}
+
+        {filtered.map((c) => (
+          <button
+            key={`${c.kind}-${c.id}`}
+            type="button"
+            onClick={() => openChat(c)}
+            className="w-full flex items-center gap-3 p-3 rounded-xl bg-[#141416] border border-[#262629] text-left min-h-[56px]"
+          >
+            <div className="w-12 h-12 rounded-full overflow-hidden bg-[#262629] flex items-center justify-center flex-shrink-0">
+              {c.kind === 'dm' ? (
+                c.avatarUrl ? (
+                  <img src={c.avatarUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-6 h-6 text-gray-400" />
+                )
+              ) : c.imageUrl ? (
+                <img src={c.imageUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <Users className="w-6 h-6 text-gray-400" />
+              )}
             </div>
-            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No conversations yet</h3>
-            <p style={{ color: 'var(--sec-text-muted)' }}>Start chatting by joining a table or messaging someone</p>
-          </div>
-        )}
-
-        {/* Loading State */}
-        {isLoading && (
-          <div className="space-y-2">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="sec-card flex items-center gap-3 p-3 rounded-xl animate-pulse">
-                <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: 'var(--sec-border)' }} />
-                <div className="flex-1">
-<div style={{ height: 16, width: 96, borderRadius: 4, backgroundColor: 'var(--sec-border)', marginBottom: 8 }} />
-                <div style={{ height: 12, width: 160, borderRadius: 4, backgroundColor: 'var(--sec-border)' }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate">{c.name}</p>
+              <p className="text-xs text-gray-500 truncate">{c.sub}</p>
+              <p className="text-xs text-gray-400 truncate">{(c.preview || '').slice(0, 40)}</p>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              {c.at && (
+                <span className="text-[10px] text-gray-600">{formatDistanceToNow(c.at, { addSuffix: true })}</span>
+              )}
+              {c.unread > 0 && (
+                <span className="min-w-[22px] h-[22px] rounded-full bg-red-600 text-white text-xs flex items-center justify-center">
+                  {c.unread > 9 ? '9+' : c.unread}
+                </span>
+              )}
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );

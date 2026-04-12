@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { applyEventVenueIsolation, canAccessVenue, isStaff } from '../lib/access.js';
+import { ensureGroupChatForEvent } from '../lib/groupChatHelpers.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
 
@@ -154,6 +156,9 @@ router.post('/', authenticateToken, async (req, res, next) => {
         hasEntranceFee: hasFee,
         entranceFeeAmount: hasFee ? d.entrance_fee_amount : null,
       },
+    });
+    ensureGroupChatForEvent(event.id, event.title, req.userId).catch((e) => {
+      logger.error('Group chat creation after event failed', { eventId: event.id, message: e?.message });
     });
     res.status(201).json({ id: event.id, title: event.title, venue_id: event.venueId });
   } catch (err) {

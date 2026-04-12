@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPatch, apiDelete } from '@/api/client';
@@ -21,6 +22,13 @@ import { formatDistanceToNow, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const NOTIFICATION_ICONS = {
+  FRIEND_REQUEST: UserPlus,
+  FRIEND_ACCEPTED: UserPlus,
+  DIRECT_MESSAGE: MessageCircle,
+  GROUP_MESSAGE: Users,
+  JOIN_REQUEST_ACCEPTED: Users,
+  EVENT_JOINED: Calendar,
+  TABLE_JOINED: Users,
   friend_request: UserPlus,
   table_invite: Users,
   table_request: Users,
@@ -35,6 +43,11 @@ const NOTIFICATION_ICONS = {
 };
 
 const NOTIFICATION_COLORS = {
+  FRIEND_REQUEST: 'sec-badge-silver',
+  FRIEND_ACCEPTED: 'sec-badge-silver',
+  DIRECT_MESSAGE: 'sec-badge-silver',
+  GROUP_MESSAGE: 'sec-badge-success',
+  JOIN_REQUEST_ACCEPTED: 'sec-badge-success',
   friend_request: 'sec-badge-silver',
   table_invite: 'sec-badge-success',
   table_request: 'sec-badge-success',
@@ -51,6 +64,7 @@ const NOTIFICATION_COLORS = {
 export default function Notifications() {
   const [user, setUser] = useState(null);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const resolveActionUrl = (notification) => {
     const raw = notification?.action_url;
@@ -92,12 +106,15 @@ export default function Notifications() {
 
   const { data: notifications = [], isLoading } = useQuery({
     queryKey: ['notifications', user?.id],
-    queryFn: () => apiGet('/api/notifications')
-      .then((rows) => (Array.isArray(rows) ? rows : []).map((n) => ({
-        ...n,
-        message: n.body ?? n.message,
-        created_date: n.created_at ?? n.created_date,
-      }))),
+    queryFn: () =>
+      apiGet('/api/notifications').then((rows) =>
+        (Array.isArray(rows) ? rows : []).map((n) => ({
+          ...n,
+          message: n.body ?? n.message,
+          is_read: n.read === true || n.is_read === true,
+          created_date: n.createdAt ?? n.created_at ?? n.created_date,
+        })),
+      ),
     enabled: !!user?.id,
     refetchInterval: 30000,
   });
@@ -113,11 +130,22 @@ export default function Notifications() {
   });
 
   const markAllAsRead = async () => {
-    const unread = notifications.filter(n => !n.is_read);
-    await Promise.all(unread.map(n => markAsReadMutation.mutateAsync(n.id)));
+    await apiPatch('/api/notifications/read-all', {});
+    queryClient.invalidateQueries({ queryKey: ['notifications'] });
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const openNotification = async (n) => {
+    await markAsReadMutation.mutateAsync(n.id);
+    const t = n.type;
+    if (t === 'FRIEND_REQUEST' || t === 'friend_request') navigate(`${createPageUrl('Friends')}?tab=requests`);
+    else if (t === 'FRIEND_ACCEPTED') navigate(`${createPageUrl('Friends')}?tab=all`);
+    else if (t === 'DIRECT_MESSAGE' && n.referenceId) navigate(`${createPageUrl('Messages')}?dm=${n.referenceId}`);
+    else if ((t === 'GROUP_MESSAGE' || t === 'JOIN_REQUEST_ACCEPTED') && n.referenceId) {
+      navigate(`${createPageUrl('Messages')}?group=${n.referenceId}`);
+    }
+  };
 
   return (
     <div className="min-h-screen">
@@ -154,11 +182,15 @@ export default function Notifications() {
             return (
               <motion.div
                 key={notification.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => openNotification(notification)}
+                onKeyDown={(e) => e.key === 'Enter' && openNotification(notification)}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, x: -100 }}
                 transition={{ delay: index * 0.03 }}
-                className={`mb-2 p-4 glass-card rounded-xl ${!notification.is_read ? 'border-l-2' : ''}`}
+                className={`mb-2 p-4 glass-card rounded-xl cursor-pointer ${!notification.is_read ? 'border-l-2' : ''}`}
                 style={!notification.is_read ? { borderLeftColor: 'var(--sec-accent)' } : {}}
               >
                 <div className="flex items-start gap-3">
@@ -221,7 +253,11 @@ export default function Notifications() {
                   </div>
 
                   <button
-                    onClick={() => deleteMutation.mutate(notification.id)}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteMutation.mutate(notification.id);
+                    }}
                     className="p-2 hover:bg-white/5 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-4 h-4 text-gray-600" />

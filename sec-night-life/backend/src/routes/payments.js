@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
+import { logFriendActivity } from '../lib/friendActivity.js';
 import { sendEmail } from '../lib/email.js';
 
 const router = Router();
@@ -174,6 +175,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
         actionUrl: `/TableDetails?id=${tableId}`,
       });
 
+      logFriendActivity({
+        userId,
+        activityType: 'JOINED_TABLE',
+        referenceId: tableId,
+        referenceType: 'TABLE',
+        description: 'joined a table',
+      });
+
       if (updated.status === 'full') {
         await createNotifications({
           userIds: [table.hostUserId, table.venue?.ownerUserId],
@@ -210,6 +219,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
           title: 'Tickets confirmed',
           body: `Your ticket purchase for "${event.title}" was confirmed.`,
           actionUrl: `/EventDetails?id=${eventId}`,
+        });
+        logFriendActivity({
+          userId,
+          activityType: 'JOINED_EVENT',
+          referenceId: eventId,
+          referenceType: 'EVENT',
+          description: 'joined an event',
         });
       }
 

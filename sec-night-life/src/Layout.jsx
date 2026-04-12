@@ -25,6 +25,7 @@ export default function Layout({ children, currentPageName }) {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [activeMode, setActiveMode] = useState(null);
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -39,6 +40,8 @@ export default function Layout({ children, currentPageName }) {
       try {
         const notifs = await dataService.Notification.filter({ user_id: user.id, is_read: false });
         setNotifications(notifs);
+        const u = await apiGet('/api/notifications/unread-count');
+        setNotificationCount(u?.count ?? 0);
       } catch {}
     }, 30000);
     return () => clearInterval(timer);
@@ -65,6 +68,12 @@ export default function Layout({ children, currentPageName }) {
 
       const notifs = await dataService.Notification.filter({ user_id: currentUser.id, is_read: false });
       setNotifications(notifs);
+      try {
+        const u = await apiGet('/api/notifications/unread-count');
+        setNotificationCount(u?.count ?? 0);
+      } catch {
+        setNotificationCount(notifs?.length || 0);
+      }
 
       let hasBusiness = currentUser.role === 'VENUE';
       let hasHost = false;
@@ -116,7 +125,7 @@ export default function Layout({ children, currentPageName }) {
     );
   }
 
-  const badge = notifications.length;
+  const badge = notificationCount > 0 ? notificationCount : notifications.length;
   const availableModes = MODES.filter(m => userRoles[m.id]);
   const complianceNavItem = complianceAccess.canReview
     ? [{ name: 'Compliance Review', icon: Shield, page: 'AdminDashboard', query: '?tab=compliance-documents' }]

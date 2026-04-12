@@ -12,6 +12,8 @@ import { requireVerified } from '../middleware/requireVerified.js';
 import { applyTableVenueIsolation, canAccessVenue, isStaff } from '../lib/access.js';
 import { auditFromReq } from '../lib/audit.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
+import { addUserToEventGroupChat } from '../lib/groupChatHelpers.js';
+import { logFriendActivity } from '../lib/friendActivity.js';
 
 const router = Router();
 
@@ -203,6 +205,14 @@ router.post('/', authenticateToken, requireVerified, async (req, res, next) => {
       actionUrl: `/BusinessBookings`,
     });
 
+    logFriendActivity({
+      userId: req.userId,
+      activityType: 'HOSTED_TABLE',
+      referenceId: table.id,
+      referenceType: 'TABLE',
+      description: 'hosted a table',
+    });
+
     res.status(201).json(formatTable(table));
   } catch (err) {
     next(err);
@@ -340,6 +350,22 @@ router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified,
         actionUrl: `/ManageTable?id=${tableId}`,
       });
     }
+
+    if (hydrated?.eventId) {
+      const ev = await prisma.event.findFirst({
+        where: { id: hydrated.eventId, deletedAt: null },
+        select: { title: true },
+      });
+      await addUserToEventGroupChat(hydrated.eventId, targetUserId, ev?.title || hydrated?.name || '');
+    }
+
+    logFriendActivity({
+      userId: targetUserId,
+      activityType: 'JOINED_TABLE',
+      referenceId: tableId,
+      referenceType: 'TABLE',
+      description: 'joined a table',
+    });
 
     res.json({ success: true, table: formatTable(updated) });
   } catch (err) {
@@ -540,6 +566,14 @@ router.post('/:id/join', authenticateToken, requireVerified, async (req, res, ne
       entityType: 'table',
       entityId: tableId,
       metadata: { currentGuests: result.currentGuests, maxGuests: result.maxGuests }
+    });
+
+    logFriendActivity({
+      userId,
+      activityType: 'JOINED_TABLE',
+      referenceId: tableId,
+      referenceType: 'TABLE',
+      description: 'joined a table',
     });
 
     res.json({ success: true, table: formatTable(result) });

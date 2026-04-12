@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { isStaff } from '../lib/access.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
+import { logFriendActivity } from '../lib/friendActivity.js';
 import { sendEmail } from '../lib/email.js';
 
 const router = Router();
@@ -424,6 +425,15 @@ router.post('/:promotionId/track', optionalAuth, async (req, res, next) => {
     });
     if (parsed.data.type === 'CLICK') {
       await prisma.promotion.update({ where: { id: promotion.id }, data: { totalClicks: { increment: 1 } } });
+      if (req.userId) {
+        logFriendActivity({
+          userId: req.userId,
+          activityType: 'INTERACTED_PROMOTION',
+          referenceId: promotion.id,
+          referenceType: 'PROMOTION',
+          description: 'checked out a promotion',
+        });
+      }
     }
     res.status(200).json({ ok: true });
   } catch (err) {

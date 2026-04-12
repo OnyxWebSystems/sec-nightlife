@@ -1,13 +1,185 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { isStaff } from '../lib/access.js';
 import { requirePremium } from '../middleware/premium.js';
 import { requireVerified } from '../middleware/requireVerified.js';
 import { auditFromReq } from '../lib/audit.js';
+import { validateUsernameFormat } from '../lib/username.js';
+import { orderedParticipants } from '../lib/conversationHelpers.js';
 
 const router = Router();
+
+const usernameCheckLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+async function syncUserUsername(userId, rawUsername) {
+  const v = validateUsernameFormat(rawUsername);
+  if (!v.ok) {
+    const err = new Error(v.message);
+    err.status = 400;
+    throw err;
+  }
+  const taken = await prisma.user.findFirst({
+    where: { username: v.username, deletedAt: null, NOT: { id: userId } },
+    select: { id: true },
+  });
+  if (taken) {
+    const err = new Error('This username is already taken. Please choose a different one.');
+    err.status = 409;
+    err.field = 'username';
+    throw err;
+  }
+  await prisma.user.update({ where: { id: userId }, data: { username: v.username } });
+  return v.username;
+}
+
+/** GET /check-username/:username — public, rate-limited */
+router.get('/check-username/:username', usernameCheckLimiter, async (req, res, next) => {
+  try {
+    const raw = req.params.username || '';
+    const v = validateUsernameFormat(raw);
+    if (!v.ok) return res.json({ available: false });
+    const existing = await prisma.user.findFirst({
+      where: { username: v.username, deletedAt: null },
+      select: { id: true },
+    });
+    res.json({ available: !existing });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /:userId/profile — viewer-relative friendship + mutual friends */
+router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res, next) => {
+  try {
+    const targetId = req.params.userId;
+    const viewerId = req.userId;
+
+    const user = await prisma.user.findFirst({
+      where: { id: targetId, deletedAt: null },
+      select: {
+        id: true,
+        username: true,
+        fullName: true,
+        userProfile: {
+          select: {
+            username: true,
+            bio: true,
+            city: true,
+            avatarUrl: true,
+            interests: true,
+          },
+        },
+      },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const friendship = await prisma.friendship.findFirst({
+      where: {
+        OR: [
+          { requesterId: viewerId, receiverId: targetId },
+          { requesterId: targetId, receiverId: viewerId },
+        ],
+      },
+    });
+
+    let friendshipStatus = 'NONE';
+    if (friendship) {
+      if (friendship.status === 'BLOCKED') friendshipStatus = 'BLOCKED';
+      else if (friendship.status === 'ACCEPTED') friendshipStatus = 'ACCEPTED';
+      else if (friendship.status === 'PENDING') {
+        friendshipStatus = friendship.requesterId === viewerId ? 'PENDING_SENT' : 'PENDING_RECEIVED';
+      }
+    }
+
+    async function acceptedFriendIds(uid) {
+      const rows = await prisma.friendship.findMany({
+        where: {
+          status: 'ACCEPTED',
+          OR: [{ requesterId: uid }, { receiverId: uid }],
+        },
+        select: { requesterId: true, receiverId: true },
+      });
+      const s = new Set();
+      for (const r of rows) {
+        s.add(r.requesterId === uid ? r.receiverId : r.requesterId);
+      }
+      return s;
+    }
+
+    const a = await acceptedFriendIds(viewerId);
+    const b = await acceptedFriendIds(targetId);
+    let mutualFriendsCount = 0;
+    for (const id of a) {
+      if (b.has(id)) mutualFriendsCount += 1;
+    }
+
+    let recentActivity = [];
+    if (friendshipStatus === 'ACCEPTED') {
+      recentActivity = await prisma.friendActivity.findMany({
+        where: { userId: targetId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: {
+          activityType: true,
+          description: true,
+          referenceId: true,
+          referenceType: true,
+          createdAt: true,
+        },
+      });
+    }
+
+    let conversationId = null;
+    if (friendshipStatus === 'ACCEPTED') {
+      const parts = orderedParticipants(viewerId, targetId);
+      const conv = await prisma.conversation.findUnique({
+        where: {
+          participantAId_participantBId: {
+            participantAId: parts.participantAId,
+            participantBId: parts.participantBId,
+          },
+        },
+        select: { id: true },
+      });
+      conversationId = conv?.id || null;
+    }
+
+    const blockedByThem =
+      friendship?.status === 'BLOCKED' &&
+      friendship.requesterId === targetId &&
+      friendship.receiverId === viewerId;
+    const canUnblock =
+      friendship?.status === 'BLOCKED' && friendship.requesterId === viewerId;
+
+    res.json({
+      id: user.id,
+      username: user.username || user.userProfile?.username || '',
+      fullName: user.fullName || '',
+      avatarUrl: user.userProfile?.avatarUrl || null,
+      city: user.userProfile?.city || null,
+      bio: user.userProfile?.bio || null,
+      interests: user.userProfile?.interests ?? [],
+      friendshipStatus,
+      friendshipId: friendship?.id || null,
+      mutualFriendsCount,
+      recentActivity,
+      conversationId,
+      blockedByThem,
+      canUnblock,
+      isSelf: viewerId === targetId,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 const profileUpdateSchema = z.object({
   username: z.string().max(100).optional().nullable(),
@@ -38,14 +210,14 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
     } catch { profile = null; }
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
-      select: { id: true, email: true, fullName: true, role: true }
+      select: { id: true, email: true, fullName: true, role: true, username: true }
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
     const result = {
       id: profile?.id || user.id,
       created_by: user.email,
       user_id: user.id,
-      username: profile?.username,
+      username: user.username || profile?.username,
       full_name: user.fullName || profile?.username,
       bio: profile?.bio,
       city: profile?.city,
@@ -248,8 +420,17 @@ router.post('/', authenticateToken, async (req, res, next) => {
         data: { fullName: data.full_name }
       });
     }
+    let canonicalUsername = null;
+    if (data.username != null) {
+      try {
+        canonicalUsername = await syncUserUsername(req.userId, data.username);
+      } catch (e) {
+        if (e.status) return res.status(e.status).json({ error: e.message, field: e.field });
+        throw e;
+      }
+    }
     const profileData = {
-      ...(data.username != null && { username: data.username }),
+      ...(canonicalUsername != null && { username: canonicalUsername }),
       ...(data.bio != null && { bio: data.bio }),
       ...(data.city != null && { city: data.city }),
       ...(data.avatar_url != null && { avatarUrl: data.avatar_url }),
@@ -306,8 +487,17 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
         data: { fullName: data.full_name }
       });
     }
+    let canonicalUsername = null;
+    if (data.username != null) {
+      try {
+        canonicalUsername = await syncUserUsername(req.userId, data.username);
+      } catch (e) {
+        if (e.status) return res.status(e.status).json({ error: e.message, field: e.field });
+        throw e;
+      }
+    }
     const profileData = {
-      ...(data.username != null && { username: data.username }),
+      ...(canonicalUsername != null && { username: canonicalUsername }),
       ...(data.bio != null && { bio: data.bio }),
       ...(data.city != null && { city: data.city }),
       ...(data.avatar_url !== undefined && { avatarUrl: data.avatar_url }),
@@ -370,8 +560,17 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
         data: { fullName: data.full_name }
       });
     }
+    let canonicalUsername = null;
+    if (data.username != null) {
+      try {
+        canonicalUsername = await syncUserUsername(targetUserId, data.username);
+      } catch (e) {
+        if (e.status) return res.status(e.status).json({ error: e.message, field: e.field });
+        throw e;
+      }
+    }
     const updates = {};
-    if (data.username != null) updates.username = data.username;
+    if (canonicalUsername != null) updates.username = canonicalUsername;
     if (data.bio != null) updates.bio = data.bio;
     if (data.city != null) updates.city = data.city;
     if (data.avatar_url !== undefined) updates.avatarUrl = data.avatar_url;

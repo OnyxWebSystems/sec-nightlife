@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { canAccessTable } from '../lib/access.js';
+import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { normalizeUsername } from '../lib/username.js';
 
 const router = Router();
 const DIRECT_PREFIX = 'direct:';
@@ -40,6 +42,237 @@ function mapMessage(m) {
     created_date: m.createdAt,
   };
 }
+
+async function hasAcceptedFriendship(userA, userB) {
+  const f = await prisma.friendship.findFirst({
+    where: {
+      status: 'ACCEPTED',
+      OR: [
+        { requesterId: userA, receiverId: userB },
+        { requesterId: userB, receiverId: userA },
+      ],
+    },
+    select: { id: true },
+  });
+  return !!f;
+}
+
+function otherParticipantId(conv, me) {
+  return conv.participantAId === me ? conv.participantBId : conv.participantAId;
+}
+
+/** ── Direct message conversations (friends) ─────────────────────────── */
+
+router.get('/conversations', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.userId;
+    const convs = await prisma.conversation.findMany({
+      where: {
+        OR: [{ participantAId: me }, { participantBId: me }],
+      },
+      orderBy: { lastMessageAt: 'desc' },
+      take: 100,
+    });
+
+    const out = [];
+    for (const c of convs) {
+      const otherId = otherParticipantId(c, me);
+      const ok = await hasAcceptedFriendship(me, otherId);
+      if (!ok) continue;
+
+      const other = await prisma.user.findUnique({
+        where: { id: otherId },
+        select: {
+          id: true,
+          username: true,
+          fullName: true,
+          userProfile: { select: { avatarUrl: true } },
+        },
+      });
+      if (!other) continue;
+
+      const last = await prisma.directMessage.findFirst({
+        where: { conversationId: c.id },
+        orderBy: { sentAt: 'desc' },
+      });
+
+      const unreadCount = await prisma.directMessage.count({
+        where: {
+          conversationId: c.id,
+          readAt: null,
+          senderUserId: { not: me },
+        },
+      });
+
+      out.push({
+        conversationId: c.id,
+        participant: {
+          id: other.id,
+          username: other.username || '',
+          fullName: other.fullName || '',
+          avatarUrl: other.userProfile?.avatarUrl || null,
+        },
+        lastMessage: last
+          ? { body: last.body, sentAt: last.sentAt, senderUserId: last.senderUserId }
+          : null,
+        unreadCount,
+      });
+    }
+
+    out.sort((a, b) => {
+      const ta = a.lastMessage?.sentAt ? new Date(a.lastMessage.sentAt).getTime() : 0;
+      const tb = b.lastMessage?.sentAt ? new Date(b.lastMessage.sentAt).getTime() : 0;
+      return tb - ta;
+    });
+
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/conversations/:conversationId/unread', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.userId;
+    const c = await prisma.conversation.findUnique({ where: { id: req.params.conversationId } });
+    if (!c || (c.participantAId !== me && c.participantBId !== me)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const unreadCount = await prisma.directMessage.count({
+      where: {
+        conversationId: c.id,
+        readAt: null,
+        senderUserId: { not: me },
+      },
+    });
+    res.json({ unreadCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/conversations/:conversationId', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.userId;
+    const c = await prisma.conversation.findUnique({ where: { id: req.params.conversationId } });
+    if (!c || (c.participantAId !== me && c.participantBId !== me)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const otherId = otherParticipantId(c, me);
+    const ok = await hasAcceptedFriendship(me, otherId);
+    if (!ok) return res.status(403).json({ message: 'You can only message friends.' });
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 50);
+    const beforeMessageId = req.query.beforeMessageId ? String(req.query.beforeMessageId) : null;
+
+    let beforeSentAt = null;
+    if (beforeMessageId) {
+      const bm = await prisma.directMessage.findFirst({
+        where: { id: beforeMessageId, conversationId: c.id },
+      });
+      if (bm) beforeSentAt = bm.sentAt;
+    }
+
+    const where = {
+      conversationId: c.id,
+      ...(beforeSentAt ? { sentAt: { lt: beforeSentAt } } : {}),
+    };
+
+    const page = await prisma.directMessage.findMany({
+      where,
+      orderBy: { sentAt: 'desc' },
+      take: limit,
+    });
+    const chronological = page.reverse();
+
+    await prisma.directMessage.updateMany({
+      where: {
+        conversationId: c.id,
+        readAt: null,
+        senderUserId: { not: me },
+      },
+      data: { readAt: new Date() },
+    });
+
+    res.json(
+      chronological.map((m) => ({
+        id: m.id,
+        conversationId: m.conversationId,
+        senderUserId: m.senderUserId,
+        body: m.body,
+        readAt: m.readAt,
+        sentAt: m.sentAt,
+      })),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/conversations/:conversationId', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.userId;
+    const schema = z.object({ body: z.string().trim().min(1).max(1000) });
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid message' });
+
+    const c = await prisma.conversation.findUnique({ where: { id: req.params.conversationId } });
+    if (!c || (c.participantAId !== me && c.participantBId !== me)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const otherId = otherParticipantId(c, me);
+    const friends = await hasAcceptedFriendship(me, otherId);
+    if (!friends) {
+      return res.status(403).json({
+        message: 'You can only message friends. Send a friend request first.',
+      });
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const msg = await tx.directMessage.create({
+        data: {
+          conversationId: c.id,
+          senderUserId: me,
+          body: parsed.data.body,
+        },
+      });
+      await tx.conversation.update({
+        where: { id: c.id },
+        data: { lastMessageAt: new Date() },
+      });
+      return msg;
+    });
+
+    const sender = await prisma.user.findUnique({
+      where: { id: me },
+      select: { username: true, fullName: true },
+    });
+    const sname = normalizeUsername(sender?.username || '') || sender?.fullName || 'someone';
+    const preview = `${parsed.data.body.slice(0, 50)}${parsed.data.body.length > 50 ? '...' : ''}`;
+
+    await createInAppNotification({
+      userId: otherId,
+      type: 'DIRECT_MESSAGE',
+      title: `New message from @${sname}`,
+      body: preview,
+      referenceId: c.id,
+      referenceType: 'DIRECT_MESSAGE',
+    });
+
+    res.status(201).json({
+      id: created.id,
+      conversationId: created.conversationId,
+      senderUserId: created.senderUserId,
+      body: created.body,
+      readAt: created.readAt,
+      sentAt: created.sentAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/filter', authenticateToken, async (req, res, next) => {
   try {

@@ -53,8 +53,15 @@ export async function deleteAccount() {
   window.location.href = window.location.origin + '/';
 }
 
-export async function register(email, password, fullName, role) {
-  const data = await apiPost('/api/auth/register', { email, password, full_name: fullName, role: role || 'USER' });
+export async function register(email, password, fullName, role, username) {
+  const body = {
+    email,
+    password,
+    full_name: fullName,
+    role: role || 'USER',
+    username,
+  };
+  const data = await apiPost('/api/auth/register', body);
   setTokens(data.accessToken, data.refreshToken);
   return data.user;
 }
