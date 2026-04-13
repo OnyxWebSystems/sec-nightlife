@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -8,31 +8,63 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
 const ROLE_INTENT_KEY = 'sec-role-intent';
-function getBackendRole() {
+
+const STAFF_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
+
+function readStoredConsumerIntent() {
   try {
     const intent = localStorage.getItem(ROLE_INTENT_KEY);
-    if (intent === 'BUSINESS_OWNER') return 'VENUE';
+    if (intent === 'BUSINESS_OWNER' || intent === 'PARTY_GOER') return intent;
   } catch {}
-  return 'USER';
+  return 'PARTY_GOER';
 }
 
 export default function Login() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const returnUrl = searchParams.get('returnUrl') || createPageUrl('Home');
-  const roleParam = searchParams.get('role'); // PARTY_GOER or BUSINESS_OWNER from Onboarding
+  const roleParam = searchParams.get('role');
+
+  const isStaffRole = roleParam && STAFF_ROLES.includes(roleParam);
+
+  const [consumerRole, setConsumerRole] = useState(() => {
+    try {
+      const r = new URLSearchParams(window.location.search).get('role');
+      if (r === 'BUSINESS_OWNER' || r === 'PARTY_GOER') return r;
+    } catch {}
+    return readStoredConsumerIntent();
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Persist role from URL to localStorage for consistency
-  React.useEffect(() => {
-    if (roleParam && ['PARTY_GOER', 'BUSINESS_OWNER'].includes(roleParam)) {
+  // Keep picker in sync when URL carries a consumer role (e.g. from onboarding or register).
+  useEffect(() => {
+    if (roleParam === 'BUSINESS_OWNER' || roleParam === 'PARTY_GOER') {
+      setConsumerRole(roleParam);
       try {
         localStorage.setItem(ROLE_INTENT_KEY, roleParam);
       } catch {}
     }
   }, [roleParam]);
+
+  const registerHref = useMemo(() => {
+    const base = returnUrl
+      ? `${createPageUrl('Register')}?returnUrl=${encodeURIComponent(returnUrl)}`
+      : createPageUrl('Register');
+    const intent = !isStaffRole ? consumerRole : readStoredConsumerIntent();
+    return `${base}${base.includes('?') ? '&' : '?'}role=${encodeURIComponent(intent)}`;
+  }, [returnUrl, consumerRole, isStaffRole]);
+
+  const setConsumerRoleAndSync = (next) => {
+    setConsumerRole(next);
+    try {
+      localStorage.setItem(ROLE_INTENT_KEY, next);
+    } catch {}
+    const merged = new URLSearchParams(searchParams);
+    merged.set('role', next);
+    setSearchParams(merged, { replace: true });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,19 +77,18 @@ export default function Login() {
     }
     setLoading(true);
     try {
-      // Same email can be USER + SUPER_ADMIN (see schema @@unique([email, role])). Default sign-in
-      // targets USER/VENUE; staff must use ?role=SUPER_ADMIN|ADMIN|MODERATOR so the API looks up the right row.
-      const role =
-        roleParam === 'BUSINESS_OWNER'
-          ? 'VENUE'
-          : roleParam === 'PARTY_GOER'
-            ? 'USER'
-            : ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(roleParam)
-              ? roleParam
-              : getBackendRole();
+      let role;
+      if (isStaffRole) {
+        role = roleParam;
+      } else {
+        role = consumerRole === 'BUSINESS_OWNER' ? 'VENUE' : 'USER';
+      }
       await authService.login(email, password, role);
       toast.success('Signed in successfully');
-      const path = (returnUrl && returnUrl.startsWith('/')) ? returnUrl : '/' + (returnUrl || 'Home').replace(/^\/+/, '');
+      const path =
+        returnUrl && returnUrl.startsWith('/')
+          ? returnUrl
+          : '/' + (returnUrl || 'Home').replace(/^\/+/, '');
       window.location.href = window.location.origin + path;
     } catch (err) {
       const message = err?.data?.error || err?.message || 'Sign in failed';
@@ -79,6 +110,46 @@ export default function Login() {
               {error}
             </div>
           )}
+
+          {!isStaffRole && (
+            <div>
+              <Label className="text-gray-400">Account type</Label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConsumerRoleAndSync('PARTY_GOER')}
+                  className={`rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
+                    consumerRole === 'PARTY_GOER'
+                      ? 'border-[var(--sec-accent)] bg-[var(--sec-accent)]/15 text-white'
+                      : 'border-[#262629] bg-[#141416] text-gray-400 hover:border-gray-600'
+                  }`}
+                >
+                  Party Goer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConsumerRoleAndSync('BUSINESS_OWNER')}
+                  className={`rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
+                    consumerRole === 'BUSINESS_OWNER'
+                      ? 'border-[var(--sec-accent)] bg-[var(--sec-accent)]/15 text-white'
+                      : 'border-[#262629] bg-[#141416] text-gray-400 hover:border-gray-600'
+                  }`}
+                >
+                  Business Owner
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Same email can have separate party and business accounts — choose which one you are signing in to.
+              </p>
+            </div>
+          )}
+
+          {isStaffRole && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200/90">
+              Signing in with staff role: <span className="font-mono">{roleParam}</span>
+            </div>
+          )}
+
           <div>
             <Label className="text-gray-400">Email</Label>
             <Input
@@ -105,7 +176,7 @@ export default function Login() {
         </form>
         <p className="mt-6 text-center text-gray-500 text-sm">
           Don&apos;t have an account?{' '}
-          <Link to={returnUrl ? createPageUrl('Register') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Register')} className="text-[var(--sec-accent)] hover:underline">
+          <Link to={registerHref} className="text-[var(--sec-accent)] hover:underline">
             Sign up
           </Link>
         </p>

@@ -23,6 +23,15 @@ export default function Register() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('returnUrl') || createPageUrl('Home');
+  const roleFromUrl = searchParams.get('role');
+
+  useEffect(() => {
+    if (roleFromUrl === 'PARTY_GOER' || roleFromUrl === 'BUSINESS_OWNER') {
+      try {
+        localStorage.setItem(ROLE_INTENT_KEY, roleFromUrl);
+      } catch {}
+    }
+  }, [roleFromUrl]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');

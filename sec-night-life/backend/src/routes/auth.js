@@ -73,6 +73,47 @@ function userPayload(user) {
   };
 }
 
+/** Rows that reference users without Prisma User FK / cascade — must be removed before user.delete */
+async function deleteUserOrphans(tx, userId) {
+  await tx.accountRole.deleteMany({ where: { userId } });
+  await tx.friendRequest.deleteMany({
+    where: { OR: [{ fromUserId: userId }, { toUserId: userId }] }
+  });
+  await tx.hostEvent.deleteMany({ where: { hostUserId: userId } });
+  await tx.eventAttendance.deleteMany({ where: { userId } });
+  await tx.venueBlockedUser.deleteMany({ where: { userId } });
+  await tx.serviceRating.deleteMany({
+    where: { OR: [{ raterUserId: userId }, { rateeUserId: userId }] }
+  });
+  await tx.promotionImpression.deleteMany({ where: { userId } });
+  await tx.notification.deleteMany({ where: { userId } });
+  await tx.transaction.deleteMany({ where: { userId } });
+  await tx.payment.deleteMany({ where: { userId } });
+  await tx.message.deleteMany({ where: { senderId: userId } });
+  await tx.profileView.deleteMany({
+    where: { OR: [{ viewerId: userId }, { viewedId: userId }] }
+  });
+  await tx.reputationScore.deleteMany({ where: { userId } });
+  await tx.analyticsEvent.deleteMany({ where: { userId } });
+
+  const bookings = await tx.tableBooking.findMany({
+    where: { organizerUserId: userId },
+    select: { id: true }
+  });
+  for (const b of bookings) {
+    // eslint-disable-next-line no-await-in-loop
+    await tx.tableBookingSplit.deleteMany({ where: { bookingId: b.id } });
+  }
+  await tx.tableBooking.deleteMany({ where: { organizerUserId: userId } });
+  await tx.tableBookingSplit.deleteMany({ where: { userId } });
+
+  await tx.partyGroup.deleteMany({ where: { createdBy: userId } });
+  await tx.partyGroupMember.deleteMany({ where: { userId } });
+  await tx.partyGroupInvitation.deleteMany({
+    where: { OR: [{ inviterId: userId }, { inviteeId: userId }] }
+  });
+}
+
 // ── Schemas ───────────────────────────────────────────────────────────────
 
 const registerSchema = z.object({
@@ -86,7 +127,7 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1).max(256),
-  role: z.enum(['USER', 'VENUE', 'FREELANCER', 'ADMIN', 'SUPER_ADMIN']).optional()
+  role: z.enum(['USER', 'VENUE', 'FREELANCER', 'ADMIN', 'SUPER_ADMIN', 'MODERATOR']).optional()
 });
 
 const refreshSchema = z.object({
@@ -211,68 +252,65 @@ router.post('/login', async (req, res, next) => {
     }
     const { email, password, role: loginRole } = parsed.data;
 
-    // Require role so Party Goer and Business Owner stay separate (same email = different accounts).
-    // If no role is supplied, pick the account whose password matches.
-    let user = null;
     const normalizedEmail = email.toLowerCase();
-    if (loginRole) {
-      user = await prisma.user.findFirst({
+    let user = null;
+
+    const tryPassword = async (account) =>
+      account && (await bcrypt.compare(password, account.passwordHash)) ? account : null;
+
+    // Party Goer / Business Owner: only the selected (email, role) row — no cross-role fallback.
+    if (loginRole === 'USER' || loginRole === 'VENUE') {
+      const row = await prisma.user.findFirst({
         where: { email: normalizedEmail, role: loginRole, deletedAt: null }
       });
+      user = await tryPassword(row);
+    } else if (loginRole) {
+      // Staff / freelancer: try requested role first, then fall back if password matches another row (wrong client role).
+      let row = await prisma.user.findFirst({
+        where: { email: normalizedEmail, role: loginRole, deletedAt: null }
+      });
+      user = await tryPassword(row);
+      if (!user) {
+        const accounts = await prisma.user.findMany({
+          where: { email: normalizedEmail, deletedAt: null },
+          orderBy: { createdAt: 'asc' }
+        });
+        const rolePriority = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'VENUE', 'FREELANCER', 'USER'];
+        const sorted = [...accounts].sort((a, b) => {
+          const ai = rolePriority.indexOf(a.role);
+          const bi = rolePriority.indexOf(b.role);
+          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+        for (const account of sorted) {
+          // eslint-disable-next-line no-await-in-loop
+          const ok = await tryPassword(account);
+          if (ok) {
+            user = ok;
+            break;
+          }
+        }
+      }
     } else {
+      // No role: legacy — single account or first password match (priority order).
       const accounts = await prisma.user.findMany({
         where: { email: normalizedEmail, deletedAt: null },
         orderBy: { createdAt: 'asc' }
       });
 
       if (accounts.length === 1) {
-        [user] = accounts;
+        user = await tryPassword(accounts[0]);
       } else {
-        // Prefer staff roles first, but ultimately choose the first account that matches the password.
         const rolePriority = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'VENUE', 'FREELANCER', 'USER'];
         const sorted = [...accounts].sort((a, b) => {
           const ai = rolePriority.indexOf(a.role);
           const bi = rolePriority.indexOf(b.role);
           return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
         });
-
         for (const account of sorted) {
           // eslint-disable-next-line no-await-in-loop
-          const ok = await bcrypt.compare(password, account.passwordHash);
+          const ok = await tryPassword(account);
           if (ok) {
-            user = account;
-            break;
-          }
-        }
-      }
-    }
-
-    // If a role was provided, verify that role first. If it doesn't match (or doesn't exist),
-    // fall back to finding any account for the email whose password matches. This protects
-    // against clients sending the wrong role intent (e.g. VENUE) for staff accounts.
-    if (loginRole) {
-      if (user && (await bcrypt.compare(password, user.passwordHash))) {
-        // ok
-      } else {
-        user = null;
-        const accounts = await prisma.user.findMany({
-          where: { email: normalizedEmail, deletedAt: null },
-          orderBy: { createdAt: 'asc' }
-        });
-
-        // Prefer staff roles first, but ultimately choose the first account that matches the password.
-        const rolePriority = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'VENUE', 'FREELANCER', 'USER'];
-        const sorted = [...accounts].sort((a, b) => {
-          const ai = rolePriority.indexOf(a.role);
-          const bi = rolePriority.indexOf(b.role);
-          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-        });
-
-        for (const account of sorted) {
-          // eslint-disable-next-line no-await-in-loop
-          const ok = await bcrypt.compare(password, account.passwordHash);
-          if (ok) {
-            user = account;
+            user = ok;
             break;
           }
         }
@@ -611,39 +649,36 @@ router.get('/me', async (req, res, next) => {
 });
 
 // ── Account Deletion (App Store requirement — MANDATORY) ─────────────────
-// SECURITY: Atomic transaction ensures no orphaned sessions remain.
-// Soft delete preserves data for legal/audit. deletedAt prevents all future logins.
-// authenticateToken already checks deletedAt on every request — once set, the
-// user's access token will be rejected on the very next authenticated call.
+// Hard delete removes the user row so (email, role) and username can be re-registered.
+// SECURITY: Single transaction — audit row, revoke sessions, clear orphan FK rows, delete user.
 
 router.delete('/account', authenticateToken, async (req, res, next) => {
   try {
     const userId = req.userId;
-    const now = new Date();
 
-    // Atomic: soft-delete + revoke all tokens in one transaction
-    await prisma.$transaction([
-      // 1. Soft delete — sets deletedAt, which authenticateToken checks on every request
-      prisma.user.update({
-        where: { id: userId },
+    const existing = await prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, email: true, role: true }
+    });
+    if (!existing) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.auditLog.create({
         data: {
-          deletedAt: now,
-          // Also suspend to block any race-condition window before token expiry
-          suspendedAt: now,
-          suspendedReason: 'Account deleted by user'
+          userId,
+          action: 'ACCOUNT_DELETED',
+          resource: 'user',
+          resourceId: userId,
+          details: { email: existing.email, role: existing.role, hardDelete: true },
+          ipAddress: getIp(req)
         }
-      }),
-      // 2. Revoke ALL refresh tokens — prevents any new access tokens from being issued
-      prisma.refreshToken.deleteMany({ where: { userId } })
-    ]);
+      });
 
-    // Audit log is written after transaction succeeds
-    await audit({
-      userId,
-      action: 'ACCOUNT_DELETED',
-      entityType: 'user',
-      entityId: userId,
-      ipAddress: getIp(req)
+      await tx.refreshToken.deleteMany({ where: { userId } });
+      await deleteUserOrphans(tx, userId);
+      await tx.user.delete({ where: { id: userId } });
     });
 
     res.json({ success: true, message: 'Account deleted. We are sorry to see you go.' });
