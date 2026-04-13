@@ -83,7 +83,7 @@ export default function Login() {
       } else {
         role = consumerRole === 'BUSINESS_OWNER' ? 'VENUE' : 'USER';
       }
-      await authService.login(email, password, role);
+      await authService.login(email.trim(), password, role);
       toast.success('Signed in successfully');
       const path =
         returnUrl && returnUrl.startsWith('/')
@@ -140,6 +140,7 @@ export default function Login() {
               </div>
               <p className="mt-2 text-xs text-gray-500">
                 Same email can have separate party and business accounts — choose which one you are signing in to.
+                If you only created one account, either option will work once your password is correct.
               </p>
             </div>
           )}

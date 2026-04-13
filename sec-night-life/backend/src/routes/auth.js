@@ -125,7 +125,10 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+    z.string().email()
+  ),
   password: z.string().min(1).max(256),
   role: z.enum(['USER', 'VENUE', 'FREELANCER', 'ADMIN', 'SUPER_ADMIN', 'MODERATOR']).optional()
 });
@@ -252,18 +255,34 @@ router.post('/login', async (req, res, next) => {
     }
     const { email, password, role: loginRole } = parsed.data;
 
-    const normalizedEmail = email.toLowerCase();
+    const normalizedEmail = email;
     let user = null;
 
     const tryPassword = async (account) =>
       account && (await bcrypt.compare(password, account.passwordHash)) ? account : null;
 
-    // Party Goer / Business Owner: only the selected (email, role) row — no cross-role fallback.
+    /** Consumer roles that can share an email; staff accounts never use this path */
+    const SINGLE_ACCOUNT_FALLBACK_ROLES = ['USER', 'VENUE', 'FREELANCER'];
+
+    // Party Goer / Business Owner: authenticate the selected (email, role) row.
+    // If that fails but there is exactly one non-staff account for this email, accept it when the
+    // password matches (wrong Party/Business toggle should not block single-account users).
     if (loginRole === 'USER' || loginRole === 'VENUE') {
       const row = await prisma.user.findFirst({
         where: { email: normalizedEmail, role: loginRole, deletedAt: null }
       });
       user = await tryPassword(row);
+      if (!user) {
+        const allForEmail = await prisma.user.findMany({
+          where: { email: normalizedEmail, deletedAt: null }
+        });
+        if (
+          allForEmail.length === 1 &&
+          SINGLE_ACCOUNT_FALLBACK_ROLES.includes(allForEmail[0].role)
+        ) {
+          user = await tryPassword(allForEmail[0]);
+        }
+      }
     } else if (loginRole) {
       // Staff / freelancer: try requested role first, then fall back if password matches another row (wrong client role).
       let row = await prisma.user.findFirst({
@@ -664,22 +683,25 @@ router.delete('/account', authenticateToken, async (req, res, next) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.auditLog.create({
-        data: {
-          userId,
-          action: 'ACCOUNT_DELETED',
-          resource: 'user',
-          resourceId: userId,
-          details: { email: existing.email, role: existing.role, hardDelete: true },
-          ipAddress: getIp(req)
-        }
-      });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.auditLog.create({
+          data: {
+            userId,
+            action: 'ACCOUNT_DELETED',
+            resource: 'user',
+            resourceId: userId,
+            details: { email: existing.email, role: existing.role, hardDelete: true },
+            ipAddress: getIp(req)
+          }
+        });
 
-      await tx.refreshToken.deleteMany({ where: { userId } });
-      await deleteUserOrphans(tx, userId);
-      await tx.user.delete({ where: { id: userId } });
-    });
+        await tx.refreshToken.deleteMany({ where: { userId } });
+        await deleteUserOrphans(tx, userId);
+        await tx.user.delete({ where: { id: userId } });
+      },
+      { maxWait: 20000, timeout: 120000 }
+    );
 
     res.json({ success: true, message: 'Account deleted. We are sorry to see you go.' });
   } catch (err) {
