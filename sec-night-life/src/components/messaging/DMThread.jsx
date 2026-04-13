@@ -1,10 +1,63 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ChevronLeft, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiGet, apiPost } from '@/api/client';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
+import { createPageUrl } from '@/utils';
+
+const URL_IN_TEXT = /(https?:\/\/[^\s]+)/gi;
+
+function stripTrailingPunctuation(url) {
+  let u = url;
+  while (u.length && /[.,;:!?)\]'"]$/.test(u)) u = u.slice(0, -1);
+  return u;
+}
+
+function venueIdFromShareUrl(href) {
+  const clean = stripTrailingPunctuation(href.trim());
+  try {
+    const u = new URL(clean);
+    const lastSeg = u.pathname.split('/').filter(Boolean).pop() || '';
+    if (lastSeg === 'VenueProfile' || u.pathname.endsWith('/VenueProfile')) {
+      const id = u.searchParams.get('id');
+      return id || null;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function MessageBody({ text, isOwn }) {
+  const linkClass = isOwn
+    ? 'underline break-all text-black/90 hover:text-black font-medium'
+    : 'underline break-all text-[var(--sec-accent)] hover:opacity-90 font-medium';
+
+  const parts = String(text || '').split(URL_IN_TEXT);
+  const nodes = parts.map((part, i) => {
+    if (!/^https?:\/\//i.test(part)) {
+      return <span key={i}>{part}</span>;
+    }
+    const cleanHref = stripTrailingPunctuation(part.trim());
+    const venueId = venueIdFromShareUrl(part);
+    if (venueId) {
+      return (
+        <Link key={i} to={createPageUrl(`VenueProfile?id=${venueId}`)} className={linkClass}>
+          {part}
+        </Link>
+      );
+    }
+    return (
+      <a key={i} href={cleanHref} target="_blank" rel="noopener noreferrer" className={linkClass}>
+        {part}
+      </a>
+    );
+  });
+  return <span className="whitespace-pre-wrap">{nodes}</span>;
+}
 
 export default function DMThread({ conversationId, onBack }) {
   const [me, setMe] = useState(null);
@@ -114,7 +167,7 @@ export default function DMThread({ conversationId, onBack }) {
                     own ? 'bg-[var(--sec-accent)] text-black' : 'bg-[#141416] text-white'
                   }`}
                 >
-                  {m.body}
+                  <MessageBody text={m.body} isOwn={own} />
                 </div>
                 <span className="text-[10px] text-gray-600 mt-0.5">
                   {format(new Date(m.sentAt), 'HH:mm')}
