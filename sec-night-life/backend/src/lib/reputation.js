@@ -31,7 +31,7 @@ const WEIGHTS = {
 export async function computeReputation(userId) {
   const [attendance, reportsReceived, blocksReceived, tableCount] = await Promise.all([
     prisma.eventAttendance.count({ where: { userId, confirmed: true } }),
-    prisma.report.count({ where: { targetType: 'user', targetId: userId, status: 'resolved' } }),
+    prisma.report.count({ where: { targetType: 'user', targetId: userId, status: { in: ['resolved', 'action_taken'] } } }),
     prisma.block.count({ where: { blockedId: userId } }),
     prisma.table.count({ where: { hostUserId: userId, deletedAt: null } })
   ]);

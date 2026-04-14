@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
 import UserProfileReviewsSection from '@/components/reviews/UserProfileReviewsSection';
+import ReportDialog from '@/components/moderation/ReportDialog';
 
 export default function UserProfile() {
   const navigate = useNavigate();
@@ -161,6 +162,13 @@ export default function UserProfile() {
             {st === 'BLOCKED' && profile.blockedByThem && (
               <p className="text-sm text-gray-500">This user has blocked you.</p>
             )}
+            <ReportDialog
+              targetType="user"
+              targetId={userId}
+              targetLabel={profile.username || profile.fullName || 'user'}
+              triggerClassName="w-full min-h-[44px]"
+              triggerLabel="Report user"
+            />
           </div>
         )}
 

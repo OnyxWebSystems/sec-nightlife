@@ -13,6 +13,7 @@ import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 
 import TrendingTableCard from '@/components/home/TrendingTableCard';
 import TicketPurchaseButton from '@/components/events/TicketPurchaseButton';
+import ReportDialog from '@/components/moderation/ReportDialog';
 
 export default function EventDetails() {
   const navigate = useNavigate();
@@ -189,6 +190,15 @@ export default function EventDetails() {
             >
               <Share2 size={18} strokeWidth={1.5} />
             </button>
+            {user && (
+              <ReportDialog
+                targetType="event"
+                targetId={eventId}
+                targetLabel={event.title}
+                triggerLabel="Report"
+                triggerClassName="min-h-[40px] px-3"
+              />
+            )}
           </div>
         </div>
 

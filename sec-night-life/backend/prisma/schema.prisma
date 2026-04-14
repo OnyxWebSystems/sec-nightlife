@@ -51,8 +51,27 @@ enum TableStatus {
 
 enum ReportStatus {
   pending
+  in_review
   resolved
+  action_taken
   dismissed
+}
+
+enum ReportCategory {
+  fraud
+  fake_event
+  gbv_or_harassment
+  scam_or_payment_issue
+  impersonation
+  hate_or_abuse
+  other
+}
+
+enum ReportPriority {
+  low
+  medium
+  high
+  critical
 }
 
 enum JobType {
@@ -655,10 +674,16 @@ model Report {
   reporterId String       @map("reporter_id")
   targetType String       @map("target_type")
   targetId   String       @map("target_id")
+  category   ReportCategory @default(other)
+  priority   ReportPriority @default(medium)
   reason     String
   details    String?
+  evidenceUrls Json?      @map("evidence_urls")
   status     ReportStatus @default(pending)
+  assignedTo String?      @map("assigned_to")
+  resolutionNote String?  @map("resolution_note")
   resolvedBy String?      @map("resolved_by")
+  reviewedAt DateTime?    @map("reviewed_at")
   resolvedAt DateTime?    @map("resolved_at")
   createdAt  DateTime     @default(now()) @map("created_at")
 
@@ -667,6 +692,9 @@ model Report {
   @@index([targetType, targetId])
   @@index([reporterId])
   @@index([status])
+  @@index([category])
+  @@index([priority])
+  @@index([assignedTo])
   @@map("reports")
 }
 

@@ -26,6 +26,7 @@ import { format, parseISO, isToday, isTomorrow, differenceInDays } from 'date-fn
 import { motion } from 'framer-motion';
 import VenueReviewsSection from '@/components/reviews/VenueReviewsSection';
 import VenueShareModal from '@/components/venues/VenueShareModal';
+import ReportDialog from '@/components/moderation/ReportDialog';
 
 function spotsLeft(job) {
   return Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
@@ -323,14 +324,24 @@ export default function VenueProfile() {
               )}
             </div>
           </div>
-          <Button
-            onClick={handleFollowClick}
-            disabled={followMutation.isPending}
-            variant={isFollowing ? 'outline' : 'default'}
-            className={isFollowing ? 'border-[#262629]' : 'bg-[var(--sec-accent)]'}
-          >
-            {followMutation.isPending ? '...' : isFollowing ? 'Following' : 'Follow'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleFollowClick}
+              disabled={followMutation.isPending}
+              variant={isFollowing ? 'outline' : 'default'}
+              className={isFollowing ? 'border-[#262629]' : 'bg-[var(--sec-accent)]'}
+            >
+              {followMutation.isPending ? '...' : isFollowing ? 'Following' : 'Follow'}
+            </Button>
+            {!isOwner && (
+              <ReportDialog
+                targetType="venue"
+                targetId={resolvedVenueId}
+                targetLabel={venue.name}
+                triggerLabel="Report"
+              />
+            )}
+          </div>
         </div>
 
         {venue.is_verified && (

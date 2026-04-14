@@ -217,7 +217,6 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Post Job', icon: Briefcase, page: 'CreateJob' },
         { name: 'Jobs', icon: Briefcase, page: 'BusinessJobs' },
         { name: 'Promotions', icon: Megaphone, page: 'BusinessPromotions' },
-        { name: 'Insights', icon: Users, page: 'FeedbackInsights' },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         ...complianceNavItem,

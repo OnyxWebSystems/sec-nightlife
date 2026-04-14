@@ -18,18 +18,49 @@ router.use(authenticateToken, requireAdmin); // SECURITY: admin-only zone
 
 router.get('/reports', async (req, res, next) => {
   try {
-    const { status = 'pending', limit = 50, offset = 0 } = req.query;
+    const { status = 'pending', category, priority, targetType, assignedTo, from, to, limit = 50, offset = 0 } = req.query;
+    const where = { status: String(status) };
+    if (category) where.category = String(category);
+    if (priority) where.priority = String(priority);
+    if (targetType) where.targetType = String(targetType);
+    if (assignedTo) where.assignedTo = String(assignedTo);
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(String(from));
+      if (to) where.createdAt.lte = new Date(String(to));
+    }
+
     const reports = await prisma.report.findMany({
-      where: { status: String(status) },
+      where,
       orderBy: { createdAt: 'desc' },
       take: Math.min(parseInt(limit) || 50, 200),
       skip: parseInt(offset) || 0,
       include: {
-        reporter: { select: { id: true, email: true, fullName: true } }
-      }
+        reporter: { select: { id: true, email: true, fullName: true } },
+      },
     });
-    const total = await prisma.report.count({ where: { status: String(status) } });
+    const total = await prisma.report.count({ where });
     res.json({ reports, total });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/reports/:id/assign', async (req, res, next) => {
+  try {
+    const { assignedTo } = z.object({
+      assignedTo: z.string().uuid().nullable().optional(),
+    }).parse(req.body);
+
+    const report = await prisma.report.update({
+      where: { id: req.params.id },
+      data: {
+        assignedTo: assignedTo || null,
+        status: 'in_review',
+        reviewedAt: new Date(),
+      },
+    });
+    res.json({ success: true, report });
   } catch (err) {
     next(err);
   }
@@ -37,13 +68,20 @@ router.get('/reports', async (req, res, next) => {
 
 router.patch('/reports/:id/resolve', async (req, res, next) => {
   try {
-    const { action } = z.object({
-      action: z.enum(['resolved', 'dismissed'])
+    const { action, resolutionNote } = z.object({
+      action: z.enum(['action_taken', 'dismissed', 'resolved']),
+      resolutionNote: z.string().min(3).max(2000),
     }).parse(req.body);
 
     const report = await prisma.report.update({
       where: { id: req.params.id },
-      data: { status: action, resolvedBy: req.userId, resolvedAt: new Date() }
+      data: {
+        status: action,
+        resolutionNote,
+        resolvedBy: req.userId,
+        resolvedAt: new Date(),
+        reviewedAt: new Date(),
+      },
     });
 
     await auditFromReq(req, {
@@ -51,10 +89,85 @@ router.patch('/reports/:id/resolve', async (req, res, next) => {
       action: `REPORT_${action.toUpperCase()}`,
       entityType: 'report',
       entityId: report.id,
-      metadata: { reportId: report.id, targetType: report.targetType, targetId: report.targetId }
+      metadata: { reportId: report.id, targetType: report.targetType, targetId: report.targetId, resolutionNote },
     });
 
     res.json({ success: true, report });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/reports/:id/moderate', async (req, res, next) => {
+  try {
+    const { action, reason } = z.object({
+      action: z.enum(['suspend_user', 'unsuspend_user', 'reject_venue', 'pending_venue', 'cancel_event']),
+      reason: z.string().min(3).max(500),
+    }).parse(req.body);
+
+    const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    if (action === 'suspend_user' || action === 'unsuspend_user') {
+      if (report.targetType !== 'user') return res.status(400).json({ error: 'Report target must be user' });
+      if (action === 'suspend_user') {
+        await prisma.user.update({
+          where: { id: report.targetId },
+          data: { suspendedAt: new Date(), suspendedReason: reason },
+        });
+        await prisma.refreshToken.deleteMany({ where: { userId: report.targetId } });
+      } else {
+        await prisma.user.update({
+          where: { id: report.targetId },
+          data: { suspendedAt: null, suspendedReason: null },
+        });
+      }
+    }
+
+    if (action === 'reject_venue' || action === 'pending_venue') {
+      if (report.targetType !== 'venue') return res.status(400).json({ error: 'Report target must be venue' });
+      await prisma.venue.update({
+        where: { id: report.targetId },
+        data: {
+          complianceStatus: action === 'reject_venue' ? 'rejected' : 'pending',
+          complianceRejectionNote: reason,
+        },
+      });
+    }
+
+    if (action === 'cancel_event') {
+      if (report.targetType !== 'event') return res.status(400).json({ error: 'Report target must be event' });
+      await prisma.event.update({
+        where: { id: report.targetId },
+        data: { status: 'cancelled' },
+      });
+    }
+
+    const updatedReport = await prisma.report.update({
+      where: { id: report.id },
+      data: {
+        status: 'action_taken',
+        resolutionNote: reason,
+        resolvedBy: req.userId,
+        resolvedAt: new Date(),
+        reviewedAt: new Date(),
+      },
+    });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: `REPORT_MODERATION_${action.toUpperCase()}`,
+      entityType: 'report',
+      entityId: report.id,
+      metadata: {
+        reportId: report.id,
+        targetType: report.targetType,
+        targetId: report.targetId,
+        reason,
+      },
+    });
+
+    res.json({ success: true, report: updatedReport });
   } catch (err) {
     next(err);
   }
@@ -354,6 +467,8 @@ router.get('/dashboard', async (req, res, next) => {
       totalUsers,
       suspendedUsers,
       pendingReports,
+      criticalReports,
+      highReports,
       totalVenues,
       pendingVenues,
       pendingUserVerifications,
@@ -363,6 +478,8 @@ router.get('/dashboard', async (req, res, next) => {
       prisma.user.count({ where: { deletedAt: null } }),
       prisma.user.count({ where: { suspendedAt: { not: null }, deletedAt: null } }),
       prisma.report.count({ where: { status: 'pending' } }),
+      prisma.report.count({ where: { status: 'pending', priority: 'critical' } }),
+      prisma.report.count({ where: { status: 'pending', priority: 'high' } }),
       prisma.venue.count({ where: { deletedAt: null } }),
       prisma.venue.count({ where: { complianceStatus: 'pending', deletedAt: null } }),
       prisma.userProfile.count({ where: { verificationStatus: 'pending', idDocumentUrl: { not: null } } }),
@@ -377,6 +494,7 @@ router.get('/dashboard', async (req, res, next) => {
     res.json({
       stats: {
         totalUsers, suspendedUsers, pendingReports, totalVenues, pendingVenues,
+        criticalReports, highReports,
         pendingUserVerifications,
         totalPaymentAmount: totalPaymentsSuccess._sum.amount ?? 0,
         totalPaymentCount: totalPaymentsSuccess._count ?? 0,
