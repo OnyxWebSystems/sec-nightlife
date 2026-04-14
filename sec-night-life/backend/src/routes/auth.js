@@ -162,6 +162,7 @@ router.post('/register', async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     }
     const { email, password, full_name, username, role } = parsed.data;
+    const normalizedPassword = password.trim();
 
     const usernameTrimmed =
       username === null || username === undefined ? '' : String(username).trim();
@@ -193,7 +194,7 @@ router.post('/register', async (req, res, next) => {
       return res.status(409).json({ error: 'An account with this email already exists for this account type. Please sign in.' });
     }
 
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const passwordHash = await bcrypt.hash(normalizedPassword, SALT_ROUNDS);
 
     const skipVerification = process.env.SKIP_EMAIL_VERIFICATION === 'true' || process.env.SKIP_EMAIL_VERIFICATION === '1';
     const rawVerificationToken = generateSecureToken();
@@ -261,8 +262,15 @@ router.post('/login', async (req, res, next) => {
     const normalizedEmail = email;
     let user = null;
 
-    const tryPassword = async (account) =>
-      account && (await bcrypt.compare(password, account.passwordHash)) ? account : null;
+    const tryPassword = async (account) => {
+      if (!account) return null;
+      if (await bcrypt.compare(password, account.passwordHash)) return account;
+      const trimmedPassword = password.trim();
+      if (trimmedPassword !== password && await bcrypt.compare(trimmedPassword, account.passwordHash)) {
+        return account;
+      }
+      return null;
+    };
 
     // Party Goer / Business Owner: authenticate the selected (email, role) row.
     // If that fails but there is exactly one account for this email, accept it when the
@@ -347,6 +355,9 @@ router.post('/login', async (req, res, next) => {
     }
 
     if (!user) {
+      const activeAccountsForEmail = await prisma.user.count({
+        where: { email: normalizedEmail, deletedAt: null }
+      });
       // SECURITY: log failed attempt; same error message for both wrong email and wrong password
       await audit({
         userId: user?.id || null,
@@ -356,9 +367,8 @@ router.post('/login', async (req, res, next) => {
         metadata: {
           email: normalizedEmail,
           roleSupplied: loginRole || null,
-          activeAccountsForEmail: await prisma.user.count({
-            where: { email: normalizedEmail, deletedAt: null }
-          })
+          activeAccountsForEmail,
+          failureReason: activeAccountsForEmail > 0 ? 'password_mismatch' : 'lookup_missing'
         },
         ipAddress: getIp(req)
       });

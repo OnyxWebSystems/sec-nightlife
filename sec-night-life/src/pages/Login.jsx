@@ -170,6 +170,7 @@ export default function Login() {
               className="mt-1 bg-[#141416] border-[#262629]"
               placeholder="••••••••"
             />
+            <p className="mt-1 text-xs text-gray-500">Tip: avoid accidental spaces before or after your password.</p>
           </div>
           <Button type="submit" disabled={loading} className="w-full">
             {loading ? 'Signing in...' : 'Sign In'}

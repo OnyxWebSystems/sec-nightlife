@@ -200,6 +200,7 @@ export default function Register() {
               minLength={8}
               required
             />
+            <p className="mt-1 text-xs text-gray-500">Avoid accidental leading/trailing spaces in your password.</p>
           </div>
           <Button
             type="submit"
