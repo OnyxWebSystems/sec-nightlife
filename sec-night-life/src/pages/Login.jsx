@@ -20,51 +20,36 @@ function readStoredConsumerIntent() {
 }
 
 export default function Login() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('returnUrl') || createPageUrl('Home');
   const roleParam = searchParams.get('role');
 
   const isStaffRole = roleParam && STAFF_ROLES.includes(roleParam);
-
-  const [consumerRole, setConsumerRole] = useState(() => {
-    try {
-      const r = new URLSearchParams(window.location.search).get('role');
-      if (r === 'BUSINESS_OWNER' || r === 'PARTY_GOER') return r;
-    } catch {}
-    return readStoredConsumerIntent();
-  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Keep picker in sync when URL carries a consumer role (e.g. from onboarding or register).
+  // Keep chosen onboarding intent in storage even without showing a toggle.
   useEffect(() => {
     if (roleParam === 'BUSINESS_OWNER' || roleParam === 'PARTY_GOER') {
-      setConsumerRole(roleParam);
       try {
         localStorage.setItem(ROLE_INTENT_KEY, roleParam);
       } catch {}
     }
   }, [roleParam]);
 
+  const consumerIntent = roleParam === 'BUSINESS_OWNER' || roleParam === 'PARTY_GOER'
+    ? roleParam
+    : readStoredConsumerIntent();
+
   const registerHref = useMemo(() => {
     const base = returnUrl
       ? `${createPageUrl('Register')}?returnUrl=${encodeURIComponent(returnUrl)}`
       : createPageUrl('Register');
-    const intent = !isStaffRole ? consumerRole : readStoredConsumerIntent();
+    const intent = !isStaffRole ? consumerIntent : readStoredConsumerIntent();
     return `${base}${base.includes('?') ? '&' : '?'}role=${encodeURIComponent(intent)}`;
-  }, [returnUrl, consumerRole, isStaffRole]);
-
-  const setConsumerRoleAndSync = (next) => {
-    setConsumerRole(next);
-    try {
-      localStorage.setItem(ROLE_INTENT_KEY, next);
-    } catch {}
-    const merged = new URLSearchParams(searchParams);
-    merged.set('role', next);
-    setSearchParams(merged, { replace: true });
-  };
+  }, [returnUrl, consumerIntent, isStaffRole]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -81,7 +66,7 @@ export default function Login() {
       if (isStaffRole) {
         role = roleParam;
       } else {
-        role = consumerRole === 'BUSINESS_OWNER' ? 'VENUE' : 'USER';
+        role = consumerIntent === 'BUSINESS_OWNER' ? 'VENUE' : 'USER';
       }
       await authService.login(email.trim(), password, role);
       toast.success('Signed in successfully');
@@ -108,40 +93,6 @@ export default function Login() {
           {error && (
             <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               {error}
-            </div>
-          )}
-
-          {!isStaffRole && (
-            <div>
-              <Label className="text-gray-400">Account type</Label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConsumerRoleAndSync('PARTY_GOER')}
-                  className={`rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
-                    consumerRole === 'PARTY_GOER'
-                      ? 'border-[var(--sec-accent)] bg-[var(--sec-accent)]/15 text-white'
-                      : 'border-[#262629] bg-[#141416] text-gray-400 hover:border-gray-600'
-                  }`}
-                >
-                  Party Goer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConsumerRoleAndSync('BUSINESS_OWNER')}
-                  className={`rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
-                    consumerRole === 'BUSINESS_OWNER'
-                      ? 'border-[var(--sec-accent)] bg-[var(--sec-accent)]/15 text-white'
-                      : 'border-[#262629] bg-[#141416] text-gray-400 hover:border-gray-600'
-                  }`}
-                >
-                  Business Owner
-                </button>
-              </div>
-              <p className="mt-2 text-xs text-gray-500">
-                Same email can have separate party and business accounts; choose the one you are signing in to.
-                If your email has only one account (including staff/admin), either option still works with the correct password.
-              </p>
             </div>
           )}
 
