@@ -264,12 +264,10 @@ router.post('/login', async (req, res, next) => {
     const tryPassword = async (account) =>
       account && (await bcrypt.compare(password, account.passwordHash)) ? account : null;
 
-    /** Consumer roles that can share an email; staff accounts never use this path */
-    const SINGLE_ACCOUNT_FALLBACK_ROLES = ['USER', 'VENUE', 'FREELANCER'];
-
     // Party Goer / Business Owner: authenticate the selected (email, role) row.
-    // If that fails but there is exactly one non-staff account for this email, accept it when the
-    // password matches (wrong Party/Business toggle should not block single-account users).
+    // If that fails but there is exactly one account for this email, accept it when the
+    // password matches (wrong Party/Business toggle should not block single-account users,
+    // including staff roles that have only one account row).
     if (loginRole === 'USER' || loginRole === 'VENUE') {
       const row = await prisma.user.findFirst({
         where: { email: normalizedEmail, role: loginRole, deletedAt: null }
@@ -279,10 +277,7 @@ router.post('/login', async (req, res, next) => {
         const allForEmail = await prisma.user.findMany({
           where: { email: normalizedEmail, deletedAt: null }
         });
-        if (
-          allForEmail.length === 1 &&
-          SINGLE_ACCOUNT_FALLBACK_ROLES.includes(allForEmail[0].role)
-        ) {
+        if (allForEmail.length === 1) {
           user = await tryPassword(allForEmail[0]);
         }
       }
@@ -346,7 +341,13 @@ router.post('/login', async (req, res, next) => {
         action: 'LOGIN_FAILED',
         entityType: 'user',
         entityId: user?.id || null,
-        metadata: { email: normalizedEmail, roleSupplied: loginRole || null },
+        metadata: {
+          email: normalizedEmail,
+          roleSupplied: loginRole || null,
+          activeAccountsForEmail: await prisma.user.count({
+            where: { email: normalizedEmail, deletedAt: null }
+          })
+        },
         ipAddress: getIp(req)
       });
       return res.status(401).json({ error: 'Invalid email or password' });

@@ -139,8 +139,8 @@ export default function Login() {
                 </button>
               </div>
               <p className="mt-2 text-xs text-gray-500">
-                Same email can have separate party and business accounts — choose which one you are signing in to.
-                If you only created one account, either option will work once your password is correct.
+                Same email can have separate party and business accounts; choose the one you are signing in to.
+                If your email has only one account (including staff/admin), either option still works with the correct password.
               </p>
             </div>
           )}
