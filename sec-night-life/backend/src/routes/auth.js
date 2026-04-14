@@ -116,8 +116,14 @@ async function deleteUserOrphans(tx, userId) {
 
 // ── Schemas ───────────────────────────────────────────────────────────────
 
+/** Match login: trim + lowercase so DB email matches lookup (register/login/forgot). */
+const emailSchemaField = z.preprocess(
+  (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+  z.string().email()
+);
+
 const registerSchema = z.object({
-  email: z.string().email(),
+  email: emailSchemaField,
   password: z.string().min(8).max(128),
   full_name: z.string().min(1).max(200).optional(),
   username: z.union([z.string(), z.null(), z.undefined()]).optional(),
@@ -125,10 +131,7 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-  email: z.preprocess(
-    (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
-    z.string().email()
-  ),
+  email: emailSchemaField,
   password: z.string().min(1).max(256),
   role: z.enum(['USER', 'VENUE', 'FREELANCER', 'ADMIN', 'SUPER_ADMIN', 'MODERATOR']).optional()
 });
@@ -138,7 +141,7 @@ const refreshSchema = z.object({
 });
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email()
+  email: emailSchemaField
 });
 
 const resetPasswordSchema = z.object({
@@ -184,7 +187,7 @@ router.post('/register', async (req, res, next) => {
     }
 
     const existing = await prisma.user.findFirst({
-      where: { email: email.toLowerCase(), role, deletedAt: null }
+      where: { email, role, deletedAt: null }
     });
     if (existing) {
       return res.status(409).json({ error: 'An account with this email already exists for this account type. Please sign in.' });
@@ -198,7 +201,7 @@ router.post('/register', async (req, res, next) => {
 
     const user = await prisma.user.create({
       data: {
-        email: email.toLowerCase(),
+        email,
         passwordHash,
         fullName: full_name || null,
         username: usernameNormalized,
@@ -449,7 +452,7 @@ router.post('/resend-verification', async (req, res, next) => {
     const { email } = parsed.data;
 
     const user = await prisma.user.findFirst({
-      where: { email: email.toLowerCase(), deletedAt: null }
+      where: { email, deletedAt: null }
     });
 
     // SECURITY: same response whether user exists or not
@@ -576,7 +579,7 @@ router.post('/forgot-password', async (req, res, next) => {
     const { email } = parsed.data;
 
     const user = await prisma.user.findFirst({
-      where: { email: email.toLowerCase(), deletedAt: null }
+      where: { email, deletedAt: null }
     });
     if (user) {
       const rawToken = generateSecureToken();

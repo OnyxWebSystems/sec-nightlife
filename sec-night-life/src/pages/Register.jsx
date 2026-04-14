@@ -92,7 +92,13 @@ export default function Register() {
     setLoading(true);
     try {
       const r = getBackendRole();
-      await authService.register(email, password, fullName || undefined, r, normalizedUsername);
+      await authService.register(
+        email.trim(),
+        password,
+        fullName || undefined,
+        r,
+        normalizedUsername
+      );
       clearTokens();
       toast.success('Account created! Please sign in.');
       const roleIntent = r === 'VENUE' ? 'BUSINESS_OWNER' : 'PARTY_GOER';
