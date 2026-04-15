@@ -165,7 +165,6 @@ export async function uploadFile(file) {
         cloudForm.append('timestamp', String(sig.timestamp));
         cloudForm.append('signature', sig.signature);
         cloudForm.append('folder', sig.folder || 'sec-nightlife');
-        cloudForm.append('resource_type', sig.resource_type || 'auto');
         const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloud_name}/auto/upload`, {
           method: 'POST',
           body: cloudForm,

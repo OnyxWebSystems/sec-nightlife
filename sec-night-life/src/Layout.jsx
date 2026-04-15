@@ -67,10 +67,15 @@ export default function Layout({ children, currentPageName }) {
     if (!user?.id) return undefined;
     const tick = async () => {
       try {
-        const notifs = await apiGet('/api/notifications?limit=100');
+        const rows = await apiGet('/api/notifications?limit=100');
+        const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
+          ...n,
+          is_read: n.read === true || n.is_read === true,
+        }));
         setNotifications(notifs);
+        const fallbackUnread = notifs.filter((n) => !n.is_read).length;
         const u = await apiGet('/api/notifications/unread-count');
-        setNotificationCount(u?.count ?? 0);
+        setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
         const m = await apiGet('/api/messages/unread-total');
         setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
       } catch {}
@@ -99,13 +104,18 @@ export default function Layout({ children, currentPageName }) {
       let profile = profiles[0] || null;
       if (profiles.length > 0) setUserProfile(profile);
 
-      const notifs = await apiGet('/api/notifications?limit=100');
+      const rows = await apiGet('/api/notifications?limit=100');
+      const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
+        ...n,
+        is_read: n.read === true || n.is_read === true,
+      }));
       setNotifications(notifs);
+      const fallbackUnread = notifs.filter((n) => !n.is_read).length;
       try {
         const u = await apiGet('/api/notifications/unread-count');
-        setNotificationCount(u?.count ?? 0);
+        setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
       } catch {
-        setNotificationCount(notifs?.length || 0);
+        setNotificationCount(fallbackUnread);
       }
       try {
         const m = await apiGet('/api/messages/unread-total');
@@ -164,7 +174,7 @@ export default function Layout({ children, currentPageName }) {
     );
   }
 
-  const badge = notificationCount > 0 ? notificationCount : notifications.length;
+  const badge = Math.max(0, Number(notificationCount) || 0);
   const availableModes = MODES.filter(m => userRoles[m.id]);
   const complianceNavItem = complianceAccess.canReview
     ? [{ name: 'Compliance Review', icon: Shield, page: 'AdminDashboard', query: '?tab=compliance-documents' }]

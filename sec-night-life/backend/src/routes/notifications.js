@@ -184,6 +184,31 @@ router.patch('/:notificationId/read', authenticateToken, async (req, res, next) 
   }
 });
 
+router.patch('/:notificationId/unread', authenticateToken, async (req, res, next) => {
+  try {
+    const id = req.params.notificationId;
+
+    const inApp = await prisma.inAppNotification.updateMany({
+      where: { id, userId: req.userId },
+      data: { read: false },
+    });
+    if (inApp.count > 0) {
+      const row = await prisma.inAppNotification.findFirst({ where: { id, userId: req.userId } });
+      return res.json(row);
+    }
+
+    const legacy = await prisma.notification.updateMany({
+      where: { id, userId: req.userId },
+      data: { isRead: false },
+    });
+    if (legacy.count === 0) return res.status(404).json({ error: 'Not found' });
+    const row = await prisma.notification.findFirst({ where: { id, userId: req.userId } });
+    res.json(row);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.delete('/:id', authenticateToken, async (req, res, next) => {
   try {
     const deleted = await prisma.notification.deleteMany({

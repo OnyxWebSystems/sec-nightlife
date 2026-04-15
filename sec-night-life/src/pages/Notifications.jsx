@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPatch, apiDelete } from '@/api/client';
+import { apiGet, apiPatch } from '@/api/client';
 import { 
   Bell,
   Users,
@@ -15,11 +15,15 @@ import {
   Check,
   X,
   ChevronRight,
-  Trash2
+  Trash2,
+  Star,
+  Archive,
+  RotateCcw,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 
 const NOTIFICATION_ICONS = {
   FRIEND_REQUEST: UserPlus,
@@ -65,8 +69,16 @@ const NOTIFICATION_COLORS = {
 
 export default function Notifications() {
   const [user, setUser] = useState(null);
+  const [view, setView] = useState('all'); // all | favorites | archived
+  const [favoriteIds, setFavoriteIds] = useState([]);
+  const [archivedIds, setArchivedIds] = useState([]);
+  const [deletedIds, setDeletedIds] = useState([]);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  const favKey = user?.id ? `sec_notifications_favorites_${user.id}` : null;
+  const archivedKey = user?.id ? `sec_notifications_archived_${user.id}` : null;
+  const deletedKey = user?.id ? `sec_notifications_deleted_${user.id}` : null;
 
   const resolveActionUrl = (notification) => {
     const raw = notification?.action_url;
@@ -106,6 +118,34 @@ export default function Notifications() {
     }
   };
 
+  useEffect(() => {
+    if (!favKey || !archivedKey || !deletedKey) return;
+    try {
+      setFavoriteIds(JSON.parse(localStorage.getItem(favKey) || '[]'));
+      setArchivedIds(JSON.parse(localStorage.getItem(archivedKey) || '[]'));
+      setDeletedIds(JSON.parse(localStorage.getItem(deletedKey) || '[]'));
+    } catch {
+      setFavoriteIds([]);
+      setArchivedIds([]);
+      setDeletedIds([]);
+    }
+  }, [favKey, archivedKey, deletedKey]);
+
+  useEffect(() => {
+    if (!favKey) return;
+    localStorage.setItem(favKey, JSON.stringify(favoriteIds));
+  }, [favKey, favoriteIds]);
+
+  useEffect(() => {
+    if (!archivedKey) return;
+    localStorage.setItem(archivedKey, JSON.stringify(archivedIds));
+  }, [archivedKey, archivedIds]);
+
+  useEffect(() => {
+    if (!deletedKey) return;
+    localStorage.setItem(deletedKey, JSON.stringify(deletedIds));
+  }, [deletedKey, deletedIds]);
+
   const { data: notifications = [], isLoading } = useQuery({
     queryKey: ['notifications', user?.id],
     queryFn: () =>
@@ -127,17 +167,50 @@ export default function Notifications() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id) => apiDelete(`/api/notifications/${id}`),
+  const markAsUnreadMutation = useMutation({
+    mutationFn: (id) => apiPatch(`/api/notifications/${id}/unread`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
+  const dedupedNotifications = useMemo(() => {
+    const map = new Map();
+    for (const n of notifications) {
+      const key = `${n.type}|${n.title}|${n.message}|${n.referenceType || ''}|${n.referenceId || ''}|${n.action_url || ''}`;
+      if (!map.has(key)) {
+        map.set(key, n);
+        continue;
+      }
+      const prev = map.get(key);
+      const prevTime = new Date(prev.created_date || 0).getTime();
+      const curTime = new Date(n.created_date || 0).getTime();
+      if (curTime > prevTime) map.set(key, n);
+    }
+    return [...map.values()];
+  }, [notifications]);
+
+  const visibleNotifications = useMemo(() => {
+    const base = dedupedNotifications.filter((n) => !deletedIds.includes(n.id));
+    if (view === 'favorites') return base.filter((n) => favoriteIds.includes(n.id));
+    if (view === 'archived') return base.filter((n) => archivedIds.includes(n.id));
+    return base.filter((n) => !archivedIds.includes(n.id));
+  }, [dedupedNotifications, deletedIds, view, favoriteIds, archivedIds]);
+
+  const unreadCount = visibleNotifications.filter((n) => !n.is_read).length;
+
   const markAllAsRead = async () => {
-    await apiPatch('/api/notifications/read-all', {});
+    const toMark = visibleNotifications.filter((n) => !n.is_read).map((n) => n.id);
+    if (!toMark.length) return;
+    await Promise.all(toMark.map((id) => markAsReadMutation.mutateAsync(id).catch(() => null)));
+    toast('All notifications marked as read', {
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          await Promise.all(toMark.map((id) => markAsUnreadMutation.mutateAsync(id).catch(() => null)));
+        },
+      },
+    });
     queryClient.invalidateQueries({ queryKey: ['notifications'] });
   };
-
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   const openNotification = async (n) => {
     await markAsReadMutation.mutateAsync(n.id);
@@ -159,6 +232,59 @@ export default function Notifications() {
     }
   };
 
+  const toggleFavorite = (notificationId) => {
+    const wasFav = favoriteIds.includes(notificationId);
+    if (wasFav) {
+      setFavoriteIds((prev) => prev.filter((id) => id !== notificationId));
+      toast('Removed from favorites', {
+        action: {
+          label: 'Undo',
+          onClick: () => setFavoriteIds((prev) => (prev.includes(notificationId) ? prev : [...prev, notificationId])),
+        },
+      });
+      return;
+    }
+    setFavoriteIds((prev) => [...prev, notificationId]);
+    toast('Added to favorites', {
+      action: {
+        label: 'Undo',
+        onClick: () => setFavoriteIds((prev) => prev.filter((id) => id !== notificationId)),
+      },
+    });
+  };
+
+  const toggleArchive = (notificationId) => {
+    const wasArchived = archivedIds.includes(notificationId);
+    if (wasArchived) {
+      setArchivedIds((prev) => prev.filter((id) => id !== notificationId));
+      toast('Restored from archive', {
+        action: {
+          label: 'Undo',
+          onClick: () => setArchivedIds((prev) => (prev.includes(notificationId) ? prev : [...prev, notificationId])),
+        },
+      });
+      return;
+    }
+    setArchivedIds((prev) => [...prev, notificationId]);
+    toast('Archived notification', {
+      action: {
+        label: 'Undo',
+        onClick: () => setArchivedIds((prev) => prev.filter((id) => id !== notificationId)),
+      },
+    });
+  };
+
+  const softDeleteNotification = (notificationId) => {
+    if (deletedIds.includes(notificationId)) return;
+    setDeletedIds((prev) => [...prev, notificationId]);
+    toast('Notification deleted', {
+      action: {
+        label: 'Undo',
+        onClick: () => setDeletedIds((prev) => prev.filter((id) => id !== notificationId)),
+      },
+    });
+  };
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -171,23 +297,49 @@ export default function Notifications() {
                 <p className="text-sm text-gray-500">{unreadCount} unread</p>
               )}
             </div>
-            {unreadCount > 0 && (
+            <div className="flex items-center gap-2">
+              {unreadCount > 0 && (
+                <Button onClick={markAllAsRead} variant="ghost" style={{ color: 'var(--sec-accent)' }}>
+                  Mark all read
+                </Button>
+              )}
               <Button
-                onClick={markAllAsRead}
                 variant="ghost"
-                style={{ color: 'var(--sec-accent)' }}
+                onClick={() => {
+                  const prev = { favoriteIds, archivedIds, deletedIds };
+                  setFavoriteIds([]);
+                  setArchivedIds([]);
+                  setDeletedIds([]);
+                  toast('Cleared local notification actions', {
+                    action: {
+                      label: 'Undo',
+                      onClick: () => {
+                        setFavoriteIds(prev.favoriteIds);
+                        setArchivedIds(prev.archivedIds);
+                        setDeletedIds(prev.deletedIds);
+                      },
+                    },
+                  });
+                }}
+                title="Undo local favorites/archive/delete changes"
               >
-                Mark all read
+                <RotateCcw className="w-4 h-4 mr-1" />
+                Undo
               </Button>
-            )}
+            </div>
           </div>
         </div>
       </header>
 
       <div className="px-4 lg:px-8 py-4">
+        <div className="mb-3 flex gap-2">
+          <Button variant={view === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setView('all')}>All</Button>
+          <Button variant={view === 'favorites' ? 'default' : 'outline'} size="sm" onClick={() => setView('favorites')}>Favorites</Button>
+          <Button variant={view === 'archived' ? 'default' : 'outline'} size="sm" onClick={() => setView('archived')}>Archived</Button>
+        </div>
         {/* Notifications List */}
         <AnimatePresence>
-          {notifications.map((notification, index) => {
+          {visibleNotifications.map((notification, index) => {
             const Icon = NOTIFICATION_ICONS[notification.type] || Bell;
             const colorClass = NOTIFICATION_COLORS[notification.type] || NOTIFICATION_COLORS.system;
 
@@ -268,9 +420,34 @@ export default function Notifications() {
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteMutation.mutate(notification.id);
+                      toggleFavorite(notification.id);
                     }}
                     className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+                    title={favoriteIds.includes(notification.id) ? 'Unfavorite' : 'Favorite'}
+                  >
+                    <Star className={`w-4 h-4 ${favoriteIds.includes(notification.id) ? 'text-yellow-400' : 'text-gray-600'}`} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleArchive(notification.id);
+                    }}
+                    className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+                    title={archivedIds.includes(notification.id) ? 'Unarchive' : 'Archive'}
+                  >
+                    <Archive className="w-4 h-4 text-gray-600" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      softDeleteNotification(notification.id);
+                    }}
+                    className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+                    title="Delete (undo available)"
                   >
                     <Trash2 className="w-4 h-4 text-gray-600" />
                   </button>
@@ -281,7 +458,7 @@ export default function Notifications() {
         </AnimatePresence>
 
         {/* Empty State */}
-        {notifications.length === 0 && !isLoading && (
+        {visibleNotifications.length === 0 && !isLoading && (
           <div className="text-center py-20">
             <div className="w-20 h-20 rounded-full bg-[#141416] flex items-center justify-center mx-auto mb-4">
               <Bell className="w-8 h-8 text-gray-600" />

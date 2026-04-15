@@ -39,7 +39,6 @@ router.get('/signature', authenticateToken, async (req, res, next) => {
     const paramsToSign = {
       timestamp,
       folder: 'sec-nightlife',
-      resource_type: 'auto',
     };
     const signature = cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET);
     res.json({
@@ -47,7 +46,6 @@ router.get('/signature', authenticateToken, async (req, res, next) => {
       api_key: process.env.CLOUDINARY_API_KEY,
       timestamp,
       folder: 'sec-nightlife',
-      resource_type: 'auto',
       signature,
     });
   } catch (err) {
