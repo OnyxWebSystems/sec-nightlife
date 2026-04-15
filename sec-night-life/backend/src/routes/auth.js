@@ -85,11 +85,20 @@ async function canAccessAdminDashboard(user) {
   if (['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return true;
   const userEmail = normalizeEmail(user.email);
   if (!userEmail) return false;
-  const delegate = await prisma.adminDashboardDelegate.findFirst({
-    where: { email: userEmail, isActive: true },
-    select: { id: true },
-  });
-  return Boolean(delegate);
+  try {
+    const delegate = await prisma.adminDashboardDelegate.findFirst({
+      where: { email: userEmail, isActive: true },
+      select: { id: true },
+    });
+    return Boolean(delegate);
+  } catch (err) {
+    // Migration not yet deployed in this environment; keep auth functional.
+    const msg = String(err?.message || '');
+    if (msg.includes('admin_dashboard_delegates') || msg.includes('does not exist')) {
+      return false;
+    }
+    throw err;
+  }
 }
 
 async function ensureIdentityReminderNotification(userId, verificationStatus) {

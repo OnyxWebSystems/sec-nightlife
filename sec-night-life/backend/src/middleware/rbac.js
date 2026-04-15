@@ -28,10 +28,19 @@ export async function requireAdmin(req, res, next) {
       if (!userEmail) {
         return res.status(403).json({ error: 'Admin access required' });
       }
-      const delegate = await prisma.adminDashboardDelegate.findFirst({
-        where: { email: userEmail, isActive: true },
-        select: { id: true },
-      });
+      let delegate = null;
+      try {
+        delegate = await prisma.adminDashboardDelegate.findFirst({
+          where: { email: userEmail, isActive: true },
+          select: { id: true },
+        });
+      } catch (err) {
+        const msg = String(err?.message || '');
+        // Table not deployed yet in this environment; deny delegated access safely.
+        if (!(msg.includes('admin_dashboard_delegates') || msg.includes('does not exist'))) {
+          throw err;
+        }
+      }
       if (!delegate) {
         return res.status(403).json({ error: 'Admin access required' }); // SECURITY: sensitive admin route
       }
