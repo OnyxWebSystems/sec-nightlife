@@ -30,6 +30,31 @@ if (process.env.CLOUDINARY_CLOUD_NAME) {
   });
 }
 
+router.get('/signature', authenticateToken, async (req, res, next) => {
+  try {
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      return res.status(404).json({ error: 'Cloudinary is not configured' });
+    }
+    const timestamp = Math.floor(Date.now() / 1000);
+    const paramsToSign = {
+      timestamp,
+      folder: 'sec-nightlife',
+      resource_type: 'auto',
+    };
+    const signature = cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET);
+    res.json({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      timestamp,
+      folder: 'sec-nightlife',
+      resource_type: 'auto',
+      signature,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/', authenticateToken, upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file' });

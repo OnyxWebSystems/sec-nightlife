@@ -147,6 +147,35 @@ export function clearTokens() {
 
 export async function uploadFile(file) {
   const token = getToken();
+  // Try direct Cloudinary upload first to avoid Vercel request-size limits (413).
+  if (token) {
+    try {
+      const sigRes = await fetch(`${API_BASE}/api/upload/signature`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (sigRes.ok) {
+        const sig = await sigRes.json();
+        const cloudForm = new FormData();
+        cloudForm.append('file', file);
+        cloudForm.append('api_key', sig.api_key);
+        cloudForm.append('timestamp', String(sig.timestamp));
+        cloudForm.append('signature', sig.signature);
+        cloudForm.append('folder', sig.folder || 'sec-nightlife');
+        cloudForm.append('resource_type', sig.resource_type || 'auto');
+        const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloud_name}/auto/upload`, {
+          method: 'POST',
+          body: cloudForm,
+        });
+        const cloudData = await cloudRes.json();
+        if (!cloudRes.ok) throw new Error(cloudData?.error?.message || 'Cloudinary upload failed');
+        return { file_url: cloudData.secure_url };
+      }
+    } catch {
+      // Fall back to backend upload endpoint.
+    }
+  }
+
   const form = new FormData();
   form.append('file', file);
   const res = await fetch(`${API_BASE}/api/upload`, {

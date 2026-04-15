@@ -77,6 +77,48 @@ function userPayload(user, profileExtras = {}) {
   };
 }
 
+async function ensureIdentityReminderNotification(userId, verificationStatus) {
+  if (!userId || isIdentityVerifiedStatus(verificationStatus)) return;
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [recentInApp, recentLegacy] = await Promise.all([
+    prisma.inAppNotification.findFirst({
+      where: {
+        userId,
+        type: 'IDENTITY_VERIFICATION_REMINDER',
+        read: false,
+        createdAt: { gte: dayAgo },
+      },
+      select: { id: true },
+    }),
+    prisma.notification.findFirst({
+      where: {
+        userId,
+        type: 'IDENTITY_VERIFICATION_REMINDER',
+        isRead: false,
+        createdAt: { gte: dayAgo },
+      },
+      select: { id: true },
+    }),
+  ]);
+  if (!recentInApp && !recentLegacy) {
+    await createInAppNotification({
+      userId,
+      type: 'IDENTITY_VERIFICATION_REMINDER',
+      title: 'Complete identity verification',
+      body: 'You are not verified yet. Open Profile to upload your ID when you are ready.',
+      referenceId: '/Profile',
+      referenceType: 'ROUTE',
+    });
+    await createNotification({
+      userId,
+      type: 'IDENTITY_VERIFICATION_REMINDER',
+      title: 'Complete identity verification',
+      body: 'You are not verified yet. Open Profile to upload your ID when you are ready.',
+      actionUrl: '/Profile',
+    });
+  }
+}
+
 /** Rows that reference users without Prisma User FK / cascade — must be removed before user.delete */
 async function deleteUserOrphans(tx, userId) {
   await tx.accountRole.deleteMany({ where: { userId } });
@@ -412,46 +454,7 @@ router.post('/login', async (req, res, next) => {
       select: { verificationStatus: true },
     });
     const vStatus = profile?.verificationStatus ?? 'pending';
-    if (!isIdentityVerifiedStatus(vStatus)) {
-      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const [recentInApp, recentLegacy] = await Promise.all([
-        prisma.inAppNotification.findFirst({
-          where: {
-            userId: user.id,
-            type: 'IDENTITY_VERIFICATION_REMINDER',
-            read: false,
-            createdAt: { gte: dayAgo },
-          },
-          select: { id: true },
-        }),
-        prisma.notification.findFirst({
-          where: {
-            userId: user.id,
-            type: 'IDENTITY_VERIFICATION_REMINDER',
-            isRead: false,
-            createdAt: { gte: dayAgo },
-          },
-          select: { id: true },
-        }),
-      ]);
-      if (!recentInApp && !recentLegacy) {
-        await createInAppNotification({
-          userId: user.id,
-          type: 'IDENTITY_VERIFICATION_REMINDER',
-          title: 'Complete identity verification',
-          body: 'You are not verified yet. Open Profile to upload your ID when you are ready.',
-          referenceId: '/Profile',
-          referenceType: 'ROUTE',
-        });
-        await createNotification({
-          userId: user.id,
-          type: 'IDENTITY_VERIFICATION_REMINDER',
-          title: 'Complete identity verification',
-          body: 'You are not verified yet. Open Profile to upload your ID when you are ready.',
-          actionUrl: '/Profile',
-        });
-      }
-    }
+    await ensureIdentityReminderNotification(user.id, vStatus);
 
     res.json({
       user: userPayload(user, {
@@ -754,6 +757,7 @@ router.get('/me', async (req, res, next) => {
       select: { verificationStatus: true },
     });
     const vStatus = profile?.verificationStatus ?? 'pending';
+    await ensureIdentityReminderNotification(user.id, vStatus);
     res.json(
       userPayload(user, {
         verification_status: vStatus,
