@@ -36,7 +36,11 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res, next
     if (process.env.CLOUDINARY_CLOUD_NAME) {
       const r = await new Promise((resolve, reject) => {
         const s = cloudinary.uploader.upload_stream(
-          { folder: 'sec-nightlife' },
+          {
+            folder: 'sec-nightlife',
+            // Allow PDFs/docs in addition to images
+            resource_type: 'auto',
+          },
           (err, r) => (err ? reject(err) : resolve(r))
         );
         s.end(req.file.buffer);

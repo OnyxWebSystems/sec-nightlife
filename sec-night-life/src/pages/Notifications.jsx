@@ -113,6 +113,7 @@ export default function Notifications() {
         (Array.isArray(rows) ? rows : []).map((n) => ({
           ...n,
           message: n.body ?? n.message,
+          action_url: n.action_url ?? n.actionUrl ?? null,
           is_read: n.read === true || n.is_read === true,
           created_date: n.createdAt ?? n.created_at ?? n.created_date,
         })),
@@ -141,6 +142,7 @@ export default function Notifications() {
   const openNotification = async (n) => {
     await markAsReadMutation.mutateAsync(n.id);
     const t = n.type;
+    const actionUrl = resolveActionUrl(n);
     if (t === 'FRIEND_REQUEST' || t === 'friend_request') navigate(`${createPageUrl('Friends')}?tab=requests`);
     else if (t === 'FRIEND_ACCEPTED') navigate(`${createPageUrl('Friends')}?tab=all`);
     else if (t === 'DIRECT_MESSAGE' && n.referenceId) navigate(`${createPageUrl('Messages')}?dm=${n.referenceId}`);
@@ -150,6 +152,10 @@ export default function Notifications() {
       navigate(createPageUrl('Profile'));
     } else if (t === 'TABLE_INVITE' && n.referenceId) {
       navigate(`${createPageUrl('TableDetails')}?id=${n.referenceId}`);
+    } else if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
+      navigate(n.referenceId);
+    } else if (actionUrl) {
+      navigate(actionUrl);
     }
   };
 
