@@ -70,6 +70,11 @@ export default function AdminDashboard() {
   const [newReviewer, setNewReviewer] = useState({ name: '', email: '' });
   const [addingReviewer, setAddingReviewer] = useState(false);
   const [deletingReviewerId, setDeletingReviewerId] = useState(null);
+  const [dashboardDelegates, setDashboardDelegates] = useState([]);
+  const [delegateManagementLoading, setDelegateManagementLoading] = useState(false);
+  const [newDelegate, setNewDelegate] = useState({ name: '', email: '' });
+  const [addingDelegate, setAddingDelegate] = useState(false);
+  const [deletingDelegateId, setDeletingDelegateId] = useState(null);
   const [previewDocument, setPreviewDocument] = useState(null);
   const [flaggedReviews, setFlaggedReviews] = useState({ userReviews: [], venueReviews: [] });
   const [reports, setReports] = useState([]);
@@ -114,12 +119,13 @@ export default function AdminDashboard() {
         }
         setComplianceAccess(access);
 
-        if (!access?.canReview) {
+        const canAdminDashboard = Boolean(u?.can_admin_dashboard) || ['ADMIN', 'SUPER_ADMIN'].includes(u?.role);
+        if (!canAdminDashboard) {
           navigate(createPageUrl('Home'));
           return;
         }
 
-        const shouldLoadAdminQueues = !!(access?.isSuperAdmin || u?.role === 'SUPER_ADMIN');
+        const shouldLoadAdminQueues = canAdminDashboard;
         const isSuperAdminUser = !!(access?.isSuperAdmin || u?.role === 'SUPER_ADMIN');
         if (shouldLoadAdminQueues) {
           const [dashboardRes, paymentsRes, usersRes, venuesRes] = await Promise.all([
@@ -212,6 +218,23 @@ export default function AdminDashboard() {
         setReviewers([]);
       } finally {
         setReviewerManagementLoading(false);
+      }
+    })();
+  }, [tab, complianceAccess]);
+
+  useEffect(() => {
+    if (tab !== 'compliance-documents') return;
+    if (!complianceAccess?.isSuperAdmin) return;
+
+    (async () => {
+      setDelegateManagementLoading(true);
+      try {
+        const res = await apiGet('/api/admin/delegates');
+        setDashboardDelegates(res?.delegates || []);
+      } catch {
+        setDashboardDelegates([]);
+      } finally {
+        setDelegateManagementLoading(false);
       }
     })();
   }, [tab, complianceAccess]);
@@ -316,6 +339,54 @@ export default function AdminDashboard() {
       toast.error(err?.data?.error || err?.message || 'Failed to remove reviewer');
     } finally {
       setDeletingReviewerId(null);
+    }
+  };
+
+  const handleToggleDashboardDelegate = async (delegateId, nextIsActive) => {
+    setDelegateManagementLoading(true);
+    try {
+      await apiPatch(`/api/admin/delegates/${delegateId}`, { isActive: nextIsActive });
+      const res = await apiGet('/api/admin/delegates');
+      setDashboardDelegates(res?.delegates || []);
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Failed to update admin delegate');
+    } finally {
+      setDelegateManagementLoading(false);
+    }
+  };
+
+  const handleAddDashboardDelegate = async () => {
+    if (addingDelegate) return;
+    setAddingDelegate(true);
+    try {
+      await apiPost('/api/admin/delegates', newDelegate);
+      setNewDelegate({ name: '', email: '' });
+      const res = await apiGet('/api/admin/delegates');
+      setDashboardDelegates(res?.delegates || []);
+      toast.success('Admin delegate added');
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Failed to add admin delegate');
+    } finally {
+      setAddingDelegate(false);
+    }
+  };
+
+  const handleDeleteDashboardDelegate = async (delegateId) => {
+    const ok = window.confirm(
+      'Remove this user from Admin Dashboard delegates? Their account will remain, but dashboard access will be removed.'
+    );
+    if (!ok) return;
+    if (deletingDelegateId) return;
+    setDeletingDelegateId(delegateId);
+    try {
+      await apiDelete(`/api/admin/delegates/${delegateId}`);
+      const res = await apiGet('/api/admin/delegates');
+      setDashboardDelegates(res?.delegates || []);
+      toast.success('Admin delegate removed');
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Failed to remove admin delegate');
+    } finally {
+      setDeletingDelegateId(null);
     }
   };
 
@@ -1065,6 +1136,77 @@ export default function AdminDashboard() {
                             onClick={() => handleDeleteReviewer(r.id)}
                           >
                             {deletingReviewerId === r.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Remove'}
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <h3 className="font-semibold pt-2">Admin dashboard delegates</h3>
+
+                <div className="p-4 rounded-xl bg-[#141416] border border-[#262629] space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 p-3 rounded-xl bg-[#0A0A0B] border border-[#262629] text-sm"
+                      placeholder="Name"
+                      value={newDelegate.name}
+                      onChange={(e) => setNewDelegate((prev) => ({ ...prev, name: e.target.value }))}
+                      disabled={addingDelegate}
+                    />
+                    <input
+                      className="flex-1 p-3 rounded-xl bg-[#0A0A0B] border border-[#262629] text-sm"
+                      placeholder="Email"
+                      value={newDelegate.email}
+                      onChange={(e) => setNewDelegate((prev) => ({ ...prev, email: e.target.value }))}
+                      disabled={addingDelegate}
+                    />
+                  </div>
+                  <Button
+                    className="w-full bg-[var(--sec-accent)] text-black hover:opacity-90"
+                    disabled={addingDelegate}
+                    onClick={handleAddDashboardDelegate}
+                  >
+                    {addingDelegate ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add admin delegate'}
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  {delegateManagementLoading ? (
+                    <p className="text-sm text-[var(--sec-text-muted)]">Loading admin delegates...</p>
+                  ) : dashboardDelegates.length === 0 ? (
+                    <p className="text-sm text-[var(--sec-text-muted)]">No admin delegates yet</p>
+                  ) : (
+                    dashboardDelegates.map((d) => (
+                      <div key={d.id} className="p-4 rounded-xl bg-[#141416] border border-[#262629] flex justify-between items-start gap-3">
+                        <div>
+                          <p className="font-medium">{d.name}</p>
+                          <p className="text-xs text-[var(--sec-text-muted)]">{d.email}</p>
+                          <p className="text-xs text-[var(--sec-text-muted)]">
+                            {d.addedAt ? `Added: ${new Date(d.addedAt).toLocaleDateString()}` : ''}
+                          </p>
+                          <p className="text-xs text-[var(--sec-text-muted)]">
+                            Status: {d.isActive ? 'Active' : 'Inactive'}
+                          </p>
+                        </div>
+                        <div className="flex flex-col gap-2 items-end shrink-0">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={delegateManagementLoading || deletingDelegateId === d.id}
+                            className={d.isActive ? 'border-red-500/50 text-red-500' : 'border-emerald-500/50 text-emerald-400'}
+                            onClick={() => handleToggleDashboardDelegate(d.id, !d.isActive)}
+                          >
+                            {d.isActive ? 'Deactivate' : 'Reactivate'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={delegateManagementLoading || deletingDelegateId === d.id}
+                            className="border-red-600/60 text-red-500 hover:bg-red-950/30"
+                            onClick={() => handleDeleteDashboardDelegate(d.id)}
+                          >
+                            {deletingDelegateId === d.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Remove'}
                           </Button>
                         </div>
                       </div>

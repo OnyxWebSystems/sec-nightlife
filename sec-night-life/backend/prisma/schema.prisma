@@ -186,6 +186,7 @@ model User {
   reportsInitiated            Report[]             @relation("ReportInitiator")
   complianceDocumentsReviewed ComplianceDocument[] @relation("ReviewedByUser")
   adminReviewerAdditions      AdminReviewer[]      @relation("AddedByUser")
+  adminDashboardDelegations   AdminDashboardDelegate[] @relation("AddedByAdminDashboardUser")
   auditLogs                   AuditLog[]
   refreshTokens               RefreshToken[]
   jobApplications             JobApplication[]
@@ -363,6 +364,22 @@ model AdminReviewer {
 
   @@index([isActive])
   @@map("admin_reviewers")
+}
+
+model AdminDashboardDelegate {
+  id String @id @default(cuid())
+
+  email String @unique
+  name  String
+
+  addedAt  DateTime @default(now()) @map("added_at")
+  isActive Boolean  @default(true) @map("is_active")
+
+  addedByUserId String @map("added_by_user_id")
+  addedByUser   User   @relation("AddedByAdminDashboardUser", fields: [addedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([isActive])
+  @@map("admin_dashboard_delegates")
 }
 
 model VenueReview {

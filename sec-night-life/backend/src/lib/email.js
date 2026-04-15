@@ -87,3 +87,28 @@ export async function sendPasswordResetEmail(to, token) {
     `
   });
 }
+
+export async function sendIdVerificationApprovedEmail(to, fullName) {
+  const baseUrl = process.env.APP_URL || 'http://localhost:5173';
+  const link = `${baseUrl}/EditProfile`;
+  const name = (fullName || '').trim() || 'there';
+  await sendEmail({
+    to,
+    subject: 'Your SEC ID verification was approved',
+    text: `Hi ${name},\n\nGreat news — your ID verification has been approved. You can now access verified-only actions in SEC Nightlife.\n\nOpen your profile settings here: ${link}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+        <h2 style="color:#fff;background:#111;padding:24px;margin:0;">SEC Nightlife</h2>
+        <div style="padding:24px;background:#1a1a1a;color:#e0e0e0;">
+          <h3>ID verification approved</h3>
+          <p>Hi <strong>${name}</strong>,</p>
+          <p>Your identity document has been approved. You now have access to verified features.</p>
+          <a href="${link}" style="display:inline-block;padding:12px 28px;background:#fff;color:#000;font-weight:700;border-radius:6px;text-decoration:none;margin:16px 0;">
+            Open Edit Profile
+          </a>
+          <p style="font-size:12px;color:#888;">Or copy this link: ${link}</p>
+        </div>
+      </div>
+    `
+  });
+}

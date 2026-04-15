@@ -6,11 +6,18 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { requireAdmin, requireStaff } from '../middleware/rbac.js';
+import { requireAdmin } from '../middleware/rbac.js';
 import { auditFromReq } from '../lib/audit.js';
 import { privateDownloadUrl, signCloudinaryUrl } from '../lib/cloudinarySignedUrl.js';
+import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { sendIdVerificationApprovedEmail } from '../lib/email.js';
+import { requireSuperAdmin } from '../middleware/complianceReviewer.js';
 
 const router = Router();
+
+function normalizeEmail(email) {
+  return (email || '').trim().toLowerCase();
+}
 
 // All admin routes require authentication + admin role
 router.use(authenticateToken, requireAdmin); // SECURITY: admin-only zone
@@ -432,6 +439,24 @@ router.patch('/verification/users/:userId', async (req, res, next) => {
       metadata: { userId: profile.userId, status, note },
     });
 
+    if (status === 'verified') {
+      const targetUser = await prisma.user.findUnique({
+        where: { id: profile.userId },
+        select: { id: true, email: true, fullName: true },
+      });
+      if (targetUser) {
+        await createInAppNotification({
+          userId: targetUser.id,
+          type: 'IDENTITY_VERIFICATION_REMINDER',
+          title: 'ID verification approved',
+          body: 'Your ID has been approved. You can now access verified-only features.',
+          referenceId: '/EditProfile',
+          referenceType: 'ROUTE',
+        });
+        sendIdVerificationApprovedEmail(targetUser.email, targetUser.fullName).catch(() => {});
+      }
+    }
+
     res.json({ success: true, profile: { userId: profile.userId, verificationStatus: profile.verificationStatus } });
   } catch (err) {
     next(err);
@@ -487,6 +512,96 @@ router.patch('/venues/:id/compliance', async (req, res, next) => {
     });
 
     res.json({ success: true, venue: { id: venue.id, complianceStatus: venue.complianceStatus } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Admin Dashboard Delegates (Super Admin managed) ────────────────────────
+
+router.get('/delegates', requireSuperAdmin, async (req, res, next) => {
+  try {
+    const delegates = await prisma.adminDashboardDelegate.findMany({
+      orderBy: { addedAt: 'desc' },
+    });
+    res.json({ delegates });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/delegates', requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { email, name } = z.object({
+      email: z.string().email(),
+      name: z.string().min(1).max(200),
+    }).parse(req.body);
+
+    const created = await prisma.adminDashboardDelegate.create({
+      data: {
+        email: normalizeEmail(email),
+        name: name.trim(),
+        isActive: true,
+        addedByUserId: req.userId,
+      },
+    });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'ADMIN_DASHBOARD_DELEGATE_CREATED',
+      entityType: 'admin_dashboard_delegate',
+      entityId: created.id,
+      metadata: { delegateEmail: created.email, delegateName: created.name },
+    });
+
+    res.status(201).json({ delegate: created });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/delegates/:delegateId', requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { delegateId } = z.object({ delegateId: z.string().min(1) }).parse(req.params);
+    const { isActive } = z.object({ isActive: z.boolean() }).parse(req.body);
+
+    const updated = await prisma.adminDashboardDelegate.update({
+      where: { id: delegateId },
+      data: { isActive },
+    });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: isActive ? 'ADMIN_DASHBOARD_DELEGATE_REACTIVATED' : 'ADMIN_DASHBOARD_DELEGATE_DEACTIVATED',
+      entityType: 'admin_dashboard_delegate',
+      entityId: updated.id,
+      metadata: { delegateEmail: updated.email, delegateName: updated.name, isActive },
+    });
+
+    res.json({ delegate: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/delegates/:delegateId', requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { delegateId } = z.object({ delegateId: z.string().min(1) }).parse(req.params);
+
+    const existing = await prisma.adminDashboardDelegate.findUnique({ where: { id: delegateId } });
+    if (!existing) return res.status(404).json({ error: 'Delegate not found' });
+
+    await prisma.adminDashboardDelegate.delete({ where: { id: delegateId } });
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'ADMIN_DASHBOARD_DELEGATE_DELETED',
+      entityType: 'admin_dashboard_delegate',
+      entityId: delegateId,
+      metadata: { delegateEmail: existing.email, delegateName: existing.name },
+    });
+
+    res.status(204).send();
   } catch (err) {
     next(err);
   }

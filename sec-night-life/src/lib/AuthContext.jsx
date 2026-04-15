@@ -28,6 +28,7 @@ export const AuthProvider = ({ children }) => {
         verified: currentUser.verified,
         verification_status: currentUser.verification_status,
         identity_verified: currentUser.identity_verified,
+        can_admin_dashboard: currentUser.can_admin_dashboard,
       });
       setIsAuthenticated(true);
     } catch (err) {

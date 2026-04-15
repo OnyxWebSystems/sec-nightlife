@@ -9,13 +9,37 @@
  *   router.post('/venue', authenticateToken, requireRole('VENUE','ADMIN'), handler)
  */
 
+import { prisma } from '../lib/prisma.js';
+
+function normalizeEmail(email) {
+  return (email || '').trim().toLowerCase();
+}
+
 /** Only ADMIN */
-export function requireAdmin(req, res, next) {
-  if (!req.userRole) return res.status(401).json({ error: 'Authentication required' });
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(req.userRole)) {
-    return res.status(403).json({ error: 'Admin access required' }); // SECURITY: sensitive admin route
+export async function requireAdmin(req, res, next) {
+  try {
+    if (!req.userRole) return res.status(401).json({ error: 'Authentication required' });
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.userRole)) {
+      const user = await prisma.user.findUnique({
+        where: { id: req.userId, deletedAt: null },
+        select: { email: true },
+      });
+      const userEmail = normalizeEmail(user?.email);
+      if (!userEmail) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+      const delegate = await prisma.adminDashboardDelegate.findFirst({
+        where: { email: userEmail, isActive: true },
+        select: { id: true },
+      });
+      if (!delegate) {
+        return res.status(403).json({ error: 'Admin access required' }); // SECURITY: sensitive admin route
+      }
+    }
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 }
 
 /** ADMIN or MODERATOR */

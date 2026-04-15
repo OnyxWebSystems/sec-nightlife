@@ -13,6 +13,7 @@ export async function getCurrentUser() {
     verified: data.verified,
     verification_status: data.verification_status ?? 'pending',
     identity_verified: Boolean(data.identity_verified),
+    can_admin_dashboard: Boolean(data.can_admin_dashboard),
   };
 }
 

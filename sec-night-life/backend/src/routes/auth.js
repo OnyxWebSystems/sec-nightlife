@@ -76,6 +76,22 @@ function userPayload(user, profileExtras = {}) {
   };
 }
 
+function normalizeEmail(email) {
+  return (email || '').trim().toLowerCase();
+}
+
+async function canAccessAdminDashboard(user) {
+  if (!user) return false;
+  if (['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return true;
+  const userEmail = normalizeEmail(user.email);
+  if (!userEmail) return false;
+  const delegate = await prisma.adminDashboardDelegate.findFirst({
+    where: { email: userEmail, isActive: true },
+    select: { id: true },
+  });
+  return Boolean(delegate);
+}
+
 async function ensureIdentityReminderNotification(userId, verificationStatus) {
   if (!userId || isIdentityVerifiedStatus(verificationStatus)) return;
   // One-time reminder only: if it ever exists in either table, do not create again.
@@ -442,12 +458,14 @@ router.post('/login', async (req, res, next) => {
       select: { verificationStatus: true },
     });
     const vStatus = profile?.verificationStatus ?? 'pending';
+    const canAdminDashboard = await canAccessAdminDashboard(user);
     await ensureIdentityReminderNotification(user.id, vStatus);
 
     res.json({
       user: userPayload(user, {
         verification_status: vStatus,
         identity_verified: isIdentityVerifiedStatus(vStatus),
+        can_admin_dashboard: canAdminDashboard,
       }),
       accessToken,
       refreshToken,
@@ -606,11 +624,13 @@ router.post('/refresh', async (req, res, next) => {
       select: { verificationStatus: true },
     });
     const vSt = prof?.verificationStatus ?? 'pending';
+    const canAdminDashboard = await canAccessAdminDashboard(user);
 
     res.json({
       user: userPayload(user, {
         verification_status: vSt,
         identity_verified: isIdentityVerifiedStatus(vSt),
+        can_admin_dashboard: canAdminDashboard,
       }),
       accessToken,
       refreshToken: newRefreshToken,
@@ -745,11 +765,13 @@ router.get('/me', async (req, res, next) => {
       select: { verificationStatus: true },
     });
     const vStatus = profile?.verificationStatus ?? 'pending';
+    const canAdminDashboard = await canAccessAdminDashboard(user);
     await ensureIdentityReminderNotification(user.id, vStatus);
     res.json(
       userPayload(user, {
         verification_status: vStatus,
         identity_verified: isIdentityVerifiedStatus(vStatus),
+        can_admin_dashboard: canAdminDashboard,
       }),
     );
   } catch {
