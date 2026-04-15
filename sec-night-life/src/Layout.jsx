@@ -67,7 +67,7 @@ export default function Layout({ children, currentPageName }) {
     if (!user?.id) return undefined;
     const tick = async () => {
       try {
-        const notifs = await dataService.Notification.filter({ user_id: user.id, is_read: false });
+        const notifs = await apiGet('/api/notifications?limit=100');
         setNotifications(notifs);
         const u = await apiGet('/api/notifications/unread-count');
         setNotificationCount(u?.count ?? 0);
@@ -99,7 +99,7 @@ export default function Layout({ children, currentPageName }) {
       let profile = profiles[0] || null;
       if (profiles.length > 0) setUserProfile(profile);
 
-      const notifs = await dataService.Notification.filter({ user_id: currentUser.id, is_read: false });
+      const notifs = await apiGet('/api/notifications?limit=100');
       setNotifications(notifs);
       try {
         const u = await apiGet('/api/notifications/unread-count');

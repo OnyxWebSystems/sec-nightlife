@@ -11,7 +11,6 @@ import { sendVerificationEmail, sendPasswordResetEmail } from '../lib/email.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
-import { createNotification } from '../lib/notifications.js';
 import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
 
 const router = Router();
@@ -79,14 +78,12 @@ function userPayload(user, profileExtras = {}) {
 
 async function ensureIdentityReminderNotification(userId, verificationStatus) {
   if (!userId || isIdentityVerifiedStatus(verificationStatus)) return;
-  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [recentInApp, recentLegacy] = await Promise.all([
+  // One-time reminder only: if it ever exists in either table, do not create again.
+  const [existingInApp, existingLegacy] = await Promise.all([
     prisma.inAppNotification.findFirst({
       where: {
         userId,
         type: 'IDENTITY_VERIFICATION_REMINDER',
-        read: false,
-        createdAt: { gte: dayAgo },
       },
       select: { id: true },
     }),
@@ -94,27 +91,18 @@ async function ensureIdentityReminderNotification(userId, verificationStatus) {
       where: {
         userId,
         type: 'IDENTITY_VERIFICATION_REMINDER',
-        isRead: false,
-        createdAt: { gte: dayAgo },
       },
       select: { id: true },
     }),
   ]);
-  if (!recentInApp && !recentLegacy) {
+  if (!existingInApp && !existingLegacy) {
     await createInAppNotification({
       userId,
       type: 'IDENTITY_VERIFICATION_REMINDER',
       title: 'Complete identity verification',
-      body: 'You are not verified yet. Open Profile to upload your ID when you are ready.',
-      referenceId: '/Profile',
+      body: 'You are not verified yet. Open Edit Profile to upload your ID when you are ready.',
+      referenceId: '/EditProfile',
       referenceType: 'ROUTE',
-    });
-    await createNotification({
-      userId,
-      type: 'IDENTITY_VERIFICATION_REMINDER',
-      title: 'Complete identity verification',
-      body: 'You are not verified yet. Open Profile to upload your ID when you are ready.',
-      actionUrl: '/Profile',
     });
   }
 }

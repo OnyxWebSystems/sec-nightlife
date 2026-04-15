@@ -149,7 +149,7 @@ export default function Notifications() {
     else if ((t === 'GROUP_MESSAGE' || t === 'JOIN_REQUEST_ACCEPTED') && n.referenceId) {
       navigate(`${createPageUrl('Messages')}?group=${n.referenceId}`);
     } else if (t === 'IDENTITY_VERIFICATION_REMINDER') {
-      navigate(createPageUrl('Profile'));
+      navigate(createPageUrl('EditProfile'));
     } else if (t === 'TABLE_INVITE' && n.referenceId) {
       navigate(`${createPageUrl('TableDetails')}?id=${n.referenceId}`);
     } else if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {

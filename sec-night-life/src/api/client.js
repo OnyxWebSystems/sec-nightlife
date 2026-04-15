@@ -147,9 +147,12 @@ export function clearTokens() {
 
 export async function uploadFile(file) {
   const token = getToken();
+  const isLikelyLarge = typeof file?.size === 'number' && file.size > 4 * 1024 * 1024;
+  let signatureAttempted = false;
   // Try direct Cloudinary upload first to avoid Vercel request-size limits (413).
   if (token) {
     try {
+      signatureAttempted = true;
       const sigRes = await fetch(`${API_BASE}/api/upload/signature`, {
         method: 'GET',
         headers: { Authorization: `Bearer ${token}` },
@@ -174,6 +177,11 @@ export async function uploadFile(file) {
     } catch {
       // Fall back to backend upload endpoint.
     }
+  }
+
+  // Vercel often rejects large multipart bodies before Express handles them.
+  if (isLikelyLarge && signatureAttempted) {
+    throw new Error('Upload could not start direct Cloudinary transfer. Please refresh and try again, or use a smaller file.');
   }
 
   const form = new FormData();
