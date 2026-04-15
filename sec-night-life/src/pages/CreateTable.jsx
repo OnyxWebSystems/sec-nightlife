@@ -35,6 +35,9 @@ import {
 } from "@/components/ui/dialog";
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import { Link } from 'react-router-dom';
+import { isIdentityVerifiedUser } from '@/lib/identityVerification';
+import { toast } from 'sonner';
 
 export default function CreateTable() {
   const navigate = useNavigate();
@@ -105,7 +108,13 @@ export default function CreateTable() {
 
   const selectedEvent = events.find(e => e.id === formData.event_id);
 
+  const identityOk = isIdentityVerifiedUser(user, userProfile);
+
   const handleSubmit = async () => {
+    if (!identityOk) {
+      toast.error('Verify your identity in Profile before hosting a table.');
+      return;
+    }
     setIsSubmitting(true);
 
     try {
@@ -219,6 +228,26 @@ export default function CreateTable() {
           </div>
         </div>
       </header>
+
+      {user && userProfile && !identityOk && (
+        <div className="px-4 pt-4 max-w-lg mx-auto">
+          <div
+            style={{
+              padding: 14,
+              borderRadius: 12,
+              border: '1px solid var(--sec-border)',
+              backgroundColor: 'var(--sec-bg-card)',
+              fontSize: 13,
+              color: 'var(--sec-text-secondary)',
+            }}
+          >
+            Identity verification is required to host a table.{' '}
+            <Link to={createPageUrl('EditProfile')} style={{ color: 'var(--sec-accent)', fontWeight: 600 }}>
+              Upload your ID in Edit profile
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="px-4 py-6">
         <AnimatePresence mode="wait">

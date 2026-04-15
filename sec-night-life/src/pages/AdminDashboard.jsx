@@ -162,6 +162,15 @@ export default function AdminDashboard() {
     setActionLoading(null);
   };
 
+  const handleViewUserIdDocument = async (userId) => {
+    try {
+      const { viewUrl } = await apiGet(`/api/admin/verification/users/${userId}/id-document`);
+      if (viewUrl) window.open(withPdfInlineParams(viewUrl), '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Could not open document');
+    }
+  };
+
   const handleVenueCompliance = async (venueId, status, note) => {
     setActionLoading(venueId);
     try {
@@ -681,21 +690,20 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   {p.idDocumentUrl && (
-                    <a
-                      href={p.idDocumentUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-[var(--sec-accent)] flex items-center gap-1"
+                    <button
+                      type="button"
+                      onClick={() => handleViewUserIdDocument(p.userId)}
+                      className="text-sm text-[var(--sec-accent)] flex items-center gap-1 bg-transparent border-none cursor-pointer p-0"
                     >
                       View ID document <ExternalLink size={14} />
-                    </a>
+                    </button>
                   )}
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       className="bg-[var(--sec-success)] text-black hover:opacity-90"
                       disabled={actionLoading === p.userId}
-                      onClick={() => handleUserVerification(p.userId, 'approved')}
+                      onClick={() => handleUserVerification(p.userId, 'verified')}
                     >
                       {actionLoading === p.userId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check size={16} />}
                       Approve

@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
 import { apiPost } from '@/api/client';
+import { isIdentityVerifiedUser } from '@/lib/identityVerification';
 
 export default function HostDashboard() {
   const navigate = useNavigate();
@@ -82,6 +83,8 @@ export default function HostDashboard() {
   const totalPendingRequests = hostedTables.reduce((sum, t) => sum + (t.pending_requests?.length || 0), 0);
   const totalGuests = hostedTables.reduce((sum, t) => sum + (t.current_guests || 1), 0);
 
+  const identityOk = isIdentityVerifiedUser(user, userProfile);
+
   if (!user || !userProfile) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
@@ -104,10 +107,16 @@ export default function HostDashboard() {
                 <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Manage your tables</p>
               </div>
             </div>
-            <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
-              <Plus size={18} strokeWidth={1.5} />
-              New Table
-            </Link>
+            {identityOk ? (
+              <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
+                <Plus size={18} strokeWidth={1.5} />
+                New Table
+              </Link>
+            ) : (
+              <Link to={createPageUrl('EditProfile')} className="sec-btn sec-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none', fontSize: 13 }}>
+                Verify ID to host
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -167,10 +176,16 @@ export default function HostDashboard() {
         <div className="sec-card" style={{ padding: 20, marginTop: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--sec-text-primary)' }}>My Host Events</h2>
-            <Link to={createPageUrl('CreateHostEvent')} className="sec-btn sec-btn-ghost" style={{ padding: '8px 12px', fontSize: 13, textDecoration: 'none' }}>
-              <Plus size={14} strokeWidth={1.5} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-              Create
-            </Link>
+            {identityOk ? (
+              <Link to={createPageUrl('CreateHostEvent')} className="sec-btn sec-btn-ghost" style={{ padding: '8px 12px', fontSize: 13, textDecoration: 'none' }}>
+                <Plus size={14} strokeWidth={1.5} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                Create
+              </Link>
+            ) : (
+              <Link to={createPageUrl('EditProfile')} className="sec-btn sec-btn-ghost" style={{ padding: '8px 12px', fontSize: 13, textDecoration: 'none' }}>
+                Verify first
+              </Link>
+            )}
           </div>
           {myHostEvents.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -190,10 +205,16 @@ export default function HostDashboard() {
             <div style={{ textAlign: 'center', padding: 24 }}>
               <Calendar size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
               <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 16 }}>Host house parties, boat parties & more</p>
-              <Link to={createPageUrl('CreateHostEvent')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
-                <Plus size={16} strokeWidth={1.5} />
-                Create Host Event
-              </Link>
+              {identityOk ? (
+                <Link to={createPageUrl('CreateHostEvent')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
+                  <Plus size={16} strokeWidth={1.5} />
+                  Create Host Event
+                </Link>
+              ) : (
+                <Link to={createPageUrl('EditProfile')} className="sec-btn sec-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
+                  Verify ID to create events
+                </Link>
+              )}
             </div>
           )}
         </div>
@@ -319,10 +340,16 @@ export default function HostDashboard() {
                 </div>
                 <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No active tables</h3>
                 <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 24 }}>Create your first table to start hosting</p>
-                <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', textDecoration: 'none' }}>
-                  <Plus size={18} strokeWidth={1.5} />
-                  Create Table
-                </Link>
+                {identityOk ? (
+                  <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', textDecoration: 'none' }}>
+                    <Plus size={18} strokeWidth={1.5} />
+                    Create Table
+                  </Link>
+                ) : (
+                  <Link to={createPageUrl('EditProfile')} className="sec-btn sec-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', textDecoration: 'none' }}>
+                    Verify ID to create tables
+                  </Link>
+                )}
               </div>
             )}
           </TabsContent>

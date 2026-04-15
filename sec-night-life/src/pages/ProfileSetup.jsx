@@ -25,6 +25,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion, AnimatePresence } from 'framer-motion';
 import SecLogo from '@/components/ui/SecLogo';
+import AvatarCropDialog from '@/components/profile/AvatarCropDialog';
 
 const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
@@ -45,8 +46,8 @@ export default function ProfileSetup() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState({});
-  const [idVerifyResult, setIdVerifyResult] = useState(null);
-  const [isVerifyingId, setIsVerifyingId] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropSrc, setCropSrc] = useState(null);
 
   const [formData, setFormData] = useState({
     username: '',
@@ -106,28 +107,31 @@ export default function ProfileSetup() {
       const { file_url } = await integrations.Core.UploadFile({ file });
       setFormData((prev) => ({ ...prev, [field]: file_url }));
       setUploadProgress((prev) => ({ ...prev, [field]: 'done' }));
-      if (field === 'id_document_url') setIdVerifyResult(null);
     } catch (err) {
       setUploadProgress((prev) => ({ ...prev, [field]: 'error' }));
       setError('Failed to upload file');
     }
   };
 
-  const handleVerifyId = async () => {
-    if (!formData.id_document_url || !formData.date_of_birth) return;
-    setIsVerifyingId(true);
+  const onPickAvatarImage = (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(URL.createObjectURL(file));
+    setCropOpen(true);
+    e.target.value = '';
+  };
+
+  const handleCroppedAvatar = async (file) => {
+    setUploadProgress((prev) => ({ ...prev, avatar_url: 'uploading' }));
     setError('');
     try {
-      const result = await integrations.Core.InvokeLLM();
-      setIdVerifyResult(result);
-      if (!result.is_valid_document || !result.is_18_plus || !result.dob_matches) {
-        setError(result.reason || 'Verification failed');
-      }
-    } catch (err) {
-      setError('Verification failed. Please try again.');
-      setIdVerifyResult({ is_valid_document: false, is_18_plus: false, dob_matches: false });
-    } finally {
-      setIsVerifyingId(false);
+      const { file_url } = await integrations.Core.UploadFile({ file });
+      setFormData((prev) => ({ ...prev, avatar_url: file_url }));
+      setUploadProgress((prev) => ({ ...prev, avatar_url: 'done' }));
+    } catch {
+      setUploadProgress((prev) => ({ ...prev, avatar_url: 'error' }));
+      setError('Failed to upload image');
     }
   };
 
@@ -139,24 +143,19 @@ export default function ProfileSetup() {
     return true;
   };
 
-  const isVerificationComplete = () => {
-    if (!idVerifyResult) return false;
-    return idVerifyResult.is_valid_document && idVerifyResult.is_18_plus && idVerifyResult.dob_matches;
-  };
-
   const completeOnboarding = async (options = {}) => {
     const { paymentCompleted = false } = options;
     setIsSubmitting(true);
     setError('');
     try {
-      const verified = isVerificationComplete();
+      const hasId = Boolean(formData.id_document_url?.trim());
       const payload = {
         username: formData.username,
         bio: formData.bio,
         city: formData.city,
         favorite_drink: formData.favorite_drink,
-        age_verified: verified,
-        verification_status: verified ? 'verified' : 'pending',
+        age_verified: false,
+        verification_status: hasId ? 'submitted' : 'pending',
         payment_setup_complete: paymentCompleted,
         onboarding_complete: true,
       };
@@ -241,7 +240,6 @@ export default function ProfileSetup() {
               onClick={(e) => {
                 e.preventDefault();
                 setFormData((prev) => ({ ...prev, [field]: '' }));
-                if (field === 'id_document_url') setIdVerifyResult(null);
               }}
               style={{
                 padding: 4,
@@ -401,9 +399,22 @@ export default function ProfileSetup() {
                       <Camera size={14} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
                     </div>
                   </div>
-                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload('avatar_url', e)} />
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={onPickAvatarImage} />
                 </label>
               </div>
+
+              <AvatarCropDialog
+                open={cropOpen}
+                onOpenChange={(o) => {
+                  setCropOpen(o);
+                  if (!o && cropSrc) {
+                    URL.revokeObjectURL(cropSrc);
+                    setCropSrc(null);
+                  }
+                }}
+                imageSrc={cropSrc}
+                onCropped={handleCroppedAvatar}
+              />
 
               <div>
                 <div style={labelStyle}>
@@ -519,7 +530,7 @@ export default function ProfileSetup() {
                 <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
                   Age verification
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>DOB & ID required</p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Add your date of birth and ID for admin review (optional now)</p>
               </div>
 
               <div>
@@ -529,68 +540,12 @@ export default function ProfileSetup() {
                 <Input
                   type="date"
                   value={formData.date_of_birth}
-                  onChange={(e) => {
-                    setFormData((prev) => ({ ...prev, date_of_birth: e.target.value }));
-                    setIdVerifyResult(null);
-                  }}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, date_of_birth: e.target.value }))}
                   style={inputStyle}
                 />
               </div>
 
               {renderFileUpload('id_document_url', 'ID document', '.pdf,.jpg,.jpeg,.png')}
-
-              {formData.date_of_birth && formData.id_document_url && (
-                <div>
-                  <button
-                    type="button"
-                    onClick={handleVerifyId}
-                    disabled={isVerifyingId}
-                    style={{
-                      width: '100%',
-                      height: 46,
-                      borderRadius: 'var(--radius-lg)',
-                      backgroundColor: 'var(--sec-accent)',
-                      color: '#000',
-                      fontWeight: 600,
-                      fontSize: 14,
-                      border: 'none',
-                      cursor: isVerifyingId ? 'not-allowed' : 'pointer',
-                      opacity: isVerifyingId ? 0.7 : 1,
-                    }}
-                  >
-                    {isVerifyingId ? 'Verifying…' : 'Verify ID'}
-                  </button>
-                </div>
-              )}
-
-              {idVerifyResult && (
-                <div
-                  style={{
-                    padding: 14,
-                    borderRadius: 'var(--radius-lg)',
-                    backgroundColor:
-                      idVerifyResult.is_valid_document && idVerifyResult.is_18_plus && idVerifyResult.dob_matches
-                        ? 'var(--sec-accent-muted)'
-                        : 'rgba(239,68,68,0.1)',
-                    border: `1px solid ${
-                      idVerifyResult.is_valid_document && idVerifyResult.is_18_plus && idVerifyResult.dob_matches
-                        ? 'var(--sec-accent-border)'
-                        : 'rgba(239,68,68,0.3)'
-                    }`,
-                  }}
-                >
-                  {idVerifyResult.is_valid_document && idVerifyResult.is_18_plus && idVerifyResult.dob_matches ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Check size={20} style={{ color: 'var(--sec-accent)' }} />
-                      <span style={{ fontSize: 14, color: 'var(--sec-text-primary)' }}>Verification passed</span>
-                    </div>
-                  ) : (
-                    <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)' }}>
-                      {idVerifyResult.reason || 'Verification failed. Please check your DOB and ID.'}
-                    </p>
-                  )}
-                </div>
-              )}
 
               <div
                 style={{
@@ -605,7 +560,7 @@ export default function ProfileSetup() {
               >
                 <Calendar size={16} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
                 <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: 0 }}>
-                  Verification can be completed later from your profile settings. Some features may be limited until verified.
+                  An administrator will review your ID. You can skip for now and upload from your profile later. Some features stay limited until you are verified.
                 </p>
               </div>
 
@@ -711,7 +666,7 @@ export default function ProfileSetup() {
                 gap: 8,
               }}
             >
-              {step === 3 ? (isVerificationComplete() ? 'Continue' : 'Verify later') : 'Continue'}
+              {step === 3 ? (formData.id_document_url ? 'Continue' : 'Verify later') : 'Continue'}
               <ChevronRight size={20} strokeWidth={2} />
             </button>
           ) : (

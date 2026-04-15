@@ -31,6 +31,8 @@ const NOTIFICATION_ICONS = {
   TABLE_JOINED: Users,
   friend_request: UserPlus,
   table_invite: Users,
+  TABLE_INVITE: Users,
+  IDENTITY_VERIFICATION_REMINDER: Bell,
   table_request: Users,
   table_update: Users,
   table_full: Users,
@@ -144,6 +146,10 @@ export default function Notifications() {
     else if (t === 'DIRECT_MESSAGE' && n.referenceId) navigate(`${createPageUrl('Messages')}?dm=${n.referenceId}`);
     else if ((t === 'GROUP_MESSAGE' || t === 'JOIN_REQUEST_ACCEPTED') && n.referenceId) {
       navigate(`${createPageUrl('Messages')}?group=${n.referenceId}`);
+    } else if (t === 'IDENTITY_VERIFICATION_REMINDER') {
+      navigate(createPageUrl('Profile'));
+    } else if (t === 'TABLE_INVITE' && n.referenceId) {
+      navigate(`${createPageUrl('TableDetails')}?id=${n.referenceId}`);
     }
   };
 

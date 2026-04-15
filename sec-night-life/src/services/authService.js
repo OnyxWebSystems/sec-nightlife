@@ -10,7 +10,9 @@ export async function getCurrentUser() {
     email: data.email,
     full_name: data.full_name,
     role: data.role,
-    verified: data.verified
+    verified: data.verified,
+    verification_status: data.verification_status ?? 'pending',
+    identity_verified: Boolean(data.identity_verified),
   };
 }
 

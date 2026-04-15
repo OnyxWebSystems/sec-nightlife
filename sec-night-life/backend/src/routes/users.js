@@ -345,15 +345,25 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
   }
 });
 
+/** HTTPS or data: URLs (dev uploads without Cloudinary) */
+const optionalMediaUrl = z
+  .string()
+  .max(8000)
+  .optional()
+  .nullable()
+  .refine((v) => v == null || v === '' || /^https?:\/\//i.test(v) || v.startsWith('data:'), {
+    message: 'Invalid URL',
+  });
+
 const profileUpdateSchema = z.object({
   username: z.string().max(100).optional().nullable(),
   full_name: z.string().max(200).optional().nullable(),
   bio: z.string().max(2000).optional().nullable(),
   city: z.string().max(100).optional().nullable(),
-  avatar_url: z.string().url().optional().nullable(),
+  avatar_url: optionalMediaUrl,
   favorite_drink: z.string().max(100).optional().nullable(),
   date_of_birth: z.string().max(20).optional().nullable(),
-  id_document_url: z.string().url().optional().nullable(),
+  id_document_url: optionalMediaUrl,
   age_verified: z.boolean().optional().nullable(),
   verification_status: z.enum(['pending', 'submitted', 'verified', 'rejected']).optional().nullable(),
   payment_setup_complete: z.boolean().optional().nullable(),
@@ -391,6 +401,7 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       id_document_url: profile?.idDocumentUrl,
       age_verified: profile?.ageVerified ?? false,
       verification_status: profile?.verificationStatus ?? 'pending',
+      verification_rejection_note: profile?.verificationRejectionNote ?? null,
       payment_setup_complete: profile?.paymentSetupComplete ?? false,
       is_verified_promoter: profile?.isVerifiedPromoter ?? false,
       interests: profile?.interests ?? [],
@@ -427,6 +438,7 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       }).catch(() => {});
     }
 
+    const isSelf = req.userId === user.id;
     const result = {
       id: profile?.id || user.id,
       created_by: user.email,
@@ -437,10 +449,11 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       city: profile?.city,
       avatar_url: profile?.avatarUrl,
       favorite_drink: profile?.favoriteDrink,
-      date_of_birth: profile?.dateOfBirth,
-      id_document_url: profile?.idDocumentUrl,
+      date_of_birth: isSelf ? profile?.dateOfBirth : profile?.dateOfBirth,
+      id_document_url: isSelf ? profile?.idDocumentUrl : null,
       age_verified: profile?.ageVerified ?? false,
       verification_status: profile?.verificationStatus ?? 'pending',
+      verification_rejection_note: isSelf ? profile?.verificationRejectionNote ?? null : null,
       payment_setup_complete: profile?.paymentSetupComplete ?? false,
       is_verified_promoter: profile?.isVerifiedPromoter ?? false,
       interests: profile?.interests ?? [],
@@ -651,7 +664,19 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
   try {
     const parsed = profileUpdateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-    const data = parsed.data;
+    const data = { ...parsed.data };
+    const staff = isStaff(req.userRole);
+    if (!staff) {
+      if (data.verification_status === 'verified') {
+        return res.status(403).json({ error: 'Identity verification is granted by administrators only.' });
+      }
+      if (data.age_verified === true) {
+        delete data.age_verified;
+      }
+      if (data.id_document_url && String(data.id_document_url).trim() !== '') {
+        data.verification_status = 'submitted';
+      }
+    }
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (data.full_name !== undefined) {
@@ -710,7 +735,10 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       avatar_url: profile.avatarUrl,
       favorite_drink: profile.favoriteDrink,
       date_of_birth: profile.dateOfBirth,
+      id_document_url: profile.idDocumentUrl,
+      age_verified: profile.ageVerified ?? false,
       verification_status: profile.verificationStatus,
+      verification_rejection_note: profile.verificationRejectionNote,
       payment_setup_complete: profile.paymentSetupComplete,
       interests: profile.interests ?? [],
       music_preferences: profile.musicPreferences ?? [],
@@ -728,7 +756,19 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     const id = req.params.id;
     const parsed = profileUpdateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-    const data = parsed.data;
+    const data = { ...parsed.data };
+    const staff = isStaff(req.userRole);
+    if (!staff) {
+      if (data.verification_status === 'verified') {
+        return res.status(403).json({ error: 'Identity verification is granted by administrators only.' });
+      }
+      if (data.age_verified === true) {
+        delete data.age_verified;
+      }
+      if (data.id_document_url && String(data.id_document_url).trim() !== '') {
+        data.verification_status = 'submitted';
+      }
+    }
     const profile = await prisma.userProfile.findFirst({
       where: { OR: [{ userId: id }, { id }] }
     });
@@ -791,7 +831,10 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       avatar_url: updated.avatarUrl,
       favorite_drink: updated.favoriteDrink,
       date_of_birth: updated.dateOfBirth,
+      id_document_url: updated.idDocumentUrl,
+      age_verified: updated.ageVerified ?? false,
       verification_status: updated.verificationStatus,
+      verification_rejection_note: updated.verificationRejectionNote,
       payment_setup_complete: updated.paymentSetupComplete,
       interests: updated.interests ?? [],
       music_preferences: updated.musicPreferences ?? [],

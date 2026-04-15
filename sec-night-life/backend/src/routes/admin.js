@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireAdmin, requireStaff } from '../middleware/rbac.js';
 import { auditFromReq } from '../lib/audit.js';
+import { privateDownloadUrl, signCloudinaryUrl } from '../lib/cloudinarySignedUrl.js';
 
 const router = Router();
 
@@ -356,9 +357,14 @@ router.get('/verification/users', async (req, res, next) => {
   try {
     const { status = 'pending', limit = 50, offset = 0 } = req.query;
     const where = { user: { deletedAt: null } };
-    if (status) {
+    // Queue: awaiting admin review — submitted, or legacy pending + ID on file
+    if (status === 'pending' || status === 'queue') {
+      where.OR = [
+        { verificationStatus: 'submitted' },
+        { AND: [{ verificationStatus: 'pending' }, { idDocumentUrl: { not: null } }] },
+      ];
+    } else if (status) {
       where.verificationStatus = String(status);
-      if (status === 'pending') where.idDocumentUrl = { not: null };
     }
 
     const profiles = await prisma.userProfile.findMany({
@@ -375,10 +381,37 @@ router.get('/verification/users', async (req, res, next) => {
   }
 });
 
+router.get('/verification/users/:userId/id-document', async (req, res, next) => {
+  try {
+    const profile = await prisma.userProfile.findUnique({
+      where: { userId: req.params.userId },
+      select: { id: true, idDocumentUrl: true, userId: true },
+    });
+    const fileUrl = profile?.idDocumentUrl;
+    if (!fileUrl) return res.status(404).json({ error: 'No ID document on file' });
+
+    const viewUrl = fileUrl
+      ? privateDownloadUrl(fileUrl) || signCloudinaryUrl(fileUrl) || fileUrl
+      : null;
+
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'USER_ID_DOCUMENT_VIEWED',
+      entityType: 'user_profile',
+      entityId: profile.id,
+      metadata: { targetUserId: req.params.userId },
+    });
+
+    res.json({ viewUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.patch('/verification/users/:userId', async (req, res, next) => {
   try {
     const { status, note } = z.object({
-      status: z.enum(['approved', 'rejected']),
+      status: z.enum(['verified', 'rejected']),
       note: z.string().max(500).optional().nullable(),
     }).parse(req.body);
 
@@ -387,7 +420,7 @@ router.patch('/verification/users/:userId', async (req, res, next) => {
       data: {
         verificationStatus: status,
         verificationRejectionNote: status === 'rejected' ? (note || null) : null,
-        ageVerified: status === 'approved',
+        ageVerified: status === 'verified',
       },
     });
 
@@ -482,7 +515,14 @@ router.get('/dashboard', async (req, res, next) => {
       prisma.report.count({ where: { status: 'pending', priority: 'high' } }),
       prisma.venue.count({ where: { deletedAt: null } }),
       prisma.venue.count({ where: { complianceStatus: 'pending', deletedAt: null } }),
-      prisma.userProfile.count({ where: { verificationStatus: 'pending', idDocumentUrl: { not: null } } }),
+      prisma.userProfile.count({
+        where: {
+          OR: [
+            { verificationStatus: 'submitted' },
+            { AND: [{ verificationStatus: 'pending' }, { idDocumentUrl: { not: null } }] },
+          ],
+        },
+      }),
       prisma.payment.aggregate({ where: { status: 'success' }, _sum: { amount: true }, _count: true }),
       prisma.auditLog.findMany({
         orderBy: { createdAt: 'desc' },

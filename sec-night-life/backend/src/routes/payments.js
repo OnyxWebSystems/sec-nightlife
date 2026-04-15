@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { userHasIdentityVerified } from '../middleware/requireIdentityVerified.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
@@ -271,6 +272,13 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
     const meta = d.metadata || {};
     const type = meta.type || (d.venue_id && meta.promotion_id ? 'promotion' : d.event_id ? 'event' : 'table') || 'other';
 
+    if (type === 'table' && !(await userHasIdentityVerified(req.userId))) {
+      return res.status(403).json({
+        error: 'Identity verification required to pay for table bookings.',
+        code: 'IDENTITY_NOT_VERIFIED',
+      });
+    }
+
     // Create Payment (pending)
     await prisma.payment.create({
       data: {
@@ -332,6 +340,12 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
     const reference = crypto.randomBytes(16).toString('hex');
     const meta = d.metadata || {};
     const type = meta.type || (meta.promotion_id ? 'promotion' : d.event_id ? 'event' : 'table') || 'other';
+    if (type === 'table' && !(await userHasIdentityVerified(req.userId))) {
+      return res.status(403).json({
+        error: 'Identity verification required to pay for table bookings.',
+        code: 'IDENTITY_NOT_VERIFIED',
+      });
+    }
     await prisma.payment.create({
       data: { userId: req.userId, email, amount: d.amount, reference, status: 'pending', type: PAYMENT_TYPES.includes(type) ? type : 'other', metadata: { description: d.description, venue_id: d.venue_id, event_id: d.event_id, ...meta } },
     });

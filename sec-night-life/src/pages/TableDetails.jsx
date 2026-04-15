@@ -17,6 +17,8 @@ import {
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import { motion } from 'framer-motion';
 import { getEventImage } from '@/lib/placeholders';
+import { isIdentityVerifiedUser } from '@/lib/identityVerification';
+import { toast } from 'sonner';
 
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 
@@ -220,7 +222,8 @@ export default function TableDetails() {
     onSuccess: () => { queryClient.invalidateQueries(['table', tableId]); },
   });
 
-  const isHost = userProfile?.id === table?.host_user_id;
+  const isHost = user?.id === table?.host_user_id;
+  const identityOk = isIdentityVerifiedUser(user, userProfile);
   const isMember = table?.members?.some(m => m.user_id === userProfile?.id);
   const isPending = table?.pending_requests?.includes(userProfile?.id);
   const spotsLeft = (table?.max_guests || 10) - (table?.current_guests || 1);
@@ -558,9 +561,23 @@ export default function TableDetails() {
           {isHost ? (
             <>
               <button
-                onClick={() => setShowInviteDialog(true)}
+                onClick={() => {
+                  if (!identityOk) {
+                    toast.error('Verify your identity in Profile to invite guests.');
+                    return;
+                  }
+                  setShowInviteDialog(true);
+                }}
                 className="sec-btn sec-btn-secondary"
-                style={{ width: 48, height: 48, padding: 0, flexShrink: 0, borderRadius: 'var(--radius-pill)' }}
+                style={{
+                  width: 48,
+                  height: 48,
+                  padding: 0,
+                  flexShrink: 0,
+                  borderRadius: 'var(--radius-pill)',
+                  opacity: identityOk ? 1 : 0.45,
+                }}
+                title={!identityOk ? 'Identity verification required' : 'Invite friends'}
               >
                 <UserPlus size={18} strokeWidth={1.5} />
               </button>

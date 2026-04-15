@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
+import { apiPost } from '@/api/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Search,
@@ -61,25 +62,17 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event }
 
   const inviteMutation = useMutation({
     mutationFn: async () => {
-      for (const friendId of selectedFriends) {
-        await dataService.Notification.create({
-          user_id: friendId,
-          type: 'table_invite',
-          title: 'Table Invitation',
-          message: `${userProfile.username || user.full_name} invited you to join their table at ${event?.title}`,
-          data: { 
-            table_id: table.id,
-            event_id: event?.id,
-            from_user_id: userProfile.id
-          },
-          action_url: `/table-details?id=${table.id}`
-        });
-      }
+      await apiPost(`/api/tables/${table.id}/invite`, {
+        recipient_ids: selectedFriends,
+      });
     },
     onSuccess: () => {
       toast.success(`Invited ${selectedFriends.length} friend${selectedFriends.length > 1 ? 's' : ''}!`);
       setSelectedFriends([]);
       onOpenChange(false);
+    },
+    onError: (err) => {
+      toast.error(err?.data?.error || err?.message || 'Could not send invites');
     },
   });
 

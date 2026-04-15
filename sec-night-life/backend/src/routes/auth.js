@@ -10,6 +10,8 @@ import { logger } from '../lib/logger.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../lib/email.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validateUsernameFormat } from '../lib/username.js';
+import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
 
 const router = Router();
 const SALT_ROUNDS = 12;
@@ -63,13 +65,14 @@ async function issueTokens(user) {
   return { accessToken, refreshToken: rawRefresh };
 }
 
-function userPayload(user) {
+function userPayload(user, profileExtras = {}) {
   return {
     id: user.id,
     email: user.email,
     full_name: user.fullName,
     role: user.role,
-    verified: user.emailVerified
+    verified: user.emailVerified,
+    ...profileExtras,
   };
 }
 
@@ -403,8 +406,39 @@ router.post('/login', async (req, res, next) => {
       ipAddress: getIp(req)
     });
 
+    const profile = await prisma.userProfile.findUnique({
+      where: { userId: user.id },
+      select: { verificationStatus: true },
+    });
+    const vStatus = profile?.verificationStatus ?? 'pending';
+    if (!isIdentityVerifiedStatus(vStatus)) {
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recent = await prisma.inAppNotification.findFirst({
+        where: {
+          userId: user.id,
+          type: 'IDENTITY_VERIFICATION_REMINDER',
+          read: false,
+          createdAt: { gte: dayAgo },
+        },
+        select: { id: true },
+      });
+      if (!recent) {
+        await createInAppNotification({
+          userId: user.id,
+          type: 'IDENTITY_VERIFICATION_REMINDER',
+          title: 'Complete identity verification',
+          body: 'You are not verified yet. Open Profile to upload your ID when you are ready.',
+          referenceId: '/Profile',
+          referenceType: 'ROUTE',
+        });
+      }
+    }
+
     res.json({
-      user: userPayload(user),
+      user: userPayload(user, {
+        verification_status: vStatus,
+        identity_verified: isIdentityVerifiedStatus(vStatus),
+      }),
       accessToken,
       refreshToken,
       expiresIn: 900
@@ -557,8 +591,17 @@ router.post('/refresh', async (req, res, next) => {
     await prisma.refreshToken.delete({ where: { id: matched.id } });
     const { accessToken, refreshToken: newRefreshToken } = await issueTokens(user);
 
+    const prof = await prisma.userProfile.findUnique({
+      where: { userId: user.id },
+      select: { verificationStatus: true },
+    });
+    const vSt = prof?.verificationStatus ?? 'pending';
+
     res.json({
-      user: userPayload(user),
+      user: userPayload(user, {
+        verification_status: vSt,
+        identity_verified: isIdentityVerifiedStatus(vSt),
+      }),
       accessToken,
       refreshToken: newRefreshToken,
       expiresIn: 900
@@ -684,10 +727,20 @@ router.get('/me', async (req, res, next) => {
   try {
     const payload = jwt.verify(token, JWT_ACCESS_SECRET);
     const user = await prisma.user.findUnique({
-      where: { id: payload.userId, deletedAt: null }
+      where: { id: payload.userId, deletedAt: null },
     });
     if (!user) return res.status(401).json({ error: 'User not found' });
-    res.json(userPayload(user));
+    const profile = await prisma.userProfile.findUnique({
+      where: { userId: user.id },
+      select: { verificationStatus: true },
+    });
+    const vStatus = profile?.verificationStatus ?? 'pending';
+    res.json(
+      userPayload(user, {
+        verification_status: vStatus,
+        identity_verified: isIdentityVerifiedStatus(vStatus),
+      }),
+    );
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }

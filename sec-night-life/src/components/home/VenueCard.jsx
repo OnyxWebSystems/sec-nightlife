@@ -25,7 +25,9 @@ export default function VenueCard({ venue }) {
       >
         {/* Image container */}
         <div style={{
-          height: 130,
+          width: '100%',
+          aspectRatio: '2 / 1',
+          maxHeight: 140,
           borderRadius: 'var(--radius-lg)',
           overflow: 'hidden',
           backgroundColor: 'var(--sec-bg-card)',
@@ -38,7 +40,7 @@ export default function VenueCard({ venue }) {
             alt={venue.name}
             onError={() => setImgError(true)}
             style={{
-              width: '100%', height: '100%', objectFit: 'cover',
+              width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center',
               transition: 'transform 0.35s ease', display: 'block',
             }}
             loading="lazy"

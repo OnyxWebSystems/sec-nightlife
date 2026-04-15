@@ -25,7 +25,9 @@ export const AuthProvider = ({ children }) => {
         email: currentUser.email,
         full_name: currentUser.full_name,
         role: currentUser.role,
-        verified: currentUser.verified
+        verified: currentUser.verified,
+        verification_status: currentUser.verification_status,
+        identity_verified: currentUser.identity_verified,
       });
       setIsAuthenticated(true);
     } catch (err) {

@@ -18,10 +18,13 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
+import { isIdentityVerifiedUser } from '@/lib/identityVerification';
 
 export default function CreateHostEvent() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -39,16 +42,24 @@ export default function CreateHostEvent() {
       try {
         const u = await authService.getCurrentUser();
         setUser(u);
+        const profiles = await dataService.User.filter({ created_by: u.email });
+        if (profiles[0]) setUserProfile(profiles[0]);
       } catch {
         authService.redirectToLogin(createPageUrl('CreateHostEvent'));
       }
     })();
   }, []);
 
+  const identityOk = isIdentityVerifiedUser(user, userProfile);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.title || !formData.date) {
       toast.error('Title and date are required');
+      return;
+    }
+    if (!identityOk) {
+      toast.error('Verify your identity in Profile before hosting an event.');
       return;
     }
     setIsSubmitting(true);
@@ -79,6 +90,14 @@ export default function CreateHostEvent() {
 
   return (
     <div style={{ minHeight: '100vh', paddingBottom: 168, backgroundColor: 'var(--sec-bg-base)' }}>
+      {!identityOk && (
+        <div style={{ padding: '12px 20px', backgroundColor: 'var(--sec-bg-card)', borderBottom: '1px solid var(--sec-border)', fontSize: 13, color: 'var(--sec-text-secondary)' }}>
+          Identity verification is required to host events.{' '}
+          <Link to={createPageUrl('EditProfile')} style={{ color: 'var(--sec-accent)', fontWeight: 600 }}>
+            Upload your ID
+          </Link>
+        </div>
+      )}
       <header
         style={{
           position: 'sticky',

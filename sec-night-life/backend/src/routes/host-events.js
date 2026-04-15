@@ -6,6 +6,8 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { ensureUserRole } from '../lib/userRoles.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
+import { requireVerified } from '../middleware/requireVerified.js';
+import { requireIdentityVerified } from '../middleware/requireIdentityVerified.js';
 
 const router = Router();
 
@@ -56,7 +58,7 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
   }
 });
 
-router.post('/', authenticateToken, async (req, res, next) => {
+router.post('/', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
   try {
     const { title, description, date, location, city, capacity, entry_cost, guest_approval_required, status } = req.body;
     if (!title || !date) return res.status(400).json({ error: 'Title and date required' });

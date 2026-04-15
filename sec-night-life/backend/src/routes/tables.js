@@ -9,14 +9,23 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { requireVerified } from '../middleware/requireVerified.js';
+import { requireIdentityVerified } from '../middleware/requireIdentityVerified.js';
 import { applyTableVenueIsolation, canAccessVenue, isStaff } from '../lib/access.js';
 import { auditFromReq } from '../lib/audit.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
 import { addUserToEventGroupChat } from '../lib/groupChatHelpers.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
+import { createInAppNotification } from '../lib/inAppNotifications.js';
 
 const router = Router();
+
+async function resolveUserIdFromProfileOrUser(id) {
+  const user = await prisma.user.findFirst({ where: { id, deletedAt: null }, select: { id: true } });
+  if (user) return user.id;
+  const profile = await prisma.userProfile.findFirst({ where: { id }, select: { userId: true } });
+  return profile?.userId || null;
+}
 
 const tableCreateSchema = z.object({
   event_id: z.string().uuid(),
@@ -163,7 +172,7 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
 });
 
 // SECURITY: email must be verified to create, join, or leave tables
-router.post('/', authenticateToken, requireVerified, async (req, res, next) => {
+router.post('/', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
   try {
     const parsed = tableCreateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
@@ -220,11 +229,64 @@ router.post('/', authenticateToken, requireVerified, async (req, res, next) => {
   }
 });
 
+const tableInviteSchema = z.object({
+  recipient_ids: z.array(z.string().uuid()).min(1).max(50),
+});
+
+/** Host invites friends by profile id or user id — creates in-app notifications for recipients */
+router.post('/:id/invite', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
+  try {
+    const parsed = tableInviteSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+    const tableId = req.params.id;
+    const table = await prisma.table.findFirst({
+      where: { id: tableId, deletedAt: null },
+      include: { event: { select: { title: true } } },
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    if (table.hostUserId !== req.userId && !isStaff(req.userRole)) {
+      return res.status(403).json({ error: 'Only the table host can send invites' });
+    }
+
+    const hostProfile = await prisma.userProfile.findUnique({
+      where: { userId: req.userId },
+      select: { username: true, id: true },
+    });
+    const hostUser = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { fullName: true },
+    });
+    const hostLabel = hostProfile?.username || hostUser?.fullName || 'Someone';
+    const eventTitle = table.event?.title || 'an event';
+
+    let sent = 0;
+    for (const rawId of parsed.data.recipient_ids) {
+      const targetUserId = await resolveUserIdFromProfileOrUser(rawId);
+      if (!targetUserId || targetUserId === req.userId) continue;
+
+      await createInAppNotification({
+        userId: targetUserId,
+        type: 'TABLE_INVITE',
+        title: 'Table invitation',
+        body: `${hostLabel} invited you to join their table at ${eventTitle}`,
+        referenceId: table.id,
+        referenceType: 'TABLE',
+      });
+      sent += 1;
+    }
+
+    res.json({ success: true, sent });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * Request to join a table (adds to pending requests).
  * Used for approval-based flows.
  */
-router.post('/:id/request-join', authenticateToken, requireVerified, async (req, res, next) => {
+router.post('/:id/request-join', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
   try {
     const tableId = req.params.id;
     const userId = req.userId;
@@ -281,7 +343,7 @@ router.post('/:id/request-join', authenticateToken, requireVerified, async (req,
 /**
  * Approve a pending join request.
  */
-router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified, async (req, res, next) => {
+router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
   try {
     const tableId = req.params.id;
     const targetUserId = req.params.userId;
@@ -379,7 +441,7 @@ router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified,
 /**
  * Reject a pending join request.
  */
-router.post('/:id/requests/:userId/reject', authenticateToken, requireVerified, async (req, res, next) => {
+router.post('/:id/requests/:userId/reject', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
   try {
     const tableId = req.params.id;
     const targetUserId = req.params.userId;
@@ -427,7 +489,7 @@ router.post('/:id/requests/:userId/reject', authenticateToken, requireVerified, 
 /**
  * Remove a member from a table (host/venue owner/staff).
  */
-router.post('/:id/members/:userId/remove', authenticateToken, requireVerified, async (req, res, next) => {
+router.post('/:id/members/:userId/remove', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
   try {
     const tableId = req.params.id;
     const targetUserId = req.params.userId;
@@ -500,7 +562,7 @@ router.post('/:id/members/:userId/remove', authenticateToken, requireVerified, a
  * Join a table — atomic capacity enforcement, no duplicate joins.
  * SECURITY: Uses DB transaction to prevent race conditions.
  */
-router.post('/:id/join', authenticateToken, requireVerified, async (req, res, next) => {
+router.post('/:id/join', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
   try {
     const tableId = req.params.id;
     const userId = req.userId;
@@ -589,7 +651,7 @@ router.post('/:id/join', authenticateToken, requireVerified, async (req, res, ne
 /**
  * Leave a table.
  */
-router.post('/:id/leave', authenticateToken, requireVerified, async (req, res, next) => {
+router.post('/:id/leave', authenticateToken, requireVerified, requireIdentityVerified, async (req, res, next) => {
   try {
     const tableId = req.params.id;
     const userId = req.userId;

@@ -4,7 +4,9 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { integrations } from '@/services/integrationService';
 import { apiGet, apiPatch } from '@/api/client';
-import { ChevronLeft, Camera, User, MapPin, Wine, FileText, BadgeCheck, Loader2, Check, X } from 'lucide-react';
+import { ChevronLeft, Camera, User, MapPin, Wine, FileText, BadgeCheck, Loader2, Check, X, Upload, Calendar } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import AvatarCropDialog from '@/components/profile/AvatarCropDialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -34,7 +36,12 @@ export default function EditProfile() {
     city: '',
     favorite_drink: '',
     avatar_url: '',
+    date_of_birth: '',
+    id_document_url: '',
   });
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropSrc, setCropSrc] = useState(null);
+  const [idUploading, setIdUploading] = useState(false);
 
   const normalizedUsername = useMemo(
     () => formData.username.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''),
@@ -83,6 +90,8 @@ export default function EditProfile() {
         city: profile.city || '',
         favorite_drink: profile.favorite_drink || '',
         avatar_url: profile.avatar_url || '',
+        date_of_birth: profile.date_of_birth || '',
+        id_document_url: profile.id_document_url || '',
       });
     } catch {
       authService.redirectToLogin();
@@ -91,14 +100,40 @@ export default function EditProfile() {
     }
   };
 
-  const handleImageUpload = async (e) => {
+  const onPickAvatarImage = (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !file.type.startsWith('image/')) {
+      if (file) toast.error('Please choose an image file');
+      return;
+    }
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(URL.createObjectURL(file));
+    setCropOpen(true);
+    e.target.value = '';
+  };
+
+  const handleCroppedAvatar = async (file) => {
     try {
       const { file_url } = await integrations.Core.UploadFile({ file });
       setFormData((prev) => ({ ...prev, avatar_url: file_url }));
+      toast.success('Photo ready — save to apply');
     } catch {
       toast.error('Failed to upload image');
+    }
+  };
+
+  const handleIdUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIdUploading(true);
+    try {
+      const { file_url } = await integrations.Core.UploadFile({ file });
+      setFormData((prev) => ({ ...prev, id_document_url: file_url }));
+      toast.success('ID uploaded — save to submit for review');
+    } catch {
+      toast.error('Failed to upload document');
+    } finally {
+      setIdUploading(false);
     }
   };
 
@@ -109,14 +144,17 @@ export default function EditProfile() {
     }
     setIsSaving(true);
     try {
-      await apiPatch('/api/users/profile', {
+      const updated = await apiPatch('/api/users/profile', {
         full_name: formData.full_name.trim(),
         username: normalizedUsername,
         bio: formData.bio,
         city: formData.city || null,
         favorite_drink: formData.favorite_drink || null,
         avatar_url: formData.avatar_url || null,
+        date_of_birth: formData.date_of_birth || null,
+        id_document_url: formData.id_document_url || null,
       });
+      setUserProfile((prev) => (prev ? { ...prev, ...updated } : prev));
       toast.success('Profile updated');
       navigate(createPageUrl('Profile'));
     } catch (err) {
@@ -215,9 +253,22 @@ export default function EditProfile() {
                 <Camera size={14} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
               </div>
             </div>
-            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={onPickAvatarImage} />
           </label>
         </div>
+
+        <AvatarCropDialog
+          open={cropOpen}
+          onOpenChange={(o) => {
+            setCropOpen(o);
+            if (!o && cropSrc) {
+              URL.revokeObjectURL(cropSrc);
+              setCropSrc(null);
+            }
+          }}
+          imageSrc={cropSrc}
+          onCropped={handleCroppedAvatar}
+        />
 
         {userProfile?.is_verified_promoter && (
           <div style={{
@@ -403,6 +454,96 @@ export default function EditProfile() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid var(--sec-border)',
+              backgroundColor: 'var(--sec-bg-card)',
+            }}
+          >
+            <div style={{ ...labelStyle, marginBottom: 12 }}>
+              <BadgeCheck size={12} strokeWidth={2} />
+              Identity verification
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginBottom: 12 }}>
+              Status:{' '}
+              <strong style={{ color: 'var(--sec-text-primary)' }}>
+                {userProfile?.verification_status === 'verified' || userProfile?.verification_status === 'approved'
+                  ? 'Verified'
+                  : userProfile?.verification_status === 'submitted'
+                    ? 'Pending review'
+                    : userProfile?.verification_status === 'rejected'
+                      ? 'Rejected'
+                      : 'Not verified'}
+              </strong>
+            </p>
+            {userProfile?.verification_rejection_note && userProfile?.verification_status === 'rejected' ? (
+              <p style={{ fontSize: 12, color: '#f87171', marginBottom: 12 }}>
+                {userProfile.verification_rejection_note}
+              </p>
+            ) : null}
+            {userProfile?.verification_status !== 'verified' && userProfile?.verification_status !== 'approved' ? (
+              <>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={labelStyle}>
+                    <Calendar size={12} strokeWidth={2} /> Date of birth
+                  </div>
+                  <Input
+                    type="date"
+                    value={formData.date_of_birth}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, date_of_birth: e.target.value }))}
+                    style={{
+                      height: 46,
+                      backgroundColor: 'var(--sec-bg-elevated)',
+                      border: '1px solid var(--sec-border)',
+                      borderRadius: 'var(--radius-md)',
+                      color: 'var(--sec-text-primary)',
+                      fontSize: 14,
+                      paddingLeft: 14,
+                    }}
+                  />
+                </div>
+                <div>
+                  <div style={labelStyle}>
+                    <FileText size={12} strokeWidth={2} /> ID document
+                  </div>
+                  <label style={{ cursor: idUploading ? 'wait' : 'pointer', display: 'block' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '12px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--sec-border)',
+                        backgroundColor: 'var(--sec-bg-elevated)',
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: 'var(--sec-text-secondary)' }}>
+                        {idUploading ? 'Uploading…' : formData.id_document_url ? 'Document attached' : 'Upload PDF or image'}
+                      </span>
+                      <Upload size={18} style={{ color: 'var(--sec-text-muted)' }} />
+                    </div>
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      style={{ display: 'none' }}
+                      disabled={idUploading}
+                      onChange={handleIdUpload}
+                    />
+                  </label>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>
+                  After you save, your ID is sent for admin review.{' '}
+                  <Link to={createPageUrl('Profile')} style={{ color: 'var(--sec-accent)' }}>
+                    Open Profile
+                  </Link>
+                </p>
+              </>
+            ) : null}
           </div>
         </div>
 
