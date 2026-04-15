@@ -11,7 +11,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       ratee_user_id: z.string().min(1),
       score: z.number().int().min(1).max(5),
       message: z.string().max(2000).optional().nullable(),
-      context_type: z.enum(['job', 'host_event', 'event']),
+      context_type: z.enum(['job', 'host_event', 'event', 'table']),
       context_id: z.string().min(1),
     });
     const parsed = schema.safeParse(req.body || {});
@@ -48,7 +48,22 @@ router.post('/', authenticateToken, async (req, res, next) => {
       // venue-owned events only (for now)
       const venue = await prisma.venue.findFirst({ where: { id: ev.venueId, deletedAt: null } });
       if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    } else if (d.context_type === 'table') {
+      const table = await prisma.table.findFirst({ where: { id: d.context_id, deletedAt: null } });
+      if (!table) return res.status(404).json({ error: 'Table not found' });
+      if (table.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     }
+
+    const existing = await prisma.serviceRating.findFirst({
+      where: {
+        raterUserId: req.userId,
+        rateeUserId: d.ratee_user_id,
+        contextType: d.context_type,
+        contextId: d.context_id,
+      },
+      select: { id: true },
+    });
+    if (existing) return res.status(409).json({ error: 'You already rated this promoter for this context.' });
 
     await prisma.serviceRating.create({
       data: {

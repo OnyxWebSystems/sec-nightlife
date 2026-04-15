@@ -95,7 +95,7 @@ export async function sendIdVerificationApprovedEmail(to, fullName) {
   await sendEmail({
     to,
     subject: 'Your SEC ID verification was approved',
-    text: `Hi ${name},\n\nGreat news — your ID verification has been approved. You can now access verified-only actions in SEC Nightlife.\n\nOpen your profile settings here: ${link}`,
+    text: `Hi ${name},\n\nGreat news — your ID verification has been approved. You can now access verified-only actions in SEC Nightlife.\n\nImportant: open Edit Profile and press Save to ensure your profile is fully updated.\n\nOpen your profile settings here: ${link}`,
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
         <h2 style="color:#fff;background:#111;padding:24px;margin:0;">SEC Nightlife</h2>
@@ -103,6 +103,7 @@ export async function sendIdVerificationApprovedEmail(to, fullName) {
           <h3>ID verification approved</h3>
           <p>Hi <strong>${name}</strong>,</p>
           <p>Your identity document has been approved. You now have access to verified features.</p>
+          <p><strong>Important:</strong> please open Edit Profile and press <strong>Save</strong> to ensure your profile is fully updated.</p>
           <a href="${link}" style="display:inline-block;padding:12px 28px;background:#fff;color:#000;font-weight:700;border-radius:6px;text-decoration:none;margin:16px 0;">
             Open Edit Profile
           </a>

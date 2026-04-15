@@ -85,6 +85,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import AppPreferences from './pages/AppPreferences';
 import Privacy from './pages/Privacy';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import PromoterCodeOfConduct from './pages/PromoterCodeOfConduct';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import TermsOfService from './pages/TermsOfService';
@@ -138,6 +139,7 @@ export const PAGES = {
     "AppPreferences": AppPreferences,
     "Privacy": Privacy,
     "PrivacyPolicy": PrivacyPolicy,
+    "PromoterCodeOfConduct": PromoterCodeOfConduct,
     "Profile": Profile,
     "Settings": Settings,
     "TermsOfService": TermsOfService,

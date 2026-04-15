@@ -15,32 +15,12 @@ export default function RatePromoterDialog({ isOpen, onClose, promoter, context,
 
   const rateMutation = useMutation({
     mutationFn: async () => {
-      // Calculate new average
-      const currentTotal = (promoter.promoter_avg_rating || 0) * (promoter.promoter_rating_count || 0);
-      const newCount = (promoter.promoter_rating_count || 0) + 1;
-      const newAverage = (currentTotal + rating) / newCount;
-
-      // Update promoter stats
-      const updates = {
-        promoter_avg_rating: newAverage,
-        promoter_rating_count: newCount
-      };
-
-      if (context === 'job') {
-        updates.promoter_job_rating_count = (promoter.promoter_job_rating_count || 0) + 1;
-      } else if (context === 'table') {
-        updates.promoter_table_rating_count = (promoter.promoter_table_rating_count || 0) + 1;
-      }
-
-      await dataService.User.update(promoter.id, updates);
-
-      // Create notification
-      await dataService.Notification.create({
-        user_id: promoter.id,
-        type: 'system',
-        title: 'New Rating Received',
-        message: `You received a ${rating}-star rating${comment ? ': "' + comment + '"' : ''}`,
-        data: { context, contextId, rating }
+      await dataService.Rating.create({
+        ratee_user_id: promoter.id,
+        score: rating,
+        message: comment || null,
+        context_type: context === 'table' ? 'table' : context,
+        context_id: contextId,
       });
     },
     onSuccess: () => {

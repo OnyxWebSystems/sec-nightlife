@@ -449,7 +449,7 @@ router.patch('/verification/users/:userId', async (req, res, next) => {
           userId: targetUser.id,
           type: 'IDENTITY_VERIFICATION_REMINDER',
           title: 'ID verification approved',
-          body: 'Your ID has been approved. You can now access verified-only features.',
+          body: 'Your ID has been approved. Please open Edit Profile and press Save to ensure your profile updates.',
           referenceId: '/EditProfile',
           referenceType: 'ROUTE',
         });
@@ -658,6 +658,70 @@ router.get('/dashboard', async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  }
+});
+
+// ── Leaderboard Moderation ─────────────────────────────────────────────────
+router.get('/leaderboard/promoters', async (req, res, next) => {
+  try {
+    const profiles = await prisma.userProfile.findMany({
+      where: { isVerifiedPromoter: true },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        user: {
+          select: { id: true, username: true, fullName: true, email: true, suspendedAt: true },
+        },
+      },
+      take: 200,
+    });
+    return res.json({
+      profiles: profiles.map((p) => ({
+        userId: p.userId,
+        username: p.user?.username || p.username || p.user?.fullName || 'Unknown',
+        email: p.user?.email || null,
+        isVerifiedPromoter: p.isVerifiedPromoter,
+        leaderboardHidden: p.leaderboardHidden,
+        leaderboardHiddenReason: p.leaderboardHiddenReason,
+        leaderboardHiddenUntil: p.leaderboardHiddenUntil,
+      })),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/leaderboard/promoters/:userId/visibility', async (req, res, next) => {
+  try {
+    const schema = z.object({
+      hidden: z.boolean(),
+      reason: z.string().max(500).optional().nullable(),
+      hiddenUntil: z.coerce.date().optional().nullable(),
+    });
+    const parsed = schema.parse(req.body || {});
+    const updated = await prisma.userProfile.update({
+      where: { userId: req.params.userId },
+      data: {
+        leaderboardHidden: parsed.hidden,
+        leaderboardHiddenReason: parsed.hidden ? parsed.reason || 'Removed by moderation' : null,
+        leaderboardHiddenUntil: parsed.hidden ? parsed.hiddenUntil || null : null,
+      },
+    });
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: parsed.hidden ? 'LEADERBOARD_PROMOTER_HIDDEN' : 'LEADERBOARD_PROMOTER_REINSTATED',
+      entityType: 'user_profile',
+      entityId: updated.id,
+      metadata: { targetUserId: req.params.userId, reason: parsed.reason || null, hiddenUntil: parsed.hiddenUntil || null },
+    });
+    return res.json({
+      success: true,
+      userId: req.params.userId,
+      leaderboardHidden: updated.leaderboardHidden,
+      leaderboardHiddenReason: updated.leaderboardHiddenReason,
+      leaderboardHiddenUntil: updated.leaderboardHiddenUntil,
+    });
+  } catch (err) {
+    return next(err);
   }
 });
 

@@ -103,12 +103,18 @@ async function canAccessAdminDashboard(user) {
 
 async function ensureIdentityReminderNotification(userId, verificationStatus) {
   if (!userId || isIdentityVerifiedStatus(verificationStatus)) return;
-  // One-time reminder only: if it ever exists in either table, do not create again.
+  const isSubmitted = verificationStatus === 'submitted';
+  const title = isSubmitted ? 'ID verification in review' : 'Complete identity verification';
+  const body = isSubmitted
+    ? 'Your ID was uploaded successfully and is currently being reviewed for approval.'
+    : 'You are not verified yet. Open Edit Profile to upload your ID when you are ready.';
+  // One-time reminder per message type/state.
   const [existingInApp, existingLegacy] = await Promise.all([
     prisma.inAppNotification.findFirst({
       where: {
         userId,
         type: 'IDENTITY_VERIFICATION_REMINDER',
+        title,
       },
       select: { id: true },
     }),
@@ -116,6 +122,7 @@ async function ensureIdentityReminderNotification(userId, verificationStatus) {
       where: {
         userId,
         type: 'IDENTITY_VERIFICATION_REMINDER',
+        title,
       },
       select: { id: true },
     }),
@@ -124,8 +131,8 @@ async function ensureIdentityReminderNotification(userId, verificationStatus) {
     await createInAppNotification({
       userId,
       type: 'IDENTITY_VERIFICATION_REMINDER',
-      title: 'Complete identity verification',
-      body: 'You are not verified yet. Open Edit Profile to upload your ID when you are ready.',
+      title,
+      body,
       referenceId: '/EditProfile',
       referenceType: 'ROUTE',
     });

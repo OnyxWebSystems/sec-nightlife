@@ -121,6 +121,7 @@ export default function Settings() {
         { icon: HelpCircle, label: t('helpCenter'), page: 'HelpCenter' },
         { icon: FileText, label: t('termsOfService'), page: 'TermsOfService' },
         { icon: FileText, label: t('privacyPolicy'), page: 'PrivacyPolicy' },
+        { icon: FileText, label: 'Promoter Code of Conduct', page: 'PromoterCodeOfConduct' },
       ],
     },
   ];

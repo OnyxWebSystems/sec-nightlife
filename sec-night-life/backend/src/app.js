@@ -36,6 +36,7 @@ import userRoleRoutes from './routes/user-roles.js';
 import adminRoutes from './routes/admin.js';
 import legalRoutes from './routes/legal.js';
 import complianceDocumentsRoutes from './routes/compliance-documents.js';
+import leaderboardRoutes from './routes/leaderboard.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { optionalAuth } from './middleware/auth.js';
@@ -150,6 +151,7 @@ app.use('/api/user-roles', generalLimiter, userRoleRoutes);
 app.use('/api/admin', generalLimiter, adminRoutes);
 app.use('/api/legal', legalRoutes);
 app.use('/api/compliance-documents', generalLimiter, complianceDocumentsRoutes);
+app.use('/api/leaderboard', generalLimiter, leaderboardRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
