@@ -68,5 +68,32 @@ export const dataService = {
   HostEvent: adapterFor('HostEvent'),
   Transaction: adapterFor('Transaction'),
   Review: adapterFor('Review'),
+  Leaderboard: {
+    async promoters(params = {}) {
+      return apiGet('/api/leaderboard/promoters' + qs(params), { skipAuth: true });
+    },
+    async myStatus() {
+      return apiGet('/api/leaderboard/promoters/me/status');
+    },
+    async adminCandidates() {
+      return apiGet('/api/leaderboard/promoters/admin/candidates');
+    },
+  },
+  Legal: {
+    async promoterCodeOfConduct() {
+      return apiGet('/api/legal/promoter-code-of-conduct', { skipAuth: true });
+    },
+    async acceptanceStatus() {
+      return apiGet('/api/legal/acceptance-status');
+    },
+    async acceptDocument(payload) {
+      return apiPost('/api/legal/acceptances', payload);
+    },
+  },
+  Rating: {
+    async create(payload) {
+      return apiPost('/api/ratings', payload);
+    },
+  },
   TableHistory: { filter: () => [], list: () => [], create: () => ({}), update: () => ({}), delete: () => {} }
 };

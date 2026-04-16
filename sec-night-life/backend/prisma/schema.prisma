@@ -149,6 +149,12 @@ enum NotificationType {
   IDENTITY_VERIFICATION_REMINDER
 }
 
+enum LegalDocumentType {
+  TERMS_OF_SERVICE
+  PRIVACY_POLICY
+  PROMOTER_CODE_OF_CONDUCT
+}
+
 enum FriendActivityType {
   JOINED_EVENT
   JOINED_TABLE
@@ -204,12 +210,29 @@ model User {
   reviewsReceived             UserReview[]         @relation("ReviewsReceived")
   venueReviewsGiven           VenueReview[]        @relation("VenueReviewsGiven")
   venueFollows                VenueFollow[]
+  legalAcceptances            LegalDocumentAcceptance[]
 
   @@unique([email, role])
   @@index([email])
   @@index([username])
   @@index([role])
   @@map("users")
+}
+
+model LegalDocumentAcceptance {
+  id           String            @id @default(cuid())
+  userId       String            @map("user_id")
+  documentType LegalDocumentType @map("document_type")
+  version      String
+  acceptedAt   DateTime          @default(now()) @map("accepted_at")
+  ipAddress    String?           @map("ip_address")
+  userAgent    String?           @map("user_agent")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, documentType, acceptedAt])
+  @@index([documentType, version])
+  @@map("legal_document_acceptances")
 }
 
 model RefreshToken {
@@ -245,6 +268,9 @@ model UserProfile {
   behaviourScore            Float     @default(100) @map("behaviour_score")
   serviceRatingAvg          Float     @default(0) @map("service_rating_avg")
   serviceRatingCount        Int       @default(0) @map("service_rating_count")
+  leaderboardHidden         Boolean   @default(false) @map("leaderboard_hidden")
+  leaderboardHiddenReason   String?   @map("leaderboard_hidden_reason") @db.Text
+  leaderboardHiddenUntil    DateTime? @map("leaderboard_hidden_until")
   interests                 String[]  @default([])
   musicPreferences          String[]  @default([]) @map("music_preferences")
   friends                   String[]  @default([])

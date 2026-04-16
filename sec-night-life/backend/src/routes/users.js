@@ -666,6 +666,10 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const data = { ...parsed.data };
     const staff = isStaff(req.userRole);
+    const existingProfile = await prisma.userProfile.findUnique({
+      where: { userId: req.userId },
+      select: { verificationStatus: true },
+    });
     if (!staff) {
       if (data.verification_status === 'verified') {
         return res.status(403).json({ error: 'Identity verification is granted by administrators only.' });
@@ -673,7 +677,11 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       if (data.age_verified === true) {
         delete data.age_verified;
       }
-      if (data.id_document_url && String(data.id_document_url).trim() !== '') {
+      if (
+        data.id_document_url &&
+        String(data.id_document_url).trim() !== '' &&
+        existingProfile?.verificationStatus !== 'verified'
+      ) {
         data.verification_status = 'submitted';
       }
     }
@@ -758,6 +766,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const data = { ...parsed.data };
     const staff = isStaff(req.userRole);
+    const profile = await prisma.userProfile.findFirst({
+      where: { OR: [{ userId: id }, { id }] }
+    });
     if (!staff) {
       if (data.verification_status === 'verified') {
         return res.status(403).json({ error: 'Identity verification is granted by administrators only.' });
@@ -765,13 +776,14 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       if (data.age_verified === true) {
         delete data.age_verified;
       }
-      if (data.id_document_url && String(data.id_document_url).trim() !== '') {
+      if (
+        data.id_document_url &&
+        String(data.id_document_url).trim() !== '' &&
+        profile?.verificationStatus !== 'verified'
+      ) {
         data.verification_status = 'submitted';
       }
     }
-    const profile = await prisma.userProfile.findFirst({
-      where: { OR: [{ userId: id }, { id }] }
-    });
     const targetUserId = profile?.userId || id;
     if (id !== req.userId && targetUserId !== req.userId && !isStaff(req.userRole)) {
       return res.status(403).json({ error: 'Cannot update another user' });
