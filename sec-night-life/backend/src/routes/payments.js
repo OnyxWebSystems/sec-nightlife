@@ -13,6 +13,7 @@ import { createNotification, createNotifications } from '../lib/notifications.js
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { sendEmail } from '../lib/email.js';
+import { createInAppNotification } from '../lib/inAppNotifications.js';
 
 const router = Router();
 
@@ -130,6 +131,70 @@ async function applyReferenceSideEffects(reference, paystackData) {
           text: `Your promotion "${promo.title}" is now boosted for 7 days. Boost expires on ${promo.boostExpiresAt?.toISOString() || 'N/A'}.`,
         }).catch(() => {});
       }
+    }
+  }
+
+  const housePartyIdMeta = metadata.housePartyId || metadata.house_party_id;
+  if (metadata.type === 'HOUSE_PARTY_PUBLISH' && housePartyIdMeta && userId) {
+    const party = await prisma.houseParty.findFirst({ where: { id: String(housePartyIdMeta) } });
+    if (party && party.hostUserId === userId) {
+      await prisma.houseParty.update({
+        where: { id: party.id },
+        data: {
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          publishPaystackRef: reference,
+        },
+      });
+      await createInAppNotification({
+        userId: party.hostUserId,
+        type: 'EVENT_JOINED',
+        title: 'Party live',
+        body: 'Your house party is now live!',
+        referenceId: party.id,
+        referenceType: 'HOUSE_PARTY',
+      });
+    }
+  }
+
+  if (metadata.type === 'HOUSE_PARTY_BOOST' && housePartyIdMeta && userId) {
+    const boostExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const party = await prisma.houseParty.findFirst({ where: { id: String(housePartyIdMeta) } });
+    if (party && party.hostUserId === userId) {
+      await prisma.houseParty.update({
+        where: { id: party.id },
+        data: {
+          boosted: true,
+          boostedAt: new Date(),
+          boostExpiresAt: boostExpiry,
+          boostPaystackRef: reference,
+        },
+      });
+      await createInAppNotification({
+        userId: party.hostUserId,
+        type: 'EVENT_JOINED',
+        title: 'Boost active',
+        body: 'Your house party boost is active for 7 days!',
+        referenceId: party.id,
+        referenceType: 'HOUSE_PARTY',
+      });
+    }
+  }
+
+  const hostedTableBoostId = metadata.hostedTableId || metadata.hosted_table_id;
+  if (metadata.type === 'TABLE_BOOST' && hostedTableBoostId && userId) {
+    const boostExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const ht = await prisma.hostedTable.findFirst({ where: { id: String(hostedTableBoostId) } });
+    if (ht && ht.hostUserId === userId) {
+      await prisma.hostedTable.update({
+        where: { id: ht.id },
+        data: {
+          boosted: true,
+          boostedAt: new Date(),
+          boostExpiresAt: boostExpiry,
+          boostPaystackRef: reference,
+        },
+      });
     }
   }
 

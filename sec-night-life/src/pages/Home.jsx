@@ -5,13 +5,12 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, isToday, isTomorrow, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
 import { ChevronRight, Search, SlidersHorizontal, BadgeCheck, Trophy, Bell, Users } from 'lucide-react';
 
 import FeaturedEventCard from '@/components/home/FeaturedEventCard';
-import TrendingTableCard from '@/components/home/TrendingTableCard';
 import VenueCard from '@/components/home/VenueCard';
 import QuickActions from '@/components/home/QuickActions';
 import SecLogo from '@/components/ui/SecLogo';
@@ -157,6 +156,7 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
 
 export default function Home() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -220,6 +220,24 @@ export default function Home() {
     navigate(createPageUrl(`VenueProfile?id=${promotion.venueId}`));
   };
 
+  const joinHostedTable = async (tableId) => {
+    try {
+      await apiPost(`/api/host/tables/${tableId}/join`, {});
+      queryClient.invalidateQueries(['host-tables-available']);
+    } catch (e) {
+      window.alert(e?.message || 'Could not join table');
+    }
+  };
+
+  const joinHouseParty = async (partyId) => {
+    try {
+      await apiPost(`/api/host/parties/${partyId}/join`, {});
+      queryClient.invalidateQueries(['host-parties-public-home']);
+    } catch (e) {
+      window.alert(e?.message || 'Could not join party');
+    }
+  };
+
   const loadUser = async () => {
     try {
       const currentUser = await authService.getCurrentUser();
@@ -235,10 +253,17 @@ export default function Home() {
     queryFn: () => dataService.Event.filter({ status: 'published' }, '-date', 10),
   });
 
-  const { data: tables = [], isLoading: tablesLoading } = useQuery({
-    queryKey: ['trending-tables'],
-    queryFn: () => dataService.Table.filter({ status: 'open' }, '-created_date', 20),
+  const { data: hostTablesData, isLoading: tablesLoading } = useQuery({
+    queryKey: ['host-tables-available'],
+    queryFn: () => apiGet('/api/host/tables/available?limit=10&page=1'),
   });
+  const hostTables = hostTablesData?.items || [];
+
+  const { data: hostPartiesData } = useQuery({
+    queryKey: ['host-parties-public-home'],
+    queryFn: () => apiGet('/api/host/parties/public?limit=10&page=1'),
+  });
+  const hostParties = hostPartiesData?.items || [];
 
   const { data: venues = [] } = useQuery({
     queryKey: ['all-venues'],
@@ -269,16 +294,6 @@ export default function Home() {
       return bd - ad;
     }
   );
-  const prioritizedTables = sortByFollowedVenueFirst(
-    tables,
-    (t) => t.venue_id,
-    (a, b) => {
-      const ad = a?.created_date ? new Date(a.created_date).getTime() : 0;
-      const bd = b?.created_date ? new Date(b.created_date).getTime() : 0;
-      return bd - ad;
-    }
-  );
-
   const filteredVenues = venues.filter(venue => {
     const matchesSearch = venue.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          venue.city?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -383,6 +398,41 @@ export default function Home() {
           <QuickActions />
         </div>
 
+        {/* ── House Parties (public) ── */}
+        {hostParties.length > 0 && (
+          <section style={{ marginBottom: 36 }}>
+            <div className="sec-section-header">
+              <div>
+                <span className="sec-label">Community</span>
+                <h2 style={{ fontSize: 19, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '4px 0 0', letterSpacing: '-0.02em' }}>
+                  House Parties
+                </h2>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {hostParties.map((p) => (
+                <div key={p.id} className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{p.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 8 }}>
+                    {p.location} · {p.startTime && format(parseISO(p.startTime), 'EEE d MMM · HH:mm')}
+                  </div>
+                  {p.boosted && (
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--sec-success-muted)', fontSize: 10 }}>Boosted</span>
+                  )}
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-primary sec-btn-full"
+                    style={{ marginTop: 12 }}
+                    onClick={() => joinHouseParty(p.id)}
+                  >
+                    I&apos;m Going
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* ── Featured Events ── */}
         {featuredEvents.length > 0 && (
           <section style={{ marginBottom: 36 }}>
@@ -430,14 +480,35 @@ export default function Home() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {prioritizedTables.slice(0, 6).map((table, i) => (
+            {hostTables.slice(0, 8).map((table, i) => (
               <motion.div key={table.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
-                <TrendingTableCard table={table} />
+                <div className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
+                  <div style={{ fontWeight: 600 }}>{table.venueName}</div>
+                  <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                    {table.eventDate && format(parseISO(table.eventDate), 'EEE d MMM')} · {table.eventTime}
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 6 }}>
+                    Host: {table.host?.username || '—'}
+                    {table.host?.averageRating != null && ` · ★ ${Number(table.host.averageRating).toFixed(1)}`}
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>{table.spotsRemaining} spots left</div>
+                  {table.boosted && (
+                    <span style={{ fontSize: 10, marginTop: 6, display: 'inline-block', padding: '2px 8px', borderRadius: 999, background: 'var(--sec-success-muted)' }}>Boosted</span>
+                  )}
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-secondary sec-btn-full"
+                    style={{ marginTop: 12 }}
+                    onClick={() => joinHostedTable(table.id)}
+                  >
+                    Join Table
+                  </button>
+                </div>
               </motion.div>
             ))}
           </div>
 
-          {prioritizedTables.length === 0 && !tablesLoading && (
+          {hostTables.length === 0 && !tablesLoading && (
             <div className="sec-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
               <div style={{
                 width: 56, height: 56, borderRadius: '50%',
@@ -448,8 +519,8 @@ export default function Home() {
                 <Users size={24} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
               </div>
               <p style={{ color: 'var(--sec-text-muted)', fontSize: 14, marginBottom: 20 }}>No open tables right now</p>
-              <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', padding: '10px 24px', textDecoration: 'none' }}>
-                Create a Table
+              <Link to={`${createPageUrl('HostDashboard')}?create=table`} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', padding: '10px 24px', textDecoration: 'none' }}>
+                Host a Table
               </Link>
             </div>
           )}

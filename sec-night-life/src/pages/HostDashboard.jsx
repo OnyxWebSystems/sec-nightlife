@@ -1,410 +1,595 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Users, Settings, MessageCircle, ChevronRight, Calendar, Clock, TrendingUp, AlertCircle, Plus, Building } from 'lucide-react';
-import SecLogo from '@/components/ui/SecLogo';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { apiGet, apiPost, apiDelete } from '@/api/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parseISO } from 'date-fns';
-import { motion } from 'framer-motion';
-import { apiPost } from '@/api/client';
-import { isIdentityVerifiedUser } from '@/lib/identityVerification';
+import { toast } from 'sonner';
+import { Crown, Plus, Loader2 } from 'lucide-react';
+import GoogleAddressInput from '@/components/GoogleAddressInput';
+
+const STATUS_BADGE = {
+  DRAFT: { label: 'Draft', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
+  PENDING_PAYMENT: { label: 'Pending payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
+  PUBLISHED: { label: 'Live', bg: 'var(--sec-success-muted)', color: 'var(--sec-text-primary)' },
+  CANCELLED: { label: 'Cancelled', bg: 'var(--sec-error-muted)', color: 'var(--sec-error)' },
+  COMPLETED: { label: 'Completed', bg: 'var(--sec-bg-card)', color: 'var(--sec-accent)' },
+};
 
 export default function HostDashboard() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
+  const [tab, setTab] = useState('parties');
+  const [showPartyModal, setShowPartyModal] = useState(false);
+  const [showTableModal, setShowTableModal] = useState(false);
+  const [partyStep, setPartyStep] = useState(1);
+  const [partyForm, setPartyForm] = useState({
+    title: '',
+    description: '',
+    location: '',
+    latitude: null,
+    longitude: null,
+    startTime: '',
+    endTime: '',
+    guestQuantity: 20,
+    hasEntranceFee: false,
+    entranceFeeAmount: '',
+    entranceFeeNote: '',
+    freeEntryGroup: '',
+  });
+  const [tableForm, setTableForm] = useState({
+    tableType: 'IN_APP_EVENT',
+    eventId: '',
+    venueName: '',
+    venueAddress: '',
+    eventDate: '',
+    eventTime: '21:00',
+    guestQuantity: 4,
+    drinkPreferences: '',
+    desiredCompany: '',
+    isPublic: true,
+  });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadUser();
+    authService.getCurrentUser().then(setUser).catch(() => authService.redirectToLogin());
   }, []);
 
-  const loadUser = async () => {
+  useEffect(() => {
+    const c = searchParams.get('create');
+    if (c === 'party') {
+      setShowPartyModal(true);
+      setTab('parties');
+    }
+    if (c === 'table') {
+      setShowTableModal(true);
+      setTab('tables');
+    }
+    if (c === 'invite') {
+      setTab('tables');
+      toast.message('Open a table card and use Invite from the full flow in a future update, or invite from table details.');
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const closePartyModal = () => {
+    setShowPartyModal(false);
+    setPartyStep(1);
+    setSearchParams({}, { replace: true });
+  };
+
+  const { data: parties = [], isLoading: loadP } = useQuery({
+    queryKey: ['host-parties', user?.id],
+    queryFn: () => apiGet('/api/host/parties'),
+    enabled: !!user?.id,
+  });
+
+  const { data: tables = [], isLoading: loadT } = useQuery({
+    queryKey: ['host-tables', user?.id],
+    queryFn: () => apiGet('/api/host/tables'),
+    enabled: !!user?.id,
+  });
+
+  const { data: jobs = [], isLoading: loadJ } = useQuery({
+    queryKey: ['host-jobs', user?.id],
+    queryFn: () => apiGet('/api/host/jobs'),
+    enabled: !!user?.id,
+  });
+
+  const { data: activity } = useQuery({
+    queryKey: ['host-activity', user?.id],
+    queryFn: () => apiGet('/api/host/activity/summary'),
+    enabled: !!user?.id,
+  });
+
+  const { data: publicEvents = [] } = useQuery({
+    queryKey: ['events-published'],
+    queryFn: () => dataService.Event.filter({ status: 'published' }),
+    enabled: showTableModal && tableForm.tableType === 'IN_APP_EVENT',
+  });
+
+  const submitParty = async (thenPublish) => {
+    setSaving(true);
     try {
-      const currentUser = await authService.getCurrentUser();
-      setUser(currentUser);
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) {
-        setUserProfile(profiles[0]);
+      const start = new Date(partyForm.startTime);
+      const end = new Date(partyForm.endTime);
+      const payload = {
+        title: partyForm.title,
+        description: partyForm.description,
+        location: partyForm.location,
+        latitude: partyForm.latitude,
+        longitude: partyForm.longitude,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        guestQuantity: partyForm.guestQuantity,
+        hasEntranceFee: partyForm.hasEntranceFee,
+        entranceFeeAmount: partyForm.hasEntranceFee ? parseFloat(partyForm.entranceFeeAmount) : null,
+        entranceFeeNote: partyForm.entranceFeeNote || null,
+        freeEntryGroup: partyForm.freeEntryGroup || null,
+      };
+      const created = await apiPost('/api/host/parties', payload);
+      queryClient.invalidateQueries(['host-parties']);
+      toast.success('House party saved');
+      closePartyModal();
+      if (thenPublish && created?.id) {
+        const pay = await apiPost(`/api/host/parties/${created.id}/publish`, {});
+        if (pay?.authorization_url) window.location.href = pay.authorization_url;
       }
     } catch (e) {
-      authService.redirectToLogin();
+      toast.error(e?.message || 'Could not create party');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const { data: hostedTables = [] } = useQuery({
-    queryKey: ['hosted-tables', user?.id],
-    queryFn: async () => {
-      const tables = await dataService.Table.filter({ host_user_id: user.id });
-      return tables;
-    },
-    enabled: !!user?.id,
-  });
+  const submitTable = async () => {
+    setSaving(true);
+    try {
+      if (tableForm.tableType === 'IN_APP_EVENT') {
+        if (!tableForm.eventId) {
+          toast.error('Select an event');
+          setSaving(false);
+          return;
+        }
+        await apiPost('/api/host/tables', {
+          tableType: 'IN_APP_EVENT',
+          eventId: tableForm.eventId,
+          eventTime: tableForm.eventTime,
+          guestQuantity: tableForm.guestQuantity,
+          drinkPreferences: tableForm.drinkPreferences || null,
+          desiredCompany: tableForm.desiredCompany || null,
+          isPublic: tableForm.isPublic,
+        });
+      } else {
+        if (!tableForm.venueName || !tableForm.eventDate) {
+          toast.error('Venue name and date required');
+          setSaving(false);
+          return;
+        }
+        await apiPost('/api/host/tables', {
+          tableType: 'EXTERNAL_VENUE',
+          venueName: tableForm.venueName,
+          venueAddress: tableForm.venueAddress || null,
+          eventDate: new Date(tableForm.eventDate).toISOString(),
+          eventTime: tableForm.eventTime,
+          guestQuantity: tableForm.guestQuantity,
+          drinkPreferences: tableForm.drinkPreferences || null,
+          desiredCompany: tableForm.desiredCompany || null,
+          isPublic: tableForm.isPublic,
+        });
+      }
+      queryClient.invalidateQueries(['host-tables']);
+      toast.success('Table listed');
+      setShowTableModal(false);
+      setSearchParams({}, { replace: true });
+    } catch (e) {
+      toast.error(e?.message || 'Could not create table');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const { data: venueEvents = [] } = useQuery({
-    queryKey: ['venue-events'],
-    queryFn: () => dataService.Event.filter({ status: 'published' }),
-  });
+  const publishParty = async (id) => {
+    try {
+      const pay = await apiPost(`/api/host/parties/${id}/publish`, {});
+      if (pay?.authorization_url) window.location.href = pay.authorization_url;
+    } catch (e) {
+      toast.error(e?.message || 'Payment failed to start');
+    }
+  };
 
-  const { data: myHostEvents = [] } = useQuery({
-    queryKey: ['my-host-events', user?.id],
-    queryFn: () => dataService.HostEvent.filter({ host_user_id: user.id }),
-    enabled: !!user?.id,
-  });
+  const boostParty = async (id) => {
+    try {
+      const pay = await apiPost(`/api/host/parties/${id}/boost`, {});
+      if (pay?.authorization_url) window.location.href = pay.authorization_url;
+    } catch (e) {
+      toast.error(e?.message || 'Payment failed to start');
+    }
+  };
 
-  const eventsMap = venueEvents.reduce((acc, event) => {
-    acc[event.id] = event;
-    return acc;
-  }, {});
-
-  const acceptRequestMutation = useMutation({
-    mutationFn: async ({ tableId, userId }) => {
-      await apiPost(`/api/tables/${tableId}/requests/${userId}/approve`, {});
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['hosted-tables']);
-    },
-  });
-
-  const rejectRequestMutation = useMutation({
-    mutationFn: async ({ tableId, userId }) => {
-      await apiPost(`/api/tables/${tableId}/requests/${userId}/reject`, {});
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['hosted-tables']);
-    },
-  });
-
-  const activeTables = hostedTables.filter(t => t.status === 'open' || t.status === 'full');
-  const completedTables = hostedTables.filter(t => t.status === 'completed');
-  const totalPendingRequests = hostedTables.reduce((sum, t) => sum + (t.pending_requests?.length || 0), 0);
-  const totalGuests = hostedTables.reduce((sum, t) => sum + (t.current_guests || 1), 0);
-
-  const identityOk = isIdentityVerifiedUser(user, userProfile);
-
-  if (!user || !userProfile) {
+  if (!user) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
-        <div className="sec-spinner" />
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="animate-spin" />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', paddingBottom: 32, backgroundColor: 'var(--sec-bg-base)' }}>
-      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
-        <div style={{ padding: 'var(--space-4) var(--space-6)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <SecLogo size={36} variant="full" />
-              </div>
-              <div>
-                <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Host Dashboard</h1>
-                <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Manage your tables</p>
-              </div>
-            </div>
-            {identityOk ? (
-              <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
-                <Plus size={18} strokeWidth={1.5} />
-                New Table
-              </Link>
-            ) : (
-              <Link to={createPageUrl('EditProfile')} className="sec-btn sec-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none', fontSize: 13 }}>
-                Verify ID to host
-              </Link>
-            )}
-          </div>
+    <div className="px-4 py-6 max-w-[480px] mx-auto pb-24">
+      <div className="flex items-center gap-2 mb-6">
+        <Crown className="text-amber-400" size={28} />
+        <div>
+          <h1 className="text-xl font-bold">Host</h1>
+          <p className="text-sm opacity-70">House parties & tables</p>
         </div>
-      </header>
+      </div>
 
-      <div style={{ padding: 'var(--space-6)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16 }}>
-          <div className="sec-card" style={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'var(--sec-accent-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Users size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-              </div>
-              <div>
-                <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)' }}>{activeTables.length}</p>
-                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Active Tables</p>
-              </div>
-            </div>
-          </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="grid w-full grid-cols-4 mb-4">
+          <TabsTrigger value="parties">Parties</TabsTrigger>
+          <TabsTrigger value="tables">Tables</TabsTrigger>
+          <TabsTrigger value="jobs">Jobs</TabsTrigger>
+          <TabsTrigger value="activity">Stats</TabsTrigger>
+        </TabsList>
 
-          <div className="sec-card" style={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Clock size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-              </div>
-              <div>
-                <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)' }}>{totalPendingRequests}</p>
-                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Pending Requests</p>
-              </div>
-            </div>
+        <TabsContent value="parties">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="font-semibold">My House Parties</h2>
+            <button
+              type="button"
+              onClick={() => setShowPartyModal(true)}
+              className="sec-btn sec-btn-primary text-sm py-2 px-3 inline-flex items-center gap-1"
+            >
+              <Plus size={16} /> Create
+            </button>
           </div>
-
-          <div className="sec-card" style={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Users size={20} strokeWidth={1.5} style={{ color: 'var(--sec-silver)' }} />
-              </div>
-              <div>
-                <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)' }}>{totalGuests}</p>
-                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Total Guests</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="sec-card" style={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'var(--sec-accent-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <TrendingUp size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-              </div>
-              <div>
-                <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)' }}>{hostedTables.length}</p>
-                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Total Hosted</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* My Host Events (informal: house parties, boat parties, etc.) */}
-        <div className="sec-card" style={{ padding: 20, marginTop: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--sec-text-primary)' }}>My Host Events</h2>
-            {identityOk ? (
-              <Link to={createPageUrl('CreateHostEvent')} className="sec-btn sec-btn-ghost" style={{ padding: '8px 12px', fontSize: 13, textDecoration: 'none' }}>
-                <Plus size={14} strokeWidth={1.5} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-                Create
-              </Link>
-            ) : (
-              <Link to={createPageUrl('EditProfile')} className="sec-btn sec-btn-ghost" style={{ padding: '8px 12px', fontSize: 13, textDecoration: 'none' }}>
-                Verify first
-              </Link>
-            )}
-          </div>
-          {myHostEvents.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {myHostEvents.slice(0, 5).map((ev) => (
-                <div key={ev.id} className="sec-card" style={{ padding: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
-                    <p style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>{ev.title}</p>
-                    <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
-                      {ev.city || ev.location || 'TBA'} • {format(parseISO(ev.date), 'MMM d, yyyy')}
-                    </p>
+          {loadP ? <Loader2 className="animate-spin" /> : null}
+          <div className="space-y-3">
+            {parties.map((p) => {
+              const sb = STATUS_BADGE[p.status] || STATUS_BADGE.DRAFT;
+              return (
+                <div key={p.id} className="sec-card p-4 rounded-xl border border-[var(--sec-border)]">
+                  <div className="flex justify-between gap-2">
+                    <div>
+                      <div className="font-semibold">{p.title}</div>
+                      <div className="text-xs opacity-70">{p.location}</div>
+                      <div className="text-xs mt-1">
+                        {format(parseISO(p.startTime), 'dd MMM yyyy HH:mm')} — {format(parseISO(p.endTime), 'HH:mm')}
+                      </div>
+                    </div>
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: sb.bg, color: sb.color }}>
+                      {sb.label}
+                    </span>
                   </div>
-                  <span className={`sec-badge ${ev.status === 'published' ? 'sec-badge-success' : 'sec-badge-muted'}`}>{ev.status}</span>
+                  <div className="text-sm mt-2">
+                    RSVPs: {p.attendeeCount ?? p._count?.attendees ?? 0} / {p.guestQuantity} · Spots left: {p.spotsRemaining}
+                  </div>
+                  {p.boosted && <div className="text-xs text-amber-400 mt-1">Boosted</div>}
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {p.status === 'DRAFT' && (
+                      <button type="button" className="sec-btn sec-btn-secondary text-xs py-1.5" onClick={() => publishParty(p.id)}>
+                        Publish (R100)
+                      </button>
+                    )}
+                    {p.status === 'PUBLISHED' && (
+                      <>
+                        <button type="button" className="sec-btn sec-btn-secondary text-xs py-1.5" onClick={() => boostParty(p.id)}>
+                          Boost (R150)
+                        </button>
+                        <button
+                          type="button"
+                          className="sec-btn sec-btn-ghost text-xs py-1.5"
+                          onClick={async () => {
+                            try {
+                              await apiDelete(`/api/host/parties/${p.id}`);
+                              queryClient.invalidateQueries(['host-parties']);
+                              toast.success('Party cancelled');
+                            } catch (e) {
+                              toast.error(e?.message || 'Could not cancel');
+                            }
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              ))}
+              );
+            })}
+            {parties.length === 0 && !loadP && (
+              <p className="text-sm opacity-60 text-center py-8">No parties yet. Create one to get started.</p>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="tables">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="font-semibold">My Tables</h2>
+            <button
+              type="button"
+              onClick={() => setShowTableModal(true)}
+              className="sec-btn sec-btn-primary text-sm py-2 px-3 inline-flex items-center gap-1"
+            >
+              <Plus size={16} /> Host table
+            </button>
+          </div>
+          {loadT ? <Loader2 className="animate-spin" /> : null}
+          <div className="space-y-3">
+            {tables.map((t) => (
+              <div key={t.id} className="sec-card p-4 rounded-xl border border-[var(--sec-border)]">
+                <div className="font-semibold">{t.venueName}</div>
+                <div className="text-xs opacity-70">
+                  {format(parseISO(t.eventDate), 'dd MMM yyyy')} · {t.eventTime} · {t.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External'}
+                </div>
+                <div className="text-sm mt-2">Members: {t._count?.members ?? 0} · Spots: {t.spotsRemaining}</div>
+                {t.boosted && <div className="text-xs text-amber-400 mt-1">Boosted</div>}
+              </div>
+            ))}
+            {tables.length === 0 && !loadT && <p className="text-sm opacity-60 text-center py-8">No tables yet.</p>}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="jobs">
+          {loadJ ? <Loader2 className="animate-spin" /> : null}
+          <div className="space-y-2">
+            {jobs.map((j) => (
+              <div key={j.id} className="sec-card p-3 rounded-lg border border-[var(--sec-border)] text-sm">
+                <div className="font-medium">{j.title}</div>
+                <div className="text-xs opacity-70">{j.houseParty?.title}</div>
+                <div className="text-xs mt-1">
+                  {j.status} · Applicants: {j._count?.applications ?? 0}
+                </div>
+              </div>
+            ))}
+            {jobs.length === 0 && !loadJ && <p className="text-sm opacity-60">No jobs posted on your parties yet.</p>}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="activity">
+          <div className="sec-card p-4 rounded-xl space-y-2 text-sm">
+            <div>Total parties hosted: {activity?.totalHousePartiesHosted ?? '—'}</div>
+            <div>Total tables hosted: {activity?.totalTablesHosted ?? '—'}</div>
+            <div>Party attendees (going): {activity?.totalPartyAttendees ?? '—'}</div>
+            <div>Table joiners: {activity?.totalTableJoiners ?? '—'}</div>
+            <div>Avg rating: {activity?.averageRatingReceived != null ? activity.averageRatingReceived.toFixed(1) : '—'}</div>
+            <div>Jobs posted: {activity?.jobsPostedCount ?? '—'}</div>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {showPartyModal && (
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 p-4" role="dialog">
+          <div className="bg-[var(--sec-bg-card)] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 max-h-[90vh] overflow-y-auto border border-[var(--sec-border)]">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-semibold">Create house party</h3>
+              <button type="button" className="text-sm opacity-70" onClick={closePartyModal}>
+                Close
+              </button>
             </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: 24 }}>
-              <Calendar size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
-              <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 16 }}>Host house parties, boat parties & more</p>
-              {identityOk ? (
-                <Link to={createPageUrl('CreateHostEvent')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
-                  <Plus size={16} strokeWidth={1.5} />
-                  Create Host Event
-                </Link>
-              ) : (
-                <Link to={createPageUrl('EditProfile')} className="sec-btn sec-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
-                  Verify ID to create events
-                </Link>
+            <div className="text-xs opacity-60 mb-2">Step {partyStep} of 4</div>
+            {partyStep === 1 && (
+              <div className="space-y-3">
+                <label className="block text-sm">
+                  Title
+                  <input
+                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                    value={partyForm.title}
+                    onChange={(e) => setPartyForm((f) => ({ ...f, title: e.target.value }))}
+                    maxLength={100}
+                  />
+                </label>
+                <label className="block text-sm">
+                  Description
+                  <textarea
+                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                    rows={3}
+                    value={partyForm.description}
+                    onChange={(e) => setPartyForm((f) => ({ ...f, description: e.target.value }))}
+                    maxLength={500}
+                  />
+                </label>
+                <GoogleAddressInput
+                  value={partyForm.location}
+                  onChange={(structured) => {
+                    const loc =
+                      typeof structured === 'string'
+                        ? structured
+                        : structured?.formattedAddress || structured?.street || '';
+                    setPartyForm((f) => ({
+                      ...f,
+                      location: loc,
+                      latitude: typeof structured === 'object' ? structured?.latitude ?? null : f.latitude,
+                      longitude: typeof structured === 'object' ? structured?.longitude ?? null : f.longitude,
+                    }));
+                  }}
+                />
+              </div>
+            )}
+            {partyStep === 2 && (
+              <div className="space-y-3">
+                <label className="block text-sm">
+                  Start
+                  <input
+                    type="datetime-local"
+                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                    value={partyForm.startTime}
+                    onChange={(e) => setPartyForm((f) => ({ ...f, startTime: e.target.value }))}
+                  />
+                </label>
+                <label className="block text-sm">
+                  End
+                  <input
+                    type="datetime-local"
+                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                    value={partyForm.endTime}
+                    onChange={(e) => setPartyForm((f) => ({ ...f, endTime: e.target.value }))}
+                  />
+                </label>
+              </div>
+            )}
+            {partyStep === 3 && (
+              <div className="space-y-3">
+                <label className="block text-sm">
+                  Guest capacity
+                  <input
+                    type="number"
+                    min={2}
+                    max={500}
+                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                    value={partyForm.guestQuantity}
+                    onChange={(e) => setPartyForm((f) => ({ ...f, guestQuantity: parseInt(e.target.value, 10) || 2 }))}
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={partyForm.hasEntranceFee}
+                    onChange={(e) => setPartyForm((f) => ({ ...f, hasEntranceFee: e.target.checked }))}
+                  />
+                  Entrance fee at door
+                </label>
+                {partyForm.hasEntranceFee && (
+                  <>
+                    <input
+                      type="number"
+                      placeholder="Amount (ZAR)"
+                      className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                      value={partyForm.entranceFeeAmount}
+                      onChange={(e) => setPartyForm((f) => ({ ...f, entranceFeeAmount: e.target.value }))}
+                    />
+                    <input
+                      placeholder="Note (e.g. R100 per person)"
+                      className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                      value={partyForm.entranceFeeNote}
+                      onChange={(e) => setPartyForm((f) => ({ ...f, entranceFeeNote: e.target.value }))}
+                    />
+                  </>
+                )}
+                <input
+                  placeholder="Free entry group (optional)"
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  value={partyForm.freeEntryGroup}
+                  onChange={(e) => setPartyForm((f) => ({ ...f, freeEntryGroup: e.target.value }))}
+                />
+              </div>
+            )}
+            {partyStep === 4 && (
+              <div className="text-sm space-y-2 opacity-90">
+                <p><strong>{partyForm.title}</strong></p>
+                <p>{partyForm.description}</p>
+                <p>{partyForm.location}</p>
+                <p>Guests: {partyForm.guestQuantity}</p>
+              </div>
+            )}
+            <div className="flex gap-2 mt-4">
+              {partyStep > 1 && (
+                <button type="button" className="sec-btn sec-btn-ghost flex-1" onClick={() => setPartyStep((s) => s - 1)}>
+                  Back
+                </button>
+              )}
+              {partyStep < 4 && (
+                <button type="button" className="sec-btn sec-btn-primary flex-1" onClick={() => setPartyStep((s) => s + 1)}>
+                  Next
+                </button>
+              )}
+              {partyStep === 4 && (
+                <>
+                  <button type="button" disabled={saving} className="sec-btn sec-btn-secondary flex-1" onClick={() => submitParty(false)}>
+                    Save draft
+                  </button>
+                  <button type="button" disabled={saving} className="sec-btn sec-btn-primary flex-1" onClick={() => submitParty(true)}>
+                    Publish R100
+                  </button>
+                </>
               )}
             </div>
-          )}
+          </div>
         </div>
+      )}
 
-        {/* Register Venue — for hosts who want to list venues and create events */}
-        <Link
-          to={createPageUrl('VenueOnboarding')}
-          className="sec-card"
-          style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 20, marginTop: 24, textDecoration: 'none' }}
-        >
-          <div
-            style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: '#000000', border: '2px solid var(--sec-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Building size={24} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <p style={{ fontWeight: 600, fontSize: 16, color: 'var(--sec-text-primary)', marginBottom: 4 }}>Register a Venue</p>
-            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>List your nightclub or event company on Sec</p>
-          </div>
-          <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
-        </Link>
-
-        {totalPendingRequests > 0 && (
-          <div className="sec-card" style={{ padding: 16, marginTop: 24, borderColor: 'var(--sec-accent-border)', backgroundColor: 'var(--sec-accent-muted)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <AlertCircle size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-            <p style={{ fontSize: 14, color: 'var(--sec-text-primary)' }}>
-              You have <span style={{ fontWeight: 600 }}>{totalPendingRequests}</span> pending request{totalPendingRequests > 1 ? 's' : ''} to review
-            </p>
+      {showTableModal && (
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 p-4">
+          <div className="bg-[var(--sec-bg-card)] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 max-h-[90vh] overflow-y-auto border border-[var(--sec-border)]">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-semibold">Host a table</h3>
+              <button type="button" className="text-sm opacity-70" onClick={() => { setShowTableModal(false); setSearchParams({}, { replace: true }); }}>
+                Close
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={`flex-1 py-2 rounded-lg border ${tableForm.tableType === 'IN_APP_EVENT' ? 'border-[var(--sec-accent)]' : 'border-[var(--sec-border)]'}`}
+                  onClick={() => setTableForm((f) => ({ ...f, tableType: 'IN_APP_EVENT' }))}
+                >
+                  SEC event
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 py-2 rounded-lg border ${tableForm.tableType === 'EXTERNAL_VENUE' ? 'border-[var(--sec-accent)]' : 'border-[var(--sec-border)]'}`}
+                  onClick={() => setTableForm((f) => ({ ...f, tableType: 'EXTERNAL_VENUE' }))}
+                >
+                  External venue
+                </button>
+              </div>
+              {tableForm.tableType === 'IN_APP_EVENT' ? (
+                <select
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  value={tableForm.eventId}
+                  onChange={(e) => setTableForm((f) => ({ ...f, eventId: e.target.value }))}
+                >
+                  <option value="">Select event</option>
+                  {publicEvents.map((ev) => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.title}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <>
+                  <input
+                    placeholder="Venue name"
+                    className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                    value={tableForm.venueName}
+                    onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
+                  />
+                  <input
+                    type="date"
+                    className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                    value={tableForm.eventDate}
+                    onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
+                  />
+                </>
+              )}
+              <input
+                placeholder="Time (e.g. 21:00)"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                value={tableForm.eventTime}
+                onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
+              />
+              <input
+                type="number"
+                min={1}
+                max={20}
+                placeholder="Spots at table"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                value={tableForm.guestQuantity}
+                onChange={(e) => setTableForm((f) => ({ ...f, guestQuantity: parseInt(e.target.value, 10) || 1 }))}
+              />
+              <button type="button" disabled={saving} className="sec-btn sec-btn-primary w-full" onClick={submitTable}>
+                List my table
+              </button>
             </div>
           </div>
-        )}
-
-        <Tabs defaultValue="active" style={{ width: '100%', marginTop: 24 }}>
-          <TabsList style={{ width: '100%', backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }} className="sec-card">
-            <TabsTrigger value="active" className="flex-1">Active ({activeTables.length})</TabsTrigger>
-            <TabsTrigger value="completed" className="flex-1">Completed ({completedTables.length})</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="active" className="mt-6 space-y-4">
-            {activeTables.length > 0 ? (
-              activeTables.map((table, index) => {
-                const event = eventsMap[table.event_id];
-                const pendingCount = table.pending_requests?.length || 0;
-                
-                return (
-                  <motion.div
-                    key={table.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="sec-card p-4"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex-1">
-                        <h3 className="font-bold text-lg mb-1">{table.name}</h3>
-                        {event && (
-                          <p className="text-sm text-gray-400 flex items-center gap-2">
-                            <Calendar className="w-4 h-4" />
-                            {event.title} • {format(parseISO(event.date), 'MMM d')}
-                          </p>
-                        )}
-                      </div>
-                      <span className={`sec-badge ${table.status === 'open' ? 'sec-badge-success' : table.status === 'full' ? 'sec-badge-gold' : 'sec-badge-muted'}`}>
-                        {table.status}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-                      <div className="sec-card" style={{ padding: 12, textAlign: 'center' }}>
-                        <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-accent)' }}>{table.current_guests || 1}/{table.max_guests}</p>
-                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Guests</p>
-                      </div>
-                      <div className="sec-card" style={{ padding: 12, textAlign: 'center' }}>
-                        <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-text-primary)' }}>{pendingCount}</p>
-                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Pending</p>
-                      </div>
-                      <div className="sec-card" style={{ padding: 12, textAlign: 'center' }}>
-                        <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-text-primary)' }}>R{(table.min_spend || 0).toLocaleString()}</p>
-                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Min Spend</p>
-                      </div>
-                    </div>
-
-                    {/* Pending Requests */}
-                    {pendingCount > 0 && (
-                      <div className="sec-card" style={{ marginBottom: 16, padding: 12, borderColor: 'var(--sec-accent-border)' }}>
-                        <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <AlertCircle size={16} strokeWidth={1.5} />
-                          {pendingCount} Pending Request{pendingCount > 1 ? 's' : ''}
-                        </p>
-                        <Link
-                          to={createPageUrl(`ManageTable?id=${table.id}`)}
-                          className="sec-link"
-                        >
-                          Review requests →
-                        </Link>
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <Link
-                        to={createPageUrl(`ManageTable?id=${table.id}`)}
-                        className="sec-btn sec-btn-primary"
-                        style={{ flex: 1, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, textDecoration: 'none' }}
-                      >
-                        <Settings size={16} strokeWidth={1.5} />
-                        Manage
-                      </Link>
-                      <Link to={createPageUrl(`ChatRoom?table=${table.id}`)} className="sec-btn sec-btn-ghost" style={{ height: 40, width: 40, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-                        <MessageCircle size={18} strokeWidth={1.5} />
-                      </Link>
-                      <Link to={createPageUrl(`TableDetails?id=${table.id}`)} className="sec-btn sec-btn-ghost" style={{ height: 40, width: 40, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-                        <ChevronRight size={18} strokeWidth={1.5} />
-                      </Link>
-                    </div>
-                  </motion.div>
-                );
-              })
-            ) : (
-              <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-                <div style={{ width: 72, height: 72, borderRadius: '50%', backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                  <Users size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
-                </div>
-                <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No active tables</h3>
-                <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 24 }}>Create your first table to start hosting</p>
-                {identityOk ? (
-                  <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', textDecoration: 'none' }}>
-                    <Plus size={18} strokeWidth={1.5} />
-                    Create Table
-                  </Link>
-                ) : (
-                  <Link to={createPageUrl('EditProfile')} className="sec-btn sec-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', textDecoration: 'none' }}>
-                    Verify ID to create tables
-                  </Link>
-                )}
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="completed" className="mt-6 space-y-4">
-            {completedTables.length > 0 ? (
-              completedTables.map((table, index) => {
-                const event = eventsMap[table.event_id];
-                const totalContributions = table.members?.reduce((sum, m) => sum + (m.contribution || 0), 0) || 0;
-                
-                return (
-                  <motion.div
-                    key={table.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="sec-card p-4"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <h3 className="font-bold mb-1">{table.name}</h3>
-                        {event && (
-                          <p className="text-sm text-gray-400">
-                            {event.title} • {format(parseISO(event.date), 'MMM d, yyyy')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                      <div className="sec-card" style={{ padding: 12, textAlign: 'center' }}>
-                        <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--sec-text-primary)' }}>{table.current_guests || 0}</p>
-                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Guests</p>
-                      </div>
-                      <div className="sec-card" style={{ padding: 12, textAlign: 'center' }}>
-                        <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--sec-accent)' }}>R{totalContributions.toLocaleString()}</p>
-                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Total Spent</p>
-                      </div>
-                      <div className="sec-card" style={{ padding: 12, textAlign: 'center' }}>
-                        <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--sec-text-primary)' }}>R{(table.current_spend || 0).toLocaleString()}</p>
-                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Actual</p>
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })
-            ) : (
-              <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-                <TrendingUp size={40} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 12px' }} />
-                <p style={{ color: 'var(--sec-text-muted)' }}>No completed tables yet</p>
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

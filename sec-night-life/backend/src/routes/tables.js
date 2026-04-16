@@ -4,7 +4,6 @@
  * SECURITY: Email verification required for all write actions.
  */
 import { Router } from 'express';
-import { ensureUserRole } from '../lib/userRoles.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
@@ -227,7 +226,6 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
       }
     });
 
-    await ensureUserRole(req.userId, 'host');
     await auditFromReq(req, {
       userId: req.userId,
       action: 'TABLE_CREATED',

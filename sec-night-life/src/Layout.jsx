@@ -16,7 +16,6 @@ const iconProps = { size: 22, strokeWidth: 1.5 };
 
 const MODES = [
   { id: 'partygoer', label: 'Party Goer', icon: Music2 },
-  { id: 'host', label: 'Host', icon: Crown },
   { id: 'business', label: 'Business', icon: Building2 },
 ];
 
@@ -27,6 +26,7 @@ export default function Layout({ children, currentPageName }) {
   const [notifications, setNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
+  const [hostUnread, setHostUnread] = useState(0);
   const prevMessageUnreadRef = useRef(null);
   const [activeMode, setActiveMode] = useState(null);
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
@@ -78,6 +78,12 @@ export default function Layout({ children, currentPageName }) {
         setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
         const m = await apiGet('/api/messages/unread-total');
         setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
+        try {
+          const h = await apiGet('/api/host/notifications/unread-count');
+          setHostUnread(typeof h?.count === 'number' ? h.count : 0);
+        } catch {
+          setHostUnread(0);
+        }
       } catch {}
     };
     tick();
@@ -125,13 +131,9 @@ export default function Layout({ children, currentPageName }) {
       }
 
       let hasBusiness = currentUser.role === 'VENUE';
-      let hasHost = false;
       try {
         const rolesRes = await apiGet('/api/user-roles/me');
-        if (rolesRes && (rolesRes.host || rolesRes.business)) {
-          hasHost = rolesRes.host;
-          hasBusiness = rolesRes.business || hasBusiness;
-        }
+        if (rolesRes?.business) hasBusiness = true;
       } catch {}
       if (!hasBusiness) {
         try {
@@ -139,20 +141,13 @@ export default function Layout({ children, currentPageName }) {
           hasBusiness = venues.length > 0;
         } catch {}
       }
-      if (!hasHost) {
-        try {
-          const tables = await dataService.Table.filter({ host_user_id: currentUser.id });
-          hasHost = tables.length > 0;
-        } catch {}
-      }
-      setUserRoles({ partygoer: true, host: hasHost, business: hasBusiness });
+      setUserRoles({ partygoer: true, host: true, business: hasBusiness });
 
       const saved = localStorage.getItem('sec_active_mode');
       let defaultMode = 'partygoer';
-      if (saved && (saved === 'business' ? hasBusiness : saved === 'host' ? hasHost : true)) {
-        defaultMode = saved;
-      } else if (hasBusiness) defaultMode = 'business';
-      else if (hasHost) defaultMode = 'host';
+      if (saved === 'business' && hasBusiness) defaultMode = 'business';
+      else if (saved === 'partygoer') defaultMode = 'partygoer';
+      else if (hasBusiness) defaultMode = 'business';
       setActiveMode(defaultMode);
     } catch (e) {}
   };
@@ -184,6 +179,7 @@ export default function Layout({ children, currentPageName }) {
     partygoer: {
       primary: [
         { name: 'Home', icon: Home, page: 'Home' },
+        { name: 'Host', icon: Crown, page: 'HostDashboard' },
         { name: 'Friends', icon: Users, page: 'Friends' },
         { name: 'Create', icon: Plus, page: 'CreateTable', isCreate: true },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
@@ -194,25 +190,8 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
-        ...(userRoles.host ? [{ name: 'Host Dashboard', icon: Crown, page: 'HostDashboard' }] : []),
         ...complianceNavItem,
         ...((['SUPER_ADMIN', 'ADMIN', 'admin'].includes(user?.role)) ? [{ name: 'Admin', icon: LayoutDashboard, page: 'AdminDashboard' }] : []),
-      ],
-    },
-    host: {
-      primary: [
-        { name: 'Dashboard', icon: LayoutDashboard, page: 'HostDashboard' },
-        { name: 'Create Table', icon: Plus, page: 'CreateTable', isCreate: true },
-        { name: 'Events', icon: Calendar, page: 'Events' },
-        { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
-        { name: 'Messages', icon: MessageCircle, page: 'Messages' },
-      ],
-      secondary: [
-        { name: 'Profile', icon: User, page: 'Profile' },
-        { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
-        { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
-        ...complianceNavItem,
-        { name: 'Settings', icon: Settings, page: 'Settings' },
       ],
     },
     business: {
@@ -235,13 +214,15 @@ export default function Layout({ children, currentPageName }) {
     },
   };
 
-  const mode = activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : userRoles.host ? 'host' : 'partygoer');
+  const mode = activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : 'partygoer');
   const { primary: primaryNav, secondary: secondaryNav } = NAV[mode];
 
   const withMessageBadge = (items) =>
-    items.map((item) =>
-      item.page === 'Messages' && messageUnread > 0 ? { ...item, badge: messageUnread } : item,
-    );
+    items.map((item) => {
+      if (item.page === 'Messages' && messageUnread > 0) return { ...item, badge: messageUnread };
+      if (item.page === 'HostDashboard' && hostUnread > 0) return { ...item, badge: hostUnread };
+      return item;
+    });
   const primaryNavB = withMessageBadge(primaryNav);
   const secondaryNavB = withMessageBadge(secondaryNav);
 
@@ -254,17 +235,9 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ]
-    : mode === 'host'
-    ? [
-        { name: 'Home', icon: LayoutDashboard, page: 'HostDashboard' },
-        { name: 'Events', icon: Calendar, page: 'Events' },
-        { name: 'Create', icon: Plus, page: null, isCreate: true },
-        { name: 'Messages', icon: MessageCircle, page: 'Messages' },
-        { name: 'Profile', icon: User, page: 'Profile' },
-      ]
     : [
         { name: 'Home', icon: Home, page: 'Home' },
-        { name: 'Events', icon: Calendar, page: 'Events' },
+        { name: 'Host', icon: Crown, page: 'HostDashboard' },
         { name: 'Create', icon: Plus, page: null, isCreate: true },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
@@ -447,7 +420,7 @@ export default function Layout({ children, currentPageName }) {
                     switchMode(m.id);
                     setShowModeSwitcher(false);
                     // take user to the “home” of that mode
-                    const dest = m.id === 'business' ? 'BusinessDashboard' : m.id === 'host' ? 'HostDashboard' : 'Home';
+                    const dest = m.id === 'business' ? 'BusinessDashboard' : 'Home';
                     navigate(createPageUrl(dest));
                   }}
                   className="sec-card"
@@ -503,7 +476,7 @@ export default function Layout({ children, currentPageName }) {
                 ) : (
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <item.icon size={24} strokeWidth={1.5} />
-                    {item.page === 'Messages' && item.badge > 0 && (
+                    {(item.page === 'Messages' || item.page === 'HostDashboard') && item.badge > 0 && (
                       <span style={{ position: 'absolute', top: -6, right: -10, minWidth: 16, height: 16, borderRadius: 8, background: 'var(--sec-accent)', color: '#000', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', lineHeight: 1 }}>
                         {item.badge > 99 ? '99+' : item.badge}
                       </span>

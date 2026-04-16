@@ -11,6 +11,14 @@
     {
       "path": "/api/cron/expire-promotions",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/complete-parties",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/expire-table-boosts",
+      "schedule": "0 4 * * *"
     }
   ]
 }

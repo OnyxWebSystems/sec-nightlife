@@ -162,6 +162,38 @@ enum FriendActivityType {
   INTERACTED_PROMOTION
 }
 
+enum HousePartyStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+}
+
+enum HostedTableStatus {
+  DRAFT
+  ACTIVE
+  FULL
+  CLOSED
+}
+
+enum TableSourceType {
+  IN_APP_EVENT
+  EXTERNAL_VENUE
+}
+
+enum AttendeeStatus {
+  GOING
+  WAITLISTED
+  CANCELLED
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
 // ─── Users & Auth ─────────────────────────────────────────────────────────
 // Party Goers (USER) and Business Owners (VENUE) can share the same email as separate accounts
 model User {
@@ -184,35 +216,44 @@ model User {
   deletedAt             DateTime? @map("deleted_at")
 
   // Relations
-  venueOwner                  Venue[]              @relation("VenueOwner")
+  venueOwner                  Venue[]                    @relation("VenueOwner")
   userProfile                 UserProfile?
-  hostedTables                Table[]              @relation("TableHost")
-  blocksInitiated             Block[]              @relation("BlockInitiator")
-  blocksReceived              Block[]              @relation("BlockTarget")
-  reportsInitiated            Report[]             @relation("ReportInitiator")
-  complianceDocumentsReviewed ComplianceDocument[] @relation("ReviewedByUser")
-  adminReviewerAdditions      AdminReviewer[]      @relation("AddedByUser")
-  adminDashboardDelegations   AdminDashboardDelegate[] @relation("AddedByAdminDashboardUser")
+  hostedTables                Table[]                    @relation("TableHost")
+  housePartiesHosted          HouseParty[]               @relation("HousePartyHost")
+  housePartyAttendances       HousePartyAttendee[]
+  hostedTablesV2              HostedTable[]              @relation("HostedTableHost")
+  hostedTableMemberships      HostedTableMember[]
+  tableInvitesSent            TableInvite[]              @relation("TableInviter")
+  tableInvitesReceived        TableInvite[]              @relation("TableInvitee")
+  housePartyJobsHosted        HousePartyJob[]            @relation("HousePartyJobHost")
+  housePartyJobApplications   HousePartyJobApplication[]
+  housePartyJobMessagesSent   HousePartyJobMessage[]     @relation("HousePartyJobMessageSender")
+  blocksInitiated             Block[]                    @relation("BlockInitiator")
+  blocksReceived              Block[]                    @relation("BlockTarget")
+  reportsInitiated            Report[]                   @relation("ReportInitiator")
+  complianceDocumentsReviewed ComplianceDocument[]       @relation("ReviewedByUser")
+  adminReviewerAdditions      AdminReviewer[]            @relation("AddedByUser")
+  adminDashboardDelegations   AdminDashboardDelegate[]   @relation("AddedByAdminDashboardUser")
   auditLogs                   AuditLog[]
   refreshTokens               RefreshToken[]
   jobApplications             JobApplication[]
-  sentJobMessages             JobMessage[]         @relation("MessageSender")
-  friendshipsInitiated        Friendship[]         @relation("FriendRequester")
-  friendshipsReceived         Friendship[]         @relation("FriendReceiver")
-  conversationsAsParticipantA Conversation[]       @relation("ConversationParticipantA")
-  conversationsAsParticipantB Conversation[]       @relation("ConversationParticipantB")
-  directMessagesSent          DirectMessage[]      @relation("DirectMessageSender")
+  sentJobMessages             JobMessage[]               @relation("MessageSender")
+  friendshipsInitiated        Friendship[]               @relation("FriendRequester")
+  friendshipsReceived         Friendship[]               @relation("FriendReceiver")
+  conversationsAsParticipantA Conversation[]             @relation("ConversationParticipantA")
+  conversationsAsParticipantB Conversation[]             @relation("ConversationParticipantB")
+  directMessagesSent          DirectMessage[]            @relation("DirectMessageSender")
   groupChatMemberships        GroupChatMember[]
-  groupChatMessagesSent       GroupChatMessage[]   @relation("GroupChatMessageSender")
+  groupChatMessagesSent       GroupChatMessage[]         @relation("GroupChatMessageSender")
   inAppNotifications          InAppNotification[]
   friendActivities            FriendActivity[]
-  reviewsGiven                UserReview[]         @relation("ReviewsGiven")
-  reviewsReceived             UserReview[]         @relation("ReviewsReceived")
-  venueReviewsGiven           VenueReview[]        @relation("VenueReviewsGiven")
+  reviewsGiven                UserReview[]               @relation("ReviewsGiven")
+  reviewsReceived             UserReview[]               @relation("ReviewsReceived")
+  venueReviewsGiven           VenueReview[]              @relation("VenueReviewsGiven")
   venueFollows                VenueFollow[]
   legalAcceptances            LegalDocumentAcceptance[]
-  promoterFollowers           PromoterFollow[]      @relation("PromoterFollowers")
-  promoterFollowing           PromoterFollow[]      @relation("PromoterFollowing")
+  promoterFollowers           PromoterFollow[]           @relation("PromoterFollowers")
+  promoterFollowing           PromoterFollow[]           @relation("PromoterFollowing")
 
   @@unique([email, role])
   @@index([email])
@@ -473,6 +514,7 @@ model Event {
 
   venue         Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
   tables        Table[]
+  hostedTables  HostedTable[]
   jobs          Job[]
   attendees     EventAttendance[]
   promotedPosts Promotion[]
@@ -650,9 +692,9 @@ model ServiceRating {
   message     String?  @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
 
+  @@unique([raterUserId, rateeUserId, contextType, contextId])
   @@index([rateeUserId, createdAt])
   @@index([contextType, contextId])
-  @@unique([raterUserId, rateeUserId, contextType, contextId])
   @@map("service_ratings")
 }
 
@@ -739,22 +781,22 @@ model Block {
 }
 
 model Report {
-  id         String       @id @default(uuid())
-  reporterId String       @map("reporter_id")
-  targetType String       @map("target_type")
-  targetId   String       @map("target_id")
-  category   ReportCategory @default(other)
-  priority   ReportPriority @default(medium)
-  reason     String
-  details    String?
-  evidenceUrls Json?      @map("evidence_urls")
-  status     ReportStatus @default(pending)
-  assignedTo String?      @map("assigned_to")
-  resolutionNote String?  @map("resolution_note")
-  resolvedBy String?      @map("resolved_by")
-  reviewedAt DateTime?    @map("reviewed_at")
-  resolvedAt DateTime?    @map("resolved_at")
-  createdAt  DateTime     @default(now()) @map("created_at")
+  id             String         @id @default(uuid())
+  reporterId     String         @map("reporter_id")
+  targetType     String         @map("target_type")
+  targetId       String         @map("target_id")
+  category       ReportCategory @default(other)
+  priority       ReportPriority @default(medium)
+  reason         String
+  details        String?
+  evidenceUrls   Json?          @map("evidence_urls")
+  status         ReportStatus   @default(pending)
+  assignedTo     String?        @map("assigned_to")
+  resolutionNote String?        @map("resolution_note")
+  resolvedBy     String?        @map("resolved_by")
+  reviewedAt     DateTime?      @map("reviewed_at")
+  resolvedAt     DateTime?      @map("resolved_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
 
   reporter User @relation("ReportInitiator", fields: [reporterId], references: [id], onDelete: Cascade)
 
@@ -1017,6 +1059,197 @@ model HostEvent {
   @@index([date])
   @@index([status])
   @@map("host_events")
+}
+
+model HouseParty {
+  id                 String           @id @default(cuid())
+  hostUserId         String           @map("host_user_id")
+  title              String
+  description        String           @db.Text
+  location           String
+  latitude           Float?
+  longitude          Float?
+  coverImageUrl      String?          @map("cover_image_url")
+  coverImagePublicId String?          @map("cover_image_public_id")
+  startTime          DateTime         @map("start_time")
+  endTime            DateTime         @map("end_time")
+  hasEntranceFee     Boolean          @default(false) @map("has_entrance_fee")
+  entranceFeeAmount  Float?           @map("entrance_fee_amount")
+  entranceFeeNote    String?          @map("entrance_fee_note")
+  freeEntryGroup     String?          @map("free_entry_group")
+  guestQuantity      Int              @map("guest_quantity")
+  spotsRemaining     Int              @map("spots_remaining")
+  status             HousePartyStatus @default(DRAFT)
+  publishedAt        DateTime?        @map("published_at")
+  publishPaystackRef String?          @map("publish_paystack_ref")
+  boosted            Boolean          @default(false)
+  boostedAt          DateTime?        @map("boosted_at")
+  boostExpiresAt     DateTime?        @map("boost_expires_at")
+  boostPaystackRef   String?          @map("boost_paystack_ref")
+  boostImpressions   Int              @default(0) @map("boost_impressions")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  host      User                 @relation("HousePartyHost", fields: [hostUserId], references: [id], onDelete: Cascade)
+  attendees HousePartyAttendee[]
+  jobs      HousePartyJob[]
+
+  @@index([hostUserId])
+  @@index([status])
+  @@index([startTime])
+  @@map("house_parties")
+}
+
+model HousePartyAttendee {
+  id           String         @id @default(cuid())
+  housePartyId String         @map("house_party_id")
+  userId       String         @map("user_id")
+  status       AttendeeStatus
+  joinedAt     DateTime       @default(now()) @map("joined_at")
+
+  houseParty HouseParty @relation(fields: [housePartyId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([housePartyId, userId])
+  @@index([housePartyId])
+  @@index([userId])
+  @@map("house_party_attendees")
+}
+
+model HostedTable {
+  id               String            @id @default(cuid())
+  hostUserId       String            @map("host_user_id")
+  tableType        TableSourceType   @map("table_type")
+  eventId          String?           @map("event_id")
+  venueName        String            @map("venue_name")
+  venueAddress     String?           @map("venue_address")
+  eventDate        DateTime          @map("event_date")
+  eventTime        String            @map("event_time")
+  drinkPreferences String?           @map("drink_preferences")
+  desiredCompany   String?           @map("desired_company")
+  guestQuantity    Int               @map("guest_quantity")
+  spotsRemaining   Int               @map("spots_remaining")
+  isPublic         Boolean           @default(true) @map("is_public")
+  status           HostedTableStatus @default(ACTIVE)
+  boosted          Boolean           @default(false)
+  boostedAt        DateTime?         @map("boosted_at")
+  boostExpiresAt   DateTime?         @map("boost_expires_at")
+  boostPaystackRef String?           @map("boost_paystack_ref")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  host    User                @relation("HostedTableHost", fields: [hostUserId], references: [id], onDelete: Cascade)
+  event   Event?              @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  members HostedTableMember[]
+  invites TableInvite[]
+
+  @@index([hostUserId])
+  @@index([status])
+  @@index([eventDate])
+  @@map("hosted_tables")
+}
+
+model HostedTableMember {
+  id            String         @id @default(cuid())
+  hostedTableId String         @map("hosted_table_id")
+  userId        String         @map("user_id")
+  status        AttendeeStatus
+  joinedAt      DateTime       @default(now()) @map("joined_at")
+
+  hostedTable HostedTable @relation(fields: [hostedTableId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([hostedTableId, userId])
+  @@index([hostedTableId])
+  @@index([userId])
+  @@map("hosted_table_members")
+}
+
+model TableInvite {
+  id            String       @id @default(cuid())
+  hostedTableId String       @map("hosted_table_id")
+  inviterUserId String       @map("inviter_user_id")
+  inviteeUserId String       @map("invitee_user_id")
+  status        InviteStatus @default(PENDING)
+  sentAt        DateTime     @default(now()) @map("sent_at")
+  respondedAt   DateTime?    @map("responded_at")
+
+  hostedTable HostedTable @relation(fields: [hostedTableId], references: [id], onDelete: Cascade)
+  inviter     User        @relation("TableInviter", fields: [inviterUserId], references: [id], onDelete: Cascade)
+  invitee     User        @relation("TableInvitee", fields: [inviteeUserId], references: [id], onDelete: Cascade)
+
+  @@unique([hostedTableId, inviteeUserId])
+  @@index([inviteeUserId])
+  @@map("table_invites")
+}
+
+model HousePartyJob {
+  id                 String           @id @default(cuid())
+  housePartyId       String           @map("house_party_id")
+  hostUserId         String           @map("host_user_id")
+  title              String
+  description        String           @db.Text
+  requirements       String           @db.Text
+  jobType            JobType          @map("job_type")
+  compensationType   CompensationType @map("compensation_type")
+  compensationAmount Float?           @map("compensation_amount")
+  compensationPer    CompensationPer  @map("compensation_per")
+  currency           String           @default("ZAR")
+  totalSpots         Int              @default(1) @map("total_spots")
+  filledSpots        Int              @default(0) @map("filled_spots")
+  closingDate        DateTime?        @map("closing_date")
+  status             JobStatus        @default(OPEN)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  houseParty   HouseParty                 @relation(fields: [housePartyId], references: [id], onDelete: Cascade)
+  host         User                       @relation("HousePartyJobHost", fields: [hostUserId], references: [id], onDelete: Cascade)
+  applications HousePartyJobApplication[]
+
+  @@index([housePartyId])
+  @@index([hostUserId])
+  @@index([status])
+  @@map("house_party_jobs")
+}
+
+model HousePartyJobApplication {
+  id              String            @id @default(cuid())
+  housePartyJobId String            @map("house_party_job_id")
+  applicantUserId String            @map("applicant_user_id")
+  coverMessage    String            @map("cover_message") @db.Text
+  cvUrl           String?           @map("cv_url")
+  cvFileName      String?           @map("cv_file_name")
+  portfolioUrl    String?           @map("portfolio_url")
+  status          ApplicationStatus @default(PENDING)
+  appliedAt       DateTime          @default(now()) @map("applied_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  housePartyJob HousePartyJob          @relation(fields: [housePartyJobId], references: [id], onDelete: Cascade)
+  applicant     User                   @relation(fields: [applicantUserId], references: [id], onDelete: Cascade)
+  messages      HousePartyJobMessage[]
+
+  @@unique([housePartyJobId, applicantUserId])
+  @@index([housePartyJobId])
+  @@index([applicantUserId])
+  @@index([status])
+  @@map("house_party_job_applications")
+}
+
+model HousePartyJobMessage {
+  id            String    @id @default(cuid())
+  applicationId String    @map("application_id")
+  senderUserId  String    @map("sender_user_id")
+  body          String    @db.Text
+  sentAt        DateTime  @default(now()) @map("sent_at")
+  readAt        DateTime? @map("read_at")
+
+  application HousePartyJobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  sender      User                     @relation("HousePartyJobMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([senderUserId])
+  @@index([sentAt])
+  @@map("house_party_job_messages")
 }
 
 model UserReview {

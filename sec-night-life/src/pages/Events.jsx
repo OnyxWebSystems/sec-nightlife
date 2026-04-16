@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
+import { apiGet } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, Search, MapPin, Clock, Users, SlidersHorizontal, Sparkles, Ticket, ChevronRight } from 'lucide-react';
 import { format, parseISO, isToday, isTomorrow, addDays, startOfWeek, eachDayOfInterval } from 'date-fns';
@@ -20,10 +21,11 @@ export default function Events() {
     queryFn: () => dataService.Event.filter({ status: 'published' }, 'date', 100),
   });
 
-  const { data: hostEvents = [] } = useQuery({
-    queryKey: ['host-events'],
-    queryFn: () => dataService.HostEvent.filter({ status: 'published' }),
+  const { data: hostPartiesRes } = useQuery({
+    queryKey: ['host-parties-public-events'],
+    queryFn: () => apiGet('/api/host/parties/public?limit=50'),
   });
+  const hostEvents = hostPartiesRes?.items || [];
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -336,22 +338,30 @@ function EventSection({ title, events, accent }) {
 /* ── Host event card (informal events) ── */
 function HostEventCard({ event }) {
   const getDateLabel = () => {
-    if (!event.date) return '';
-    const date = parseISO(event.date);
+    const raw = event.startTime || event.date;
+    if (!raw) return '';
+    const date = parseISO(raw);
     if (isToday(date)) return 'Tonight';
     if (isTomorrow(date)) return 'Tomorrow';
     return format(date, 'EEE, MMM d');
   };
-  const price = event.entry_cost > 0 ? `R${event.entry_cost}` : 'Free';
+  const price =
+    event.hasEntranceFee && event.entranceFeeAmount > 0
+      ? `R${event.entranceFeeAmount}`
+      : event.entry_cost > 0
+        ? `R${event.entry_cost}`
+        : 'Free';
+  const cover = event.coverImageUrl || event.cover_image_url;
+  const loc = event.location || event.city;
   return (
     <Link
-      to={createPageUrl(`HostEventDetails?id=${event.id}`)}
+      to={createPageUrl('HostDashboard')}
       className="sec-card"
       style={{ overflow: 'hidden', display: 'block', textDecoration: 'none' }}
     >
       <div style={{ position: 'relative', height: 150 }}>
         <img
-          src={getEventImage(event.cover_image_url)}
+          src={getEventImage(cover)}
           alt={event.title}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         />
@@ -366,7 +376,7 @@ function HostEventCard({ event }) {
             borderRadius: 'var(--radius-pill)',
           }}
         >
-          Host Event
+          House Party
         </span>
       </div>
       <div style={{ padding: '14px 16px 16px' }}>
@@ -381,10 +391,10 @@ function HostEventCard({ event }) {
             <Calendar size={12} strokeWidth={1.5} />
             {getDateLabel()}
           </span>
-          {event.city && (
+          {loc && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <MapPin size={12} strokeWidth={1.5} />
-              {event.city}
+              {loc}
             </span>
           )}
         </div>

@@ -17,7 +17,7 @@ router.get('/me', authenticateToken, async (req, res, next) => {
     const types = new Set(roles.map((r) => r.roleType));
     res.json({
       partygoer: true,
-      host: types.has('host'),
+      host: true,
       business: types.has('business'),
     });
   } catch (err) {

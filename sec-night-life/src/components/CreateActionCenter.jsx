@@ -1,9 +1,7 @@
 /**
- * Create Action Center — Primary action hub (Instagram-style).
- * Options: Create Event, Host Event, Post Job, Create Promotion, Create Table Invite.
- * Uses SecNightlife brand colors only.
+ * Party Goer quick actions — house party, table, table invite.
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import {
@@ -13,74 +11,43 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import {
-  Calendar,
-  Crown,
-  Briefcase,
-  Megaphone,
-  Users,
-  ChevronRight,
-} from 'lucide-react';
+import { Sparkles, Armchair, Mail } from 'lucide-react';
+import { apiGet } from '@/api/client';
 
-const ACTIONS = [
-  {
-    id: 'create-event',
-    label: 'Create Event',
-    description: 'Create a venue or host event',
-    icon: Calendar,
-    getPage: (userRoles) =>
-      userRoles.business ? 'BusinessEvents' : userRoles.host ? 'CreateHostEvent' : 'CreateHostEvent',
-    show: () => true,
-  },
-  {
-    id: 'host-event',
-    label: 'Host Event',
-    description: 'Host a table at an event',
-    icon: Crown,
-    page: 'CreateTable',
-    show: () => true,
-  },
-  {
-    id: 'post-job',
-    label: 'Post Job',
-    description: 'List a job for your venue',
-    icon: Briefcase,
-    page: 'CreateJob',
-    show: (userRoles) => userRoles.business,
-  },
-  {
-    id: 'create-promotion',
-    label: 'Create Promotion',
-    description: 'Promote events and deals',
-    icon: Megaphone,
-    page: 'BusinessPromotions',
-    show: (userRoles) => userRoles.business,
-  },
-  {
-    id: 'create-table-invite',
-    label: 'Create Table Invite',
-    description: 'Invite friends to join your table',
-    icon: Users,
-    page: 'CreateTable',
-    show: () => true,
-  },
-];
-
-export default function CreateActionCenter({ open, onOpenChange, userRoles = { partygoer: true, host: false, business: false }, activeMode = 'partygoer' }) {
+export default function CreateActionCenter({ open, onOpenChange, userRoles = { partygoer: true, host: true, business: false }, activeMode = 'partygoer' }) {
   const navigate = useNavigate();
+  const [hasActiveTable, setHasActiveTable] = useState(false);
 
-  const visibleActions = ACTIONS.filter((a) => {
-    if (a.id === 'post-job' || a.id === 'create-promotion') {
-      return activeMode === 'business' && a.show(userRoles);
-    }
-    return a.show(userRoles);
-  });
+  useEffect(() => {
+    if (!open || activeMode !== 'partygoer') return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiGet('/api/host/tables/memberships/active');
+        if (!cancelled && r?.hasActive) setHasActiveTable(true);
+      } catch {
+        if (!cancelled) setHasActiveTable(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, activeMode]);
 
-  const handleAction = (action) => {
+  const goParty = () => {
     onOpenChange(false);
-    const page = action.getPage ? action.getPage(userRoles) : action.page;
-    navigate(createPageUrl(page));
+    navigate(`${createPageUrl('HostDashboard')}?create=party`);
   };
+
+  const goTable = () => {
+    onOpenChange(false);
+    navigate(`${createPageUrl('HostDashboard')}?create=table`);
+  };
+
+  const goInvite = () => {
+    onOpenChange(false);
+    navigate(`${createPageUrl('HostDashboard')}?create=invite`);
+  };
+
+  if (activeMode !== 'partygoer') return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -97,58 +64,60 @@ export default function CreateActionCenter({ open, onOpenChange, userRoles = { p
             Create
           </DialogTitle>
           <DialogDescription style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>
-            Choose an action to get started
+            Host a party or list a table
           </DialogDescription>
         </DialogHeader>
         <div className="mt-2 flex flex-col gap-1" style={{ maxHeight: 360, overflowY: 'auto' }}>
-          {visibleActions.map((action) => {
-            const Icon = action.icon;
-            return (
-              <button
-                key={action.id}
-                onClick={() => handleAction(action)}
-                className="flex items-center gap-4 w-full p-4 rounded-xl text-left transition-colors border-none cursor-pointer"
-                style={{
-                  backgroundColor: 'var(--sec-bg-elevated)',
-                  border: '1px solid var(--sec-border)',
-                  color: 'var(--sec-text-primary)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)';
-                  e.currentTarget.style.borderColor = 'var(--sec-border-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--sec-bg-elevated)';
-                  e.currentTarget.style.borderColor = 'var(--sec-border)';
-                }}
-              >
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: 'var(--sec-accent-muted)',
-                    border: '1px solid var(--sec-accent-border)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <Icon size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
-                    {action.label}
-                  </p>
-                  <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2 }}>
-                    {action.description}
-                  </p>
-                </div>
-                <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
-              </button>
-            );
-          })}
+          <button
+            type="button"
+            onClick={goParty}
+            className="flex items-center gap-4 w-full p-4 rounded-xl text-left transition-colors border-none cursor-pointer"
+            style={{
+              backgroundColor: 'var(--sec-bg-elevated)',
+              border: '1px solid var(--sec-border)',
+              color: 'var(--sec-text-primary)',
+            }}
+          >
+            <Sparkles size={22} strokeWidth={1.5} />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold">Create House Party</div>
+              <div className="text-xs opacity-80 mt-0.5">Host your own event and invite the city</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={goTable}
+            className="flex items-center gap-4 w-full p-4 rounded-xl text-left transition-colors border-none cursor-pointer"
+            style={{
+              backgroundColor: 'var(--sec-bg-elevated)',
+              border: '1px solid var(--sec-border)',
+              color: 'var(--sec-text-primary)',
+            }}
+          >
+            <Armchair size={22} strokeWidth={1.5} />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold">Host a Table</div>
+              <div className="text-xs opacity-80 mt-0.5">List a table at a club for people to join</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={hasActiveTable ? goInvite : undefined}
+            disabled={!hasActiveTable}
+            title={!hasActiveTable ? 'Join or host a table first' : undefined}
+            className="flex items-center gap-4 w-full p-4 rounded-xl text-left transition-colors border-none cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: 'var(--sec-bg-elevated)',
+              border: '1px solid var(--sec-border)',
+              color: 'var(--sec-text-primary)',
+            }}
+          >
+            <Mail size={22} strokeWidth={1.5} />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold">Create Table Invite</div>
+              <div className="text-xs opacity-80 mt-0.5">Invite friends to your table</div>
+            </div>
+          </button>
         </div>
       </DialogContent>
     </Dialog>
