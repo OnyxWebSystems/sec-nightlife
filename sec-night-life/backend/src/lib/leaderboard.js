@@ -17,6 +17,10 @@ function confidenceAdjustedRating(avg, count) {
   return (avg * count + 3 * 5) / (count + 5);
 }
 
+function isSchemaDriftError(err) {
+  return err?.code === 'P2022' || err?.code === 'P2021';
+}
+
 async function promoterActivityMap(userIds) {
   const map = new Map();
   for (const id of userIds) map.set(id, { acceptedJobs: 0, completedJobs: 0, lastActivityAt: null });
@@ -45,61 +49,61 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50 } = {}) {
   const take = Math.max(1, Math.min(Number(limit) || 50, 100));
   const pageNo = Math.max(1, Number(page) || 1);
   const skip = (pageNo - 1) * take;
-
-  const users = await prisma.user.findMany({
-    where: { deletedAt: null, suspendedAt: null },
-    select: {
-      id: true,
-      username: true,
-      userProfile: {
-        select: {
-          isVerifiedPromoter: true,
-          avatarUrl: true,
-          serviceRatingAvg: true,
-          serviceRatingCount: true,
-          leaderboardHidden: true,
-          leaderboardHiddenReason: true,
-          leaderboardHiddenUntil: true,
+  try {
+    const users = await prisma.user.findMany({
+      where: { deletedAt: null, suspendedAt: null },
+      select: {
+        id: true,
+        username: true,
+        userProfile: {
+          select: {
+            isVerifiedPromoter: true,
+            avatarUrl: true,
+            serviceRatingAvg: true,
+            serviceRatingCount: true,
+            leaderboardHidden: true,
+            leaderboardHiddenReason: true,
+            leaderboardHiddenUntil: true,
+          },
         },
       },
-    },
-  });
-  const userIds = users.map((u) => u.id);
-  const staleCutoff = new Date(Date.now() - POLICY.staleDays * 24 * 60 * 60 * 1000);
+    });
+    const userIds = users.map((u) => u.id);
+    const staleCutoff = new Date(Date.now() - POLICY.staleDays * 24 * 60 * 60 * 1000);
 
-  const [activity, legalAcceptances, ratingsByUser, reportsByUser, blocksByUser] = await Promise.all([
-    promoterActivityMap(userIds),
-    prisma.legalDocumentAcceptance.findMany({
-      where: { userId: { in: userIds }, documentType: 'PROMOTER_CODE_OF_CONDUCT' },
-      orderBy: { acceptedAt: 'desc' },
-      select: { userId: true, version: true, acceptedAt: true },
-    }),
-    prisma.serviceRating.groupBy({
-      by: ['rateeUserId'],
-      where: { rateeUserId: { in: userIds } },
-      _avg: { score: true },
-      _count: { _all: true, raterUserId: true },
-    }),
-    prisma.report.groupBy({
-      by: ['targetId'],
-      where: { targetType: 'user', targetId: { in: userIds }, status: { in: ['action_taken', 'resolved'] } },
-      _count: { _all: true },
-    }),
-    prisma.block.groupBy({
-      by: ['blockedId'],
-      where: { blockedId: { in: userIds } },
-      _count: { _all: true },
-    }),
-  ]);
+    const [activity, legalAcceptances, ratingsByUser, reportsByUser, blocksByUser] = await Promise.all([
+      promoterActivityMap(userIds),
+      prisma.legalDocumentAcceptance.findMany({
+        where: { userId: { in: userIds }, documentType: 'PROMOTER_CODE_OF_CONDUCT' },
+        orderBy: { acceptedAt: 'desc' },
+        select: { userId: true, version: true, acceptedAt: true },
+      }),
+      prisma.serviceRating.groupBy({
+        by: ['rateeUserId'],
+        where: { rateeUserId: { in: userIds } },
+        _avg: { score: true },
+        _count: { _all: true, raterUserId: true },
+      }),
+      prisma.report.groupBy({
+        by: ['targetId'],
+        where: { targetType: 'user', targetId: { in: userIds }, status: { in: ['action_taken', 'resolved'] } },
+        _count: { _all: true },
+      }),
+      prisma.block.groupBy({
+        by: ['blockedId'],
+        where: { blockedId: { in: userIds } },
+        _count: { _all: true },
+      }),
+    ]);
 
-  const acceptanceMap = new Map();
-  for (const row of legalAcceptances) if (!acceptanceMap.has(row.userId)) acceptanceMap.set(row.userId, row);
-  const ratingMap = new Map(ratingsByUser.map((r) => [r.rateeUserId, r]));
-  const reportMap = new Map(reportsByUser.map((r) => [r.targetId, r._count._all]));
-  const blockMap = new Map(blocksByUser.map((r) => [r.blockedId, r._count._all]));
+    const acceptanceMap = new Map();
+    for (const row of legalAcceptances) if (!acceptanceMap.has(row.userId)) acceptanceMap.set(row.userId, row);
+    const ratingMap = new Map(ratingsByUser.map((r) => [r.rateeUserId, r]));
+    const reportMap = new Map(reportsByUser.map((r) => [r.targetId, r._count._all]));
+    const blockMap = new Map(blocksByUser.map((r) => [r.blockedId, r._count._all]));
 
-  const ranked = users
-    .map((u) => {
+    const ranked = users
+      .map((u) => {
       const p = u.userProfile;
       const a = activity.get(u.id) || { acceptedJobs: 0, completedJobs: 0, lastActivityAt: null };
       const r = ratingMap.get(u.id);
@@ -168,29 +172,87 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50 } = {}) {
           rising: consistency >= 70 && quality >= 60,
         },
       };
-    })
-    .filter((x) => x.eligibility.isVerifiedPromoter)
-    .filter((x) => x.eligibility.hasMinimumAcceptedJobs)
-    .filter((x) => x.eligibility.hasRatings)
-    .filter((x) => x.eligibility.hasUniqueRaters)
-    .filter((x) => x.eligibility.hasAcceptedCodeOfConduct)
-    .filter((x) => x.eligibility.isActive)
-    .filter((x) => !x.eligibility.hasCompliancePenalty)
-    .filter((x) => !x.eligibility.hiddenByModeration)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (b.scoreBreakdown.quality !== a.scoreBreakdown.quality) return b.scoreBreakdown.quality - a.scoreBreakdown.quality;
-      if (b.completedJobs !== a.completedJobs) return b.completedJobs - a.completedJobs;
-      return new Date(b.lastActivityAt || 0).getTime() - new Date(a.lastActivityAt || 0).getTime();
-    })
-    .map((x, i) => ({ ...x, rank: i + 1 }));
+      })
+      .filter((x) => x.eligibility.isVerifiedPromoter)
+      .filter((x) => x.eligibility.hasMinimumAcceptedJobs)
+      .filter((x) => x.eligibility.hasRatings)
+      .filter((x) => x.eligibility.hasUniqueRaters)
+      .filter((x) => x.eligibility.hasAcceptedCodeOfConduct)
+      .filter((x) => x.eligibility.isActive)
+      .filter((x) => !x.eligibility.hasCompliancePenalty)
+      .filter((x) => !x.eligibility.hiddenByModeration)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.scoreBreakdown.quality !== a.scoreBreakdown.quality) return b.scoreBreakdown.quality - a.scoreBreakdown.quality;
+        if (b.completedJobs !== a.completedJobs) return b.completedJobs - a.completedJobs;
+        return new Date(b.lastActivityAt || 0).getTime() - new Date(a.lastActivityAt || 0).getTime();
+      })
+      .map((x, i) => ({ ...x, rank: i + 1 }));
 
-  return {
-    policy: POLICY,
-    page: pageNo,
-    limit: take,
-    total: ranked.length,
-    data: ranked.slice(skip, skip + take),
-  };
+    return {
+      policy: POLICY,
+      page: pageNo,
+      limit: take,
+      total: ranked.length,
+      data: ranked.slice(skip, skip + take),
+    };
+  } catch (err) {
+    if (!isSchemaDriftError(err)) throw err;
+
+    const users = await prisma.user.findMany({
+      where: { deletedAt: null, suspendedAt: null },
+      select: {
+        id: true,
+        username: true,
+        userProfile: {
+          select: {
+            isVerifiedPromoter: true,
+            avatarUrl: true,
+            serviceRatingAvg: true,
+            serviceRatingCount: true,
+          },
+        },
+      },
+    });
+
+    const ranked = users
+      .filter((u) => u.userProfile?.isVerifiedPromoter)
+      .filter((u) => (u.userProfile?.serviceRatingCount || 0) > 0)
+      .map((u) => ({
+        rank: 0,
+        promoterId: u.id,
+        username: u.username,
+        avatarUrl: u.userProfile?.avatarUrl || null,
+        ratingAvg: Number(u.userProfile?.serviceRatingAvg || 0),
+        ratingCount: Number(u.userProfile?.serviceRatingCount || 0),
+        uniqueRaters: 0,
+        acceptedJobs: 0,
+        completedJobs: 0,
+        lastActivityAt: null,
+        score: Number(u.userProfile?.serviceRatingAvg || 0),
+        scoreBreakdown: { quality: Number(u.userProfile?.serviceRatingAvg || 0), execution: 0, consistency: 0, compliance: 100 },
+        eligibility: {
+          isVerifiedPromoter: true,
+          hasMinimumAcceptedJobs: true,
+          hasRatings: true,
+          hasUniqueRaters: true,
+          hasAcceptedCodeOfConduct: false,
+          isActive: true,
+          hasCompliancePenalty: false,
+          hiddenByModeration: false,
+        },
+        badges: { verified: true, compliant: true, rising: false },
+      }))
+      .sort((a, b) => b.ratingAvg - a.ratingAvg)
+      .map((x, i) => ({ ...x, rank: i + 1 }));
+
+    return {
+      policy: POLICY,
+      page: pageNo,
+      limit: take,
+      total: ranked.length,
+      data: ranked.slice(skip, skip + take),
+    };
+  }
 }
 

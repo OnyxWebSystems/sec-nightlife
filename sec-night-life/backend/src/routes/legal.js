@@ -26,6 +26,10 @@ const LEGAL_DOCS = {
   },
 };
 
+function isMissingAcceptanceSchema(err) {
+  return err?.code === 'P2022' || err?.code === 'P2021';
+}
+
 router.get('/privacy-policy', (req, res) => {
   const meta = LEGAL_DOCS.privacy_policy;
   res.json({
@@ -144,6 +148,7 @@ router.get('/acceptance-status', authenticateToken, async (req, res, next) => {
     }
     res.json({ latest });
   } catch (err) {
+    if (isMissingAcceptanceSchema(err)) return res.json({ latest: {}, pendingMigration: true });
     next(err);
   }
 });
@@ -172,6 +177,9 @@ router.post('/acceptances', authenticateToken, async (req, res, next) => {
       acceptedAt: created.acceptedAt,
     });
   } catch (err) {
+    if (isMissingAcceptanceSchema(err)) {
+      return res.status(503).json({ error: 'Legal acceptance storage is temporarily unavailable. Please try again shortly.' });
+    }
     next(err);
   }
 });

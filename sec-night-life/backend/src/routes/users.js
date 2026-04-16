@@ -76,6 +76,125 @@ function normalizeInterestList(input) {
   return out;
 }
 
+function isMissingLeaderboardColumnsError(err) {
+  return err?.code === 'P2022' && String(err?.message || '').includes('leaderboard_hidden');
+}
+
+async function readUserProfileCompat(userId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT
+      id,
+      user_id AS "userId",
+      username,
+      bio,
+      city,
+      avatar_url AS "avatarUrl",
+      favorite_drink AS "favoriteDrink",
+      date_of_birth AS "dateOfBirth",
+      id_document_url AS "idDocumentUrl",
+      age_verified AS "ageVerified",
+      verification_status AS "verificationStatus",
+      verification_rejection_note AS "verificationRejectionNote",
+      payment_setup_complete AS "paymentSetupComplete",
+      interests,
+      music_preferences AS "musicPreferences",
+      friends,
+      followed_venues AS "followedVenues",
+      onboarding_complete AS "onboardingComplete"
+     FROM user_profiles
+     WHERE user_id = $1
+     LIMIT 1`,
+    userId
+  );
+  return rows?.[0] || null;
+}
+
+async function upsertUserProfileCompat(userId, data) {
+  const existing = await readUserProfileCompat(userId);
+  const payload = {
+    username: data.username ?? existing?.username ?? null,
+    bio: data.bio ?? existing?.bio ?? null,
+    city: data.city ?? existing?.city ?? null,
+    avatarUrl: data.avatarUrl ?? existing?.avatarUrl ?? null,
+    favoriteDrink: data.favoriteDrink ?? existing?.favoriteDrink ?? null,
+    dateOfBirth: data.dateOfBirth ?? existing?.dateOfBirth ?? null,
+    idDocumentUrl: data.idDocumentUrl ?? existing?.idDocumentUrl ?? null,
+    ageVerified: data.ageVerified ?? existing?.ageVerified ?? false,
+    verificationStatus: data.verificationStatus ?? existing?.verificationStatus ?? 'pending',
+    paymentSetupComplete: data.paymentSetupComplete ?? existing?.paymentSetupComplete ?? false,
+    interests: data.interests ?? existing?.interests ?? [],
+    musicPreferences: data.musicPreferences ?? existing?.musicPreferences ?? [],
+    friends: data.friends ?? existing?.friends ?? [],
+    followedVenues: data.followedVenues ?? existing?.followedVenues ?? [],
+    onboardingComplete: data.onboardingComplete ?? existing?.onboardingComplete ?? false,
+  };
+
+  if (existing) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE user_profiles
+       SET username = $2,
+           bio = $3,
+           city = $4,
+           avatar_url = $5,
+           favorite_drink = $6,
+           date_of_birth = $7,
+           id_document_url = $8,
+           age_verified = $9,
+           verification_status = $10,
+           payment_setup_complete = $11,
+           interests = $12,
+           music_preferences = $13,
+           friends = $14,
+           followed_venues = $15,
+           onboarding_complete = $16,
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      userId,
+      payload.username,
+      payload.bio,
+      payload.city,
+      payload.avatarUrl,
+      payload.favoriteDrink,
+      payload.dateOfBirth,
+      payload.idDocumentUrl,
+      payload.ageVerified,
+      payload.verificationStatus,
+      payload.paymentSetupComplete,
+      payload.interests,
+      payload.musicPreferences,
+      payload.friends,
+      payload.followedVenues,
+      payload.onboardingComplete
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO user_profiles
+       (id, user_id, username, bio, city, avatar_url, favorite_drink, date_of_birth, id_document_url,
+        age_verified, verification_status, payment_setup_complete, interests, music_preferences, friends,
+        followed_venues, onboarding_complete, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())`,
+      userId,
+      payload.username,
+      payload.bio,
+      payload.city,
+      payload.avatarUrl,
+      payload.favoriteDrink,
+      payload.dateOfBirth,
+      payload.idDocumentUrl,
+      payload.ageVerified,
+      payload.verificationStatus,
+      payload.paymentSetupComplete,
+      payload.interests,
+      payload.musicPreferences,
+      payload.friends,
+      payload.followedVenues,
+      payload.onboardingComplete
+    );
+  }
+
+  return readUserProfileCompat(userId);
+}
+
 /** GET /check-username/:username — public, rate-limited; with Bearer token, current user's handle counts as available */
 router.get('/check-username/:username', usernameCheckLimiter, optionalAuth, async (req, res, next) => {
   try {
@@ -628,11 +747,17 @@ router.post('/', authenticateToken, async (req, res, next) => {
       ...(data.friends != null && { friends: data.friends }),
       ...(data.followed_venues != null && { followedVenues: data.followed_venues })
     };
-    const profile = await prisma.userProfile.upsert({
-      where: { userId: req.userId },
-      create: { userId: req.userId, ...profileData },
-      update: profileData
-    });
+    let profile;
+    try {
+      profile = await prisma.userProfile.upsert({
+        where: { userId: req.userId },
+        create: { userId: req.userId, ...profileData },
+        update: profileData
+      });
+    } catch (err) {
+      if (!isMissingLeaderboardColumnsError(err)) throw err;
+      profile = await upsertUserProfileCompat(req.userId, profileData);
+    }
     const userFresh = await prisma.user.findUnique({
       where: { id: req.userId },
       select: { email: true, fullName: true, username: true }
@@ -824,11 +949,17 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.friends != null) updates.friends = data.friends;
     if (data.followed_venues != null) updates.followedVenues = data.followed_venues;
     if (data.onboarding_complete != null) updates.onboardingComplete = data.onboarding_complete;
-    const updated = await prisma.userProfile.upsert({
-      where: { userId: targetUserId },
-      create: { userId: targetUserId, ...updates },
-      update: updates
-    });
+    let updated;
+    try {
+      updated = await prisma.userProfile.upsert({
+        where: { userId: targetUserId },
+        create: { userId: targetUserId, ...updates },
+        update: updates
+      });
+    } catch (err) {
+      if (!isMissingLeaderboardColumnsError(err)) throw err;
+      updated = await upsertUserProfileCompat(targetUserId, updates);
+    }
     const user = await prisma.user.findUnique({
       where: { id: targetUserId },
       select: { email: true, fullName: true, username: true }
