@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import * as authService from '@/services/authService';
 import { apiGet, apiPost, apiDelete, apiPatch } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -136,6 +135,9 @@ export default function Friends() {
       toast.success('You are now friends');
       queryClient.invalidateQueries({ queryKey: ['friends-incoming'] });
       queryClient.invalidateQueries({ queryKey: ['friends-list'] });
+      queryClient.invalidateQueries({ queryKey: ['profile-social'] });
+      queryClient.invalidateQueries({ queryKey: ['friends-preview-own'] });
+      queryClient.invalidateQueries({ queryKey: ['user-profile-viewer'] });
     } catch (e) {
       toast.error(e?.data?.error || 'Failed');
     }

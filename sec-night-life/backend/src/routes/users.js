@@ -80,6 +80,11 @@ function isMissingLeaderboardColumnsError(err) {
   return err?.code === 'P2022' && String(err?.message || '').includes('leaderboard_hidden');
 }
 
+/** Identity review finished — do not re-queue on later profile saves. */
+function isProfileVerificationSettled(status) {
+  return status === 'verified' || status === 'approved' || status === 'rejected';
+}
+
 async function readUserProfileCompat(userId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT
@@ -217,6 +222,52 @@ router.get('/check-username/:username', usernameCheckLimiter, optionalAuth, asyn
 });
 
 /** GET /:userId/profile — viewer-relative friendship + mutual friends */
+/** Authenticated: friend + table counts for any user (used by Profile stats). */
+router.get('/stats/social/:targetUserId([0-9a-f-]{36})', authenticateToken, async (req, res, next) => {
+  try {
+    const targetUserId = req.params.targetUserId;
+
+    const friendCount = await prisma.friendship.count({
+      where: {
+        status: 'ACCEPTED',
+        OR: [{ requesterId: targetUserId }, { receiverId: targetUserId }],
+      },
+    });
+
+    const tablesHosted = await prisma.table.count({
+      where: {
+        hostUserId: targetUserId,
+        deletedAt: null,
+        event: { deletedAt: null, status: 'published' },
+      },
+    });
+
+    const joinCandidates = await prisma.table.findMany({
+      where: {
+        deletedAt: null,
+        NOT: { hostUserId: targetUserId },
+        event: { deletedAt: null, status: 'published' },
+      },
+      select: { members: true },
+      take: 400,
+    });
+    let tablesJoined = 0;
+    for (const t of joinCandidates) {
+      const ids = [];
+      const members = Array.isArray(t.members) ? t.members : [];
+      for (const m of members) {
+        const uid = typeof m === 'object' && m ? m.user_id || m.userId : m;
+        if (typeof uid === 'string' && uid) ids.push(uid);
+      }
+      if (ids.includes(targetUserId)) tablesJoined += 1;
+    }
+
+    res.json({ friendCount, tablesHosted, tablesJoined });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res, next) => {
   try {
     const targetId = req.params.userId;
@@ -484,7 +535,10 @@ const profileUpdateSchema = z.object({
   date_of_birth: z.string().max(20).optional().nullable(),
   id_document_url: optionalMediaUrl,
   age_verified: z.boolean().optional().nullable(),
-  verification_status: z.enum(['pending', 'submitted', 'verified', 'rejected']).optional().nullable(),
+  verification_status: z
+    .enum(['pending', 'submitted', 'verified', 'rejected', 'approved'])
+    .optional()
+    .nullable(),
   payment_setup_complete: z.boolean().optional().nullable(),
   interests: z.array(z.string().max(30)).max(10).optional().nullable(),
   music_preferences: z.array(z.string().max(30)).max(10).optional().nullable(),
@@ -673,6 +727,7 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
       const p = profiles.find(pr => pr.userId === u.id);
       return {
         id: p?.id || u.id,
+        user_id: u.id,
         created_by: u.email,
         username: p?.username,
         full_name: u.fullName || p?.username,
@@ -805,7 +860,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       if (
         data.id_document_url &&
         String(data.id_document_url).trim() !== '' &&
-        existingProfile?.verificationStatus !== 'verified'
+        !isProfileVerificationSettled(existingProfile?.verificationStatus)
       ) {
         data.verification_status = 'submitted';
       }
@@ -904,7 +959,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       if (
         data.id_document_url &&
         String(data.id_document_url).trim() !== '' &&
-        profile?.verificationStatus !== 'verified'
+        !isProfileVerificationSettled(profile?.verificationStatus)
       ) {
         data.verification_status = 'submitted';
       }

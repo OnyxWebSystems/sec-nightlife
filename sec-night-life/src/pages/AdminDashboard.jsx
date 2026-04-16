@@ -166,7 +166,9 @@ export default function AdminDashboard() {
     try {
       await apiPatch(`/api/admin/verification/users/${userId}`, { status, note });
       setUserVerifications((prev) => prev.filter((p) => p.userId !== userId));
-    } catch {}
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Could not update verification');
+    }
     setActionLoading(null);
   };
 

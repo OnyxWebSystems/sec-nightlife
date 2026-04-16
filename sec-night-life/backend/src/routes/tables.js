@@ -130,7 +130,37 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
 router.get('/filter', optionalAuth, async (req, res, next) => {
   try {
-    const { id, event_id, venue_id, host_user_id, status, sort, limit = 100 } = req.query;
+    const { id, event_id, venue_id, host_user_id, member_user_id, status, sort, limit = 100 } = req.query;
+
+    if (member_user_id) {
+      if (!req.userId) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      const mid = String(member_user_id);
+      if (mid !== req.userId && !isStaff(req.userRole)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      const where = { deletedAt: null, NOT: { hostUserId: mid } };
+      if (id) where.id = String(id);
+      if (event_id) where.eventId = String(event_id);
+      if (venue_id) where.venueId = String(venue_id);
+      if (status) where.status = status;
+      if (req.userId && req.userRole === 'VENUE') {
+        const ok = await canAccessVenue(venue_id, req.userId, req.userRole);
+        if (!ok && venue_id) return res.status(403).json({ error: 'Forbidden' });
+        await applyTableVenueIsolation(where, req.userId, req.userRole, venue_id || null);
+      }
+      const orderBy = sort === '-created_date' ? { createdAt: 'desc' } : { createdAt: 'asc' };
+      const take = Math.min(parseInt(limit) || 100, 100);
+      const tables = await prisma.table.findMany({
+        where,
+        orderBy,
+        take: 250,
+      });
+      const filtered = tables.filter((t) => extractUserIdsFromMembers(t.members).includes(mid));
+      return res.json(filtered.slice(0, take).map(formatTable));
+    }
+
     const where = { deletedAt: null };
     if (id) where.id = String(id);
     if (event_id) where.eventId = String(event_id);

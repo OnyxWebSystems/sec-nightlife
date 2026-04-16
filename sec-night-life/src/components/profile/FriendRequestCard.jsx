@@ -1,88 +1,78 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import * as authService from '@/services/authService';
-import { dataService } from '@/services/dataService';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiPost } from '@/api/client';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, X } from 'lucide-react';
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
-export default function FriendRequestCard({ request }) {
+/**
+ * One incoming friend request from GET /api/friends/requests/incoming
+ * ({ friendshipId, user: { id, username, fullName, avatarUrl, city } }).
+ */
+export default function FriendRequestCard({ row }) {
   const queryClient = useQueryClient();
-
-  const { data: fromUser } = useQuery({
-    queryKey: ['user-profile', request.from_user_id],
-    queryFn: async () => {
-      const profiles = await dataService.User.filter({ id: request.from_user_id });
-      return profiles[0];
-    },
-  });
+  const { friendshipId, user } = row || {};
+  const displayName = user?.fullName || user?.username || 'Someone';
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
-      const currentUser = await authService.getCurrentUser();
-      const myProfiles = await dataService.User.filter({ created_by: currentUser.email });
-      const myProfile = myProfiles[0];
-
-      await dataService.FriendRequest.update(request.id, { status: 'accepted' });
-      
-      await dataService.User.update(myProfile.id, {
-        friends: [...(myProfile.friends || []), request.from_user_id]
-      });
-      
-      await dataService.User.update(request.from_user_id, {
-        friends: [...(fromUser.friends || []), myProfile.id]
-      });
-
-      await dataService.Notification.create({
-        user_id: request.from_user_id,
-        type: 'friend_request',
-        title: 'Friend Request Accepted',
-        message: `${myProfile.username || currentUser.full_name} accepted your friend request!`,
-        data: { user_id: myProfile.id }
-      });
+      await apiPost(`/api/friends/request/${friendshipId}/accept`);
     },
     onSuccess: () => {
-      toast.success('Friend request accepted!');
-      queryClient.invalidateQueries(['friend-requests']);
-      queryClient.invalidateQueries(['user-profile']);
-      queryClient.invalidateQueries(['friends']);
+      toast.success('You are now friends');
+      queryClient.invalidateQueries({ queryKey: ['friends-incoming'] });
+      queryClient.invalidateQueries({ queryKey: ['friends-list'] });
+      queryClient.invalidateQueries({ queryKey: ['profile-social'] });
+      queryClient.invalidateQueries({ queryKey: ['friends-preview-own'] });
+      queryClient.invalidateQueries({ queryKey: ['user-profile-viewer'] });
+      queryClient.invalidateQueries({ queryKey: ['notif-friend-req'] });
+    },
+    onError: (e) => {
+      toast.error(e?.data?.error || e?.message || 'Could not accept request');
     },
   });
 
   const declineMutation = useMutation({
     mutationFn: async () => {
-      await dataService.FriendRequest.update(request.id, { status: 'declined' });
+      await apiPost(`/api/friends/request/${friendshipId}/decline`);
     },
     onSuccess: () => {
-      toast.success('Friend request declined');
-      queryClient.invalidateQueries(['friend-requests']);
+      toast.success('Request declined');
+      queryClient.invalidateQueries({ queryKey: ['friends-incoming'] });
+      queryClient.invalidateQueries({ queryKey: ['notif-friend-req'] });
+    },
+    onError: (e) => {
+      toast.error(e?.data?.error || e?.message || 'Could not decline request');
     },
   });
 
-  if (!fromUser) return null;
+  if (!user?.id || !friendshipId) return null;
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B]">
-      <Link to={createPageUrl(`Profile?id=${fromUser.id}`)} className="flex items-center gap-3 flex-1 min-w-0">
+      <Link
+        to={createPageUrl(`Profile?id=${user.id}`)}
+        className="flex items-center gap-3 flex-1 min-w-0"
+      >
         <div
           className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0"
           style={{ backgroundColor: '#000', border: '2px solid var(--sec-accent)' }}
         >
-          {fromUser.avatar_url ? (
-            <img src={fromUser.avatar_url} alt="" className="w-full h-full object-cover" />
+          {user.avatarUrl ? (
+            <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
           ) : (
             <span className="text-sm font-bold uppercase" style={{ color: 'var(--sec-accent)' }}>
-              {(fromUser.full_name || fromUser.username)?.[0] || 'U'}
+              {displayName[0]?.toUpperCase() || 'U'}
             </span>
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-medium truncate">{fromUser.username || fromUser.full_name}</p>
-          {request.message && (
-            <p className="text-xs text-gray-500 truncate">{request.message}</p>
-          )}
+          <p className="font-medium truncate">{displayName}</p>
+          {user.username ? (
+            <p className="text-xs text-gray-500 truncate">@{user.username}</p>
+          ) : null}
         </div>
       </Link>
       <div className="flex gap-2 flex-shrink-0">

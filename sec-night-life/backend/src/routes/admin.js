@@ -367,9 +367,14 @@ router.get('/verification/users', async (req, res, next) => {
     const where = { user: { deletedAt: null } };
     // Queue: awaiting admin review — submitted, or legacy pending + ID on file
     if (status === 'pending' || status === 'queue') {
-      where.OR = [
-        { verificationStatus: 'submitted' },
-        { AND: [{ verificationStatus: 'pending' }, { idDocumentUrl: { not: null } }] },
+      where.AND = [
+        { NOT: { verificationStatus: { in: ['verified', 'approved', 'rejected'] } } },
+        {
+          OR: [
+            { verificationStatus: 'submitted' },
+            { AND: [{ verificationStatus: 'pending' }, { idDocumentUrl: { not: null } }] },
+          ],
+        },
       ];
     } else if (status) {
       where.verificationStatus = String(status);
@@ -781,9 +786,14 @@ router.get('/dashboard', async (req, res, next) => {
       prisma.venue.count({ where: { complianceStatus: 'pending', deletedAt: null } }),
       prisma.userProfile.count({
         where: {
-          OR: [
-            { verificationStatus: 'submitted' },
-            { AND: [{ verificationStatus: 'pending' }, { idDocumentUrl: { not: null } }] },
+          AND: [
+            { NOT: { verificationStatus: { in: ['verified', 'approved', 'rejected'] } } },
+            {
+              OR: [
+                { verificationStatus: 'submitted' },
+                { AND: [{ verificationStatus: 'pending' }, { idDocumentUrl: { not: null } }] },
+              ],
+            },
           ],
         },
       }),

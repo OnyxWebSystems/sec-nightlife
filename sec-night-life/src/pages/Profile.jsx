@@ -3,9 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiPost } from '@/api/client';
+import { apiGet, apiPost } from '@/api/client';
 import {
   Settings,
   MapPin,
@@ -40,7 +39,6 @@ import InterestsEditor from '@/components/profile/InterestsEditor';
 export default function Profile() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { logout } = useAuth();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [viewingUserId, setViewingUserId] = useState(null);
@@ -62,7 +60,7 @@ export default function Profile() {
       } else {
         navigate(createPageUrl('ProfileSetup'));
       }
-    } catch (e) {
+    } catch {
       authService.redirectToLogin(createPageUrl('Profile'));
     }
   };
@@ -72,7 +70,10 @@ export default function Profile() {
     setUserProfile((prev) => (prev ? { ...prev, ...patch } : prev));
   };
 
-  const isOwnProfile = !viewingUserId || viewingUserId === userProfile?.id;
+  const isOwnProfile =
+    !viewingUserId ||
+    (user?.id && viewingUserId === user.id) ||
+    (userProfile?.id && viewingUserId === userProfile.id);
 
   const { data: viewedProfile } = useQuery({
     queryKey: ['viewed-profile', viewingUserId],
@@ -85,36 +86,57 @@ export default function Profile() {
 
   const displayProfile = isOwnProfile ? userProfile : viewedProfile;
 
-  const { data: tableHistory = [] } = useQuery({
-    queryKey: ['table-history', displayProfile?.id],
-    queryFn: () => dataService.TableHistory.filter({ user_id: displayProfile?.id }, '-date', 20),
-    enabled: !!displayProfile?.id,
+  const authUserId = displayProfile?.user_id || user?.id || null;
+
+  const { data: socialStats } = useQuery({
+    queryKey: ['profile-social', authUserId],
+    queryFn: () => apiGet(`/api/users/stats/social/${authUserId}`),
+    enabled: !!authUserId,
   });
 
-  const { data: friends = [] } = useQuery({
-    queryKey: ['friends', displayProfile?.friends],
+  const { data: friendsPreview = [] } = useQuery({
+    queryKey: ['friends-preview-own'],
+    queryFn: () => apiGet('/api/friends').then((list) => (Array.isArray(list) ? list.slice(0, 6) : [])),
+    enabled: !!user?.id && isOwnProfile,
+  });
+
+  const { data: tableActivityRows = [] } = useQuery({
+    queryKey: ['profile-table-activity', authUserId],
     queryFn: async () => {
-      if (!displayProfile?.friends?.length) return [];
-      const friendProfiles = await Promise.all(
-        displayProfile.friends.slice(0, 6).map(id => 
-          dataService.User.filter({ id })
-        )
-      );
-      return friendProfiles.flat();
+      const [hosted, joined] = await Promise.all([
+        apiGet(`/api/tables/filter?host_user_id=${encodeURIComponent(authUserId)}&limit=20&sort=-created_date`),
+        apiGet(`/api/tables/filter?member_user_id=${encodeURIComponent(authUserId)}&limit=20&sort=-created_date`),
+      ]);
+      const h = Array.isArray(hosted) ? hosted : [];
+      const j = Array.isArray(joined) ? joined : [];
+      const rows = [];
+      for (const t of h) rows.push({ key: `h-${t.id}`, table: t, role: 'host' });
+      for (const t of j) rows.push({ key: `j-${t.id}`, table: t, role: 'member' });
+      rows.sort((a, b) => {
+        const da = a.table?.created_date ? Date.parse(a.table.created_date) : 0;
+        const db = b.table?.created_date ? Date.parse(b.table.created_date) : 0;
+        return db - da;
+      });
+      return rows.slice(0, 8);
     },
-    enabled: !!displayProfile?.friends?.length,
+    enabled: !!authUserId && isOwnProfile,
   });
 
   const { data: activeTables = [] } = useQuery({
-    queryKey: ['active-tables', displayProfile?.id],
+    queryKey: ['active-tables', authUserId],
     queryFn: async () => {
-      if (!displayProfile?.id) return [];
+      if (!authUserId) return [];
       const tables = await dataService.Table.filter({ status: 'open' });
-      return tables.filter(t => 
-        t.members?.some(m => m.user_id === displayProfile.id)
+      return tables.filter((t) =>
+        t.host_user_id === authUserId ||
+        (Array.isArray(t.members) &&
+          t.members.some((m) => {
+            const uid = typeof m === 'object' && m ? m.user_id || m.userId : m;
+            return uid === authUserId;
+          }))
       );
     },
-    enabled: !!displayProfile?.id,
+    enabled: !!authUserId && isOwnProfile,
   });
 
   const { data: interestedEvents = [] } = useQuery({
@@ -131,18 +153,20 @@ export default function Profile() {
     enabled: !!displayProfile?.interested_events?.length,
   });
 
-  const mutualFriends = React.useMemo(() => {
-    if (isOwnProfile || !userProfile?.friends || !viewedProfile?.friends) return [];
-    return userProfile.friends.filter(id => viewedProfile.friends.includes(id));
-  }, [isOwnProfile, userProfile?.friends, viewedProfile?.friends]);
+  /** Viewer-relative data from GET /api/users/:targetUserId/profile (includes mutualFriendsCount). */
+  const { data: viewedUserViewerContext } = useQuery({
+    queryKey: ['user-profile-viewer', viewedProfile?.user_id],
+    queryFn: () => apiGet(`/api/users/${viewedProfile.user_id}/profile`),
+    enabled: Boolean(user?.id && !isOwnProfile && viewedProfile?.user_id),
+  });
 
-  const { data: friendRequests = [] } = useQuery({
-    queryKey: ['friend-requests', userProfile?.id],
-    queryFn: () => dataService.FriendRequest.filter({
-      to_user_id: userProfile?.id,
-      status: 'pending'
-    }),
-    enabled: !!userProfile?.id && isOwnProfile,
+  const mutualFriendsCount = viewedUserViewerContext?.mutualFriendsCount ?? 0;
+
+  /** Same query key as Friends.jsx so incoming requests stay in sync. */
+  const { data: incomingFriendRequests = [] } = useQuery({
+    queryKey: ['friends-incoming'],
+    queryFn: () => apiGet('/api/friends/requests/incoming'),
+    enabled: !!user?.id && isOwnProfile,
   });
 
   const { data: userRoles = { host: false, business: false } } = useQuery({
@@ -168,34 +192,41 @@ export default function Profile() {
 
   const sendFriendRequestMutation = useMutation({
     mutationFn: async () => {
-      await dataService.FriendRequest.create({
-        from_user_id: userProfile.id,
-        to_user_id: viewedProfile.id,
-        status: 'pending'
-      });
+      const rid = viewedProfile?.user_id;
+      if (!rid) throw new Error('Missing user');
+      await apiPost('/api/friends/request', { receiverId: rid });
     },
     onSuccess: () => {
       toast.success('Friend request sent!');
-      queryClient.invalidateQueries(['friend-requests']);
-      queryClient.invalidateQueries(['friend-connection', userProfile?.id, viewedProfile?.id]);
+      queryClient.invalidateQueries({ queryKey: ['friends-sent'] });
+      queryClient.invalidateQueries({ queryKey: ['friend-connection', user?.id, viewedProfile?.user_id] });
+      queryClient.invalidateQueries({ queryKey: ['profile-social'] });
+      queryClient.invalidateQueries({ queryKey: ['user-profile-viewer'] });
+    },
+    onError: (err) => {
+      toast.error(err?.data?.error || err?.message || 'Could not send request');
     },
   });
 
   const { data: friendConnection } = useQuery({
-    queryKey: ['friend-connection', userProfile?.id, viewedProfile?.id],
+    queryKey: ['friend-connection', user?.id, viewedProfile?.user_id],
     queryFn: async () => {
-      if (!userProfile?.id || !viewedProfile?.id || isOwnProfile) return { isFriend: false, outgoingPending: false, incomingPending: false };
-      const [outgoing, incoming] = await Promise.all([
-        dataService.FriendRequest.filter({ from_user_id: userProfile.id }),
-        dataService.FriendRequest.filter({ to_user_id: userProfile.id }),
+      if (!user?.id || !viewedProfile?.user_id || isOwnProfile) {
+        return { isFriend: false, outgoingPending: false, incomingPending: false };
+      }
+      const targetUserId = viewedProfile.user_id;
+      const [acceptedFriends, sent, incoming] = await Promise.all([
+        apiGet('/api/friends'),
+        apiGet('/api/friends/requests/sent'),
+        apiGet('/api/friends/requests/incoming'),
       ]);
-      const isFriend = outgoing.some((r) => r.to_user_id === viewedProfile.id && r.status === 'accepted')
-        || incoming.some((r) => r.from_user_id === viewedProfile.id && r.status === 'accepted');
-      const outgoingPending = outgoing.some((r) => r.to_user_id === viewedProfile.id && r.status === 'pending');
-      const incomingPending = incoming.some((r) => r.from_user_id === viewedProfile.id && r.status === 'pending');
+      const list = Array.isArray(acceptedFriends) ? acceptedFriends : [];
+      const isFriend = list.some((f) => f.id === targetUserId);
+      const outgoingPending = (Array.isArray(sent) ? sent : []).some((r) => r.user?.id === targetUserId);
+      const incomingPending = (Array.isArray(incoming) ? incoming : []).some((r) => r.user?.id === targetUserId);
       return { isFriend, outgoingPending, incomingPending };
     },
-    enabled: !!userProfile?.id && !!viewedProfile?.id && !isOwnProfile,
+    enabled: !!user?.id && !!viewedProfile?.user_id && !isOwnProfile,
   });
 
   const openDirectMessageMutation = useMutation({
@@ -234,8 +265,9 @@ export default function Profile() {
     },
   });
 
-  const hostedCount = tableHistory.filter(t => t.role === 'host').length;
-  const attendedCount = tableHistory.filter(t => t.role === 'attendee').length;
+  const hostedCount = socialStats?.tablesHosted ?? 0;
+  const tablesJoinedCount = socialStats?.tablesJoined ?? 0;
+  const friendsCount = socialStats?.friendCount ?? (displayProfile?.friends?.length || 0);
 
   if (!user || !displayProfile) {
     return (
@@ -338,7 +370,11 @@ export default function Profile() {
                     Request Sent
                   </Button>
                 ) : (
-                  <Button onClick={() => sendFriendRequestMutation.mutate()} className="sec-btn sec-btn-primary flex-1">
+                  <Button
+                    onClick={() => sendFriendRequestMutation.mutate()}
+                    className="sec-btn sec-btn-primary flex-1"
+                    disabled={!viewedProfile?.user_id || sendFriendRequestMutation.isPending}
+                  >
                     <UserPlus className="w-4 h-4 mr-2" />
                     Add Friend
                   </Button>
@@ -385,11 +421,13 @@ export default function Profile() {
               <p className="mt-4 text-gray-400 text-sm max-w-xs">{displayProfile.bio}</p>
             )}
 
-            {/* Mutual Friends */}
-            {!isOwnProfile && mutualFriends.length > 0 && (
+            {/* Mutual friends (Friendship graph via viewer profile API) */}
+            {!isOwnProfile && mutualFriendsCount > 0 && (
               <div className="mt-3 flex items-center gap-1.5 text-sm text-gray-400">
                 <Users className="w-4 h-4" />
-                <span>{mutualFriends.length} mutual friend{mutualFriends.length > 1 ? 's' : ''}</span>
+                <span>
+                  {mutualFriendsCount} mutual friend{mutualFriendsCount !== 1 ? 's' : ''}
+                </span>
               </div>
             )}
           </div>
@@ -401,11 +439,11 @@ export default function Profile() {
               <p className="text-xs text-gray-500">Tables Hosted</p>
             </div>
             <div>
-              <p className="text-2xl font-bold">{attendedCount}</p>
+              <p className="text-2xl font-bold">{tablesJoinedCount}</p>
               <p className="text-xs text-gray-500">Tables Joined</p>
             </div>
             <Link to={createPageUrl('Friends')} className="cursor-pointer hover:opacity-80 transition-opacity">
-              <p className="text-2xl font-bold">{displayProfile.friends?.length || 0}</p>
+              <p className="text-2xl font-bold">{friendsCount}</p>
               <p className="text-xs text-gray-500">Friends</p>
             </Link>
           </div>
@@ -507,7 +545,7 @@ export default function Profile() {
           )}
 
           {/* Friends Preview */}
-          {friends.length > 0 && (
+          {friendsPreview.length > 0 && (
             <div className="pt-4 border-t border-[#262629]">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold">Friends</h3>
@@ -516,17 +554,17 @@ export default function Profile() {
                 </Link>
               </div>
               <div className="flex -space-x-2">
-                {friends.map((friend) => (
+                {friendsPreview.map((friend) => (
                   <Link
                     key={friend.id}
                     to={createPageUrl(`Profile?id=${friend.id}`)}
                     className="w-10 h-10 rounded-full border-2 border-[#141416] overflow-hidden hover:z-10 transition-transform hover:scale-110"
                   >
-                    {friend.avatar_url ? (
-                      <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
+                    {friend.avatarUrl ? (
+                      <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: 'var(--sec-bg-base)', border: '1px solid var(--sec-accent)', color: 'var(--sec-accent)' }}>
-                        {(friend.full_name || friend.username)?.[0]?.toUpperCase() || 'U'}
+                        {(friend.fullName || friend.username)?.[0]?.toUpperCase() || 'U'}
                       </div>
                     )}
                   </Link>
@@ -616,35 +654,35 @@ export default function Profile() {
                     <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
                     Table History
                   </h3>
-                  {tableHistory.length > 0 ? (
+                  {tableActivityRows.length > 0 ? (
                     <div className="space-y-3">
-                      {tableHistory.slice(0, 5).map((history, index) => (
+                      {tableActivityRows.slice(0, 5).map((row, index) => (
                         <motion.div
-                          key={history.id}
+                          key={row.key}
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: index * 0.05 }}
                           className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B]"
                         >
                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                            history.role === 'host' 
-                              ? 'bg-[var(--sec-accent-muted)] text-[var(--sec-accent)]' 
+                            row.role === 'host'
+                              ? 'bg-[var(--sec-accent-muted)] text-[var(--sec-accent)]'
                               : 'bg-[var(--sec-success-muted)] text-[var(--sec-success)]'
                           }`}>
                             <Users className="w-5 h-5" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{history.event_name}</p>
+                            <p className="font-medium truncate">{row.table?.name || 'Table'}</p>
                             <p className="text-xs text-gray-500">
-                              {history.venue_name} • {history.date && format(parseISO(history.date), 'MMM d, yyyy')}
+                              {row.table?.created_date && format(parseISO(row.table.created_date), 'MMM d, yyyy')}
                             </p>
                           </div>
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
-                            history.role === 'host'
+                            row.role === 'host'
                               ? 'bg-[var(--sec-accent-muted)] text-[var(--sec-accent)]'
                               : 'bg-[var(--sec-success-muted)] text-[var(--sec-success)]'
                           }`}>
-                            {history.role}
+                            {row.role === 'host' ? 'host' : 'joined'}
                           </span>
                         </motion.div>
                       ))}
@@ -739,15 +777,15 @@ export default function Profile() {
         )}
 
         {/* Friend Requests (Own Profile Only) */}
-        {isOwnProfile && friendRequests.length > 0 && (
+        {isOwnProfile && incomingFriendRequests.length > 0 && (
           <div className="glass-card rounded-2xl p-4 mt-6">
             <h3 className="font-semibold mb-4 flex items-center justify-between">
               Friend Requests
-              <span className="text-sm text-gray-500">({friendRequests.length})</span>
+              <span className="text-sm text-gray-500">({incomingFriendRequests.length})</span>
             </h3>
             <div className="space-y-3">
-              {friendRequests.map((request) => (
-                <FriendRequestCard key={request.id} request={request} />
+              {incomingFriendRequests.map((row) => (
+                <FriendRequestCard key={row.friendshipId} row={row} />
               ))}
             </div>
           </div>
