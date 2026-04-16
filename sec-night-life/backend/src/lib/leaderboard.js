@@ -45,7 +45,75 @@ async function promoterActivityMap(userIds) {
   return map;
 }
 
-export async function getPromotersLeaderboard({ page = 1, limit = 50 } = {}) {
+async function promoterActivityMapFromJobApplications(userIds) {
+  const map = new Map();
+  for (const id of userIds) map.set(id, { acceptedJobs: 0, completedJobs: 0, lastActivityAt: null });
+  if (!userIds.length) return map;
+
+  const applications = await prisma.jobApplication.findMany({
+    where: {
+      applicantUserId: { in: userIds },
+      status: { in: ['HIRED'] },
+    },
+    select: {
+      applicantUserId: true,
+      status: true,
+      appliedAt: true,
+      completedAt: true,
+    },
+  });
+
+  for (const app of applications) {
+    const uid = app.applicantUserId;
+    if (!uid || !map.has(uid)) continue;
+    const item = map.get(uid);
+    item.acceptedJobs += 1;
+    if (app.completedAt) item.completedJobs += 1;
+    const d = new Date(app.completedAt || app.appliedAt);
+    if (!item.lastActivityAt || d > item.lastActivityAt) item.lastActivityAt = d;
+  }
+  return map;
+}
+
+function mergeActivity(activityA, activityB) {
+  const merged = new Map();
+  for (const [userId, a] of activityA.entries()) {
+    const b = activityB.get(userId) || { acceptedJobs: 0, completedJobs: 0, lastActivityAt: null };
+    const latest = a.lastActivityAt && b.lastActivityAt
+      ? (a.lastActivityAt > b.lastActivityAt ? a.lastActivityAt : b.lastActivityAt)
+      : (a.lastActivityAt || b.lastActivityAt || null);
+    merged.set(userId, {
+      acceptedJobs: Number(a.acceptedJobs || 0) + Number(b.acceptedJobs || 0),
+      completedJobs: Number(a.completedJobs || 0) + Number(b.completedJobs || 0),
+      lastActivityAt: latest,
+    });
+  }
+  return merged;
+}
+
+export function computePromoterEligibility({
+  isVerifiedPromoter,
+  acceptedJobs,
+  ratingCount,
+  uniqueRaters,
+  hasAcceptedCodeOfConduct,
+  isActive,
+  hasCompliancePenalty,
+  hiddenByModeration,
+}) {
+  return {
+    isVerifiedPromoter: !!isVerifiedPromoter,
+    hasMinimumAcceptedJobs: acceptedJobs >= POLICY.minAcceptedJobs,
+    hasRatings: ratingCount >= POLICY.minRatings,
+    hasUniqueRaters: uniqueRaters >= POLICY.minUniqueRaters,
+    hasAcceptedCodeOfConduct: !!hasAcceptedCodeOfConduct,
+    isActive: !!isActive,
+    hasCompliancePenalty: !!hasCompliancePenalty,
+    hiddenByModeration: !!hiddenByModeration,
+  };
+}
+
+export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnverified = false } = {}) {
   const take = Math.max(1, Math.min(Number(limit) || 50, 100));
   const pageNo = Math.max(1, Number(page) || 1);
   const skip = (pageNo - 1) * take;
@@ -71,8 +139,9 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50 } = {}) {
     const userIds = users.map((u) => u.id);
     const staleCutoff = new Date(Date.now() - POLICY.staleDays * 24 * 60 * 60 * 1000);
 
-    const [activity, legalAcceptances, ratingsByUser, reportsByUser, blocksByUser] = await Promise.all([
+    const [legacyActivity, postingActivity, legalAcceptances, ratingsByUser, reportsByUser, blocksByUser] = await Promise.all([
       promoterActivityMap(userIds),
+      promoterActivityMapFromJobApplications(userIds),
       prisma.legalDocumentAcceptance.findMany({
         where: { userId: { in: userIds }, documentType: 'PROMOTER_CODE_OF_CONDUCT' },
         orderBy: { acceptedAt: 'desc' },
@@ -95,6 +164,7 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50 } = {}) {
         _count: { _all: true },
       }),
     ]);
+    const activity = mergeActivity(legacyActivity, postingActivity);
 
     const acceptanceMap = new Map();
     for (const row of legalAcceptances) if (!acceptanceMap.has(row.userId)) acceptanceMap.set(row.userId, row);
@@ -117,15 +187,24 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50 } = {}) {
       const hidden = !!p?.leaderboardHidden &&
         (!p?.leaderboardHiddenUntil || new Date(p.leaderboardHiddenUntil) > new Date());
       const compliancePenalty = reports >= 3;
-      const eligible = !!p?.isVerifiedPromoter &&
-        a.acceptedJobs >= POLICY.minAcceptedJobs &&
-        ratingCount >= POLICY.minRatings &&
-        uniqueRaters >= POLICY.minUniqueRaters &&
-        !!legal &&
-        !!a.lastActivityAt &&
-        a.lastActivityAt >= staleCutoff &&
-        !hidden &&
-        !compliancePenalty;
+      const eligibility = computePromoterEligibility({
+        isVerifiedPromoter: !!p?.isVerifiedPromoter,
+        acceptedJobs: a.acceptedJobs,
+        ratingCount,
+        uniqueRaters,
+        hasAcceptedCodeOfConduct: !!legal,
+        isActive: !!a.lastActivityAt && a.lastActivityAt >= staleCutoff,
+        hasCompliancePenalty: compliancePenalty,
+        hiddenByModeration: hidden,
+      });
+      const eligible = (includeUnverified || eligibility.isVerifiedPromoter) &&
+        eligibility.hasMinimumAcceptedJobs &&
+        eligibility.hasRatings &&
+        eligibility.hasUniqueRaters &&
+        eligibility.hasAcceptedCodeOfConduct &&
+        eligibility.isActive &&
+        !eligibility.hasCompliancePenalty &&
+        !eligibility.hiddenByModeration;
 
       const quality = clamp((confidenceAdjustedRating(avg, ratingCount) / 5) * 100, 0, 100);
       const execution = clamp((a.acceptedJobs ? a.completedJobs / a.acceptedJobs : 0) * 100, 0, 100);
@@ -156,16 +235,8 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50 } = {}) {
           consistency: Number(consistency.toFixed(2)),
           compliance: Number(compliance.toFixed(2)),
         },
-        eligibility: {
-          isVerifiedPromoter: !!p?.isVerifiedPromoter,
-          hasMinimumAcceptedJobs: a.acceptedJobs >= POLICY.minAcceptedJobs,
-          hasRatings: ratingCount >= POLICY.minRatings,
-          hasUniqueRaters: uniqueRaters >= POLICY.minUniqueRaters,
-          hasAcceptedCodeOfConduct: !!legal,
-          isActive: !!a.lastActivityAt && a.lastActivityAt >= staleCutoff,
-          hasCompliancePenalty: compliancePenalty,
-          hiddenByModeration: hidden,
-        },
+        legalAcceptance: legal || null,
+        eligibility,
         badges: {
           verified: !!p?.isVerifiedPromoter,
           compliant: !compliancePenalty && compliance >= 70,
@@ -173,7 +244,7 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50 } = {}) {
         },
       };
       })
-      .filter((x) => x.eligibility.isVerifiedPromoter)
+      .filter((x) => includeUnverified || x.eligibility.isVerifiedPromoter)
       .filter((x) => x.eligibility.hasMinimumAcceptedJobs)
       .filter((x) => x.eligibility.hasRatings)
       .filter((x) => x.eligibility.hasUniqueRaters)

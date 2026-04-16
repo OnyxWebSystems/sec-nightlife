@@ -460,6 +460,27 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
   }
 });
 
+router.patch('/applications/:applicationId/complete', authenticateToken, async (req, res, next) => {
+  try {
+    const application = await prisma.jobApplication.findFirst({
+      where: { id: req.params.applicationId, jobPosting: { venue: { ownerUserId: req.userId } } },
+      include: { jobPosting: { select: { id: true, title: true } }, applicant: { select: { id: true } } },
+    });
+    if (!application) return res.status(403).json({ error: 'Forbidden' });
+    if (application.status !== 'HIRED') {
+      return res.status(400).json({ error: 'Only hired applications can be marked complete.' });
+    }
+    const updated = await prisma.jobApplication.update({
+      where: { id: application.id },
+      data: { completedAt: new Date() },
+      select: { id: true, completedAt: true, applicantUserId: true, jobPostingId: true },
+    });
+    return res.json({ success: true, application: updated });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get('/applications/:applicationId/cv', authenticateToken, async (req, res, next) => {
   try {
     const application = await prisma.jobApplication.findFirst({

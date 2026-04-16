@@ -210,6 +210,29 @@ export default function Profile() {
 
   const isFriend = !!friendConnection?.isFriend;
   const hasPendingRequest = !!friendConnection?.outgoingPending;
+  const isVerifiedPromoter = !!viewedProfile?.is_verified_promoter;
+
+  const { data: promoterFollowStatus } = useQuery({
+    queryKey: ['promoter-follow-status', viewedProfile?.user_id],
+    queryFn: () => dataService.Promoters.followingStatus(viewedProfile.user_id),
+    enabled: !!viewedProfile?.user_id && !isOwnProfile && isVerifiedPromoter,
+  });
+
+  const togglePromoterFollow = useMutation({
+    mutationFn: async () => {
+      if (!viewedProfile?.user_id) return null;
+      const following = !!promoterFollowStatus?.following;
+      if (following) return dataService.Promoters.unfollow(viewedProfile.user_id);
+      return dataService.Promoters.follow(viewedProfile.user_id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['promoter-follow-status', viewedProfile?.user_id] });
+      toast.success(promoterFollowStatus?.following ? 'Unfollowed promoter' : 'Following promoter');
+    },
+    onError: (err) => {
+      toast.error(err?.data?.error || err?.message || 'Could not update follow');
+    },
+  });
 
   const hostedCount = tableHistory.filter(t => t.role === 'host').length;
   const attendedCount = tableHistory.filter(t => t.role === 'attendee').length;
@@ -329,6 +352,16 @@ export default function Profile() {
                 >
                   <MessageCircle className="w-4 h-4" />
                 </Button>
+                {isVerifiedPromoter && (
+                  <Button
+                    variant="outline"
+                    className="border-[#262629]"
+                    disabled={togglePromoterFollow.isPending}
+                    onClick={() => togglePromoterFollow.mutate()}
+                  >
+                    {promoterFollowStatus?.following ? 'Unfollow' : 'Follow'}
+                  </Button>
+                )}
               </div>
             )}
 

@@ -12,6 +12,7 @@ import { privateDownloadUrl, signCloudinaryUrl } from '../lib/cloudinarySignedUr
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { sendIdVerificationApprovedEmail } from '../lib/email.js';
 import { requireSuperAdmin } from '../middleware/complianceReviewer.js';
+import { getPromotersLeaderboard } from '../lib/leaderboard.js';
 
 const router = Router();
 
@@ -458,6 +459,154 @@ router.patch('/verification/users/:userId', async (req, res, next) => {
     }
 
     res.json({ success: true, profile: { userId: profile.userId, verificationStatus: profile.verificationStatus } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Promoter Verification & Moderation ─────────────────────────────────────
+
+router.get('/promoters/candidates', async (req, res, next) => {
+  try {
+    const result = await getPromotersLeaderboard({ page: 1, limit: 500, includeUnverified: true });
+    res.json({
+      policy: result.policy,
+      total: result.total,
+      data: result.data,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/promoters/:userId/verify', async (req, res, next) => {
+  try {
+    const { note } = z.object({
+      note: z.string().max(1000).optional().nullable(),
+    }).parse(req.body || {});
+    const userId = req.params.userId;
+    const profile = await prisma.userProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        isVerifiedPromoter: true,
+        promoterVerifiedAt: new Date(),
+        promoterVerifiedBy: req.userId,
+        promoterRevokedAt: null,
+        promoterRevokedBy: null,
+        promoterVerificationNote: note || null,
+      },
+      update: {
+        isVerifiedPromoter: true,
+        promoterVerifiedAt: new Date(),
+        promoterVerifiedBy: req.userId,
+        promoterRevokedAt: null,
+        promoterRevokedBy: null,
+        promoterVerificationNote: note || null,
+      },
+    });
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'PROMOTER_VERIFIED',
+      entityType: 'user_profile',
+      entityId: profile.id,
+      metadata: { targetUserId: userId, note: note || null },
+    });
+    await createInAppNotification({
+      userId,
+      type: 'IDENTITY_VERIFICATION_REMINDER',
+      title: 'Verified promoter status granted',
+      body: 'You are now a verified promoter and eligible for promoter features.',
+      referenceId: '/Leaderboard',
+      referenceType: 'ROUTE',
+    });
+    res.json({ success: true, profile: { userId: profile.userId, isVerifiedPromoter: profile.isVerifiedPromoter } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/promoters/:userId/revoke', async (req, res, next) => {
+  try {
+    const { reason } = z.object({
+      reason: z.string().min(3).max(1000),
+    }).parse(req.body || {});
+    const userId = req.params.userId;
+    const profile = await prisma.userProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        isVerifiedPromoter: false,
+        promoterRevokedAt: new Date(),
+        promoterRevokedBy: req.userId,
+        promoterVerificationNote: reason,
+      },
+      update: {
+        isVerifiedPromoter: false,
+        promoterRevokedAt: new Date(),
+        promoterRevokedBy: req.userId,
+        promoterVerificationNote: reason,
+      },
+    });
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'PROMOTER_VERIFICATION_REVOKED',
+      entityType: 'user_profile',
+      entityId: profile.id,
+      metadata: { targetUserId: userId, reason },
+    });
+    await createInAppNotification({
+      userId,
+      type: 'IDENTITY_VERIFICATION_REMINDER',
+      title: 'Verified promoter status removed',
+      body: reason,
+      referenceId: '/Settings',
+      referenceType: 'ROUTE',
+    });
+    res.json({ success: true, profile: { userId: profile.userId, isVerifiedPromoter: profile.isVerifiedPromoter } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/promoters/:userId/leaderboard-visibility', async (req, res, next) => {
+  try {
+    const { hidden, reason, until } = z.object({
+      hidden: z.boolean(),
+      reason: z.string().max(1000).optional().nullable(),
+      until: z.string().datetime().optional().nullable(),
+    }).parse(req.body || {});
+    const userId = req.params.userId;
+    const profile = await prisma.userProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        leaderboardHidden: hidden,
+        leaderboardHiddenReason: hidden ? (reason || null) : null,
+        leaderboardHiddenUntil: hidden && until ? new Date(until) : null,
+      },
+      update: {
+        leaderboardHidden: hidden,
+        leaderboardHiddenReason: hidden ? (reason || null) : null,
+        leaderboardHiddenUntil: hidden && until ? new Date(until) : null,
+      },
+    });
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: hidden ? 'PROMOTER_LEADERBOARD_HIDDEN' : 'PROMOTER_LEADERBOARD_UNHIDDEN',
+      entityType: 'user_profile',
+      entityId: profile.id,
+      metadata: { targetUserId: userId, reason: reason || null, until: until || null },
+    });
+    res.json({
+      success: true,
+      profile: {
+        userId: profile.userId,
+        leaderboardHidden: profile.leaderboardHidden,
+        leaderboardHiddenReason: profile.leaderboardHiddenReason,
+        leaderboardHiddenUntil: profile.leaderboardHiddenUntil,
+      },
+    });
   } catch (err) {
     next(err);
   }

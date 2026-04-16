@@ -76,7 +76,35 @@ export const dataService = {
       return apiGet('/api/leaderboard/promoters/me/status');
     },
     async adminCandidates() {
-      return apiGet('/api/leaderboard/promoters/admin/candidates');
+      return apiGet('/api/admin/promoters/candidates');
+    },
+  },
+  PromoterAdmin: {
+    async verify(userId, payload = {}) {
+      return apiPatch(`/api/admin/promoters/${userId}/verify`, payload);
+    },
+    async revoke(userId, payload) {
+      return apiPatch(`/api/admin/promoters/${userId}/revoke`, payload);
+    },
+    async setVisibility(userId, payload) {
+      return apiPatch(`/api/admin/promoters/${userId}/leaderboard-visibility`, payload);
+    },
+  },
+  Promoters: {
+    async follow(promoterId) {
+      return apiPost(`/api/promoters/${promoterId}/follow`, {});
+    },
+    async unfollow(promoterId) {
+      return apiDelete(`/api/promoters/${promoterId}/follow`);
+    },
+    async followerCount(promoterId) {
+      return apiGet(`/api/promoters/${promoterId}/followers/count`, { skipAuth: true });
+    },
+    async followingStatus(promoterId) {
+      return apiGet(`/api/promoters/${promoterId}/following-status`);
+    },
+    async myFollowing() {
+      return apiGet('/api/promoters/me/following');
     },
   },
   Legal: {

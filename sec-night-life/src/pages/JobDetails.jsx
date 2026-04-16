@@ -18,6 +18,7 @@ import {
 } from '@/constants/jobPostingForm';
 import * as authService from '@/services/authService';
 import { toast } from 'sonner';
+import RatePromoterDialog from '@/components/promoter/RatePromoterDialog';
 
 function compensationText(job) {
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
@@ -51,6 +52,7 @@ export default function JobDetails() {
   const [messageBody, setMessageBody] = useState('');
   const [showEditForm, setShowEditForm] = useState(false);
   const [statusConfirm, setStatusConfirm] = useState({ open: false, applicationId: null, status: null, applicantName: '' });
+  const [rateTarget, setRateTarget] = useState(null);
   const [editForm, setEditForm] = useState({
     title: '',
     description: '',
@@ -132,6 +134,15 @@ export default function JobDetails() {
       queryClient.invalidateQueries({ queryKey: ['my-apps'] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to send message'),
+  });
+
+  const completeApplication = useMutation({
+    mutationFn: (applicationId) => apiPatch(`/api/jobs/applications/${applicationId}/complete`, {}),
+    onSuccess: () => {
+      toast.success('Work marked complete');
+      queryClient.invalidateQueries({ queryKey: ['owner-job', jobId] });
+    },
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to mark complete'),
   });
 
   const saveJobEdits = useMutation({
@@ -450,6 +461,26 @@ export default function JobDetails() {
                 {a.status !== 'SHORTLISTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'SHORTLISTED' })}>Shortlist</button> : null}
                 {a.status !== 'REJECTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => openStatusConfirm({ applicationId: a.id, status: 'REJECTED', applicantName: a.applicant?.fullName })}>Reject</button> : null}
                 {a.status !== 'HIRED' ? <button type="button" className="sec-btn sec-btn-primary sec-btn-sm" style={{ width: '100%' }} onClick={() => openStatusConfirm({ applicationId: a.id, status: 'HIRED', applicantName: a.applicant?.fullName })}>Hire</button> : null}
+                {a.status === 'HIRED' ? (
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-secondary sec-btn-sm"
+                    style={{ width: '100%' }}
+                    onClick={() => completeApplication.mutate(a.id)}
+                  >
+                    Mark Complete
+                  </button>
+                ) : null}
+                {a.status === 'HIRED' ? (
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-secondary sec-btn-sm"
+                    style={{ width: '100%' }}
+                    onClick={() => setRateTarget({ id: a.applicant?.id, username: a.applicant?.fullName || a.applicant?.email, contextId: ownerJob.id })}
+                  >
+                    Rate Promoter
+                  </button>
+                ) : null}
                 <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => setSelectedApplication(a)}>Message</button>
               </div>
             </div>
@@ -555,6 +586,14 @@ export default function JobDetails() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <RatePromoterDialog
+        isOpen={!!rateTarget}
+        onClose={() => setRateTarget(null)}
+        promoter={rateTarget || { id: '', username: '' }}
+        context="job"
+        contextId={rateTarget?.contextId || ownerJob?.id || ''}
+      />
     </div>
   );
 }

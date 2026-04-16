@@ -62,7 +62,7 @@ router.get('/promoters/me/status', authenticateToken, async (req, res, next) => 
 
 router.get('/promoters/admin/candidates', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const result = await getPromotersLeaderboard({ page: 1, limit: 200 });
+    const result = await getPromotersLeaderboard({ page: 1, limit: 200, includeUnverified: true });
     res.json(result);
   } catch (err) {
     next(err);

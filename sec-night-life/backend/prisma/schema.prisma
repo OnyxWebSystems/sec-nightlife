@@ -211,6 +211,8 @@ model User {
   venueReviewsGiven           VenueReview[]        @relation("VenueReviewsGiven")
   venueFollows                VenueFollow[]
   legalAcceptances            LegalDocumentAcceptance[]
+  promoterFollowers           PromoterFollow[]      @relation("PromoterFollowers")
+  promoterFollowing           PromoterFollow[]      @relation("PromoterFollowing")
 
   @@unique([email, role])
   @@index([email])
@@ -271,6 +273,11 @@ model UserProfile {
   leaderboardHidden         Boolean   @default(false) @map("leaderboard_hidden")
   leaderboardHiddenReason   String?   @map("leaderboard_hidden_reason") @db.Text
   leaderboardHiddenUntil    DateTime? @map("leaderboard_hidden_until")
+  promoterVerifiedAt        DateTime? @map("promoter_verified_at")
+  promoterVerifiedBy        String?   @map("promoter_verified_by")
+  promoterRevokedAt         DateTime? @map("promoter_revoked_at")
+  promoterRevokedBy         String?   @map("promoter_revoked_by")
+  promoterVerificationNote  String?   @map("promoter_verification_note") @db.Text
   interests                 String[]  @default([])
   musicPreferences          String[]  @default([]) @map("music_preferences")
   friends                   String[]  @default([])
@@ -597,6 +604,7 @@ model JobApplication {
   cvFileName      String?           @map("cv_file_name")
   portfolioUrl    String?           @map("portfolio_url")
   status          ApplicationStatus @default(PENDING)
+  completedAt     DateTime?         @map("completed_at")
   appliedAt       DateTime          @default(now()) @map("applied_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
@@ -644,7 +652,23 @@ model ServiceRating {
 
   @@index([rateeUserId, createdAt])
   @@index([contextType, contextId])
+  @@unique([raterUserId, rateeUserId, contextType, contextId])
   @@map("service_ratings")
+}
+
+model PromoterFollow {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  promoterId String   @map("promoter_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User @relation("PromoterFollowing", fields: [userId], references: [id], onDelete: Cascade)
+  promoter User @relation("PromoterFollowers", fields: [promoterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, promoterId])
+  @@index([userId])
+  @@index([promoterId])
+  @@map("promoter_follows")
 }
 
 model Promotion {
