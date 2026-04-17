@@ -60,13 +60,8 @@ npm run dev
    - [Supabase](https://supabase.com)
    - [Railway](https://railway.app)
 
-2. Copy the connection strings and set them in `.env`:
-   ```env
-   # Runtime (pooled is fine)
-   DATABASE_URL=postgresql://user:pass@host-pooler:5432/dbname?sslmode=require&pgbouncer=true
-   # Prisma migrations (must be direct/non-pooled)
-   DIRECT_URL=postgresql://user:pass@host-direct:5432/dbname?sslmode=require
-   ```
+2. Copy the connection string into `.env` as **`DATABASE_URL`** (Neon pooled URL is fine for app + `prisma migrate` on Vercel).  
+   Optional: add a separate **direct** Neon URL only if you need it for local tooling — the Prisma schema does **not** require `DIRECT_URL`.
 
 3. The database is usually created for you. Then run:
    ```bash
@@ -84,11 +79,8 @@ If you use Neon and see **Can't reach database server at `ep-...neon.tech:5432`*
    Neon scales down after inactivity. Open [Neon Console](https://console.neon.tech) → your project → **SQL Editor**, run any simple query (e.g. `SELECT 1`). Then try migrations again.
 
 2. **Connection strings (Prisma + Neon)**  
-   In `.env`, set:
-   - `DATABASE_URL` to Neon **pooled** connection (host contains `-pooler`) for runtime.
-   - `DIRECT_URL` to Neon **direct** connection (host does **not** contain `-pooler`) for Prisma migrations (`migrate deploy` uses `directUrl` from `schema.prisma`).
-   - Both should include `?sslmode=require` (Neon’s dashboard strings usually include this).
-   - If you still get timeouts, try **removing** `channel_binding=require` from `DATABASE_URL` only (keep `sslmode=require`). Some Windows/Node setups have issues with channel binding.
+   Set **`DATABASE_URL`** in `.env` and in **Vercel** (backend project). Pooled Neon URLs work for migrations in most setups. Include `?sslmode=require`.  
+   If you still get timeouts, try **removing** `channel_binding=require` from `DATABASE_URL` only (keep `sslmode=require`). Some Windows/Node setups have issues with channel binding.
 
 3. **Diagnose from this repo**  
    From `sec-night-life/backend`:

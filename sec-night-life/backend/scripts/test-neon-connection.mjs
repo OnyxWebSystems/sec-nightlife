@@ -117,8 +117,8 @@ if (directHost) {
 }
 
 console.log('\nDATABASE_URL:', maskUrl(dbUrl));
-console.log('DIRECT_URL:  ', maskUrl(directUrl));
-console.log('\nPrisma Migrate uses DIRECT_URL for migrations (schema.prisma directUrl).\n');
+console.log('DIRECT_URL (optional):', maskUrl(directUrl));
+console.log('\nPrisma uses DATABASE_URL only (migrations + client). Optional DIRECT_URL is for extra tests.\n');
 
 let a = await tryConnect('DATABASE_URL', dbUrl);
 if (!a.ok && dbUrl?.includes('channel_binding')) {
@@ -126,16 +126,17 @@ if (!a.ok && dbUrl?.includes('channel_binding')) {
   a = await tryConnect('DATABASE_URL (no channel_binding)', stripChannelBinding(dbUrl));
 }
 
-let b = await tryConnect('DIRECT_URL', directUrl);
-
-if (!b.ok && directUrl) {
-  console.log('\nRetry DIRECT_URL with ssl.rejectUnauthorized=false (diagnostic — if this works, suspect antivirus MITM or cert inspection on node.exe)...');
-  const br = await tryConnect('DIRECT_URL (TLS relax)', directUrl, { rejectUnauthorized: false });
-  if (br.ok) {
-    console.log('\n>>> Relaxed TLS worked but strict TLS did not — exclude node.exe from HTTPS/SSL scanning in your antivirus,');
-    console.log('    or try another network. Prisma still uses strict TLS; fix the machine trust path.');
+let b = { ok: true, err: null };
+if (directUrl?.trim()) {
+  b = await tryConnect('DIRECT_URL', directUrl);
+  if (!b.ok) {
+    console.log('\nRetry DIRECT_URL with ssl.rejectUnauthorized=false (diagnostic)...');
+    const br = await tryConnect('DIRECT_URL (TLS relax)', directUrl, { rejectUnauthorized: false });
+    if (br.ok) {
+      console.log('\n>>> Relaxed TLS worked but strict TLS did not — check antivirus / node.exe.');
+    }
+    b = br;
   }
-  b = br;
 }
 
 if (a.ok && b.ok) {
@@ -159,5 +160,6 @@ if (!a.ok && !b.ok) {
   process.exit(1);
 }
 
-if (!b.ok) process.exit(1);
+if (!a.ok) process.exit(1);
+if (directUrl?.trim() && !b.ok) process.exit(1);
 process.exit(0);
