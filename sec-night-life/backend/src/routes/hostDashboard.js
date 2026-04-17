@@ -39,6 +39,18 @@ const messageSchema = z.object({
   body: z.string().trim().min(1).max(2000),
 });
 
+function assertHostEligibleRole(req, res) {
+  if (req.userRole === 'SUPER_ADMIN') {
+    res.status(403).json({ error: 'Super admin accounts cannot host parties or tables.' });
+    return false;
+  }
+  if (!['USER', 'VENUE'].includes(req.userRole)) {
+    res.status(403).json({ error: 'Only party goer and business owner accounts can host house parties.' });
+    return false;
+  }
+  return true;
+}
+
 function requirePaystackKey() {
   const key = process.env.PAYSTACK_SECRET_KEY;
   if (!key) {
@@ -232,6 +244,12 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
     const out = await Promise.all(
       slice.map(async ({ t }) => ({
         id: t.id,
+        tableName: t.tableName,
+        tableDescription: t.tableDescription,
+        eventType: t.eventType,
+        hasJoiningFee: t.hasJoiningFee,
+        joiningFee: t.joiningFee,
+        photo: t.photo,
         venueName: t.venueName,
         venueAddress: t.venueAddress,
         eventDate: t.eventDate,
@@ -254,6 +272,7 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
 // ——— Unread house-party job messages —————————————————————————————
 router.get('/notifications/unread-count', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const uid = req.userId;
     const count = await prisma.housePartyJobMessage.count({
       where: {
@@ -290,9 +309,7 @@ const createPartySchema = z.object({
 
 router.post('/parties', authenticateToken, requireVerified, async (req, res, next) => {
   try {
-    if (req.userRole !== 'USER' && req.userRole !== 'FREELANCER') {
-      return res.status(403).json({ error: 'Only party goer accounts can host house parties.' });
-    }
+    if (!assertHostEligibleRole(req, res)) return;
     const parsed = createPartySchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
@@ -330,6 +347,7 @@ router.post('/parties', authenticateToken, requireVerified, async (req, res, nex
 
 router.post('/parties/:partyId/publish', authenticateToken, requireVerified, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const party = await prisma.houseParty.findFirst({ where: { id: req.params.partyId } });
     if (!party) return res.status(404).json({ error: 'Not found' });
     if (party.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
@@ -353,6 +371,7 @@ router.post('/parties/:partyId/publish', authenticateToken, requireVerified, asy
 
 router.post('/parties/:partyId/boost', authenticateToken, requireVerified, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const party = await prisma.houseParty.findFirst({ where: { id: req.params.partyId } });
     if (!party) return res.status(404).json({ error: 'Not found' });
     if (party.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
@@ -370,6 +389,7 @@ router.post('/parties/:partyId/boost', authenticateToken, requireVerified, async
 
 router.get('/parties', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const parties = await prisma.houseParty.findMany({
       where: { hostUserId: req.userId },
       orderBy: { createdAt: 'desc' },
@@ -392,6 +412,7 @@ router.get('/parties', authenticateToken, async (req, res, next) => {
 
 router.get('/parties/:partyId', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const party = await prisma.houseParty.findFirst({
       where: { id: req.params.partyId, hostUserId: req.userId },
       include: {
@@ -417,6 +438,7 @@ const patchPartySchema = createPartySchema.partial().extend({
 
 router.patch('/parties/:partyId', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const party = await prisma.houseParty.findFirst({ where: { id: req.params.partyId } });
     if (!party) return res.status(404).json({ error: 'Not found' });
     if (party.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
@@ -450,6 +472,7 @@ router.patch('/parties/:partyId', authenticateToken, async (req, res, next) => {
 
 router.delete('/parties/:partyId', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const party = await prisma.houseParty.findFirst({ where: { id: req.params.partyId } });
     if (!party) return res.status(404).json({ error: 'Not found' });
     if (party.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
@@ -577,11 +600,18 @@ router.delete('/parties/:partyId/join', authenticateToken, async (req, res, next
 // ——— Hosted tables CRUD ————————————————————————————————————————————
 const createTableSchema = z.object({
   tableType: z.enum(['IN_APP_EVENT', 'EXTERNAL_VENUE']),
+  tableName: z.string().trim().min(1, 'tableName is required').max(60, 'tableName max 60 characters'),
+  tableDescription: z.string().trim().max(300, 'tableDescription max 300 characters').optional().nullable(),
+  eventType: z.enum(['CLUB_TABLE', 'HOUSE_PARTY', 'BOAT_PARTY', 'RESTAURANT', 'OTHER']),
   eventId: z.string().optional().nullable(),
   venueName: z.string().trim().min(1).optional(),
   venueAddress: z.string().optional().nullable(),
   eventDate: z.coerce.date(),
   eventTime: z.string().min(1),
+  hasJoiningFee: z.boolean().default(false),
+  joiningFee: z.number().min(10, 'joiningFee must be at least R10').optional().nullable(),
+  photo: z.string().url().optional().nullable(),
+  photoPublicId: z.string().optional().nullable(),
   drinkPreferences: z.string().optional().nullable(),
   desiredCompany: z.string().optional().nullable(),
   guestQuantity: z.number().int().min(1).max(20),
@@ -590,12 +620,13 @@ const createTableSchema = z.object({
 
 router.post('/tables', authenticateToken, requireVerified, async (req, res, next) => {
   try {
-    if (!['USER', 'FREELANCER'].includes(req.userRole)) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+    if (!assertHostEligibleRole(req, res)) return;
     const parsed = createTableSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
+    if (d.hasJoiningFee && (d.joiningFee == null || d.joiningFee < 10)) {
+      return res.status(400).json({ error: 'joiningFee is required and must be at least R10 when hasJoiningFee is true' });
+    }
     const future = new Date();
     if (d.tableType === 'IN_APP_EVENT') {
       if (!d.eventId) return res.status(400).json({ error: 'eventId required for in-app event' });
@@ -610,11 +641,18 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
         data: {
           hostUserId: req.userId,
           tableType: 'IN_APP_EVENT',
+          tableName: d.tableName,
+          tableDescription: d.tableDescription ?? null,
+          eventType: d.eventType,
           eventId: d.eventId,
           venueName,
           venueAddress: d.venueAddress ?? ev.venue?.city ?? null,
           eventDate: ev.date,
           eventTime: d.eventTime,
+          hasJoiningFee: d.hasJoiningFee,
+          joiningFee: d.hasJoiningFee ? d.joiningFee : null,
+          photo: d.photo ?? null,
+          photoPublicId: d.photoPublicId ?? null,
           drinkPreferences: d.drinkPreferences ?? null,
           desiredCompany: d.desiredCompany ?? null,
           guestQuantity: d.guestQuantity,
@@ -642,11 +680,18 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       data: {
         hostUserId: req.userId,
         tableType: 'EXTERNAL_VENUE',
+        tableName: d.tableName,
+        tableDescription: d.tableDescription ?? null,
+        eventType: d.eventType,
         eventId: null,
         venueName: d.venueName,
         venueAddress: d.venueAddress ?? null,
         eventDate: d.eventDate,
         eventTime: d.eventTime,
+        hasJoiningFee: d.hasJoiningFee,
+        joiningFee: d.hasJoiningFee ? d.joiningFee : null,
+        photo: d.photo ?? null,
+        photoPublicId: d.photoPublicId ?? null,
         drinkPreferences: d.drinkPreferences ?? null,
         desiredCompany: d.desiredCompany ?? null,
         guestQuantity: d.guestQuantity,
@@ -671,6 +716,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
 
 router.post('/tables/:tableId/boost', authenticateToken, requireVerified, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const t = await prisma.hostedTable.findFirst({ where: { id: req.params.tableId } });
     if (!t) return res.status(404).json({ error: 'Not found' });
     if (t.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
@@ -687,6 +733,7 @@ router.post('/tables/:tableId/boost', authenticateToken, requireVerified, async 
 
 router.get('/tables', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const tables = await prisma.hostedTable.findMany({
       where: { hostUserId: req.userId },
       orderBy: { createdAt: 'desc' },
@@ -703,6 +750,7 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
 
 router.get('/tables/memberships/active', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const hosted = await prisma.hostedTable.findMany({
       where: { hostUserId: req.userId, status: 'ACTIVE' },
       select: { id: true },
@@ -722,8 +770,15 @@ router.get('/tables/memberships/active', authenticateToken, async (req, res, nex
 });
 
 const patchTableSchema = z.object({
+  tableName: z.string().trim().min(1).max(60).optional(),
+  tableDescription: z.string().trim().max(300).optional().nullable(),
+  eventType: z.enum(['CLUB_TABLE', 'HOUSE_PARTY', 'BOAT_PARTY', 'RESTAURANT', 'OTHER']).optional(),
   drinkPreferences: z.string().optional().nullable(),
   desiredCompany: z.string().optional().nullable(),
+  hasJoiningFee: z.boolean().optional(),
+  joiningFee: z.number().min(10).optional().nullable(),
+  photo: z.string().url().optional().nullable(),
+  photoPublicId: z.string().optional().nullable(),
   guestQuantity: z.number().int().min(1).max(20).optional(),
   eventTime: z.string().optional(),
   isPublic: z.boolean().optional(),
@@ -731,12 +786,18 @@ const patchTableSchema = z.object({
 
 router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const t = await prisma.hostedTable.findFirst({ where: { id: req.params.tableId } });
     if (!t) return res.status(404).json({ error: 'Not found' });
     if (t.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const parsed = patchTableSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
+    const hasJoiningFee = d.hasJoiningFee != null ? d.hasJoiningFee : t.hasJoiningFee;
+    const joiningFee = d.joiningFee != null ? d.joiningFee : t.joiningFee;
+    if (hasJoiningFee && (joiningFee == null || joiningFee < 10)) {
+      return res.status(400).json({ error: 'joiningFee must be at least R10 when hasJoiningFee is true' });
+    }
     if (d.guestQuantity != null) {
       const going = await prisma.hostedTableMember.count({
         where: { hostedTableId: t.id, status: 'GOING' },
@@ -760,6 +821,7 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
 
 router.delete('/tables/:tableId', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const t = await prisma.hostedTable.findFirst({
       where: { id: req.params.tableId },
       include: { members: true },
@@ -788,6 +850,7 @@ router.delete('/tables/:tableId', authenticateToken, async (req, res, next) => {
 
 router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const t = await prisma.hostedTable.findFirst({ where: { id: req.params.tableId } });
     if (!t) return res.status(404).json({ error: 'Not found' });
     if (t.hostUserId === req.userId) return res.status(403).json({ error: 'Cannot join your own table' });
@@ -837,6 +900,7 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
 
 router.post('/tables/:tableId/invite', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const { inviteeUserId } = z.object({ inviteeUserId: z.string().min(1) }).parse(req.body || {});
     const table = await prisma.hostedTable.findFirst({
       where: { id: req.params.tableId },
@@ -888,6 +952,7 @@ router.post('/tables/:tableId/invite', authenticateToken, async (req, res, next)
 
 router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const { response } = z.object({ response: z.enum(['ACCEPTED', 'DECLINED']) }).parse(req.body || {});
     const inv = await prisma.tableInvite.findFirst({
       where: { id: req.params.inviteId, inviteeUserId: req.userId },
@@ -944,6 +1009,7 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
 
 router.get('/tables/invites/pending', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const invites = await prisma.tableInvite.findMany({
       where: { inviteeUserId: req.userId, status: 'PENDING' },
       include: {
@@ -961,6 +1027,7 @@ router.get('/tables/invites/pending', authenticateToken, async (req, res, next) 
 // ——— House party jobs —————————————————————————————————————————————
 router.post('/parties/:partyId/jobs', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const party = await prisma.houseParty.findFirst({ where: { id: req.params.partyId } });
     if (!party || party.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const parsed = postingSchema.safeParse(req.body || {});
@@ -997,6 +1064,7 @@ router.post('/parties/:partyId/jobs', authenticateToken, async (req, res, next) 
 
 router.get('/parties/:partyId/jobs', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const party = await prisma.houseParty.findFirst({ where: { id: req.params.partyId } });
     if (!party || party.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const jobs = await prisma.housePartyJob.findMany({
@@ -1012,6 +1080,7 @@ router.get('/parties/:partyId/jobs', authenticateToken, async (req, res, next) =
 
 router.get('/parties/:partyId/jobs/:jobId/applications', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const job = await prisma.housePartyJob.findFirst({
       where: { id: req.params.jobId, housePartyId: req.params.partyId, hostUserId: req.userId },
     });
@@ -1032,6 +1101,7 @@ router.get('/parties/:partyId/jobs/:jobId/applications', authenticateToken, asyn
 
 router.patch('/parties/jobs/applications/:applicationId/status', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const { status } = z.object({ status: z.enum(['SHORTLISTED', 'REJECTED', 'HIRED']) }).parse(req.body || {});
     const application = await prisma.housePartyJobApplication.findFirst({
       where: { id: req.params.applicationId },
@@ -1070,6 +1140,7 @@ router.patch('/parties/jobs/applications/:applicationId/status', authenticateTok
 
 router.get('/parties/jobs/applications/:applicationId/cv', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const application = await prisma.housePartyJobApplication.findFirst({
       where: { id: req.params.applicationId },
       include: { housePartyJob: true },
@@ -1099,6 +1170,7 @@ async function getHousePartyApplicationAccess(applicationId, userId) {
 
 router.get('/parties/jobs/applications/:applicationId/messages', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const application = await getHousePartyApplicationAccess(req.params.applicationId, req.userId);
     if (!application) return res.status(403).json({ error: 'Forbidden' });
     await prisma.housePartyJobMessage.updateMany({
@@ -1118,6 +1190,7 @@ router.get('/parties/jobs/applications/:applicationId/messages', authenticateTok
 
 router.post('/parties/jobs/applications/:applicationId/messages', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const parsed = messageSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const application = await getHousePartyApplicationAccess(req.params.applicationId, req.userId);
@@ -1150,6 +1223,7 @@ router.post('/parties/jobs/applications/:applicationId/messages', authenticateTo
 
 router.post('/parties/:partyId/jobs/:jobId/apply', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const parsed = applicationSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const job = await prisma.housePartyJob.findFirst({
@@ -1194,6 +1268,7 @@ router.post('/parties/:partyId/jobs/:jobId/apply', authenticateToken, async (req
 
 router.get('/jobs', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const jobs = await prisma.housePartyJob.findMany({
       where: { hostUserId: req.userId },
       include: {
@@ -1210,6 +1285,7 @@ router.get('/jobs', authenticateToken, async (req, res, next) => {
 
 router.patch('/parties/:partyId/jobs/:jobId', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const job = await prisma.housePartyJob.findFirst({
       where: { id: req.params.jobId, housePartyId: req.params.partyId, hostUserId: req.userId },
     });
@@ -1229,6 +1305,7 @@ router.patch('/parties/:partyId/jobs/:jobId', authenticateToken, async (req, res
 
 router.get('/activity/summary', authenticateToken, async (req, res, next) => {
   try {
+    if (!assertHostEligibleRole(req, res)) return;
     const uid = req.userId;
     const [partiesCount, tablesCount, partyAttendees, tableMembers, reviews, jobsPosted] = await Promise.all([
       prisma.houseParty.count({ where: { hostUserId: uid } }),

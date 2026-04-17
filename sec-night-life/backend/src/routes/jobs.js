@@ -377,6 +377,31 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
           where: { id: application.jobPostingId },
           data: { filledSpots: { increment: 1 } },
         });
+        const profile = await tx.userProfile.findUnique({
+          where: { userId: application.applicant.id },
+          select: { promoterJobsAccepted: true, isPromoterStandard: true },
+        });
+        if (profile) {
+          const nextCount = profile.promoterJobsAccepted + 1;
+          const nextStandard = nextCount >= 20;
+          await tx.userProfile.update({
+            where: { userId: application.applicant.id },
+            data: {
+              promoterJobsAccepted: { increment: 1 },
+              ...(nextStandard ? { isPromoterStandard: true } : {}),
+            },
+          });
+          if (!profile.isPromoterStandard && nextStandard) {
+            // TODO: Add Promoter Standard badge to user profile and unlock promoter features when isPromoterStandard = true.
+            await createJobNotification({
+              userId: application.applicant.id,
+              type: 'job_application',
+              title: "You've reached Promoter Standard!",
+              body: "You've been hired for 20 venue promoter jobs.",
+              actionUrl: '/Profile',
+            });
+          }
+        }
         if (posting.filledSpots >= posting.totalSpots) {
           await tx.jobPosting.update({ where: { id: posting.id }, data: { status: 'FILLED' } });
           becameFilled = true;

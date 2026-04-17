@@ -194,6 +194,28 @@ enum InviteStatus {
   DECLINED
 }
 
+enum TableEventType {
+  CLUB_TABLE
+  HOUSE_PARTY
+  BOAT_PARTY
+  RESTAURANT
+  OTHER
+}
+
+enum VenueTableStatus {
+  AVAILABLE
+  PARTIALLY_FILLED
+  FULL
+  LOCKED
+  CLOSED
+}
+
+enum VenueTableMemberStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  LEFT
+}
+
 // ─── Users & Auth ─────────────────────────────────────────────────────────
 // Party Goers (USER) and Business Owners (VENUE) can share the same email as separate accounts
 model User {
@@ -228,6 +250,7 @@ model User {
   housePartyJobsHosted        HousePartyJob[]            @relation("HousePartyJobHost")
   housePartyJobApplications   HousePartyJobApplication[]
   housePartyJobMessagesSent   HousePartyJobMessage[]     @relation("HousePartyJobMessageSender")
+  venueTableMemberships       VenueTableMember[]
   blocksInitiated             Block[]                    @relation("BlockInitiator")
   blocksReceived              Block[]                    @relation("BlockTarget")
   reportsInitiated            Report[]                   @relation("ReportInitiator")
@@ -319,6 +342,8 @@ model UserProfile {
   promoterRevokedAt         DateTime? @map("promoter_revoked_at")
   promoterRevokedBy         String?   @map("promoter_revoked_by")
   promoterVerificationNote  String?   @map("promoter_verification_note") @db.Text
+  promoterJobsAccepted      Int       @default(0) @map("promoter_jobs_accepted")
+  isPromoterStandard        Boolean   @default(false) @map("is_promoter_standard")
   interests                 String[]  @default([])
   musicPreferences          String[]  @default([]) @map("music_preferences")
   friends                   String[]  @default([])
@@ -335,35 +360,36 @@ model UserProfile {
 
 // ─── Tier 1: Venues ───────────────────────────────────────────────────────
 model Venue {
-  id                      String                @id @default(uuid())
-  ownerUserId             String                @map("owner_user_id")
-  name                    String
-  venueType               String                @map("venue_type")
-  city                    String
-  address                 String?
-  suburb                  String?
-  province                String?
-  latitude                Float?
-  longitude               Float?
-  bio                     String?
-  isVerified              Boolean               @default(false) @map("is_verified")
-  complianceStatus        VenueComplianceStatus @default(pending) @map("compliance_status")
-  complianceRejectionNote String?               @map("compliance_rejection_note") @db.Text
-  logoUrl                 String?               @map("logo_url")
-  coverImageUrl           String?               @map("cover_image_url")
-  phone                   String?
-  email                   String?
-  website                 String?
-  instagram               String?
-  capacity                Int?
-  ageLimit                Int?                  @map("age_limit")
-  rating                  Float                 @default(0)
-  ratingCount             Int                   @default(0) @map("rating_count")
-  performanceScore        Float                 @default(0) @map("performance_score")
-  transparencyScore       Float                 @default(0) @map("transparency_score")
-  createdAt               DateTime              @default(now()) @map("created_at")
-  updatedAt               DateTime              @updatedAt @map("updated_at")
-  deletedAt               DateTime?             @map("deleted_at")
+  id                          String                @id @default(uuid())
+  ownerUserId                 String                @map("owner_user_id")
+  name                        String
+  venueType                   String                @map("venue_type")
+  city                        String
+  address                     String?
+  suburb                      String?
+  province                    String?
+  latitude                    Float?
+  longitude                   Float?
+  bio                         String?
+  isVerified                  Boolean               @default(false) @map("is_verified")
+  complianceStatus            VenueComplianceStatus @default(pending) @map("compliance_status")
+  complianceRejectionNote     String?               @map("compliance_rejection_note") @db.Text
+  logoUrl                     String?               @map("logo_url")
+  coverImageUrl               String?               @map("cover_image_url")
+  phone                       String?
+  email                       String?
+  website                     String?
+  instagram                   String?
+  venuePaystackSubaccountCode String?               @map("venue_paystack_subaccount_code")
+  capacity                    Int?
+  ageLimit                    Int?                  @map("age_limit")
+  rating                      Float                 @default(0)
+  ratingCount                 Int                   @default(0) @map("rating_count")
+  performanceScore            Float                 @default(0) @map("performance_score")
+  transparencyScore           Float                 @default(0) @map("transparency_score")
+  createdAt                   DateTime              @default(now()) @map("created_at")
+  updatedAt                   DateTime              @updatedAt @map("updated_at")
+  deletedAt                   DateTime?             @map("deleted_at")
 
   owner               User                 @relation("VenueOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
   events              Event[]
@@ -376,6 +402,7 @@ model Venue {
   popularity          VenuePopularity[]
   complianceDocuments ComplianceDocument[]
   follows             VenueFollow[]
+  venueTables         VenueTable[]
 
   @@index([ownerUserId])
   @@index([city])
@@ -515,6 +542,7 @@ model Event {
   venue         Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
   tables        Table[]
   hostedTables  HostedTable[]
+  venueTables   VenueTable[]
   jobs          Job[]
   attendees     EventAttendance[]
   promotedPosts Promotion[]
@@ -1120,11 +1148,18 @@ model HostedTable {
   id               String            @id @default(cuid())
   hostUserId       String            @map("host_user_id")
   tableType        TableSourceType   @map("table_type")
+  tableName        String            @map("table_name")
+  tableDescription String?           @map("table_description") @db.Text
+  eventType        TableEventType    @map("event_type")
   eventId          String?           @map("event_id")
   venueName        String            @map("venue_name")
   venueAddress     String?           @map("venue_address")
   eventDate        DateTime          @map("event_date")
   eventTime        String            @map("event_time")
+  joiningFee       Float?            @map("joining_fee")
+  hasJoiningFee    Boolean           @default(false) @map("has_joining_fee")
+  photo            String?
+  photoPublicId    String?           @map("photo_public_id")
   drinkPreferences String?           @map("drink_preferences")
   desiredCompany   String?           @map("desired_company")
   guestQuantity    Int               @map("guest_quantity")
@@ -1147,6 +1182,86 @@ model HostedTable {
   @@index([status])
   @@index([eventDate])
   @@map("hosted_tables")
+}
+
+model VenueTable {
+  id                String           @id @default(cuid())
+  venueId           String           @map("venue_id")
+  eventId           String?          @map("event_id")
+  tableName         String           @map("table_name")
+  description       String?          @db.Text
+  guestCapacity     Int              @map("guest_capacity")
+  currentOccupancy  Int              @default(0) @map("current_occupancy")
+  minimumSpend      Float            @map("minimum_spend")
+  amountContributed Float            @default(0) @map("amount_contributed")
+  status            VenueTableStatus @default(AVAILABLE)
+  isActive          Boolean          @default(true) @map("is_active")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  venue     Venue                @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  event     Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  members   VenueTableMember[]
+  menuItems VenueTableMenuItem[]
+  splitLogs SplitPaymentLog[]
+
+  @@index([venueId])
+  @@index([status])
+  @@map("venue_tables")
+}
+
+model VenueTableMember {
+  id                String                 @id @default(cuid())
+  venueTableId      String                 @map("venue_table_id")
+  userId            String                 @map("user_id")
+  amountPaid        Float                  @default(0) @map("amount_paid")
+  paystackReference String?                @map("paystack_reference")
+  selectedMenuItems Json?                  @map("selected_menu_items")
+  status            VenueTableMemberStatus @default(PENDING_PAYMENT)
+  joinedAt          DateTime               @default(now()) @map("joined_at")
+  paidAt            DateTime?              @map("paid_at")
+
+  venueTable VenueTable        @relation(fields: [venueTableId], references: [id], onDelete: Cascade)
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  splitLogs  SplitPaymentLog[]
+
+  @@unique([venueTableId, userId])
+  @@index([venueTableId])
+  @@index([userId])
+  @@map("venue_table_members")
+}
+
+model VenueTableMenuItem {
+  id           String  @id @default(cuid())
+  venueTableId String  @map("venue_table_id")
+  name         String
+  category     String
+  price        Float
+  isAvailable  Boolean @default(true) @map("is_available")
+
+  venueTable VenueTable @relation(fields: [venueTableId], references: [id], onDelete: Cascade)
+
+  @@index([venueTableId])
+  @@map("venue_table_menu_items")
+}
+
+model SplitPaymentLog {
+  id           String   @id @default(cuid())
+  venueTableId String   @map("venue_table_id")
+  memberId     String   @map("member_id")
+  totalAmount  Float    @map("total_amount")
+  secAmount    Float    @map("sec_amount")
+  venueAmount  Float    @map("venue_amount")
+  reference    String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  venueTable VenueTable       @relation(fields: [venueTableId], references: [id], onDelete: Cascade)
+  member     VenueTableMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([venueTableId])
+  @@index([memberId])
+  @@index([reference])
+  @@map("split_payment_logs")
 }
 
 model HostedTableMember {

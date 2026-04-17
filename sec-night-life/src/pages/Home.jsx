@@ -258,6 +258,11 @@ export default function Home() {
     queryFn: () => apiGet('/api/host/tables/available?limit=10&page=1'),
   });
   const hostTables = hostTablesData?.items || [];
+  const { data: venueTablesData } = useQuery({
+    queryKey: ['venue-tables-available'],
+    queryFn: () => apiGet('/api/venue-tables/available?limit=10&page=1'),
+  });
+  const venueTables = venueTablesData?.items || [];
 
   const { data: hostPartiesData } = useQuery({
     queryKey: ['host-parties-public-home'],
@@ -483,7 +488,7 @@ export default function Home() {
             {hostTables.slice(0, 8).map((table, i) => (
               <motion.div key={table.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
                 <div className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
-                  <div style={{ fontWeight: 600 }}>{table.venueName}</div>
+                  <div style={{ fontWeight: 600 }}>{table.tableName || table.venueName}</div>
                   <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                     {table.eventDate && format(parseISO(table.eventDate), 'EEE d MMM')} · {table.eventTime}
                   </div>
@@ -506,9 +511,30 @@ export default function Home() {
                 </div>
               </motion.div>
             ))}
+            {venueTables.slice(0, 8).map((table, i) => (
+              <motion.div key={`venue-${table.id}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
+                <div className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
+                  <div style={{ fontWeight: 600 }}>{table.tableName}</div>
+                  <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                    Posted by {table.venue?.name || 'Venue'} · {table.spotsRemaining} spots left
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 6 }}>
+                    Min spend: R{Number(table.minimumSpend || 0).toFixed(0)} · Progress {Number(table.progressPercentage || 0).toFixed(1)}%
+                  </div>
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-secondary sec-btn-full"
+                    style={{ marginTop: 12 }}
+                    onClick={() => navigate(createPageUrl(`TableDetails?id=${table.id}&source=venue`))}
+                  >
+                    View & Join
+                  </button>
+                </div>
+              </motion.div>
+            ))}
           </div>
 
-          {hostTables.length === 0 && !tablesLoading && (
+          {hostTables.length === 0 && venueTables.length === 0 && !tablesLoading && (
             <div className="sec-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
               <div style={{
                 width: 56, height: 56, borderRadius: '50%',

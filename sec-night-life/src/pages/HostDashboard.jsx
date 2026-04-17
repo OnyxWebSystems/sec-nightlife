@@ -8,7 +8,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
-import { Crown, Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
+import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 
 const STATUS_BADGE = {
@@ -43,12 +44,19 @@ export default function HostDashboard() {
   });
   const [tableForm, setTableForm] = useState({
     tableType: 'IN_APP_EVENT',
+    tableName: '',
+    tableDescription: '',
+    eventType: 'CLUB_TABLE',
     eventId: '',
     venueName: '',
     venueAddress: '',
     eventDate: '',
     eventTime: '21:00',
     guestQuantity: 4,
+    hasJoiningFee: false,
+    joiningFee: '',
+    photo: '',
+    photoPublicId: '',
     drinkPreferences: '',
     desiredCompany: '',
     isPublic: true,
@@ -157,9 +165,16 @@ export default function HostDashboard() {
         }
         await apiPost('/api/host/tables', {
           tableType: 'IN_APP_EVENT',
+          tableName: tableForm.tableName,
+          tableDescription: tableForm.tableDescription || null,
+          eventType: tableForm.eventType,
           eventId: tableForm.eventId,
           eventTime: tableForm.eventTime,
           guestQuantity: tableForm.guestQuantity,
+          hasJoiningFee: tableForm.hasJoiningFee,
+          joiningFee: tableForm.hasJoiningFee ? Number(tableForm.joiningFee) : null,
+          photo: tableForm.photo || null,
+          photoPublicId: tableForm.photoPublicId || null,
           drinkPreferences: tableForm.drinkPreferences || null,
           desiredCompany: tableForm.desiredCompany || null,
           isPublic: tableForm.isPublic,
@@ -172,11 +187,18 @@ export default function HostDashboard() {
         }
         await apiPost('/api/host/tables', {
           tableType: 'EXTERNAL_VENUE',
+          tableName: tableForm.tableName,
+          tableDescription: tableForm.tableDescription || null,
+          eventType: tableForm.eventType,
           venueName: tableForm.venueName,
           venueAddress: tableForm.venueAddress || null,
           eventDate: new Date(tableForm.eventDate).toISOString(),
           eventTime: tableForm.eventTime,
           guestQuantity: tableForm.guestQuantity,
+          hasJoiningFee: tableForm.hasJoiningFee,
+          joiningFee: tableForm.hasJoiningFee ? Number(tableForm.joiningFee) : null,
+          photo: tableForm.photo || null,
+          photoPublicId: tableForm.photoPublicId || null,
           drinkPreferences: tableForm.drinkPreferences || null,
           desiredCompany: tableForm.desiredCompany || null,
           isPublic: tableForm.isPublic,
@@ -222,7 +244,7 @@ export default function HostDashboard() {
   return (
     <div className="px-4 py-6 max-w-[480px] mx-auto pb-24">
       <div className="flex items-center gap-2 mb-6">
-        <Crown className="text-amber-400" size={28} />
+        <SecLogo size={30} />
         <div>
           <h1 className="text-xl font-bold">Host</h1>
           <p className="text-sm opacity-70">House parties & tables</p>
@@ -323,11 +345,18 @@ export default function HostDashboard() {
           <div className="space-y-3">
             {tables.map((t) => (
               <div key={t.id} className="sec-card p-4 rounded-xl border border-[var(--sec-border)]">
-                <div className="font-semibold">{t.venueName}</div>
+                <div className="font-semibold">{t.tableName || t.venueName}</div>
+                {t.photo && <img src={t.photo} alt="" className="w-full h-24 object-cover rounded-lg mt-2" />}
                 <div className="text-xs opacity-70">
                   {format(parseISO(t.eventDate), 'dd MMM yyyy')} · {t.eventTime} · {t.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External'}
                 </div>
+                <div className="text-xs mt-1">
+                  <span className="px-2 py-0.5 rounded-full border border-[var(--sec-border)]">{t.eventType || 'CLUB_TABLE'}</span>
+                  <span className="ml-2 px-2 py-0.5 rounded-full border border-[var(--sec-border)]">{t.isPublic ? 'Public' : 'Private'}</span>
+                </div>
+                {t.tableDescription && <div className="text-xs opacity-80 mt-2">{t.tableDescription.slice(0, 80)}</div>}
                 <div className="text-sm mt-2">Members: {t._count?.members ?? 0} · Spots: {t.spotsRemaining}</div>
+                {t.hasJoiningFee && <div className="text-xs mt-1">R{Number(t.joiningFee || 0).toFixed(0)} to join</div>}
                 {t.boosted && <div className="text-xs text-amber-400 mt-1">Boosted</div>}
               </div>
             ))}
@@ -569,6 +598,32 @@ export default function HostDashboard() {
                 </>
               )}
               <input
+                placeholder="Table name (e.g. VIP Section)"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                value={tableForm.tableName}
+                onChange={(e) => setTableForm((f) => ({ ...f, tableName: e.target.value }))}
+                maxLength={60}
+              />
+              <select
+                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                value={tableForm.eventType}
+                onChange={(e) => setTableForm((f) => ({ ...f, eventType: e.target.value }))}
+              >
+                <option value="CLUB_TABLE">Club Table</option>
+                <option value="HOUSE_PARTY">House Party</option>
+                <option value="BOAT_PARTY">Boat Party</option>
+                <option value="RESTAURANT">Restaurant</option>
+                <option value="OTHER">Other</option>
+              </select>
+              <textarea
+                placeholder="Description (optional)"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                rows={3}
+                value={tableForm.tableDescription}
+                onChange={(e) => setTableForm((f) => ({ ...f, tableDescription: e.target.value }))}
+                maxLength={300}
+              />
+              <input
                 placeholder="Time (e.g. 21:00)"
                 className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
                 value={tableForm.eventTime}
@@ -583,6 +638,32 @@ export default function HostDashboard() {
                 value={tableForm.guestQuantity}
                 onChange={(e) => setTableForm((f) => ({ ...f, guestQuantity: parseInt(e.target.value, 10) || 1 }))}
               />
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={tableForm.hasJoiningFee}
+                  onChange={(e) => setTableForm((f) => ({ ...f, hasJoiningFee: e.target.checked }))}
+                />
+                Charge joining fee
+              </label>
+              {tableForm.hasJoiningFee && (
+                <input
+                  type="number"
+                  min={10}
+                  placeholder="Joining fee (ZAR)"
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  value={tableForm.joiningFee}
+                  onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
+                />
+              )}
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={tableForm.isPublic}
+                  onChange={(e) => setTableForm((f) => ({ ...f, isPublic: e.target.checked }))}
+                />
+                Public table listing
+              </label>
               <button type="button" disabled={saving} className="sec-btn sec-btn-primary w-full" onClick={submitTable}>
                 List my table
               </button>

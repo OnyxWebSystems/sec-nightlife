@@ -198,6 +198,82 @@ async function applyReferenceSideEffects(reference, paystackData) {
     }
   }
 
+  const venueTableId = metadata.venueTableId || metadata.venue_table_id;
+  const venueTableMemberId = metadata.venueTableMemberId || metadata.venue_table_member_id;
+  if (metadata.type === 'VENUE_TABLE_JOIN' && venueTableId && venueTableMemberId && userId) {
+    await prisma.$transaction(async (tx) => {
+      const member = await tx.venueTableMember.findFirst({
+        where: { id: String(venueTableMemberId), venueTableId: String(venueTableId), userId: String(userId) },
+        include: { venueTable: { include: { venue: true } } },
+      });
+      if (!member) return;
+      if (member.status === 'CONFIRMED') return;
+      const table = member.venueTable;
+      const totalPaid = Number(amount || 0);
+      const secAmount = Number((totalPaid * 0.1).toFixed(2));
+      const venueAmount = Number((totalPaid * 0.9).toFixed(2));
+      // TODO: Configure Paystack subaccounts per venue before launch for automatic splits.
+      // If table.venue.venuePaystackSubaccountCode exists, wire Paystack split payload before go-live.
+
+      const currentOccupancy = table.currentOccupancy + 1;
+      const amountContributed = table.amountContributed + totalPaid;
+      const nextStatus =
+        currentOccupancy >= table.guestCapacity
+          ? 'LOCKED'
+          : (amountContributed >= table.minimumSpend ? 'PARTIALLY_FILLED' : 'AVAILABLE');
+
+      await tx.venueTableMember.update({
+        where: { id: member.id },
+        data: {
+          status: 'CONFIRMED',
+          amountPaid: totalPaid,
+          selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
+          paidAt: new Date(),
+          paystackReference: reference,
+        },
+      });
+      await tx.venueTable.update({
+        where: { id: table.id },
+        data: {
+          amountContributed: { increment: totalPaid },
+          currentOccupancy: { increment: 1 },
+          status: nextStatus,
+        },
+      });
+      await tx.splitPaymentLog.create({
+        data: {
+          venueTableId: table.id,
+          memberId: member.id,
+          totalAmount: totalPaid,
+          secAmount,
+          venueAmount,
+          reference,
+        },
+      });
+      const user = await tx.user.findUnique({
+        where: { id: String(userId) },
+        include: { userProfile: { select: { username: true } } },
+      });
+      const username = user?.userProfile?.username || user?.username || 'someone';
+      await createInAppNotification({
+        userId: table.venue.ownerUserId,
+        type: 'TABLE_JOINED',
+        title: 'Venue table joined',
+        body: `@${username} joined your table ${table.tableName} and contributed R${totalPaid.toFixed(2)}`,
+        referenceId: table.id,
+        referenceType: 'VENUE_TABLE',
+      });
+      await createInAppNotification({
+        userId: String(userId),
+        type: 'TABLE_JOINED',
+        title: 'Table confirmed',
+        body: `You're confirmed at ${table.tableName}. Menu items are locked in. No refunds.`,
+        referenceId: table.id,
+        referenceType: 'VENUE_TABLE',
+      });
+    });
+  }
+
   const tableId = metadata.table_id;
   if (tableId && userId) {
     const table = await prisma.table.findFirst({

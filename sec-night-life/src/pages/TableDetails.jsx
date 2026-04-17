@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { apiPost } from '@/api/client';
+import { apiGet, apiPost } from '@/api/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronLeft, Share2, Users, DollarSign, Calendar, Clock,
@@ -73,6 +73,9 @@ export default function TableDetails() {
   const urlParams = new URLSearchParams(window.location.search);
   const tableId = urlParams.get('id');
   const autoJoin = urlParams.get('join');
+  const source = urlParams.get('source');
+  const isVenueSource = source === 'venue';
+  const [selectedMenuItems, setSelectedMenuItems] = useState({});
 
   useEffect(() => { loadUser(); }, []);
 
@@ -90,6 +93,30 @@ export default function TableDetails() {
     queryFn: async () => { const t = await dataService.Table.filter({ id: tableId }); return t[0]; },
     enabled: !!tableId,
   });
+  const { data: venueTable, isLoading: venueLoading } = useQuery({
+    queryKey: ['venue-table', tableId],
+    queryFn: () => apiGet(`/api/venue-tables/${tableId}`),
+    enabled: !!tableId && isVenueSource,
+  });
+
+  const joinVenueTable = async () => {
+    const selected = Object.entries(selectedMenuItems)
+      .filter(([, qty]) => Number(qty) > 0)
+      .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) }));
+    if (!selected.length) {
+      toast.error('Select at least one menu item');
+      return;
+    }
+    setIsProcessingPayment(true);
+    try {
+      const pay = await apiPost(`/api/venue-tables/${tableId}/join`, { selectedMenuItems: selected });
+      if (pay?.authorization_url) window.location.href = pay.authorization_url;
+    } catch (e) {
+      toast.error(e?.message || 'Could not start payment');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
 
   const { data: event } = useQuery({
     queryKey: ['table-event', table?.event_id],
@@ -238,6 +265,66 @@ export default function TableDetails() {
   }, [autoJoin, userProfile, table, isHost, isMember, isPending, spotsLeft]);
 
   /* ── loading / not found ── */
+  if (isVenueSource) {
+    if (venueLoading) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
+          <div className="sec-spinner" />
+        </div>
+      );
+    }
+    if (!venueTable) {
+      return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Venue table not found</div>;
+    }
+    const grouped = (venueTable.menuItems || []).reduce((acc, item) => {
+      const key = item.category || 'Other';
+      acc[key] = acc[key] || [];
+      acc[key].push(item);
+      return acc;
+    }, {});
+    const contribution = Object.entries(selectedMenuItems).reduce((sum, [id, qty]) => {
+      const item = (venueTable.menuItems || []).find((m) => m.id === id);
+      return sum + (item ? item.price * Number(qty || 0) : 0);
+    }, 0);
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: 20, paddingBottom: 90 }}>
+        <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
+        <div className="sec-card" style={{ padding: 16 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700 }}>{venueTable.tableName}</h1>
+          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{venueTable.venue?.name}</p>
+          <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
+          <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
+          <p style={{ marginTop: 6, fontSize: 13 }}>R{Number(venueTable.amountContributed).toFixed(0)} of R{Number(venueTable.minimumSpend).toFixed(0)} contributed ({Number(venueTable.progressPercentage).toFixed(1)}%)</p>
+        </div>
+        <div style={{ marginTop: 14 }}>
+          {Object.entries(grouped).map(([category, items]) => (
+            <div key={category} className="sec-card" style={{ padding: 14, marginBottom: 10 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>{category}</div>
+              {items.map((item) => (
+                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div>{item.name} · R{Number(item.price).toFixed(0)}</div>
+                  <input
+                    type="number"
+                    min={0}
+                    value={selectedMenuItems[item.id] || 0}
+                    onChange={(e) => setSelectedMenuItems((s) => ({ ...s, [item.id]: e.target.value }))}
+                    style={{ width: 68 }}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="sec-bottom-bar">
+          <button onClick={joinVenueTable} disabled={isProcessingPayment || contribution <= 0} className="sec-btn sec-btn-primary sec-btn-full" style={{ height: 48 }}>
+            {isProcessingPayment ? 'Processing…' : `Pay R${contribution.toFixed(0)} to join`}
+          </button>
+          <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 8 }}>No refunds: once you join and pay, contribution is retained.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
