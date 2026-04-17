@@ -85,9 +85,11 @@ function isProfileVerificationSettled(status) {
   return status === 'verified' || status === 'approved' || status === 'rejected';
 }
 
-async function readUserProfileCompat(userId) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT
+/**
+ * Raw SELECT for user_profiles when Prisma findMany/findFirst fails (schema drift / P2022).
+ * Keeps verification_status, promoter flag, etc. — avoids empty profile rows in GET /filter.
+ */
+const USER_PROFILE_COMPAT_SELECT_LIST = `
       id,
       user_id AS "userId",
       username,
@@ -105,11 +107,40 @@ async function readUserProfileCompat(userId) {
       music_preferences AS "musicPreferences",
       friends,
       followed_venues AS "followedVenues",
-      onboarding_complete AS "onboardingComplete"
+      onboarding_complete AS "onboardingComplete"`;
+
+async function readUserProfileCompat(userId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${USER_PROFILE_COMPAT_SELECT_LIST}
      FROM user_profiles
      WHERE user_id = $1
      LIMIT 1`,
     userId
+  );
+  return rows?.[0] || null;
+}
+
+/** Batch compat read for GET /users/filter when prisma.userProfile.findMany throws. */
+async function readUserProfilesCompatByUserIds(userIds) {
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  if (ids.length === 0) return [];
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${USER_PROFILE_COMPAT_SELECT_LIST}
+     FROM user_profiles
+     WHERE user_id IN (${placeholders})`,
+    ...ids
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function readUserProfileCompatByProfileRowId(profileRowId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${USER_PROFILE_COMPAT_SELECT_LIST}
+     FROM user_profiles
+     WHERE id = $1
+     LIMIT 1`,
+    profileRowId
   );
   return rows?.[0] || null;
 }
@@ -602,32 +633,7 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
     } catch {
       profile = await readUserProfileCompat(targetId);
       if (!profile && targetId && targetId.length > 30) {
-        const rows = await prisma.$queryRawUnsafe(
-          `SELECT
-            id,
-            user_id AS "userId",
-            username,
-            bio,
-            city,
-            avatar_url AS "avatarUrl",
-            favorite_drink AS "favoriteDrink",
-            date_of_birth AS "dateOfBirth",
-            id_document_url AS "idDocumentUrl",
-            age_verified AS "ageVerified",
-            verification_status AS "verificationStatus",
-            verification_rejection_note AS "verificationRejectionNote",
-            payment_setup_complete AS "paymentSetupComplete",
-            interests,
-            music_preferences AS "musicPreferences",
-            friends,
-            followed_venues AS "followedVenues",
-            onboarding_complete AS "onboardingComplete"
-           FROM user_profiles
-           WHERE id = $1
-           LIMIT 1`,
-          targetId
-        );
-        profile = rows?.[0] || null;
+        profile = await readUserProfileCompatByProfileRowId(targetId);
       }
     }
     const user = await prisma.user.findFirst({
@@ -710,15 +716,31 @@ router.get('/search', authenticateToken, requireVerified, requirePremium, async 
       take: Math.min(parseInt(limit) || 20, 50)
     });
 
-    const profiles = await prisma.userProfile.findMany({
-      where: {
-        userId: { in: users.map(u => u.id) },
-        ...(city ? { city: { contains: String(city), mode: 'insensitive' } } : {})
+    const searchUserIds = users.map((u) => u.id);
+    let searchProfiles = [];
+    try {
+      searchProfiles = await prisma.userProfile.findMany({
+        where: {
+          userId: { in: searchUserIds },
+          ...(city ? { city: { contains: String(city), mode: 'insensitive' } } : {}),
+        },
+      });
+    } catch (searchProfileErr) {
+      try {
+        searchProfiles = await readUserProfilesCompatByUserIds(searchUserIds);
+        if (city) {
+          const cl = String(city).toLowerCase();
+          searchProfiles = searchProfiles.filter((p) =>
+            String(p.city || '').toLowerCase().includes(cl)
+          );
+        }
+      } catch {
+        throw searchProfileErr;
       }
-    });
+    }
 
     const results = users.map(u => {
-      const p = profiles.find(pr => pr.userId === u.id);
+      const p = searchProfiles.find(pr => pr.userId === u.id);
       return {
         user_id: u.id,
         full_name: u.fullName || p?.username,
@@ -746,13 +768,18 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
     if (id) where.id = id;
     const users = await prisma.user.findMany({ where });
 
+    const filterUserIds = users.map((u) => u.id);
     let profiles = [];
     try {
       profiles = await prisma.userProfile.findMany({
-        where: { userId: { in: users.map(u => u.id) } }
+        where: { userId: { in: filterUserIds } },
       });
-    } catch {
-      profiles = [];
+    } catch (profileErr) {
+      try {
+        profiles = await readUserProfilesCompatByUserIds(filterUserIds);
+      } catch {
+        throw profileErr;
+      }
     }
 
     let results = users.map(u => {
