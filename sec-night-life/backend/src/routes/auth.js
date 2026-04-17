@@ -80,6 +80,30 @@ function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
 
+function isMissingColumnError(err) {
+  return err?.code === 'P2022' || String(err?.message || '').includes('column');
+}
+
+async function readVerificationStatusCompat(userId) {
+  try {
+    const profile = await prisma.userProfile.findUnique({
+      where: { userId },
+      select: { verificationStatus: true },
+    });
+    return profile?.verificationStatus ?? 'pending';
+  } catch (err) {
+    if (!isMissingColumnError(err)) throw err;
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT verification_status AS "verificationStatus"
+       FROM user_profiles
+       WHERE user_id = $1
+       LIMIT 1`,
+      userId,
+    );
+    return rows?.[0]?.verificationStatus ?? 'pending';
+  }
+}
+
 async function canAccessAdminDashboard(user) {
   if (!user) return false;
   if (['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return true;
@@ -462,11 +486,7 @@ router.post('/login', async (req, res, next) => {
       ipAddress: getIp(req)
     });
 
-    const profile = await prisma.userProfile.findUnique({
-      where: { userId: user.id },
-      select: { verificationStatus: true },
-    });
-    const vStatus = profile?.verificationStatus ?? 'pending';
+    const vStatus = await readVerificationStatusCompat(user.id);
     const canAdminDashboard = await canAccessAdminDashboard(user);
     await ensureIdentityReminderNotification(user.id, vStatus);
 
@@ -628,11 +648,7 @@ router.post('/refresh', async (req, res, next) => {
     await prisma.refreshToken.delete({ where: { id: matched.id } });
     const { accessToken, refreshToken: newRefreshToken } = await issueTokens(user);
 
-    const prof = await prisma.userProfile.findUnique({
-      where: { userId: user.id },
-      select: { verificationStatus: true },
-    });
-    const vSt = prof?.verificationStatus ?? 'pending';
+    const vSt = await readVerificationStatusCompat(user.id);
     const canAdminDashboard = await canAccessAdminDashboard(user);
 
     res.json({
@@ -769,11 +785,7 @@ router.get('/me', async (req, res, next) => {
       where: { id: payload.userId, deletedAt: null },
     });
     if (!user) return res.status(401).json({ error: 'User not found' });
-    const profile = await prisma.userProfile.findUnique({
-      where: { userId: user.id },
-      select: { verificationStatus: true },
-    });
-    const vStatus = profile?.verificationStatus ?? 'pending';
+    const vStatus = await readVerificationStatusCompat(user.id);
     const canAdminDashboard = await canAccessAdminDashboard(user);
     await ensureIdentityReminderNotification(user.id, vStatus);
     res.json(

@@ -1,16 +1,32 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { apiGet, apiPost, apiDelete } from '@/api/client';
+import { apiGet, apiPost, apiDelete, apiPatch } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, MessageCircle } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
+
+function eventStartTimeForInput(ev) {
+  if (!ev) return undefined;
+  const raw = ev.startTime ?? ev.start_time;
+  if (!raw) return undefined;
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return undefined;
+  return `${m[1].padStart(2, '0')}:${m[2]}`;
+}
+
+function eventStartTimeLabel(ev) {
+  const raw = ev?.startTime ?? ev?.start_time;
+  if (!raw) return null;
+  return String(raw).slice(0, 5);
+}
 
 const STATUS_BADGE = {
   DRAFT: { label: 'Draft', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
@@ -62,6 +78,7 @@ export default function HostDashboard() {
     isPublic: true,
   });
   const [saving, setSaving] = useState(false);
+  const [pendingTableId, setPendingTableId] = useState(null);
 
   useEffect(() => {
     authService.getCurrentUser().then(setUser).catch(() => authService.redirectToLogin());
@@ -120,6 +137,17 @@ export default function HostDashboard() {
     enabled: showTableModal && tableForm.tableType === 'IN_APP_EVENT',
   });
 
+  const selectedEvent = useMemo(
+    () => publicEvents.find((e) => e.id === tableForm.eventId),
+    [publicEvents, tableForm.eventId],
+  );
+
+  const { data: pendingRequests = [], refetch: refetchPending, isFetching: pendingLoading } = useQuery({
+    queryKey: ['host-table-pending', pendingTableId],
+    queryFn: () => apiGet(`/api/host/tables/${pendingTableId}/pending-requests`),
+    enabled: !!pendingTableId,
+  });
+
   const submitParty = async (thenPublish) => {
     setSaving(true);
     try {
@@ -163,6 +191,12 @@ export default function HostDashboard() {
           setSaving(false);
           return;
         }
+        const minT = eventStartTimeForInput(selectedEvent);
+        if (minT && tableForm.eventTime && tableForm.eventTime < minT) {
+          toast.error('Table time cannot be before the event start time');
+          setSaving(false);
+          return;
+        }
         await apiPost('/api/host/tables', {
           tableType: 'IN_APP_EVENT',
           tableName: tableForm.tableName,
@@ -185,13 +219,18 @@ export default function HostDashboard() {
           setSaving(false);
           return;
         }
+        if (!tableForm.venueAddress?.trim()) {
+          toast.error('Enter the venue address so guests know where to meet');
+          setSaving(false);
+          return;
+        }
         await apiPost('/api/host/tables', {
           tableType: 'EXTERNAL_VENUE',
           tableName: tableForm.tableName,
           tableDescription: tableForm.tableDescription || null,
           eventType: tableForm.eventType,
           venueName: tableForm.venueName,
-          venueAddress: tableForm.venueAddress || null,
+          venueAddress: tableForm.venueAddress.trim(),
           eventDate: new Date(tableForm.eventDate).toISOString(),
           eventTime: tableForm.eventTime,
           guestQuantity: tableForm.guestQuantity,
@@ -331,36 +370,165 @@ export default function HostDashboard() {
         </TabsContent>
 
         <TabsContent value="tables">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-semibold">My Tables</h2>
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="font-semibold text-lg">My tables</h2>
+              <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">Each table has a matching group chat.</p>
+            </div>
             <button
               type="button"
               onClick={() => setShowTableModal(true)}
-              className="sec-btn sec-btn-primary text-sm py-2 px-3 inline-flex items-center gap-1"
+              className="sec-btn sec-btn-primary text-sm py-2.5 px-3 inline-flex items-center gap-1 rounded-xl"
             >
               <Plus size={16} /> Host table
             </button>
           </div>
           {loadT ? <Loader2 className="animate-spin" /> : null}
-          <div className="space-y-3">
-            {tables.map((t) => (
-              <div key={t.id} className="sec-card p-4 rounded-xl border border-[var(--sec-border)]">
-                <div className="font-semibold">{t.tableName || t.venueName}</div>
-                {t.photo && <img src={t.photo} alt="" className="w-full h-24 object-cover rounded-lg mt-2" />}
-                <div className="text-xs opacity-70">
-                  {format(parseISO(t.eventDate), 'dd MMM yyyy')} · {t.eventTime} · {t.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External'}
+          <div className="space-y-4">
+            {tables.map((t) => {
+              const loc =
+                t.eventLocation?.displayLabel ||
+                [t.venueAddress, t.venueName].filter(Boolean).join(' · ') ||
+                t.venueName;
+              return (
+                <div
+                  key={t.id}
+                  className="sec-card p-4 rounded-2xl border border-[var(--sec-border)] bg-[var(--sec-bg-card)] shadow-sm"
+                >
+                  <div className="flex justify-between gap-2 items-start">
+                    <div>
+                      <div className="font-semibold text-base">{t.tableName || t.venueName}</div>
+                      <div className="text-xs text-[var(--sec-text-muted)] mt-1 flex items-start gap-1">
+                        <span className="opacity-80">{loc}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full border border-[var(--sec-border)]">
+                        {t.isPublic ? 'Public' : 'Private'}
+                      </span>
+                      {t.pendingJoinCount > 0 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200">
+                          {t.pendingJoinCount} pending
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {t.photo && <img src={t.photo} alt="" className="w-full h-28 object-cover rounded-xl mt-3" />}
+                  <div className="text-xs text-[var(--sec-text-muted)] mt-2">
+                    {format(parseISO(t.eventDate), 'EEE d MMM')} · {t.eventTime} ·{' '}
+                    {t.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External'}
+                  </div>
+                  <div className="text-xs mt-2 flex flex-wrap gap-2">
+                    <span className="px-2 py-0.5 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]">
+                      {t.eventType || 'CLUB_TABLE'}
+                    </span>
+                  </div>
+                  {t.tableDescription && (
+                    <div className="text-xs text-[var(--sec-text-muted)] mt-2 line-clamp-2">{t.tableDescription}</div>
+                  )}
+                  <div className="text-sm mt-3 flex flex-wrap gap-3 items-center">
+                    <span>Members {t._count?.members ?? 0}</span>
+                    <span className="opacity-60">·</span>
+                    <span>Spots left {t.spotsRemaining}</span>
+                    {t.hasJoiningFee && (
+                      <span className="text-amber-200">R{Number(t.joiningFee || 0).toFixed(0)} join</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {t.groupChat?.id && (
+                      <Link
+                        to={`${createPageUrl('Messages')}?group=${encodeURIComponent(t.groupChat.id)}&gk=HOSTED_TABLE`}
+                        className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-secondary py-2 px-3 rounded-xl"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        Open group chat
+                      </Link>
+                    )}
+                    {t.pendingJoinCount > 0 && (
+                      <button
+                        type="button"
+                        className="text-xs sec-btn sec-btn-ghost py-2 px-3 rounded-xl"
+                        onClick={() => setPendingTableId(pendingTableId === t.id ? null : t.id)}
+                      >
+                        {pendingTableId === t.id ? 'Hide requests' : 'Review requests'}
+                      </button>
+                    )}
+                  </div>
+                  {pendingTableId === t.id && (
+                    <div className="mt-3 space-y-2 border-t border-[var(--sec-border)] pt-3">
+                      {pendingLoading ? (
+                        <p className="text-xs text-[var(--sec-text-muted)]">Loading…</p>
+                      ) : (pendingRequests || []).length === 0 ? (
+                        <p className="text-xs text-[var(--sec-text-muted)]">No pending requests.</p>
+                      ) : (
+                        (pendingRequests || []).map((pr) => (
+                          <div
+                            key={pr.id}
+                            className="flex items-center justify-between gap-2 p-2 rounded-xl bg-[var(--sec-bg-elevated)]"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {pr.user?.avatarUrl ? (
+                                <img src={pr.user.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
+                              ) : (
+                                <div className="w-9 h-9 rounded-full bg-[var(--sec-border)] flex items-center justify-center text-xs">
+                                  {(pr.user?.username || '?')[0]}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium truncate">@{pr.user?.username}</div>
+                                <div className="text-[10px] text-[var(--sec-text-muted)] truncate">{pr.user?.fullName}</div>
+                              </div>
+                            </div>
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                type="button"
+                                className="text-xs px-2 py-1.5 rounded-lg bg-[var(--sec-success-muted)] text-black"
+                                onClick={async () => {
+                                  try {
+                                    await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                      action: 'approve',
+                                    });
+                                    toast.success('Approved');
+                                    queryClient.invalidateQueries(['host-tables']);
+                                    refetchPending();
+                                  } catch (e) {
+                                    toast.error(e?.message || 'Could not approve');
+                                  }
+                                }}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                className="text-xs px-2 py-1.5 rounded-lg border border-[var(--sec-border)]"
+                                onClick={async () => {
+                                  try {
+                                    await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                      action: 'reject',
+                                    });
+                                    toast.success('Declined');
+                                    queryClient.invalidateQueries(['host-tables']);
+                                    refetchPending();
+                                  } catch (e) {
+                                    toast.error(e?.message || 'Could not decline');
+                                  }
+                                }}
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  {t.boosted && <div className="text-xs text-amber-400 mt-2">Boosted</div>}
                 </div>
-                <div className="text-xs mt-1">
-                  <span className="px-2 py-0.5 rounded-full border border-[var(--sec-border)]">{t.eventType || 'CLUB_TABLE'}</span>
-                  <span className="ml-2 px-2 py-0.5 rounded-full border border-[var(--sec-border)]">{t.isPublic ? 'Public' : 'Private'}</span>
-                </div>
-                {t.tableDescription && <div className="text-xs opacity-80 mt-2">{t.tableDescription.slice(0, 80)}</div>}
-                <div className="text-sm mt-2">Members: {t._count?.members ?? 0} · Spots: {t.spotsRemaining}</div>
-                {t.hasJoiningFee && <div className="text-xs mt-1">R{Number(t.joiningFee || 0).toFixed(0)} to join</div>}
-                {t.boosted && <div className="text-xs text-amber-400 mt-1">Boosted</div>}
-              </div>
-            ))}
-            {tables.length === 0 && !loadT && <p className="text-sm opacity-60 text-center py-8">No tables yet.</p>}
+              );
+            })}
+            {tables.length === 0 && !loadT && (
+              <p className="text-sm text-[var(--sec-text-muted)] text-center py-10">No tables yet. Host one to start a group chat.</p>
+            )}
           </div>
         </TabsContent>
 
@@ -551,50 +719,91 @@ export default function HostDashboard() {
                 Close
               </button>
             </div>
-            <div className="space-y-3 text-sm">
+            <div className="space-y-4 text-sm">
+              <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
+                Choose whether your table is for an official SEC event or your own meet-up. Table name becomes the group chat name.
+              </p>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  className={`flex-1 py-2 rounded-lg border ${tableForm.tableType === 'IN_APP_EVENT' ? 'border-[var(--sec-accent)]' : 'border-[var(--sec-border)]'}`}
+                  className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${tableForm.tableType === 'IN_APP_EVENT' ? 'border-[var(--sec-accent)] bg-[var(--sec-bg-elevated)]' : 'border-[var(--sec-border)]'}`}
                   onClick={() => setTableForm((f) => ({ ...f, tableType: 'IN_APP_EVENT' }))}
                 >
-                  SEC event
+                  SEC app event
                 </button>
                 <button
                   type="button"
-                  className={`flex-1 py-2 rounded-lg border ${tableForm.tableType === 'EXTERNAL_VENUE' ? 'border-[var(--sec-accent)]' : 'border-[var(--sec-border)]'}`}
+                  className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${tableForm.tableType === 'EXTERNAL_VENUE' ? 'border-[var(--sec-accent)] bg-[var(--sec-bg-elevated)]' : 'border-[var(--sec-border)]'}`}
                   onClick={() => setTableForm((f) => ({ ...f, tableType: 'EXTERNAL_VENUE' }))}
                 >
-                  External venue
+                  External meet-up
                 </button>
               </div>
               {tableForm.tableType === 'IN_APP_EVENT' ? (
-                <select
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                  value={tableForm.eventId}
-                  onChange={(e) => setTableForm((f) => ({ ...f, eventId: e.target.value }))}
-                >
-                  <option value="">Select event</option>
-                  {publicEvents.map((ev) => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.title}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <label className="block text-sm font-medium">
+                    Event
+                    <select
+                      className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                      value={tableForm.eventId}
+                      onChange={(e) => setTableForm((f) => ({ ...f, eventId: e.target.value }))}
+                    >
+                      <option value="">Select event</option>
+                      {publicEvents.map((ev) => (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {selectedEvent && (
+                    <div className="rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] px-3 py-2 text-xs space-y-1">
+                      <div className="font-medium text-[var(--sec-text-primary)]">Event location</div>
+                      <div className="opacity-90">
+                        {[selectedEvent.city, selectedEvent.venue?.name, selectedEvent.venue_name]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </div>
+                      {eventStartTimeLabel(selectedEvent) && (
+                        <div className="opacity-70">Event starts {eventStartTimeLabel(selectedEvent)}</div>
+                      )}
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
-                  <input
-                    placeholder="Venue name"
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                    value={tableForm.venueName}
-                    onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
-                  />
-                  <input
-                    type="date"
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                    value={tableForm.eventDate}
-                    onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
-                  />
+                  <label className="block text-sm font-medium">
+                    Venue name
+                    <input
+                      placeholder="e.g. Rooftop Lounge"
+                      className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                      value={tableForm.venueName}
+                      onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
+                    />
+                  </label>
+                  <div>
+                    <div className="text-sm font-medium mb-1">Address</div>
+                    <p className="text-xs text-[var(--sec-text-muted)] mb-2">Required so friends know exactly where to go.</p>
+                    <GoogleAddressInput
+                      value={tableForm.venueAddress}
+                      onChange={(structured) => {
+                        const addr =
+                          typeof structured === 'string'
+                            ? structured
+                            : structured?.formattedAddress || structured?.street || '';
+                        setTableForm((f) => ({ ...f, venueAddress: addr }));
+                      }}
+                    />
+                  </div>
+                  <label className="block text-sm font-medium">
+                    Date
+                    <input
+                      type="date"
+                      className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                      value={tableForm.eventDate}
+                      onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
+                    />
+                  </label>
                 </>
               )}
               <input
@@ -623,12 +832,21 @@ export default function HostDashboard() {
                 onChange={(e) => setTableForm((f) => ({ ...f, tableDescription: e.target.value }))}
                 maxLength={300}
               />
-              <input
-                placeholder="Time (e.g. 21:00)"
-                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                value={tableForm.eventTime}
-                onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
-              />
+              <label className="block text-sm font-medium">
+                {tableForm.tableType === 'IN_APP_EVENT' ? 'When will you meet at the table?' : 'Meet time'}
+                <input
+                  type="time"
+                  min={tableForm.tableType === 'IN_APP_EVENT' ? eventStartTimeForInput(selectedEvent) : undefined}
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  value={tableForm.eventTime}
+                  onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
+                />
+                {tableForm.tableType === 'IN_APP_EVENT' && eventStartTimeLabel(selectedEvent) && (
+                  <span className="text-xs text-[var(--sec-text-muted)] mt-1 block">
+                    Not before event start ({eventStartTimeLabel(selectedEvent)})
+                  </span>
+                )}
+              </label>
               <input
                 type="number"
                 min={1}
@@ -656,14 +874,22 @@ export default function HostDashboard() {
                   onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
                 />
               )}
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={tableForm.isPublic}
-                  onChange={(e) => setTableForm((f) => ({ ...f, isPublic: e.target.checked }))}
-                />
-                Public table listing
-              </label>
+              <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2">
+                <label className="flex items-start gap-3 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={tableForm.isPublic}
+                    onChange={(e) => setTableForm((f) => ({ ...f, isPublic: e.target.checked }))}
+                  />
+                  <span>
+                    <span className="font-medium">Show in public table list</span>
+                    <span className="block text-xs text-[var(--sec-text-muted)] mt-0.5">
+                      Turn off for a private table: only people you invite can join, and others must request approval to join.
+                    </span>
+                  </span>
+                </label>
+              </div>
               <button type="button" disabled={saving} className="sec-btn sec-btn-primary w-full" onClick={submitTable}>
                 List my table
               </button>

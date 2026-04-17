@@ -1,33 +1,40 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, Send, Users } from 'lucide-react';
+import { ChevronLeft, Send, Users, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { apiGet, apiPost } from '@/api/client';
+import { apiGet, apiPost, apiDelete } from '@/api/client';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { toast } from 'sonner';
 
-export default function GroupThread({ groupChatId, onBack }) {
+export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack }) {
   const [me, setMe] = useState(null);
   const [detail, setDetail] = useState(null);
   const [messages, setMessages] = useState([]);
   const [body, setBody] = useState('');
   const [showNew, setShowNew] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const bottomRef = useRef(null);
   const containerRef = useRef(null);
   const lastPollRef = useRef(null);
+
+  const apiBase =
+    chatKind === 'HOSTED_TABLE'
+      ? `/api/group-chats/hosted-table/${groupChatId}`
+      : `/api/group-chats/${groupChatId}`;
 
   useEffect(() => {
     authService.getCurrentUser().then(setMe).catch(() => {});
   }, []);
 
   const loadDetail = async () => {
-    const d = await apiGet(`/api/group-chats/${groupChatId}`);
+    const d = await apiGet(apiBase);
     setDetail(d);
   };
 
   const loadMessages = async () => {
-    const rows = await apiGet(`/api/group-chats/${groupChatId}/messages`);
+    const rows = await apiGet(`${apiBase}/messages`);
     setMessages(rows || []);
     if (rows?.length) lastPollRef.current = rows[rows.length - 1]?.sentAt;
   };
@@ -37,7 +44,7 @@ export default function GroupThread({ groupChatId, onBack }) {
     loadMessages();
     const id = setInterval(async () => {
       try {
-        const rows = await apiGet(`/api/group-chats/${groupChatId}/messages`);
+        const rows = await apiGet(`${apiBase}/messages`);
         if (!rows?.length) return;
         const last = rows[rows.length - 1];
         if (lastPollRef.current && new Date(last.sentAt) <= new Date(lastPollRef.current)) return;
@@ -49,7 +56,7 @@ export default function GroupThread({ groupChatId, onBack }) {
       } catch {}
     }, 15000);
     return () => clearInterval(id);
-  }, [groupChatId]);
+  }, [groupChatId, chatKind]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -58,16 +65,36 @@ export default function GroupThread({ groupChatId, onBack }) {
   const send = async () => {
     const t = body.trim();
     if (!t) return;
-    await apiPost(`/api/group-chats/${groupChatId}/messages`, { body: t });
+    await apiPost(`${apiBase}/messages`, { body: t });
     setBody('');
     setShowNew(false);
     await loadMessages();
+  };
+
+  const deleteHostedChat = async () => {
+    if (chatKind !== 'HOSTED_TABLE' || !detail?.isHost) return;
+    if (!window.confirm('Delete this table group chat?')) return;
+    setDeleting(true);
+    try {
+      await apiDelete(apiBase);
+      toast.success('Group chat deleted');
+      onBack();
+    } catch (e) {
+      toast.error(e?.message || 'Could not delete');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const scrollBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     setShowNew(false);
   };
+
+  const title =
+    detail?.chatKind === 'HOSTED_TABLE'
+      ? detail?.name || detail?.hostedTable?.tableName
+      : detail?.eventName || detail?.name || 'Group';
 
   return (
     <div className="flex flex-col min-h-[70vh] max-w-[480px] mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]">
@@ -77,40 +104,53 @@ export default function GroupThread({ groupChatId, onBack }) {
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="min-w-0">
-            <p className="font-semibold truncate">{detail?.eventName || detail?.name || 'Group'}</p>
+            <p className="font-semibold truncate">{title}</p>
             <p className="text-xs text-gray-500">{detail?.memberCount || 0} members</p>
           </div>
         </div>
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="sm" className="min-h-[44px]">
-              <Users className="w-4 h-4 mr-1" />
-              Members
+        <div className="flex items-center gap-1">
+          {chatKind === 'HOSTED_TABLE' && detail?.isHost && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-[44px] text-red-400 border-red-900"
+              disabled={deleting}
+              onClick={deleteHostedChat}
+            >
+              <Trash2 className="w-4 h-4" />
             </Button>
-          </SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[70vh]">
-            <SheetHeader>
-              <SheetTitle>Members</SheetTitle>
-            </SheetHeader>
-            <ul className="mt-4 space-y-2 overflow-y-auto">
-              {(detail?.members || []).map((m) => (
-                <li key={m.id} className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-[#262629] overflow-hidden">
-                    {m.avatarUrl ? (
-                      <img src={m.avatarUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="flex items-center justify-center h-full text-xs">{(m.username || '?')[0]}</span>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">@{m.username}</p>
-                    <p className="text-xs text-gray-500">{m.fullName}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </SheetContent>
-        </Sheet>
+          )}
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="min-h-[44px]">
+                <Users className="w-4 h-4 mr-1" />
+                Members
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="max-h-[70vh]">
+              <SheetHeader>
+                <SheetTitle>Members</SheetTitle>
+              </SheetHeader>
+              <ul className="mt-4 space-y-2 overflow-y-auto">
+                {(detail?.members || []).map((m) => (
+                  <li key={m.id} className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-[#262629] overflow-hidden">
+                      {m.avatarUrl ? (
+                        <img src={m.avatarUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="flex items-center justify-center h-full text-xs">{(m.username || '?')[0]}</span>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">@{m.username}</p>
+                      <p className="text-xs text-gray-500">{m.fullName}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </SheetContent>
+          </Sheet>
+        </div>
       </div>
 
       <div ref={containerRef} className="flex-1 overflow-y-auto p-3 space-y-3 max-h-[55vh] relative">

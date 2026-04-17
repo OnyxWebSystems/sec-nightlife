@@ -4,8 +4,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserRole {
@@ -184,6 +185,7 @@ enum TableSourceType {
 
 enum AttendeeStatus {
   GOING
+  PENDING
   WAITLISTED
   CANCELLED
 }
@@ -268,6 +270,8 @@ model User {
   directMessagesSent          DirectMessage[]            @relation("DirectMessageSender")
   groupChatMemberships        GroupChatMember[]
   groupChatMessagesSent       GroupChatMessage[]         @relation("GroupChatMessageSender")
+  hostedTableGroupChatMemberships HostedTableGroupChatMember[]
+  hostedTableGroupChatMessagesSent HostedTableGroupChatMessage[] @relation("HostedTableGroupChatMessageSender")
   inAppNotifications          InAppNotification[]
   friendActivities            FriendActivity[]
   reviewsGiven                UserReview[]               @relation("ReviewsGiven")
@@ -1177,11 +1181,57 @@ model HostedTable {
   event   Event?              @relation(fields: [eventId], references: [id], onDelete: SetNull)
   members HostedTableMember[]
   invites TableInvite[]
+  groupChat HostedTableGroupChat?
 
   @@index([hostUserId])
   @@index([status])
   @@index([eventDate])
   @@map("hosted_tables")
+}
+
+model HostedTableGroupChat {
+  id              String    @id @default(cuid())
+  hostedTableId   String    @unique @map("hosted_table_id")
+  name            String
+  lastMessageAt   DateTime? @map("last_message_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  hostedTable HostedTable                   @relation(fields: [hostedTableId], references: [id], onDelete: Cascade)
+  members     HostedTableGroupChatMember[]
+  messages    HostedTableGroupChatMessage[]
+
+  @@index([lastMessageAt])
+  @@map("hosted_table_group_chats")
+}
+
+model HostedTableGroupChatMember {
+  id                    String    @id @default(cuid())
+  hostedTableGroupChatId String   @map("hosted_table_group_chat_id")
+  userId                String    @map("user_id")
+  joinedAt              DateTime  @default(now()) @map("joined_at")
+  lastReadAt            DateTime? @map("last_read_at")
+
+  groupChat HostedTableGroupChat @relation(fields: [hostedTableGroupChatId], references: [id], onDelete: Cascade)
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([hostedTableGroupChatId, userId])
+  @@index([hostedTableGroupChatId])
+  @@index([userId])
+  @@map("hosted_table_group_chat_members")
+}
+
+model HostedTableGroupChatMessage {
+  id                    String   @id @default(cuid())
+  hostedTableGroupChatId String  @map("hosted_table_group_chat_id")
+  senderUserId          String  @map("sender_user_id")
+  body                    String  @db.Text
+  sentAt                  DateTime @default(now()) @map("sent_at")
+
+  groupChat HostedTableGroupChat @relation(fields: [hostedTableGroupChatId], references: [id], onDelete: Cascade)
+  sender    User                 @relation("HostedTableGroupChatMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([hostedTableGroupChatId, sentAt])
+  @@map("hosted_table_group_chat_messages")
 }
 
 model VenueTable {

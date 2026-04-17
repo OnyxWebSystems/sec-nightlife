@@ -1,7 +1,7 @@
 /**
  * Legacy route — host events are now house parties on the Host dashboard.
  */
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 

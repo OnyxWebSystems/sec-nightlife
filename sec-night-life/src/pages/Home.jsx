@@ -222,8 +222,11 @@ export default function Home() {
 
   const joinHostedTable = async (tableId) => {
     try {
-      await apiPost(`/api/host/tables/${tableId}/join`, {});
+      const r = await apiPost(`/api/host/tables/${tableId}/join`, {});
       queryClient.invalidateQueries(['host-tables-available']);
+      if (r?.pending) {
+        window.alert('Request sent. The host will approve your join.');
+      }
     } catch (e) {
       window.alert(e?.message || 'Could not join table');
     }

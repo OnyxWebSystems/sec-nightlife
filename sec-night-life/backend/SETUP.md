@@ -60,9 +60,12 @@ npm run dev
    - [Supabase](https://supabase.com)
    - [Railway](https://railway.app)
 
-2. Copy the connection string and set it in `.env`:
+2. Copy the connection strings and set them in `.env`:
    ```env
-   DATABASE_URL="postgresql://user:pass@host:5432/dbname?sslmode=require"
+   # Runtime (pooled is fine)
+   DATABASE_URL=postgresql://user:pass@host-pooler:5432/dbname?sslmode=require&pgbouncer=true
+   # Prisma migrations (must be direct/non-pooled)
+   DIRECT_URL=postgresql://user:pass@host-direct:5432/dbname?sslmode=require
    ```
 
 3. The database is usually created for you. Then run:
@@ -78,13 +81,44 @@ npm run dev
 If you use Neon and see **Can't reach database server at `ep-...neon.tech:5432`**:
 
 1. **Wake the project**  
-   Neon scales down after inactivity. Open [Neon Console](https://console.neon.tech) → your project **sec-nightlife-prod** → **SQL Editor**, run any simple query (e.g. `SELECT 1`). That wakes the compute. Then restart your backend (`npm run dev`).
+   Neon scales down after inactivity. Open [Neon Console](https://console.neon.tech) → your project → **SQL Editor**, run any simple query (e.g. `SELECT 1`). Then try migrations again.
 
-2. **Connection string**  
-   In `.env`, `DATABASE_URL` should use the **pooled** connection from the Neon dashboard (host contains `-pooler`), with `?sslmode=require&connect_timeout=30` (or similar). Restart the backend after changing `.env`.
+2. **Connection strings (Prisma + Neon)**  
+   In `.env`, set:
+   - `DATABASE_URL` to Neon **pooled** connection (host contains `-pooler`) for runtime.
+   - `DIRECT_URL` to Neon **direct** connection (host does **not** contain `-pooler`) for Prisma migrations (`migrate deploy` uses `directUrl` from `schema.prisma`).
+   - Both should include `?sslmode=require` (Neon’s dashboard strings usually include this).
+   - If you still get timeouts, try **removing** `channel_binding=require` from `DATABASE_URL` only (keep `sslmode=require`). Some Windows/Node setups have issues with channel binding.
 
-3. **Network / firewall**  
-   If it still fails, your network may block outbound port 5432. Try from another network or VPN, or check corporate firewall rules.
+3. **Diagnose from this repo**  
+   From `sec-night-life/backend`:
+   ```bash
+   npm run db:test-connection
+   ```
+   If both URLs **time out**, the problem is network path (firewall, ISP, or DNS), not the URL format.
+
+4. **Windows / IPv4 (common fix for P1001)**  
+   Prefer IPv4 when resolving Neon hostnames:
+   ```bash
+   npm run db:deploy:ipv4
+   ```
+   Or in Git Bash:
+   ```bash
+   NODE_OPTIONS=--dns-result-order=ipv4first npx prisma migrate deploy
+   ```
+
+5. **Network / firewall**  
+   Some ISPs and Wi‑Fi networks block **outbound TCP port 5432**. Quick check (PowerShell):
+   ```powershell
+   Test-NetConnection ep-YOUR-HOST.neon.tech -Port 5432
+   ```
+   If `TcpTestSucceeded` is false, try a **phone hotspot** or another network. Allow **Node.js** through Windows Firewall for outbound connections.
+
+6. **`Test-NetConnection` True but `npm run db:test-connection` still times out**  
+   That means raw TCP can reach Neon from Windows, but **Node’s Postgres client** is not completing the connection (often stuck during **TLS**).  
+   - Run `npm run db:test-connection` again — it prints **`[Raw TCP] OK`** if Node can open port 5432; if that is OK but `pg` still fails, suspect **antivirus “HTTPS/SSL scanning”** on **`node.exe`** (exclude Node or disable scanning for dev).  
+   - Run the same commands from **PowerShell** (not only Git Bash).  
+   - You can still apply migrations on **Vercel** (`npm run build` runs `prisma migrate deploy` when `DATABASE_URL` is set in the project env).
 
 ---
 

@@ -4,7 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
-import { MessageCircle, Search, Plus, Users, User } from 'lucide-react';
+import { Search, Plus, Users, User } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { formatDistanceToNow } from 'date-fns';
 import DMThread from '@/components/messaging/DMThread';
@@ -15,6 +15,7 @@ export default function Messages() {
   const [searchParams, setSearchParams] = useSearchParams();
   const dm = searchParams.get('dm');
   const group = searchParams.get('group');
+  const groupKind = searchParams.get('gk') || 'EVENT';
   const [user, setUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState('all');
@@ -51,8 +52,9 @@ export default function Messages() {
     const b = (groups || []).map((g) => ({
       kind: 'group',
       id: g.groupChatId,
+      chatKind: g.chatKind || 'EVENT',
       name: g.eventName || 'Event',
-      sub: `${g.memberCount || 0} members`,
+      sub: `${g.memberCount || 0} members${g.chatKind === 'HOSTED_TABLE' ? ' · Table' : ''}`,
       preview: g.lastMessage?.body || '',
       at: g.lastMessage?.sentAt ? new Date(g.lastMessage.sentAt) : null,
       unread: g.unreadCount || 0,
@@ -71,7 +73,7 @@ export default function Messages() {
 
   const openChat = (c) => {
     if (c.kind === 'dm') setSearchParams({ dm: c.id });
-    else setSearchParams({ group: c.id });
+    else setSearchParams({ group: c.id, gk: c.chatKind || 'EVENT' });
   };
 
   const closeThread = () => {
@@ -89,7 +91,7 @@ export default function Messages() {
   if (group) {
     return (
       <div className="max-w-[480px] mx-auto px-2 py-4">
-        <GroupThread groupChatId={group} onBack={closeThread} />
+        <GroupThread groupChatId={group} chatKind={groupKind} onBack={closeThread} />
       </div>
     );
   }

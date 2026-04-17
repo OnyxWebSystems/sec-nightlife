@@ -40,15 +40,11 @@ const messageSchema = z.object({
 });
 
 function assertHostEligibleRole(req, res) {
-  if (req.userRole === 'SUPER_ADMIN') {
-    res.status(403).json({ error: 'Super admin accounts cannot host parties or tables.' });
-    return false;
+  if (['SUPER_ADMIN', 'USER', 'VENUE'].includes(req.userRole)) {
+    return true;
   }
-  if (!['USER', 'VENUE'].includes(req.userRole)) {
-    res.status(403).json({ error: 'Only party goer and business owner accounts can host house parties.' });
-    return false;
-  }
-  return true;
+  res.status(403).json({ error: 'Only party goer, business owner, and super admin accounts can host parties or tables.' });
+  return false;
 }
 
 function requirePaystackKey() {
@@ -156,6 +152,67 @@ async function areFriends(a, b) {
   return !!f;
 }
 
+function parseTimeToMinutes(value) {
+  if (value == null || typeof value !== 'string') return null;
+  const t = value.trim();
+  const m = t.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (Number.isNaN(h) || Number.isNaN(min) || h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function formatVenueAddressFromVenue(venue) {
+  if (!venue) return null;
+  const parts = [venue.address, venue.suburb, venue.city].filter(Boolean);
+  return parts.length ? parts.join(', ') : venue.city || null;
+}
+
+function assertTableTimeNotBeforeEventStart(eventTimeStr, eventStartTimeStr) {
+  if (!eventStartTimeStr) return { ok: true };
+  const tableM = parseTimeToMinutes(eventTimeStr);
+  const eventM = parseTimeToMinutes(eventStartTimeStr);
+  if (tableM == null || eventM == null) {
+    return { ok: false, error: 'Invalid time format. Use HH:mm (e.g. 18:00).' };
+  }
+  if (tableM < eventM) {
+    return { ok: false, error: 'Table time cannot be before the event start time.' };
+  }
+  return { ok: true };
+}
+
+async function addUserToHostedTableGroupChat(hostedTableId, userId) {
+  const gc = await prisma.hostedTableGroupChat.findUnique({
+    where: { hostedTableId },
+    select: { id: true },
+  });
+  if (!gc) return;
+  await prisma.hostedTableGroupChatMember.upsert({
+    where: {
+      hostedTableGroupChatId_userId: { hostedTableGroupChatId: gc.id, userId },
+    },
+    create: { hostedTableGroupChatId: gc.id, userId },
+    update: {},
+  });
+}
+
+function buildEventLocationPayload(event) {
+  if (!event?.venue) return null;
+  const v = event.venue;
+  const displayLabel = formatVenueAddressFromVenue(v) || event.city || v.name;
+  return {
+    venueName: v.name,
+    address: v.address,
+    suburb: v.suburb,
+    city: v.city,
+    latitude: v.latitude,
+    longitude: v.longitude,
+    displayLabel,
+    eventStartTime: event.startTime,
+  };
+}
+
 // ——— House parties: public (optional auth) ——————————————————————
 router.get('/parties/public', optionalAuth, async (req, res, next) => {
   try {
@@ -230,7 +287,28 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
     };
     const rows = await prisma.hostedTable.findMany({
       where,
-      include: { host: { select: publicHostSelect }, event: { select: { id: true } } },
+      include: {
+        host: { select: publicHostSelect },
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            startTime: true,
+            city: true,
+            venue: {
+              select: {
+                name: true,
+                address: true,
+                suburb: true,
+                city: true,
+                latitude: true,
+                longitude: true,
+              },
+            },
+          },
+        },
+      },
     });
     let friendIds = new Set();
     if (req.userId) friendIds = await getFriendIds(req.userId);
@@ -246,12 +324,18 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
         id: t.id,
         tableName: t.tableName,
         tableDescription: t.tableDescription,
+        tableType: t.tableType,
         eventType: t.eventType,
         hasJoiningFee: t.hasJoiningFee,
         joiningFee: t.joiningFee,
         photo: t.photo,
         venueName: t.venueName,
         venueAddress: t.venueAddress,
+        displayLocation:
+          t.tableType === 'IN_APP_EVENT'
+            ? buildEventLocationPayload(t.event)?.displayLabel || t.venueAddress || t.venueName
+            : t.venueAddress || t.venueName,
+        eventLocation: t.tableType === 'IN_APP_EVENT' ? buildEventLocationPayload(t.event) : null,
         eventDate: t.eventDate,
         eventTime: t.eventTime,
         drinkPreferences: t.drinkPreferences,
@@ -627,6 +711,9 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
     if (d.hasJoiningFee && (d.joiningFee == null || d.joiningFee < 10)) {
       return res.status(400).json({ error: 'joiningFee is required and must be at least R10 when hasJoiningFee is true' });
     }
+    if (d.tableType === 'EXTERNAL_VENUE' && (!d.venueAddress || !d.venueAddress.trim())) {
+      return res.status(400).json({ error: 'venueAddress is required for external venue tables' });
+    }
     const future = new Date();
     if (d.tableType === 'IN_APP_EVENT') {
       if (!d.eventId) return res.status(400).json({ error: 'eventId required for in-app event' });
@@ -636,18 +723,72 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       });
       if (!ev) return res.status(404).json({ error: 'Event not found' });
       if (ev.date <= future) return res.status(400).json({ error: 'Event must be in the future' });
+      const timeCheck = assertTableTimeNotBeforeEventStart(d.eventTime, ev.startTime);
+      if (!timeCheck.ok) return res.status(400).json({ error: timeCheck.error });
       const venueName = ev.venue?.name || d.venueName || 'Venue';
-      const t = await prisma.hostedTable.create({
+      const venueAddress = formatVenueAddressFromVenue(ev.venue) ?? d.venueAddress?.trim() ?? ev.city ?? null;
+      const t = await prisma.$transaction(async (tx) =>
+        tx.hostedTable.create({
+          data: {
+            hostUserId: req.userId,
+            tableType: 'IN_APP_EVENT',
+            tableName: d.tableName,
+            tableDescription: d.tableDescription ?? null,
+            eventType: d.eventType,
+            eventId: d.eventId,
+            venueName,
+            venueAddress,
+            eventDate: ev.date,
+            eventTime: d.eventTime,
+            hasJoiningFee: d.hasJoiningFee,
+            joiningFee: d.hasJoiningFee ? d.joiningFee : null,
+            photo: d.photo ?? null,
+            photoPublicId: d.photoPublicId ?? null,
+            drinkPreferences: d.drinkPreferences ?? null,
+            desiredCompany: d.desiredCompany ?? null,
+            guestQuantity: d.guestQuantity,
+            spotsRemaining: d.guestQuantity - 1,
+            isPublic: d.isPublic,
+            status: 'ACTIVE',
+            members: {
+              create: [{ userId: req.userId, status: 'GOING' }],
+            },
+            groupChat: {
+              create: {
+                name: d.tableName,
+                members: { create: [{ userId: req.userId }] },
+              },
+            },
+          },
+          include: { members: true, groupChat: true },
+        }),
+      );
+      await logFriendActivity({
+        userId: req.userId,
+        activityType: 'HOSTED_TABLE',
+        referenceId: t.id,
+        referenceType: 'HOSTED_TABLE',
+        description: 'hosted a table',
+      });
+      return res.status(201).json({
+        ...t,
+        eventLocation: buildEventLocationPayload(ev),
+      });
+    }
+    if (!d.venueName) return res.status(400).json({ error: 'venueName required for external venue' });
+    if (d.eventDate <= future) return res.status(400).json({ error: 'eventDate must be in the future' });
+    const t = await prisma.$transaction(async (tx) =>
+      tx.hostedTable.create({
         data: {
           hostUserId: req.userId,
-          tableType: 'IN_APP_EVENT',
+          tableType: 'EXTERNAL_VENUE',
           tableName: d.tableName,
           tableDescription: d.tableDescription ?? null,
           eventType: d.eventType,
-          eventId: d.eventId,
-          venueName,
-          venueAddress: d.venueAddress ?? ev.venue?.city ?? null,
-          eventDate: ev.date,
+          eventId: null,
+          venueName: d.venueName,
+          venueAddress: d.venueAddress.trim(),
+          eventDate: d.eventDate,
           eventTime: d.eventTime,
           hasJoiningFee: d.hasJoiningFee,
           joiningFee: d.hasJoiningFee ? d.joiningFee : null,
@@ -659,48 +800,17 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
           spotsRemaining: d.guestQuantity - 1,
           isPublic: d.isPublic,
           status: 'ACTIVE',
-          members: {
-            create: [{ userId: req.userId, status: 'GOING' }],
+          members: { create: [{ userId: req.userId, status: 'GOING' }] },
+          groupChat: {
+            create: {
+              name: d.tableName,
+              members: { create: [{ userId: req.userId }] },
+            },
           },
         },
-        include: { members: true },
-      });
-      await logFriendActivity({
-        userId: req.userId,
-        activityType: 'HOSTED_TABLE',
-        referenceId: t.id,
-        referenceType: 'HOSTED_TABLE',
-        description: 'hosted a table',
-      });
-      return res.status(201).json(t);
-    }
-    if (!d.venueName) return res.status(400).json({ error: 'venueName required for external venue' });
-    if (d.eventDate <= future) return res.status(400).json({ error: 'eventDate must be in the future' });
-    const t = await prisma.hostedTable.create({
-      data: {
-        hostUserId: req.userId,
-        tableType: 'EXTERNAL_VENUE',
-        tableName: d.tableName,
-        tableDescription: d.tableDescription ?? null,
-        eventType: d.eventType,
-        eventId: null,
-        venueName: d.venueName,
-        venueAddress: d.venueAddress ?? null,
-        eventDate: d.eventDate,
-        eventTime: d.eventTime,
-        hasJoiningFee: d.hasJoiningFee,
-        joiningFee: d.hasJoiningFee ? d.joiningFee : null,
-        photo: d.photo ?? null,
-        photoPublicId: d.photoPublicId ?? null,
-        drinkPreferences: d.drinkPreferences ?? null,
-        desiredCompany: d.desiredCompany ?? null,
-        guestQuantity: d.guestQuantity,
-        spotsRemaining: d.guestQuantity - 1,
-        isPublic: d.isPublic,
-        status: 'ACTIVE',
-        members: { create: [{ userId: req.userId, status: 'GOING' }] },
-      },
-    });
+        include: { members: true, groupChat: true },
+      }),
+    );
     await logFriendActivity({
       userId: req.userId,
       activityType: 'HOSTED_TABLE',
@@ -738,11 +848,45 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
       where: { hostUserId: req.userId },
       orderBy: { createdAt: 'desc' },
       include: {
-        event: { select: { id: true, title: true, date: true } },
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            startTime: true,
+            city: true,
+            venue: {
+              select: {
+                name: true,
+                address: true,
+                suburb: true,
+                city: true,
+                latitude: true,
+                longitude: true,
+              },
+            },
+          },
+        },
+        groupChat: { select: { id: true, name: true } },
         _count: { select: { members: true } },
       },
     });
-    res.json(tables);
+    const ids = tables.map((t) => t.id);
+    const pendingRows =
+      ids.length === 0
+        ? []
+        : await prisma.hostedTableMember.groupBy({
+            by: ['hostedTableId'],
+            where: { hostedTableId: { in: ids }, status: 'PENDING' },
+            _count: true,
+          });
+    const pendingByTable = Object.fromEntries(pendingRows.map((r) => [r.hostedTableId, r._count]));
+    const out = tables.map((t) => ({
+      ...t,
+      eventLocation: t.tableType === 'IN_APP_EVENT' && t.event ? buildEventLocationPayload(t.event) : null,
+      pendingJoinCount: pendingByTable[t.id] ?? 0,
+    }));
+    res.json(out);
   } catch (e) {
     next(e);
   }
@@ -769,6 +913,105 @@ router.get('/tables/memberships/active', authenticateToken, async (req, res, nex
   }
 });
 
+router.get('/tables/:tableId/pending-requests', authenticateToken, async (req, res, next) => {
+  try {
+    if (!assertHostEligibleRole(req, res)) return;
+    const t = await prisma.hostedTable.findFirst({
+      where: { id: req.params.tableId },
+      select: { id: true, hostUserId: true },
+    });
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (t.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const rows = await prisma.hostedTableMember.findMany({
+      where: { hostedTableId: t.id, status: 'PENDING' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            fullName: true,
+            userProfile: { select: { username: true, avatarUrl: true } },
+          },
+        },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
+    res.json(
+      rows.map((m) => ({
+        id: m.id,
+        userId: m.userId,
+        joinedAt: m.joinedAt,
+        user: {
+          id: m.user.id,
+          username: m.user.userProfile?.username || m.user.username,
+          fullName: m.user.fullName,
+          avatarUrl: m.user.userProfile?.avatarUrl || null,
+        },
+      })),
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async (req, res, next) => {
+  try {
+    if (!assertHostEligibleRole(req, res)) return;
+    const { action } = z.object({ action: z.enum(['approve', 'reject']) }).parse(req.body || {});
+    const table = await prisma.hostedTable.findFirst({
+      where: { id: req.params.tableId },
+      select: {
+        id: true,
+        hostUserId: true,
+        tableName: true,
+        spotsRemaining: true,
+        status: true,
+      },
+    });
+    if (!table) return res.status(404).json({ error: 'Not found' });
+    if (table.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const targetUserId = req.params.userId;
+    const member = await prisma.hostedTableMember.findUnique({
+      where: { hostedTableId_userId: { hostedTableId: table.id, userId: targetUserId } },
+    });
+    if (!member || member.status !== 'PENDING') {
+      return res.status(400).json({ error: 'No pending request for this user' });
+    }
+    if (action === 'reject') {
+      await prisma.hostedTableMember.delete({ where: { id: member.id } });
+      return res.json({ rejected: true });
+    }
+    if (table.spotsRemaining <= 0) return res.status(400).json({ error: 'Table is full' });
+    await prisma.$transaction(async (tx) => {
+      await tx.hostedTableMember.update({
+        where: { id: member.id },
+        data: { status: 'GOING' },
+      });
+      const nextSpots = table.spotsRemaining - 1;
+      await tx.hostedTable.update({
+        where: { id: table.id },
+        data: {
+          spotsRemaining: { decrement: 1 },
+          ...(nextSpots <= 0 ? { status: 'FULL' } : {}),
+        },
+      });
+    });
+    await addUserToHostedTableGroupChat(table.id, targetUserId);
+    await createInAppNotification({
+      userId: targetUserId,
+      type: 'TABLE_JOINED',
+      title: 'Request approved',
+      body: `Your join request for "${table.tableName}" was approved`,
+      referenceId: table.id,
+      referenceType: 'HOSTED_TABLE',
+    });
+    res.json({ approved: true });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    next(e);
+  }
+});
+
 const patchTableSchema = z.object({
   tableName: z.string().trim().min(1).max(60).optional(),
   tableDescription: z.string().trim().max(300).optional().nullable(),
@@ -782,6 +1025,7 @@ const patchTableSchema = z.object({
   guestQuantity: z.number().int().min(1).max(20).optional(),
   eventTime: z.string().optional(),
   isPublic: z.boolean().optional(),
+  venueAddress: z.string().trim().min(1).optional().nullable(),
 });
 
 router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
@@ -793,6 +1037,16 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
     const parsed = patchTableSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
+    if (t.tableType === 'EXTERNAL_VENUE' && d.venueAddress != null && !d.venueAddress.trim()) {
+      return res.status(400).json({ error: 'venueAddress cannot be empty' });
+    }
+    if (d.eventTime != null && t.eventId) {
+      const ev = await prisma.event.findFirst({ where: { id: t.eventId, deletedAt: null } });
+      if (ev) {
+        const timeCheck = assertTableTimeNotBeforeEventStart(d.eventTime, ev.startTime);
+        if (!timeCheck.ok) return res.status(400).json({ error: timeCheck.error });
+      }
+    }
     const hasJoiningFee = d.hasJoiningFee != null ? d.hasJoiningFee : t.hasJoiningFee;
     const joiningFee = d.joiningFee != null ? d.joiningFee : t.joiningFee;
     if (hasJoiningFee && (joiningFee == null || joiningFee < 10)) {
@@ -807,12 +1061,30 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
         where: { id: t.id },
         data: {
           ...d,
+          venueAddress:
+            d.venueAddress != null && t.tableType === 'EXTERNAL_VENUE' ? d.venueAddress.trim() : d.venueAddress,
           spotsRemaining: d.guestQuantity - going,
         },
       });
+      if (d.tableName != null && d.tableName !== t.tableName) {
+        await prisma.hostedTableGroupChat.updateMany({
+          where: { hostedTableId: t.id },
+          data: { name: d.tableName },
+        });
+      }
       return res.json(updated);
     }
-    const updated = await prisma.hostedTable.update({ where: { id: t.id }, data: d });
+    const data = { ...d };
+    if (data.venueAddress != null && t.tableType === 'EXTERNAL_VENUE') {
+      data.venueAddress = data.venueAddress.trim();
+    }
+    const updated = await prisma.hostedTable.update({ where: { id: t.id }, data });
+    if (d.tableName != null && d.tableName !== t.tableName) {
+      await prisma.hostedTableGroupChat.updateMany({
+        where: { hostedTableId: t.id },
+        data: { name: d.tableName },
+      });
+    }
     res.json(updated);
   } catch (e) {
     next(e);
@@ -854,11 +1126,35 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
     const t = await prisma.hostedTable.findFirst({ where: { id: req.params.tableId } });
     if (!t) return res.status(404).json({ error: 'Not found' });
     if (t.hostUserId === req.userId) return res.status(403).json({ error: 'Cannot join your own table' });
-    if (t.status !== 'ACTIVE' || t.spotsRemaining <= 0) return res.status(400).json({ error: 'Table not available' });
+    if (t.status !== 'ACTIVE') return res.status(400).json({ error: 'Table not available' });
     const exists = await prisma.hostedTableMember.findUnique({
       where: { hostedTableId_userId: { hostedTableId: t.id, userId: req.userId } },
     });
-    if (exists) return res.status(400).json({ error: 'Already a member' });
+    if (exists) {
+      if (exists.status === 'PENDING') return res.status(400).json({ error: 'Your join request is already pending' });
+      return res.status(400).json({ error: 'Already a member' });
+    }
+    if (!t.isPublic) {
+      if (t.spotsRemaining <= 0) return res.status(400).json({ error: 'Table not available' });
+      await prisma.hostedTableMember.create({
+        data: { hostedTableId: t.id, userId: req.userId, status: 'PENDING' },
+      });
+      const joiner = await prisma.user.findUnique({
+        where: { id: req.userId },
+        include: { userProfile: { select: { username: true } } },
+      });
+      const uname = joiner?.userProfile?.username || joiner?.username || 'someone';
+      await createInAppNotification({
+        userId: t.hostUserId,
+        type: 'TABLE_JOINED',
+        title: 'Join request',
+        body: `@${uname} requested to join your table`,
+        referenceId: t.id,
+        referenceType: 'HOSTED_TABLE',
+      });
+      return res.json({ joined: false, pending: true });
+    }
+    if (t.spotsRemaining <= 0) return res.status(400).json({ error: 'Table not available' });
     await prisma.$transaction(async (tx) => {
       await tx.hostedTableMember.create({
         data: { hostedTableId: t.id, userId: req.userId, status: 'GOING' },
@@ -872,6 +1168,7 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
         },
       });
     });
+    await addUserToHostedTableGroupChat(t.id, req.userId);
     const joiner = await prisma.user.findUnique({
       where: { id: req.userId },
       include: { userProfile: { select: { username: true } } },
@@ -910,11 +1207,15 @@ router.post('/tables/:tableId/invite', authenticateToken, async (req, res, next)
     const isHost = table.hostUserId === req.userId;
     const isMember = table.members.some((m) => m.userId === req.userId);
     if (!isHost && !isMember) return res.status(403).json({ error: 'Forbidden' });
+    if (!table.isPublic && !isHost) {
+      return res.status(403).json({ error: 'Only the host can invite people to a private table' });
+    }
     if (inviteeUserId === req.userId) return res.status(400).json({ error: 'Invalid invitee' });
     const already = await prisma.hostedTableMember.findUnique({
       where: { hostedTableId_userId: { hostedTableId: table.id, userId: inviteeUserId } },
     });
-    if (already) return res.status(400).json({ error: 'User already a member' });
+    if (already?.status === 'GOING') return res.status(400).json({ error: 'User already a member' });
+    if (already?.status === 'PENDING') return res.status(400).json({ error: 'User already has a pending request' });
     const pendingInv = await prisma.tableInvite.findUnique({
       where: { hostedTableId_inviteeUserId: { hostedTableId: table.id, inviteeUserId } },
     });
@@ -968,15 +1269,26 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
       return res.json(u);
     }
     const table = inv.hostedTable;
+    const existingMember = await prisma.hostedTableMember.findUnique({
+      where: { hostedTableId_userId: { hostedTableId: table.id, userId: req.userId } },
+    });
+    if (existingMember?.status === 'GOING') return res.status(400).json({ error: 'Already a member' });
     if (table.spotsRemaining <= 0) return res.status(400).json({ error: 'Table is full' });
     await prisma.$transaction(async (tx) => {
       await tx.tableInvite.update({
         where: { id: inv.id },
         data: { status: 'ACCEPTED', respondedAt: new Date() },
       });
-      await tx.hostedTableMember.create({
-        data: { hostedTableId: table.id, userId: req.userId, status: 'GOING' },
-      });
+      if (existingMember?.status === 'PENDING') {
+        await tx.hostedTableMember.update({
+          where: { id: existingMember.id },
+          data: { status: 'GOING' },
+        });
+      } else {
+        await tx.hostedTableMember.create({
+          data: { hostedTableId: table.id, userId: req.userId, status: 'GOING' },
+        });
+      }
       const nextSpots = table.spotsRemaining - 1;
       await tx.hostedTable.update({
         where: { id: table.id },
@@ -986,6 +1298,7 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
         },
       });
     });
+    await addUserToHostedTableGroupChat(table.id, req.userId);
     const invitee = await prisma.user.findUnique({
       where: { id: req.userId },
       include: { userProfile: { select: { username: true } } },

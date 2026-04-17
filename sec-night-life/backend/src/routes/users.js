@@ -554,7 +554,9 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       profile = await prisma.userProfile.findUnique({
         where: { userId: req.userId }
       });
-    } catch { profile = null; }
+    } catch {
+      profile = await readUserProfileCompat(req.userId);
+    }
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
       select: { id: true, email: true, fullName: true, role: true, username: true }
@@ -597,7 +599,37 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       profile = await prisma.userProfile.findFirst({
         where: { OR: [{ userId: targetId }, { id: targetId }] }
       });
-    } catch { profile = null; }
+    } catch {
+      profile = await readUserProfileCompat(targetId);
+      if (!profile && targetId && targetId.length > 30) {
+        const rows = await prisma.$queryRawUnsafe(
+          `SELECT
+            id,
+            user_id AS "userId",
+            username,
+            bio,
+            city,
+            avatar_url AS "avatarUrl",
+            favorite_drink AS "favoriteDrink",
+            date_of_birth AS "dateOfBirth",
+            id_document_url AS "idDocumentUrl",
+            age_verified AS "ageVerified",
+            verification_status AS "verificationStatus",
+            verification_rejection_note AS "verificationRejectionNote",
+            payment_setup_complete AS "paymentSetupComplete",
+            interests,
+            music_preferences AS "musicPreferences",
+            friends,
+            followed_venues AS "followedVenues",
+            onboarding_complete AS "onboardingComplete"
+           FROM user_profiles
+           WHERE id = $1
+           LIMIT 1`,
+          targetId
+        );
+        profile = rows?.[0] || null;
+      }
+    }
     const user = await prisma.user.findFirst({
       where: { OR: [{ id: targetId }, { id: profile?.userId }], deletedAt: null },
       select: { id: true, email: true, fullName: true }
