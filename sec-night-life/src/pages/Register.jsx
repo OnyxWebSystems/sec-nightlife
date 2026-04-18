@@ -14,7 +14,7 @@ const ROLE_INTENT_KEY = 'sec-role-intent';
 function getBackendRole() {
   try {
     const intent = localStorage.getItem(ROLE_INTENT_KEY);
-    if (intent === 'BUSINESS_OWNER') return 'VENUE';
+    if (intent === 'VENUE') return 'VENUE';
   } catch {}
   return 'USER';
 }
@@ -26,7 +26,7 @@ export default function Register() {
   const roleFromUrl = searchParams.get('role');
 
   useEffect(() => {
-    if (roleFromUrl === 'PARTY_GOER' || roleFromUrl === 'BUSINESS_OWNER') {
+    if (roleFromUrl === 'PARTY_GOER' || roleFromUrl === 'VENUE') {
       try {
         localStorage.setItem(ROLE_INTENT_KEY, roleFromUrl);
       } catch {}
@@ -101,7 +101,7 @@ export default function Register() {
       );
       clearTokens();
       toast.success('Account created! Please sign in.');
-      const roleIntent = r === 'VENUE' ? 'BUSINESS_OWNER' : 'PARTY_GOER';
+      const roleIntent = r === 'VENUE' ? 'VENUE' : 'PARTY_GOER';
       let loginUrl = returnUrl ? createPageUrl('Login') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Login');
       loginUrl += (loginUrl.includes('?') ? '&' : '?') + 'role=' + encodeURIComponent(roleIntent);
       navigate(loginUrl.startsWith('/') ? loginUrl : '/' + loginUrl, { replace: true });

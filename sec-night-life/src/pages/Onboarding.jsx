@@ -17,7 +17,7 @@ export default function Onboarding() {
       // ignore storage failures
     }
 
-    if (role === 'BUSINESS_OWNER') {
+    if (role === 'VENUE') {
       authService.redirectToLogin(createPageUrl('VenueOnboarding'));
       return;
     }
@@ -72,7 +72,7 @@ export default function Onboarding() {
           </button>
 
           <button
-            onClick={() => chooseRole('BUSINESS_OWNER')}
+            onClick={() => chooseRole('VENUE')}
             className="p-6 rounded-2xl text-left transition-colors"
             style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; }}

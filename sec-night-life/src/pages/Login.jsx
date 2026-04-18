@@ -14,7 +14,7 @@ const STAFF_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
 function readStoredConsumerIntent() {
   try {
     const intent = localStorage.getItem(ROLE_INTENT_KEY);
-    if (intent === 'BUSINESS_OWNER' || intent === 'PARTY_GOER') return intent;
+    if (intent === 'VENUE' || intent === 'PARTY_GOER') return intent;
   } catch {}
   return 'PARTY_GOER';
 }
@@ -32,14 +32,14 @@ export default function Login() {
 
   // Keep chosen onboarding intent in storage even without showing a toggle.
   useEffect(() => {
-    if (roleParam === 'BUSINESS_OWNER' || roleParam === 'PARTY_GOER') {
+    if (roleParam === 'VENUE' || roleParam === 'PARTY_GOER') {
       try {
         localStorage.setItem(ROLE_INTENT_KEY, roleParam);
       } catch {}
     }
   }, [roleParam]);
 
-  const consumerIntent = roleParam === 'BUSINESS_OWNER' || roleParam === 'PARTY_GOER'
+  const consumerIntent = roleParam === 'VENUE' || roleParam === 'PARTY_GOER'
     ? roleParam
     : readStoredConsumerIntent();
 
@@ -66,7 +66,7 @@ export default function Login() {
       if (isStaffRole) {
         role = roleParam;
       } else {
-        role = consumerIntent === 'BUSINESS_OWNER' ? 'VENUE' : 'USER';
+        role = consumerIntent === 'VENUE' ? 'VENUE' : 'USER';
       }
       await authService.login(email.trim(), password, role);
       toast.success('Signed in successfully');
