@@ -76,6 +76,17 @@ function normalizeInterestedEvents(input) {
   return out;
 }
 
+/** When user removes event ids from interested_events, drop T-3h reminder dedupe rows so toggling off/on behaves predictably. */
+async function removeInterestReminderDedupes(userId, previousInterested, nextInterested) {
+  const prev = previousInterested ?? [];
+  const next = nextInterested ?? [];
+  const removed = prev.filter((id) => !next.includes(id));
+  if (removed.length === 0) return;
+  await prisma.eventInterestReminderSent.deleteMany({
+    where: { userId, eventId: { in: removed } },
+  });
+}
+
 /** Max 10 items, each max 30 chars, trim, dedupe case-insensitively */
 function normalizeInterestList(input) {
   if (input == null) return [];
@@ -882,6 +893,10 @@ router.post('/', authenticateToken, async (req, res, next) => {
         throw e;
       }
     }
+    const beforePost = await prisma.userProfile.findUnique({
+      where: { userId: req.userId },
+      select: { interestedEvents: true },
+    });
     const profileData = {
       ...(canonicalUsername != null && { username: canonicalUsername }),
       ...(data.bio != null && { bio: data.bio }),
@@ -917,6 +932,13 @@ router.post('/', authenticateToken, async (req, res, next) => {
     } catch (err) {
       if (!isMissingLeaderboardColumnsError(err)) throw err;
       profile = await upsertUserProfileCompat(req.userId, profileData);
+    }
+    if (data.interested_events !== undefined) {
+      await removeInterestReminderDedupes(
+        req.userId,
+        beforePost?.interestedEvents ?? [],
+        profile.interestedEvents ?? []
+      );
     }
     const userFresh = await prisma.user.findUnique({
       where: { id: req.userId },
@@ -954,7 +976,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
     const staff = isStaff(req.userRole);
     const existingProfile = await prisma.userProfile.findUnique({
       where: { userId: req.userId },
-      select: { verificationStatus: true },
+      select: { verificationStatus: true, interestedEvents: true },
     });
     if (!staff) {
       if (data.verification_status === 'verified') {
@@ -1030,6 +1052,13 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       if (!isMissingLeaderboardColumnsError(err)) throw err;
       profile = await upsertUserProfileCompat(req.userId, profileData);
     }
+    if (data.interested_events !== undefined) {
+      await removeInterestReminderDedupes(
+        req.userId,
+        existingProfile?.interestedEvents ?? [],
+        profile.interestedEvents ?? []
+      );
+    }
     const userFresh = await prisma.user.findUnique({
       where: { id: req.userId },
       select: { email: true, fullName: true, username: true }
@@ -1069,7 +1098,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     const data = { ...parsed.data };
     const staff = isStaff(req.userRole);
     const profile = await prisma.userProfile.findFirst({
-      where: { OR: [{ userId: id }, { id }] }
+      where: { OR: [{ userId: id }, { id }] },
     });
     if (!staff) {
       if (data.verification_status === 'verified') {
@@ -1091,6 +1120,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       data.verification_status = 'submitted';
     }
     const targetUserId = profile?.userId || id;
+    const prevInterested = profile?.interestedEvents ?? [];
     if (id !== req.userId && targetUserId !== req.userId && !isStaff(req.userRole)) {
       return res.status(403).json({ error: 'Cannot update another user' });
     }
@@ -1144,6 +1174,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     } catch (err) {
       if (!isMissingLeaderboardColumnsError(err)) throw err;
       updated = await upsertUserProfileCompat(targetUserId, updates);
+    }
+    if (data.interested_events !== undefined) {
+      await removeInterestReminderDedupes(targetUserId, prevInterested, updated.interestedEvents ?? []);
     }
     const user = await prisma.user.findUnique({
       where: { id: targetUserId },

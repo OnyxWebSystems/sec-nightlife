@@ -64,24 +64,33 @@ export default function Layout({ children, currentPageName }) {
   const fetchNotificationCounts = useCallback(async () => {
     if (!user?.id) return;
     try {
+      const u = await apiGet('/api/notifications/unread-count');
+      setNotificationCount(typeof u?.count === 'number' ? u.count : 0);
+    } catch {
+      setNotificationCount(0);
+    }
+    try {
       const rows = await apiGet('/api/notifications?limit=100');
       const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
         ...n,
         is_read: n.read === true || n.is_read === true,
       }));
       setNotifications(notifs);
-      const fallbackUnread = notifs.filter((n) => !n.is_read).length;
-      const u = await apiGet('/api/notifications/unread-count');
-      setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
+    } catch {
+      /* list is optional for badge; count already set above */
+    }
+    try {
       const m = await apiGet('/api/messages/unread-total');
       setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
-      try {
-        const h = await apiGet('/api/host/notifications/unread-count');
-        setHostUnread(typeof h?.count === 'number' ? h.count : 0);
-      } catch {
-        setHostUnread(0);
-      }
-    } catch {}
+    } catch {
+      setMessageUnread(0);
+    }
+    try {
+      const h = await apiGet('/api/host/notifications/unread-count');
+      setHostUnread(typeof h?.count === 'number' ? h.count : 0);
+    } catch {
+      setHostUnread(0);
+    }
   }, [user?.id]);
 
   useEffect(() => {

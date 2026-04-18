@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { apiGet } from '@/api/client';
+import { apiGet, apiPatch } from '@/api/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -26,19 +26,39 @@ export default function EventDetails() {
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
 
-  useEffect(() => { loadUser(); }, []);
+  useEffect(() => {
+    loadUser();
+  }, [eventId]);
 
   const loadUser = async () => {
     try {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) {
-        const profile = profiles[0];
-        setUserProfile(profile);
-        setIsInterested(profile.interested_events?.includes(eventId) || false);
+      let profile = null;
+      try {
+        const rows = await apiGet('/api/users/profile');
+        profile = Array.isArray(rows) ? rows[0] : rows;
+      } catch {
+        /* fallback below */
       }
-    } catch (e) {}
+      if (!profile) {
+        try {
+          const profiles = await dataService.User.filter({ created_by: currentUser.email });
+          profile = profiles[0];
+        } catch {
+          /* no profile */
+        }
+      }
+      if (profile) {
+        setUserProfile(profile);
+        setIsInterested(!!eventId && profile.interested_events?.includes(eventId));
+      } else {
+        setUserProfile(null);
+        setIsInterested(false);
+      }
+    } catch {
+      setUser(null);
+    }
   };
 
   const { data: event, isLoading } = useQuery({
@@ -64,21 +84,33 @@ export default function EventDetails() {
 
   const toggleInterestMutation = useMutation({
     mutationFn: async () => {
+      if (!user) {
+        authService.redirectToLogin(window.location.href);
+        throw new Error('Sign in required');
+      }
       const newInterested = !isInterested;
+      const base = userProfile?.interested_events || [];
       const updatedEvents = newInterested
-        ? [...(userProfile.interested_events || []), eventId]
-        : (userProfile.interested_events || []).filter(id => id !== eventId);
-      await dataService.User.update(userProfile.id, { interested_events: updatedEvents });
-      await dataService.Event.update(eventId, {
-        total_interested: Math.max((event.total_interested || 0) + (newInterested ? 1 : -1), 0),
-      });
-      return newInterested;
+        ? [...new Set([...base, eventId])]
+        : base.filter((id) => id !== eventId);
+      const res = await apiPatch('/api/users/profile', { interested_events: updatedEvents });
+      return { newInterested, profile: res };
     },
-    onSuccess: (newInterested) => {
-      setIsInterested(newInterested);
+    onSuccess: ({ newInterested, profile }) => {
+      if (profile && typeof profile === 'object') {
+        setUserProfile(profile);
+        setIsInterested(profile.interested_events?.includes(eventId) || false);
+      } else {
+        setIsInterested(newInterested);
+      }
       toast.success(newInterested ? 'Added to interested events' : 'Removed from interested events');
       queryClient.invalidateQueries(['event', eventId]);
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+    },
+    onError: (err) => {
+      if (err?.message !== 'Sign in required') {
+        toast.error(err?.message || 'Could not update your saved events');
+      }
     },
   });
 
@@ -177,20 +209,26 @@ export default function EventDetails() {
             <ChevronLeft size={20} strokeWidth={2} />
           </button>
           <div style={{ display: 'flex', gap: 8 }}>
-            {userProfile && (
+            {user && (
               <button
+                type="button"
                 onClick={() => toggleInterestMutation.mutate()}
                 disabled={toggleInterestMutation.isPending}
                 style={{
                   width: 40, height: 40, borderRadius: '50%',
-                  backgroundColor: isInterested ? 'rgba(217,85,85,0.85)' : 'rgba(0,0,0,0.55)',
+                  backgroundColor: isInterested ? 'rgba(61,186,107,0.9)' : 'rgba(0,0,0,0.55)',
                   backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
                   border: '1px solid rgba(255,255,255,0.10)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   cursor: 'pointer', color: 'var(--sec-text-primary)',
                 }}
+                aria-label={isInterested ? 'Interested' : 'Mark interested'}
               >
-                <Heart size={18} strokeWidth={1.5} fill={isInterested ? 'white' : 'none'} />
+                {isInterested ? (
+                  <BadgeCheck size={18} strokeWidth={2} />
+                ) : (
+                  <Heart size={18} strokeWidth={1.5} />
+                )}
               </button>
             )}
             <button
@@ -596,10 +634,32 @@ export default function EventDetails() {
                   <TicketPurchaseButton event={event} />
                 ) : (
                   <button
+                    type="button"
                     className="sec-btn sec-btn-primary sec-btn-full"
-                    onClick={() => userProfile && toggleInterestMutation.mutate()}
+                    disabled={toggleInterestMutation.isPending}
+                    onClick={() =>
+                      user
+                        ? toggleInterestMutation.mutate()
+                        : authService.redirectToLogin(window.location.href)
+                    }
+                    style={
+                      isInterested
+                        ? {
+                            background: 'var(--sec-success)',
+                            color: '#fff',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                          }
+                        : undefined
+                    }
                   >
-                    {isInterested ? "Interested ✓" : "I'm Interested"}
+                    {isInterested ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <BadgeCheck size={18} strokeWidth={2} />
+                        Interested
+                      </span>
+                    ) : (
+                      "I'm Interested"
+                    )}
                   </button>
                 )}
               </div>

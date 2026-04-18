@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -37,14 +37,23 @@ export default function Events() {
     queryFn: async () => {
       try {
         const user = await authService.getCurrentUser();
+        try {
+          const rows = await apiGet('/api/users/profile');
+          const p = Array.isArray(rows) ? rows[0] : rows;
+          if (p) return p;
+        } catch {
+          /* fallback */
+        }
         const profiles = await dataService.User.filter({ created_by: user.email });
-        return profiles[0];
-      } catch { return null; }
+        return profiles[0] ?? null;
+      } catch {
+        return null;
+      }
     },
   });
 
   const interestedIds = (userProfile?.interested_events || []).slice(0, 50);
-  const { data: interestedEventRows = [] } = useQuery({
+  const { data: interestedEventRowsRaw = [] } = useQuery({
     queryKey: ['interested-events-resolve', interestedIds.join('|')],
     queryFn: async () => {
       const results = await Promise.all(
@@ -54,6 +63,14 @@ export default function Events() {
     },
     enabled: interestedIds.length > 0,
   });
+
+  const interestedEventRows = useMemo(() => {
+    return [...interestedEventRowsRaw].sort((a, b) => {
+      const ad = a?.date ? new Date(a.date).getTime() : 0;
+      const bd = b?.date ? new Date(b.date).getTime() : 0;
+      return ad - bd;
+    });
+  }, [interestedEventRowsRaw]);
 
   const venuesMap = venues.reduce((acc, venue) => { acc[venue.id] = venue; return acc; }, {});
   const followedVenueSet = new Set(userProfile?.followed_venues || []);
