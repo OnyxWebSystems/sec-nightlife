@@ -15,10 +15,12 @@ router.get('/me', authenticateToken, async (req, res, next) => {
       select: { roleType: true },
     });
     const types = new Set(roles.map((r) => r.roleType));
+    const business =
+      types.has('business') || req.userRole === 'VENUE';
     res.json({
       partygoer: true,
       host: true,
-      business: types.has('business'),
+      business,
     });
   } catch (err) {
     next(err);

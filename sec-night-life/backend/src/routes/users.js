@@ -103,6 +103,8 @@ const USER_PROFILE_COMPAT_SELECT_LIST = `
       verification_status AS "verificationStatus",
       verification_rejection_note AS "verificationRejectionNote",
       payment_setup_complete AS "paymentSetupComplete",
+      promoter_jobs_accepted AS "promoterJobsAccepted",
+      is_promoter_standard AS "isPromoterStandard",
       interests,
       music_preferences AS "musicPreferences",
       friends,
@@ -762,8 +764,20 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
     const { created_by, id, is_verified_promoter } = req.query;
     const where = { deletedAt: null };
     if (created_by) {
-      const u = await prisma.user.findFirst({ where: { email: created_by } });
-      where.id = u ? u.id : 'none';
+      const emailNorm = String(created_by).trim().toLowerCase();
+      const self = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { email: true },
+      });
+      const selfEmail = (self?.email || '').trim().toLowerCase();
+      if (selfEmail && selfEmail === emailNorm) {
+        where.id = req.userId;
+      } else {
+        const u = await prisma.user.findFirst({
+          where: { deletedAt: null, email: { equals: emailNorm, mode: 'insensitive' } },
+        });
+        where.id = u ? u.id : 'none';
+      }
     }
     if (id) where.id = id;
     const users = await prisma.user.findMany({ where });

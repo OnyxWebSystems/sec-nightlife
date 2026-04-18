@@ -97,39 +97,9 @@ export default function Layout({ children, currentPageName }) {
     try {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
-      try {
-        const access = await apiGet('/api/compliance-documents/me/access');
-        setComplianceAccess({
-          canReview: !!access?.canReview,
-          isSuperAdmin: !!access?.isSuperAdmin,
-        });
-      } catch {
-        setComplianceAccess({ canReview: false, isSuperAdmin: false });
-      }
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      let profile = profiles[0] || null;
-      if (profiles.length > 0) setUserProfile(profile);
 
-      const rows = await apiGet('/api/notifications?limit=100');
-      const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
-        ...n,
-        is_read: n.read === true || n.is_read === true,
-      }));
-      setNotifications(notifs);
-      const fallbackUnread = notifs.filter((n) => !n.is_read).length;
-      try {
-        const u = await apiGet('/api/notifications/unread-count');
-        setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
-      } catch {
-        setNotificationCount(fallbackUnread);
-      }
-      try {
-        const m = await apiGet('/api/messages/unread-total');
-        setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
-      } catch {
-        setMessageUnread(0);
-      }
-
+      // Set business nav before optional calls (profile filter, notifications) so a failure there
+      // cannot leave VENUE owners stuck in party-goer mode (e.g. after P2022 on user_profiles).
       let hasBusiness = currentUser.role === 'VENUE';
       try {
         const rolesRes = await apiGet('/api/user-roles/me');
@@ -149,6 +119,44 @@ export default function Layout({ children, currentPageName }) {
       else if (saved === 'partygoer') defaultMode = 'partygoer';
       else if (hasBusiness) defaultMode = 'business';
       setActiveMode(defaultMode);
+
+      try {
+        const access = await apiGet('/api/compliance-documents/me/access');
+        setComplianceAccess({
+          canReview: !!access?.canReview,
+          isSuperAdmin: !!access?.isSuperAdmin,
+        });
+      } catch {
+        setComplianceAccess({ canReview: false, isSuperAdmin: false });
+      }
+
+      try {
+        const profiles = await dataService.User.filter({ created_by: currentUser.email });
+        if (profiles.length > 0) setUserProfile(profiles[0]);
+      } catch {}
+
+      try {
+        const rows = await apiGet('/api/notifications?limit=100');
+        const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
+          ...n,
+          is_read: n.read === true || n.is_read === true,
+        }));
+        setNotifications(notifs);
+        const fallbackUnread = notifs.filter((n) => !n.is_read).length;
+        try {
+          const u = await apiGet('/api/notifications/unread-count');
+          setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
+        } catch {
+          setNotificationCount(fallbackUnread);
+        }
+      } catch {}
+
+      try {
+        const m = await apiGet('/api/messages/unread-total');
+        setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
+      } catch {
+        setMessageUnread(0);
+      }
     } catch (e) {}
   };
 

@@ -110,6 +110,20 @@ export default function BusinessDashboard() {
 
   const venue = venues[0];
 
+  useEffect(() => {
+    if (!import.meta.env.DEV || !user) return;
+    // Debug: remove before production deploy — confirms auth role + /api/venues/mine payload
+    console.log('[BusinessDashboard] auth user', { id: user.id, role: user.role, email: user.email });
+  }, [user]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || venuesLoading) return;
+    console.log('[BusinessDashboard] GET /api/venues/mine', {
+      venueCount: venues?.length ?? 0,
+      venues,
+    });
+  }, [user, venuesLoading, venues]);
+
   const DOC_TYPES = [
     { type: 'LIQUOR_LICENCE', label: 'Liquor Licence' },
     { type: 'BUSINESS_REGISTRATION', label: 'Business Registration' },
