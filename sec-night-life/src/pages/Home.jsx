@@ -321,8 +321,21 @@ export default function Home() {
 
   const verifiedVenues = filteredVenues.filter(v => v.is_verified);
   const otherVenues = filteredVenues.filter(v => !v.is_verified);
-  const featuredEvents = prioritizedEvents.filter(e => e.is_featured).slice(0, 5);
+  const featuredEvents = useMemo(
+    () => prioritizedEvents.filter(e => e.is_featured).slice(0, 5),
+    [prioritizedEvents]
+  );
   const upcomingEvents = prioritizedEvents.slice(0, 6);
+
+  const { data: featuredEventDetails } = useQuery({
+    queryKey: ['featured-events-stats', featuredEvents.map((e) => e.id).join('|')],
+    queryFn: () => Promise.all(featuredEvents.map((e) => apiGet(`/api/events/${e.id}`))),
+    enabled: featuredEvents.length > 0,
+  });
+  const featuredCards =
+    featuredEventDetails?.length === featuredEvents.length && featuredEvents.length > 0
+      ? featuredEventDetails
+      : featuredEvents;
 
   if (loading) {
     return (
@@ -451,7 +464,7 @@ export default function Home() {
         )}
 
         {/* ── Featured Events ── */}
-        {featuredEvents.length > 0 && (
+        {featuredCards.length > 0 && (
           <section style={{ marginBottom: 36 }}>
             <div className="sec-section-header">
               <div>
@@ -468,7 +481,7 @@ export default function Home() {
               style={{ display: 'flex', gap: 14, overflowX: 'auto', marginLeft: -20, paddingLeft: 20, paddingRight: 20, paddingBottom: 4 }}
               className="scrollbar-hide"
             >
-              {featuredEvents.map((event, i) => (
+              {featuredCards.map((event, i) => (
                 <motion.div
                   key={event.id}
                   initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }}

@@ -58,7 +58,7 @@ export default function EventDetails() {
 
   const { data: tables = [] } = useQuery({
     queryKey: ['event-tables', eventId],
-    queryFn: () => dataService.Table.filter({ event_id: eventId, status: 'open' }),
+    queryFn: () => dataService.Table.filter({ event_id: eventId, status: 'all' }),
     enabled: !!eventId,
   });
 
@@ -113,6 +113,22 @@ export default function EventDetails() {
   const lowestTicketPrice = event.ticket_tiers?.reduce((min, tier) =>
     tier.price < min ? tier.price : min, event.ticket_tiers?.[0]?.price || 0
   );
+
+  const tableIsFull = (t) =>
+    t.status === 'full' || Number(t.current_guests ?? 0) >= Number(t.max_guests ?? 0);
+
+  const openJoinableTables = tables.filter((t) => !tableIsFull(t));
+  const fullTablesOnly = tables.filter((t) => tableIsFull(t));
+
+  const byCategory = (list, cat) =>
+    list.filter((t) => (t.table_category || 'general') === cat);
+
+  const venueLine =
+    [event.venue_address, event.venue_suburb, event.venue_city || venue?.city]
+      .filter(Boolean)
+      .join(', ') || event.city || venue?.city || 'TBA';
+
+  const mapQuery = event.venue_address || venue?.address || venueLine;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 96 }}>
@@ -250,7 +266,7 @@ export default function EventDetails() {
             {[
               { icon: Calendar, label: 'Date', value: getDateLabel() },
               { icon: Clock, label: 'Time', value: event.start_time || 'TBA' },
-              { icon: MapPin, label: 'Location', value: event.city || venue?.city || 'TBA' },
+              { icon: MapPin, label: 'Location', value: venueLine },
               {
                 icon: Users,
                 label: 'Going',
@@ -279,45 +295,74 @@ export default function EventDetails() {
             <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Tables & attendance</h2>
             <div style={{ display: 'grid', gap: 10, fontSize: 13, color: 'var(--sec-text-muted)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span>Hosted tables</span>
+                <span>Going</span>
+                <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.going_count ?? 0}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>Hosted tables (all)</span>
                 <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.hosted_tables}</span>
               </div>
-              {event.max_hosted_tables != null && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  <span>Table slots left</span>
-                  <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.tables_remaining ?? 0}</span>
-                </div>
+              {event.stats.general && (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-primary)', marginTop: 4 }}>General</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingLeft: 8 }}>
+                    <span>Slots left</span>
+                    <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>
+                      {event.stats.general.tables_remaining ?? '—'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingLeft: 8 }}>
+                    <span>Open to join</span>
+                    <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.general.tables_with_join_space}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingLeft: 8 }}>
+                    <span>Full</span>
+                    <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.general.tables_full}</span>
+                  </div>
+                </>
               )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span>Open to join (public)</span>
-                <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.tables_with_join_space}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span>Tables full (total)</span>
-                <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.tables_full}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
-                <span>Full — public / private</span>
-                <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>
-                  {event.stats.tables_full_public} / {event.stats.tables_full_private}
-                </span>
-              </div>
+              {event.stats.vip && (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-primary)', marginTop: 4 }}>VIP</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingLeft: 8 }}>
+                    <span>Slots left</span>
+                    <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>
+                      {event.stats.vip.tables_remaining ?? '—'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingLeft: 8 }}>
+                    <span>Open to join</span>
+                    <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.vip.tables_with_join_space}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingLeft: 8 }}>
+                    <span>Full</span>
+                    <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.vip.tables_full}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
 
-        {Array.isArray(event.table_pricing_tiers) && event.table_pricing_tiers.length > 0 && (
-          <div className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)' }}>Venue table options</h2>
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--sec-text-muted)', lineHeight: 1.6 }}>
-              {event.table_pricing_tiers.map((t, i) => (
-                <li key={i}>
-                  Up to {t.max_guests} guests · min spend R{Number(t.min_spend).toLocaleString()}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {['general', 'vip'].map((cat) => {
+          const tiers = event.hosting_config?.[cat]?.tiers;
+          if (!Array.isArray(tiers) || tiers.length === 0) return null;
+          const label = cat === 'vip' ? 'VIP' : 'General';
+          return (
+            <div key={cat} className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
+                Venue table options · {label}
+              </h2>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--sec-text-muted)', lineHeight: 1.6 }}>
+                {tiers.map((t, i) => (
+                  <li key={i}>
+                    Up to {t.max_guests} guests · min spend R{Number(t.min_spend).toLocaleString()}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
 
         {event.has_entrance_fee && event.entrance_fee_amount != null && (
           <div className="sec-card" style={{
@@ -416,7 +461,7 @@ export default function EventDetails() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Users size={15} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
-              Available Tables ({tables.length})
+              Tables ({tables.length})
             </h2>
             <Link
               to={createPageUrl(`CreateTable?event=${eventId}`)}
@@ -429,11 +474,39 @@ export default function EventDetails() {
 
           {tables.length > 0 ? (
             <>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                {tables.map((table) => (
-                  <TrendingTableCard key={table.id} table={table} />
-                ))}
-              </div>
+              {['general', 'vip'].map((cat) => {
+                const label = cat === 'vip' ? 'VIP' : 'General';
+                const avail = byCategory(openJoinableTables, cat);
+                const full = byCategory(fullTablesOnly, cat);
+                if (avail.length === 0 && full.length === 0) return null;
+                return (
+                  <div key={cat} style={{ marginBottom: 18 }}>
+                    <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
+                      {label} tables
+                    </h3>
+                    {avail.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 8, fontWeight: 500 }}>Available</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {avail.map((table) => (
+                            <TrendingTableCard key={table.id} table={table} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {full.length > 0 && (
+                      <div>
+                        <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 8, fontWeight: 500 }}>Full</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: 0.92 }}>
+                          {full.map((table) => (
+                            <TrendingTableCard key={table.id} table={table} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>
                 Select a table to view details and reserve your spot
               </p>
@@ -462,9 +535,9 @@ export default function EventDetails() {
         </div>
 
         {/* ── Location / directions ── */}
-        {(event.address || venue?.address) && (
+        {mapQuery && (
           <a
-            href={`https://maps.google.com/?q=${encodeURIComponent(event.address || venue?.address)}`}
+            href={`https://maps.google.com/?q=${encodeURIComponent(mapQuery)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="sec-list-row"
@@ -480,7 +553,7 @@ export default function EventDetails() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 2 }}>Get Directions</p>
               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {event.address || venue?.address}
+                {venueLine}
               </p>
             </div>
             <ChevronRight size={16} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
@@ -494,8 +567,8 @@ export default function EventDetails() {
           {tables.length > 0 ? (
             <>
               <div className="sec-bottom-bar__price">
-                <div className="sec-bottom-bar__price-label">Available Tables</div>
-                <div className="sec-bottom-bar__price-value">{tables.length}</div>
+                <div className="sec-bottom-bar__price-label">Open tables</div>
+                <div className="sec-bottom-bar__price-value">{openJoinableTables.length}</div>
               </div>
               <div className="sec-bottom-bar__cta">
                 <button

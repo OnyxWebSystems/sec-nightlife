@@ -49,6 +49,11 @@ enum TableStatus {
   closed
 }
 
+enum TableCategory {
+  general
+  vip
+}
+
 enum ReportStatus {
   pending
   in_review
@@ -538,8 +543,7 @@ model Event {
   startTime         String?     @map("start_time")
   hasEntranceFee    Boolean     @default(false) @map("has_entrance_fee")
   entranceFeeAmount Float?      @map("entrance_fee_amount")
-  maxHostedTables   Int?        @map("max_hosted_tables")
-  tablePricingTiers Json?       @map("table_pricing_tiers")
+  hostingConfig     Json?       @map("hosting_config")
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
   deletedAt         DateTime?   @map("deleted_at")
@@ -583,6 +587,7 @@ model Table {
   venueId         String      @map("venue_id")
   hostUserId      String      @map("host_user_id")
   name            String
+  tableCategory   TableCategory @default(general) @map("table_category")
   status          TableStatus @default(open)
   maxGuests       Int         @map("max_guests")
   currentGuests   Int         @default(0) @map("current_guests")

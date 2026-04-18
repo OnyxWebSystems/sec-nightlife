@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { apiPatch, apiPost, uploadFile } from '@/api/client';
+import { apiGet, apiPatch, apiPost, uploadFile } from '@/api/client';
 import { 
   Building,
   Upload,
@@ -47,6 +47,89 @@ const PLAN_PRICES = {
 };
 
 const VENUE_PAYMENT_CONTEXT_KEY = 'sec-venue-onboarding-payment';
+
+const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function venueOnboardingDraftKey(userId) {
+  return `sec-venue-onboarding-draft:${userId}`;
+}
+
+const INITIAL_FORM_DATA = {
+  name: '',
+  venue_type: '',
+  bio: '',
+  address: '',
+  city: '',
+  suburb: '',
+  province: '',
+  latitude: null,
+  longitude: null,
+  phone: '',
+  email: '',
+  website: '',
+  instagram: '',
+  capacity: '',
+  age_limit: 18,
+  logo_url: '',
+  cover_image_url: '',
+  cipc_document_url: '',
+  director_id_url: '',
+  sars_document_url: '',
+  annual_returns_url: '',
+  liquor_license_url: '',
+  liquor_license_expiry: ''
+};
+
+function loadParsedDraft(userId) {
+  if (!userId) return null;
+  try {
+    const raw = localStorage.getItem(venueOnboardingDraftKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.savedAt !== 'number') return null;
+    if (Date.now() - parsed.savedAt > DRAFT_MAX_AGE_MS) {
+      localStorage.removeItem(venueOnboardingDraftKey(userId));
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearVenueOnboardingDraft(userId) {
+  if (!userId) return;
+  try {
+    localStorage.removeItem(venueOnboardingDraftKey(userId));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Maps GET /api/venues/:id response into onboarding form shape. */
+function mapVenueDetailToForm(v) {
+  if (!v) return { ...INITIAL_FORM_DATA };
+  return {
+    ...INITIAL_FORM_DATA,
+    name: v.name ?? '',
+    venue_type: v.venue_type ?? '',
+    bio: v.bio ?? '',
+    address: v.address ?? '',
+    city: v.city ?? '',
+    suburb: v.suburb ?? '',
+    province: v.province ?? '',
+    latitude: v.latitude ?? null,
+    longitude: v.longitude ?? null,
+    phone: v.phone ?? '',
+    email: v.email ?? '',
+    website: v.website ?? '',
+    instagram: v.instagram ?? '',
+    capacity: v.capacity != null ? String(v.capacity) : '',
+    age_limit: v.age_limit != null ? v.age_limit : 18,
+    logo_url: v.logo_url ?? '',
+    cover_image_url: v.cover_image_url ?? ''
+  };
+}
 
 const BRANDING_FIELDS = new Set(['logo_url', 'cover_image_url']);
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
@@ -123,53 +206,93 @@ export default function VenueOnboarding() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [user, setUser] = useState(null);
+  const [bootstrapped, setBootstrapped] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState({});
   const [selectedPlan, setSelectedPlan] = useState('basic');
+  const draftSaveTimerRef = useRef(null);
 
   const cloudinaryConfig = {
     cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
     uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
   };
   
-  const [formData, setFormData] = useState({
-    name: '',
-    venue_type: '',
-    bio: '',
-    address: '',
-    city: '',
-    suburb: '',
-    province: '',
-    latitude: null,
-    longitude: null,
-    phone: '',
-    email: '',
-    website: '',
-    instagram: '',
-    capacity: '',
-    age_limit: 18,
-    logo_url: '',
-    cover_image_url: '',
-    // Compliance Documents
-    cipc_document_url: '',
-    director_id_url: '',
-    sars_document_url: '',
-    annual_returns_url: '',
-    liquor_license_url: '',
-    liquor_license_expiry: ''
-  });
+  const [formData, setFormData] = useState(() => ({ ...INITIAL_FORM_DATA }));
 
   useEffect(() => {
     checkAuth();
   }, []);
 
+  useEffect(() => {
+    if (!bootstrapped || !user?.id) return;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          venueOnboardingDraftKey(user.id),
+          JSON.stringify({
+            savedAt: Date.now(),
+            step,
+            selectedPlan,
+            formData
+          })
+        );
+      } catch {
+        /* storage full or private mode */
+      }
+    }, 500);
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  }, [bootstrapped, user?.id, step, selectedPlan, formData]);
+
   const checkAuth = async () => {
     try {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
+      const uid = currentUser?.id;
+      if (!uid) {
+        setBootstrapped(true);
+        return;
+      }
+
+      const draft = loadParsedDraft(uid);
+      let mines = [];
+      try {
+        mines = await dataService.Venue.mine();
+      } catch {
+        mines = [];
+      }
+
+      if (mines.length > 0) {
+        let detail = mines[0];
+        try {
+          detail = await apiGet(`/api/venues/${mines[0].id}`);
+        } catch {
+          /* use list row only */
+        }
+        setFormData(mapVenueDetailToForm(detail));
+        if (draft && typeof draft.step === 'number' && draft.step >= 1 && draft.step <= 4) {
+          setStep(draft.step);
+        }
+        if (draft?.selectedPlan === 'basic' || draft?.selectedPlan === 'premium') {
+          setSelectedPlan(draft.selectedPlan);
+        }
+      } else if (draft?.formData && typeof draft.formData === 'object') {
+        setFormData({ ...INITIAL_FORM_DATA, ...draft.formData });
+        if (typeof draft.step === 'number' && draft.step >= 1 && draft.step <= 4) {
+          setStep(draft.step);
+        }
+        if (draft.selectedPlan === 'basic' || draft.selectedPlan === 'premium') {
+          setSelectedPlan(draft.selectedPlan);
+        }
+        toast.info('Continue where you left off — your draft was restored.');
+      }
     } catch (e) {
       authService.redirectToLogin(createPageUrl('VenueOnboarding'));
+    } finally {
+      setBootstrapped(true);
     }
   };
 
@@ -314,6 +437,8 @@ export default function VenueOnboarding() {
 
       await syncPaymentStatus(paymentCompleted);
 
+      clearVenueOnboardingDraft(user?.id);
+
       if (startPayment) {
         if (window.self !== window.top) {
           throw new Error('Payment checkout only works in the published app. Please open the app in a new tab.');
@@ -434,6 +559,19 @@ export default function VenueOnboarding() {
       </div>
     </div>
   );
+
+  if (!bootstrapped) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center p-4"
+        style={{ backgroundColor: 'var(--sec-bg-base)' }}
+      >
+        <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+          Loading…
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-4 flex flex-col" style={{ backgroundColor: 'var(--sec-bg-base)' }}>

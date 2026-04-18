@@ -16,6 +16,7 @@ import { addUserToEventGroupChat } from '../lib/groupChatHelpers.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 
 const router = Router();
 
@@ -30,6 +31,7 @@ const tableCreateSchema = z.object({
   event_id: z.string().uuid(),
   venue_id: z.string().uuid(),
   name: z.string().min(1).max(200),
+  table_category: z.enum(['general', 'vip']).optional().default('general'),
   max_guests: z.number().int().min(1).max(500),
   min_spend: z.number().min(0).optional(),
   joining_fee: z.number().min(0).optional(),
@@ -43,6 +45,7 @@ function formatTable(t) {
     venue_id: t.venueId,
     host_user_id: t.hostUserId,
     name: t.name,
+    table_category: t.tableCategory ?? 'general',
     status: t.status,
     max_guests: t.maxGuests,
     current_guests: t.currentGuests,
@@ -100,9 +103,11 @@ function extractUserIdsFromPending(pendingRequests) {
 
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
-    const { status = 'open', event_id, venue_id, host_user_id, sort, limit = 100 } = req.query;
+    const { event_id, venue_id, host_user_id, sort, limit = 100 } = req.query;
+    const statusRaw = req.query.status;
+    const status = statusRaw === undefined || statusRaw === '' ? 'open' : String(statusRaw);
     const where = { deletedAt: null };
-    if (status) where.status = status;
+    if (status && status !== 'all') where.status = status;
     if (event_id) where.eventId = event_id;
     if (venue_id) where.venueId = venue_id;
     if (host_user_id) {
@@ -145,7 +150,7 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       if (id) where.id = String(id);
       if (event_id) where.eventId = String(event_id);
       if (venue_id) where.venueId = String(venue_id);
-      if (status) where.status = status;
+      if (status != null && status !== '' && String(status) !== 'all') where.status = String(status);
       if (req.userId && req.userRole === 'VENUE') {
         const ok = await canAccessVenue(venue_id, req.userId, req.userRole);
         if (!ok && venue_id) return res.status(403).json({ error: 'Forbidden' });
@@ -172,7 +177,7 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       }
       where.hostUserId = String(host_user_id);
     }
-    if (status) where.status = status;
+    if (status != null && status !== '' && String(status) !== 'all') where.status = String(status);
     if (req.userId && req.userRole === 'VENUE') {
       const ok = await canAccessVenue(venue_id, req.userId, req.userRole);
       if (!ok && venue_id) return res.status(403).json({ error: 'Forbidden' });
@@ -216,13 +221,19 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
     if (!event) return res.status(404).json({ error: 'Event not found' });
     if (event.venueId !== data.venue_id) return res.status(400).json({ error: 'Venue does not match event' });
 
-    if (event.maxHostedTables != null) {
+    const category = data.table_category === 'vip' ? 'vip' : 'general';
+    const hosting = normalizeHostingConfig(event.hostingConfig);
+    const maxForCat = hosting[category]?.max_tables ?? null;
+    if (maxForCat != null) {
       const existingCount = await prisma.table.count({
-        where: { eventId: data.event_id, deletedAt: null },
+        where: { eventId: data.event_id, deletedAt: null, tableCategory: category },
       });
-      if (existingCount >= event.maxHostedTables) {
+      if (existingCount >= maxForCat) {
         return res.status(400).json({
-          error: 'This event has reached the maximum number of hosted tables set by the venue.',
+          error:
+            category === 'vip'
+              ? 'This event has reached the maximum number of VIP hosted tables set by the venue.'
+              : 'This event has reached the maximum number of General hosted tables set by the venue.',
           code: 'EVENT_TABLES_FULL',
         });
       }
@@ -234,6 +245,7 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
         venueId: data.venue_id,
         hostUserId: req.userId,
         name: data.name,
+        tableCategory: category,
         maxGuests: data.max_guests,
         minSpend: data.min_spend,
         joiningFee: data.joining_fee,

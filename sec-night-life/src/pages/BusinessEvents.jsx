@@ -16,14 +16,38 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+function emptyHostingSection() {
+  return { max_tables: '', tiers: [] };
+}
+
+function emptyHostingForm() {
+  return { general: emptyHostingSection(), vip: emptyHostingSection() };
+}
+
+function hostingFromApi(hc) {
+  if (!hc || typeof hc !== 'object') return emptyHostingForm();
+  const mapSection = (s) => ({
+    max_tables: s?.max_tables != null && s.max_tables !== '' ? String(s.max_tables) : '',
+    tiers: Array.isArray(s?.tiers) && s.tiers.length
+      ? s.tiers.map((t) => ({
+          max_guests: String(t.max_guests ?? ''),
+          min_spend: String(t.min_spend ?? ''),
+        }))
+      : [],
+  });
+  return {
+    general: mapSection(hc.general),
+    vip: mapSection(hc.vip),
+  };
+}
+
 const EMPTY_EVENT = {
   title: '', description: '', date: '', city: '', status: 'draft',
   cover_image_url: '', ticket_tiers: [],
   start_time: '',
   has_entrance_fee: false,
   entrance_fee_amount: '',
-  max_hosted_tables: '',
-  table_pricing_tiers: [],
+  hosting_config: emptyHostingForm(),
 };
 
 export default function BusinessEvents() {
@@ -103,14 +127,7 @@ export default function BusinessEvents() {
       entrance_fee_amount: evt.entrance_fee_amount != null && evt.entrance_fee_amount !== ''
         ? String(evt.entrance_fee_amount)
         : '',
-      max_hosted_tables:
-        evt.max_hosted_tables != null && evt.max_hosted_tables !== '' ? String(evt.max_hosted_tables) : '',
-      table_pricing_tiers: Array.isArray(evt.table_pricing_tiers) && evt.table_pricing_tiers.length
-        ? evt.table_pricing_tiers.map((t) => ({
-            max_guests: String(t.max_guests ?? ''),
-            min_spend: String(t.min_spend ?? ''),
-          }))
-        : [],
+      hosting_config: hostingFromApi(evt.hosting_config),
     });
     setDialogOpen(true);
   };
@@ -148,32 +165,35 @@ export default function BusinessEvents() {
     if (form.ticket_tiers?.length) payload.ticket_tiers = form.ticket_tiers;
     if (form.start_time) payload.start_time = form.start_time;
     else if (editingEvent) payload.start_time = null;
-    const maxT = String(form.max_hosted_tables || '').trim();
-    if (maxT) {
-      const n = parseInt(maxT, 10);
-      if (Number.isNaN(n) || n < 1) {
-        toast.error('Max hosted tables must be a positive number');
-        return;
+
+    const hostingPayload = { general: { max_tables: null, tiers: [] }, vip: { max_tables: null, tiers: [] } };
+    for (const cat of ['general', 'vip']) {
+      const sec = form.hosting_config?.[cat];
+      const maxT = String(sec?.max_tables || '').trim();
+      if (maxT) {
+        const n = parseInt(maxT, 10);
+        if (Number.isNaN(n) || n < 1) {
+          toast.error(`${cat === 'vip' ? 'VIP' : 'General'} max hosted tables must be a positive number`);
+          return;
+        }
+        hostingPayload[cat].max_tables = n;
       }
-      payload.max_hosted_tables = n;
-    } else {
-      payload.max_hosted_tables = null;
-    }
-    const tierRows = (form.table_pricing_tiers || []).filter(
-      (t) => String(t?.max_guests || '').trim() && String(t?.min_spend ?? '').trim() !== ''
-    );
-    const parsedTiers = [];
-    for (const t of tierRows) {
-      const mg = parseInt(String(t.max_guests).trim(), 10);
-      const ms = parseFloat(String(t.min_spend).replace(',', '.'));
-      if (Number.isNaN(mg) || mg < 1 || Number.isNaN(ms) || ms < 0) {
-        toast.error('Check table pricing tiers (guests and min spend)');
-        return;
+      const tierRows = (sec?.tiers || []).filter(
+        (t) => String(t?.max_guests || '').trim() && String(t?.min_spend ?? '').trim() !== ''
+      );
+      const parsedTiers = [];
+      for (const t of tierRows) {
+        const mg = parseInt(String(t.max_guests).trim(), 10);
+        const ms = parseFloat(String(t.min_spend).replace(',', '.'));
+        if (Number.isNaN(mg) || mg < 1 || Number.isNaN(ms) || ms < 0) {
+          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} pricing tiers (guests and min spend)`);
+          return;
+        }
+        parsedTiers.push({ max_guests: mg, min_spend: ms });
       }
-      parsedTiers.push({ max_guests: mg, min_spend: ms });
+      hostingPayload[cat].tiers = parsedTiers;
     }
-    if (parsedTiers.length) payload.table_pricing_tiers = parsedTiers;
-    else payload.table_pricing_tiers = null;
+    payload.hosting_config = hostingPayload;
     saveMutation.mutate(payload);
   };
 
@@ -405,91 +425,141 @@ export default function BusinessEvents() {
                 </div>
               )}
             </div>
-            <div>
-              <Label className="text-gray-400 text-sm">Max hosted tables (optional)</Label>
-              <Input
-                type="number"
-                min={1}
-                value={form.max_hosted_tables}
-                onChange={e => setForm(p => ({ ...p, max_hosted_tables: e.target.value }))}
-                placeholder="No limit if empty"
-                className="mt-1.5 h-11 rounded-xl max-w-[200px]"
-                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-              />
-              <p className="text-xs text-gray-500 mt-1">Caps how many separate tables can be hosted for this event.</p>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label className="text-gray-400 text-sm">Table pricing tiers (optional)</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-lg text-xs"
-                  style={{ borderColor: 'var(--sec-border)' }}
-                  onClick={() =>
-                    setForm((p) => ({
-                      ...p,
-                      table_pricing_tiers: [...(p.table_pricing_tiers || []), { max_guests: '', min_spend: '' }],
-                    }))
-                  }
+            {(['general', 'vip']).map((cat) => {
+              const label = cat === 'vip' ? 'VIP' : 'General';
+              const sec = form.hosting_config?.[cat] || emptyHostingSection();
+              const tiers = sec.tiers || [];
+              return (
+                <div
+                  key={cat}
+                  className="space-y-3 rounded-xl border p-4"
+                  style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-elevated)' }}
                 >
-                  <Plus size={14} className="mr-1" /> Add tier
-                </Button>
-              </div>
-              <p className="text-xs text-gray-500 mb-2">Guests per table and minimum spend (ZAR) for each option.</p>
-              <div className="space-y-2">
-                {(form.table_pricing_tiers || []).map((tier, idx) => (
-                  <div key={idx} className="flex gap-2 items-end flex-wrap">
-                    <div className="flex-1 min-w-[100px]">
-                      <Label className="text-xs text-gray-500">Max guests</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={tier.max_guests}
-                        onChange={(e) => {
-                          const next = [...(form.table_pricing_tiers || [])];
-                          next[idx] = { ...next[idx], max_guests: e.target.value };
-                          setForm((p) => ({ ...p, table_pricing_tiers: next }));
-                        }}
-                        className="mt-1 h-10 rounded-xl"
-                        style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-[100px]">
-                      <Label className="text-xs text-gray-500">Min spend (ZAR)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={tier.min_spend}
-                        onChange={(e) => {
-                          const next = [...(form.table_pricing_tiers || [])];
-                          next[idx] = { ...next[idx], min_spend: e.target.value };
-                          setForm((p) => ({ ...p, table_pricing_tiers: next }));
-                        }}
-                        className="mt-1 h-10 rounded-xl"
-                        style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-10 text-red-400"
-                      onClick={() =>
+                  <h3 className="text-sm font-semibold" style={{ color: 'var(--sec-text-primary)' }}>
+                    {label} hosted tables
+                  </h3>
+                  <div>
+                    <Label className="text-gray-400 text-sm">Max hosted tables (optional)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={sec.max_tables}
+                      onChange={(e) =>
                         setForm((p) => ({
                           ...p,
-                          table_pricing_tiers: (p.table_pricing_tiers || []).filter((_, i) => i !== idx),
+                          hosting_config: {
+                            ...p.hosting_config,
+                            [cat]: { ...p.hosting_config[cat], max_tables: e.target.value },
+                          },
                         }))
                       }
-                    >
-                      Remove
-                    </Button>
+                      placeholder="No limit if empty"
+                      className="mt-1.5 h-11 rounded-xl max-w-[200px]"
+                      style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Caps how many {label.toLowerCase()} tables can be hosted for this event.
+                    </p>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-gray-400 text-sm">Table pricing tiers (optional)</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 rounded-lg text-xs"
+                        style={{ borderColor: 'var(--sec-border)' }}
+                        onClick={() =>
+                          setForm((p) => ({
+                            ...p,
+                            hosting_config: {
+                              ...p.hosting_config,
+                              [cat]: {
+                                ...p.hosting_config[cat],
+                                tiers: [...(p.hosting_config[cat].tiers || []), { max_guests: '', min_spend: '' }],
+                              },
+                            },
+                          }))
+                        }
+                      >
+                        <Plus size={14} className="mr-1" /> Add tier
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-2">Guests per table and minimum spend (ZAR).</p>
+                    <div className="space-y-2">
+                      {tiers.map((tier, idx) => (
+                        <div key={idx} className="flex gap-2 items-end flex-wrap">
+                          <div className="flex-1 min-w-[100px]">
+                            <Label className="text-xs text-gray-500">Max guests</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={tier.max_guests}
+                              onChange={(e) => {
+                                const next = [...(form.hosting_config[cat].tiers || [])];
+                                next[idx] = { ...next[idx], max_guests: e.target.value };
+                                setForm((p) => ({
+                                  ...p,
+                                  hosting_config: {
+                                    ...p.hosting_config,
+                                    [cat]: { ...p.hosting_config[cat], tiers: next },
+                                  },
+                                }));
+                              }}
+                              className="mt-1 h-10 rounded-xl"
+                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[100px]">
+                            <Label className="text-xs text-gray-500">Min spend (ZAR)</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              step={0.01}
+                              value={tier.min_spend}
+                              onChange={(e) => {
+                                const next = [...(form.hosting_config[cat].tiers || [])];
+                                next[idx] = { ...next[idx], min_spend: e.target.value };
+                                setForm((p) => ({
+                                  ...p,
+                                  hosting_config: {
+                                    ...p.hosting_config,
+                                    [cat]: { ...p.hosting_config[cat], tiers: next },
+                                  },
+                                }));
+                              }}
+                              className="mt-1 h-10 rounded-xl"
+                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-10 text-red-400"
+                            onClick={() =>
+                              setForm((p) => ({
+                                ...p,
+                                hosting_config: {
+                                  ...p.hosting_config,
+                                  [cat]: {
+                                    ...p.hosting_config[cat],
+                                    tiers: (p.hosting_config[cat].tiers || []).filter((_, i) => i !== idx),
+                                  },
+                                },
+                              }))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
             <div>
               <Label className="text-gray-400 text-sm">Description</Label>
               <Textarea

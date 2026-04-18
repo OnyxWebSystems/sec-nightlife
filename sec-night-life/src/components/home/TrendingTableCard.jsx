@@ -74,8 +74,25 @@ export default function TrendingTableCard({ table }) {
             <h3 style={{
               fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)',
               marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 8,
             }}>
-              {table.name}
+              <span className="truncate">{table.name}</span>
+              {table.table_category === 'vip' && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    flexShrink: 0,
+                    backgroundColor: 'var(--sec-accent-muted)',
+                    color: 'var(--sec-accent)',
+                    border: '1px solid var(--sec-accent-border)',
+                  }}
+                >
+                  VIP
+                </span>
+              )}
             </h3>
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
               Hosted by {host?.username || 'Anonymous'}

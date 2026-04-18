@@ -5,6 +5,7 @@ import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { applyEventVenueIsolation, canAccessVenue, isStaff } from '../lib/access.js';
 import { ensureGroupChatForEvent } from '../lib/groupChatHelpers.js';
 import { logger } from '../lib/logger.js';
+import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingConfig.js';
 
 const router = Router();
 
@@ -16,6 +17,16 @@ const timeHHMM = z.preprocess(
 const tablePricingTierSchema = z.object({
   max_guests: z.number().int().min(1).max(500),
   min_spend: z.number().min(0),
+});
+
+const hostingCategorySchema = z.object({
+  max_tables: z.number().int().min(1).optional().nullable(),
+  tiers: z.array(tablePricingTierSchema).optional().nullable(),
+});
+
+const hostingConfigSchema = z.object({
+  general: hostingCategorySchema.optional(),
+  vip: hostingCategorySchema.optional(),
 });
 
 const eventFields = {
@@ -32,8 +43,7 @@ const eventFields = {
   start_time: timeHHMM,
   has_entrance_fee: z.boolean().optional(),
   entrance_fee_amount: z.number().min(0).optional().nullable(),
-  max_hosted_tables: z.number().int().min(1).optional().nullable(),
-  table_pricing_tiers: z.array(tablePricingTierSchema).optional().nullable(),
+  hosting_config: hostingConfigSchema.optional(),
 };
 
 const eventSchema = z.object(eventFields);
@@ -53,8 +63,7 @@ function mapEventRow(e) {
     start_time: e.startTime,
     has_entrance_fee: e.hasEntranceFee,
     entrance_fee_amount: e.entranceFeeAmount,
-    max_hosted_tables: e.maxHostedTables ?? null,
-    table_pricing_tiers: e.tablePricingTiers ?? null,
+    hosting_config: normalizeHostingConfig(e.hostingConfig),
   };
 }
 
@@ -79,17 +88,9 @@ function sortEventsByFollowThenDate(events, followedSet, sortDesc) {
   });
 }
 
-async function computeEventStats(eventId, maxHostedTables) {
-  const [goingCount, tableRows] = await Promise.all([
-    prisma.eventAttendance.count({ where: { eventId, confirmed: true } }),
-    prisma.table.findMany({
-      where: { eventId, deletedAt: null },
-      select: { status: true, maxGuests: true, currentGuests: true, isPublic: true },
-    }),
-  ]);
-  const hostedTables = tableRows.length;
-  const tablesRemaining =
-    maxHostedTables != null ? Math.max(0, maxHostedTables - hostedTables) : null;
+function computeCategoryTableStats(rows, maxTables) {
+  const hosted = rows.length;
+  const tablesRemaining = maxTables != null ? Math.max(0, maxTables - hosted) : null;
 
   const isFull = (t) => t.status === 'full' || t.currentGuests >= t.maxGuests;
   const hasJoinSpace = (t) => t.isPublic && !isFull(t);
@@ -98,7 +99,7 @@ async function computeEventStats(eventId, maxHostedTables) {
   let tablesFullPublic = 0;
   let tablesFullPrivate = 0;
   let tablesWithJoinSpace = 0;
-  for (const t of tableRows) {
+  for (const t of rows) {
     const full = isFull(t);
     if (full) {
       tablesFull++;
@@ -109,8 +110,7 @@ async function computeEventStats(eventId, maxHostedTables) {
   }
 
   return {
-    going_count: goingCount,
-    hosted_tables: hostedTables,
+    hosted_tables: hosted,
     tables_remaining: tablesRemaining,
     tables_full: tablesFull,
     tables_full_public: tablesFullPublic,
@@ -119,7 +119,38 @@ async function computeEventStats(eventId, maxHostedTables) {
   };
 }
 
+async function computeEventStats(eventId, hostingRaw) {
+  const hosting = normalizeHostingConfig(hostingRaw);
+  const [goingCount, tableRows] = await Promise.all([
+    prisma.eventAttendance.count({ where: { eventId, confirmed: true } }),
+    prisma.table.findMany({
+      where: { eventId, deletedAt: null },
+      select: {
+        status: true,
+        maxGuests: true,
+        currentGuests: true,
+        isPublic: true,
+        tableCategory: true,
+      },
+    }),
+  ]);
+
+  const generalRows = tableRows.filter((t) => t.tableCategory === 'general');
+  const vipRows = tableRows.filter((t) => t.tableCategory === 'vip');
+
+  const generalStats = computeCategoryTableStats(generalRows, hosting.general.max_tables);
+  const vipStats = computeCategoryTableStats(vipRows, hosting.vip.max_tables);
+
+  return {
+    going_count: goingCount,
+    hosted_tables: tableRows.length,
+    general: generalStats,
+    vip: vipStats,
+  };
+}
+
 function mapEventDetail(event, stats = null) {
+  const v = event.venue;
   return {
     id: event.id,
     title: event.title,
@@ -135,8 +166,12 @@ function mapEventDetail(event, stats = null) {
     start_time: event.startTime,
     has_entrance_fee: event.hasEntranceFee,
     entrance_fee_amount: event.entranceFeeAmount,
-    max_hosted_tables: event.maxHostedTables ?? null,
-    table_pricing_tiers: event.tablePricingTiers ?? null,
+    hosting_config: normalizeHostingConfig(event.hostingConfig),
+    venue_name: v?.name ?? null,
+    venue_address: v?.address ?? null,
+    venue_city: v?.city ?? null,
+    venue_suburb: v?.suburb ?? null,
+    venue_province: v?.province ?? null,
     ...(stats ? { stats } : {}),
     total_attending: stats?.going_count ?? 0,
   };
@@ -215,7 +250,7 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
         return res.status(403).json({ error: 'Forbidden' });
       }
     }
-    const stats = await computeEventStats(event.id, event.maxHostedTables);
+    const stats = await computeEventStats(event.id, event.hostingConfig);
     res.json(mapEventDetail(event, stats));
   } catch (err) {
     next(err);
@@ -248,8 +283,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         startTime: d.start_time ?? null,
         hasEntranceFee: hasFee,
         entranceFeeAmount: hasFee ? d.entrance_fee_amount : null,
-        maxHostedTables: d.max_hosted_tables ?? null,
-        tablePricingTiers: d.table_pricing_tiers ?? null,
+        hostingConfig: normalizeHostingConfig(d.hosting_config ?? null),
       },
     });
     ensureGroupChatForEvent(event.id, event.title, req.userId).catch((e) => {
@@ -295,11 +329,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       updates.hasEntranceFee = nextHasFee;
       updates.entranceFeeAmount = nextHasFee ? nextAmount : null;
     }
-    if (d.max_hosted_tables !== undefined) {
-      updates.maxHostedTables = d.max_hosted_tables;
-    }
-    if (d.table_pricing_tiers !== undefined) {
-      updates.tablePricingTiers = d.table_pricing_tiers;
+    if (d.hosting_config !== undefined) {
+      updates.hostingConfig = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);
     }
 
     const updated = await prisma.event.update({ where: { id: event.id }, data: updates });

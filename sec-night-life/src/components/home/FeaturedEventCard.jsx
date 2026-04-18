@@ -109,6 +109,14 @@ export default function FeaturedEventCard({ event }) {
               </span>
             )}
           </div>
+          {event.stats?.general && event.stats?.vip && (
+            <div style={{ marginTop: 8, fontSize: 11, color: 'rgba(255,255,255,0.55)', lineHeight: 1.35 }}>
+              Table slots · Gen{' '}
+              {event.stats.general.tables_remaining ?? '—'}
+              {' · VIP '}
+              {event.stats.vip.tables_remaining ?? '—'}
+            </div>
+          )}
         </div>
       </div>
     </Link>

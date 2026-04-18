@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -53,6 +54,7 @@ export default function CreateTable() {
   
   const [formData, setFormData] = useState({
     event_id: '',
+    table_category: 'general',
     name: '',
     description: '',
     max_guests: 8,
@@ -121,8 +123,11 @@ export default function CreateTable() {
 
   const identityOk = isIdentityVerifiedUser(user, userProfile);
 
+  const tableCategory = formData.table_category === 'vip' ? 'vip' : 'general';
+  const catStats = stats?.[tableCategory];
+  const maxForSelectedCategory = eventDetail?.hosting_config?.[tableCategory]?.max_tables;
   const atTableCapacity =
-    eventDetail?.max_hosted_tables != null && stats && stats.tables_remaining === 0;
+    maxForSelectedCategory != null && catStats && (catStats.tables_remaining ?? 0) === 0;
 
   const handleSubmit = async () => {
     if (!identityOk) {
@@ -140,6 +145,7 @@ export default function CreateTable() {
         event_id: formData.event_id,
         venue_id: selectedEvent?.venue_id,
         name: formData.name,
+        table_category: formData.table_category,
         max_guests: formData.max_guests,
         min_spend: formData.min_spend,
         joining_fee: formData.joining_fee,
@@ -296,7 +302,7 @@ export default function CreateTable() {
                     <button
                       key={event.id}
                       onClick={() => {
-                        setFormData(prev => ({ ...prev, event_id: event.id }));
+                        setFormData((prev) => ({ ...prev, event_id: event.id, table_category: 'general' }));
                         setTimeout(() => setStep(2), 300);
                       }}
                       style={{
@@ -322,9 +328,16 @@ export default function CreateTable() {
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold truncate">{event.title}</h3>
                         {venue && <p className="text-sm text-gray-500">{venue.name}</p>}
-                        {event.max_hosted_tables != null && (
+                        {(event.hosting_config?.general?.max_tables != null ||
+                          event.hosting_config?.vip?.max_tables != null) && (
                           <p className="text-xs text-gray-500 mt-0.5">
-                            Venue cap: {event.max_hosted_tables} hosted table{event.max_hosted_tables === 1 ? '' : 's'}
+                            {(event.hosting_config?.general?.max_tables != null) ? (
+                              <>General cap: {event.hosting_config.general.max_tables}</>
+                            ) : null}
+                            {(event.hosting_config?.general?.max_tables != null && event.hosting_config?.vip?.max_tables != null) ? ' · ' : null}
+                            {(event.hosting_config?.vip?.max_tables != null) ? (
+                              <>VIP cap: {event.hosting_config.vip.max_tables}</>
+                            ) : null}
                           </p>
                         )}
                         <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
@@ -375,15 +388,19 @@ export default function CreateTable() {
                   <p className="font-semibold text-[var(--sec-text-primary)] mb-2">Event snapshot</p>
                   <div className="grid gap-1.5 text-xs sm:text-sm">
                     <span>Going: {stats.going_count} people</span>
-                    <span>Hosted tables: {stats.hosted_tables}</span>
-                    {eventDetail?.max_hosted_tables != null && (
-                      <span>Table slots left: {stats.tables_remaining ?? 0}</span>
+                    <span>Hosted tables (all): {stats.hosted_tables}</span>
+                    {stats.general && (
+                      <>
+                        <span className="font-medium text-[var(--sec-text-primary)] mt-1">General</span>
+                        <span>Slots left: {stats.general.tables_remaining ?? '—'} · Open to join: {stats.general.tables_with_join_space} · Full: {stats.general.tables_full}</span>
+                      </>
                     )}
-                    <span>Public tables open to join: {stats.tables_with_join_space}</span>
-                    <span>
-                      Tables full: {stats.tables_full} (public {stats.tables_full_public} · private{' '}
-                      {stats.tables_full_private})
-                    </span>
+                    {stats.vip && (
+                      <>
+                        <span className="font-medium text-[var(--sec-text-primary)] mt-1">VIP</span>
+                        <span>Slots left: {stats.vip.tables_remaining ?? '—'} · Open to join: {stats.vip.tables_with_join_space} · Full: {stats.vip.tables_full}</span>
+                      </>
+                    )}
                   </div>
                   {atTableCapacity && (
                     <p className="mt-3 text-amber-400 text-xs font-medium">
@@ -393,17 +410,44 @@ export default function CreateTable() {
                 </div>
               )}
 
-              {Array.isArray(eventDetail?.table_pricing_tiers) && eventDetail.table_pricing_tiers.length > 0 && (
-                <div className="mb-4 text-xs text-gray-500">
-                  <span className="text-gray-400 font-medium">Venue pricing guide: </span>
-                  {eventDetail.table_pricing_tiers.map((t, i) => (
-                    <span key={i}>
-                      {i > 0 ? ' · ' : ''}
-                      {t.max_guests} guests from R{Number(t.min_spend).toLocaleString()}
-                    </span>
-                  ))}
+              <div className="mb-4 space-y-3">
+                <div>
+                  <Label className="text-gray-400 text-sm">Table category</Label>
+                  <Select
+                    value={formData.table_category}
+                    onValueChange={(v) => setFormData((p) => ({ ...p, table_category: v }))}
+                  >
+                    <SelectTrigger className="mt-2 h-12 rounded-xl sec-input">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="text-white" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                      <SelectItem value="general">General</SelectItem>
+                      <SelectItem value="vip">VIP</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {maxForSelectedCategory != null && (
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      {tableCategory === 'vip' ? 'VIP' : 'General'} slots left: {catStats?.tables_remaining ?? 0}
+                    </p>
+                  )}
                 </div>
-              )}
+                {(['general', 'vip']).map((cat) => {
+                  const tiers = eventDetail?.hosting_config?.[cat]?.tiers;
+                  if (!Array.isArray(tiers) || tiers.length === 0) return null;
+                  const label = cat === 'vip' ? 'VIP' : 'General';
+                  return (
+                    <div key={cat} className="text-xs text-gray-500">
+                      <span className="text-gray-400 font-medium">{label} pricing guide: </span>
+                      {tiers.map((t, i) => (
+                        <span key={i}>
+                          {i > 0 ? ' · ' : ''}
+                          {t.max_guests} guests from R{Number(t.min_spend).toLocaleString()}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
 
               <div>
                 <Label className="text-gray-400 text-sm">Table Name</Label>
@@ -496,9 +540,10 @@ export default function CreateTable() {
                     color: 'var(--sec-text-secondary)',
                   }}
                 >
-                  Going {stats.going_count} · Slots left{' '}
-                  {eventDetail?.max_hosted_tables != null ? stats.tables_remaining ?? 0 : '—'} · Full tables{' '}
-                  {stats.tables_full}
+                  Going {stats.going_count} ·{' '}
+                  {tableCategory === 'vip' ? 'VIP' : 'General'} slots left{' '}
+                  {maxForSelectedCategory != null ? catStats?.tables_remaining ?? 0 : '—'} · Full ({tableCategory}){' '}
+                  {catStats?.tables_full ?? 0}
                 </div>
               )}
 
