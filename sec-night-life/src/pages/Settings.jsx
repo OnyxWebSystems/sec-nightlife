@@ -64,11 +64,7 @@ export default function Settings() {
 
       let userVenues = [];
       try {
-        /** Venue.owner_user_id is auth User.id — never use user_profiles row id here. */
-        const ownerId = currentUser?.id ?? profiles[0]?.user_id;
-        if (ownerId) {
-          userVenues = await dataService.Venue.filter({ owner_user_id: ownerId });
-        }
+        userVenues = await dataService.Venue.mine();
       } catch {
         userVenues = [];
       }

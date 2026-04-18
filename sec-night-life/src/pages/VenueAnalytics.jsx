@@ -35,7 +35,7 @@ export default function VenueAnalytics() {
 
   const { data: venues = [] } = useQuery({
     queryKey: ['my-venues'],
-    queryFn: () => dataService.Venue.filter({ owner_user_id: user?.id }),
+    queryFn: () => dataService.Venue.mine(),
     enabled: !!user
   });
 

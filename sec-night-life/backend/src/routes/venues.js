@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ensureUserRole } from '../lib/userRoles.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { logger } from '../lib/logger.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 
 /** Keep legacy user_profiles.followed_venues in sync for older clients. */
@@ -46,6 +47,56 @@ async function venueReviewStatsByVenueIds(venueIds) {
   return m;
 }
 
+/** Do not fail the whole venue list if review/follow tables are out of sync with Prisma (migration drift). */
+async function safeVenueReviewStatsByVenueIds(venueIds) {
+  try {
+    return await venueReviewStatsByVenueIds(venueIds);
+  } catch (err) {
+    logger.warn('venueReviewStatsByVenueIds failed; using empty stats', { err: String(err?.message || err), code: err?.code });
+    return new Map();
+  }
+}
+
+async function safeVenueFollowerCountMap(venueIds) {
+  const ids = [...new Set(venueIds)].filter(Boolean);
+  if (ids.length === 0) return new Map();
+  try {
+    const followRows = await prisma.venueFollow.groupBy({
+      by: ['venueId'],
+      where: { venueId: { in: ids } },
+      _count: { _all: true },
+    });
+    return new Map(followRows.map((r) => [r.venueId, r._count._all]));
+  } catch (err) {
+    logger.warn('venueFollow groupBy failed; using zero follower counts', { err: String(err?.message || err), code: err?.code });
+    return new Map();
+  }
+}
+
+function formatVenueListRow(v, stats, followerCount) {
+  const s = stats.get(v.id);
+  return {
+    id: v.id,
+    name: v.name,
+    venue_type: v.venueType,
+    city: v.city,
+    address: v.address,
+    suburb: v.suburb,
+    province: v.province,
+    latitude: v.latitude,
+    longitude: v.longitude,
+    is_verified: v.isVerified,
+    compliance_status: v.complianceStatus,
+    logo_url: v.logoUrl,
+    cover_image_url: v.coverImageUrl,
+    rating: v.rating,
+    owner_user_id: v.ownerUserId,
+    review_average: s?.review_average ?? 0,
+    review_count: s?.review_count ?? 0,
+    follower_count: followerCount ?? 0,
+  };
+}
+
 const venueCreateSchema = z.object({
   name: z.string().min(1).max(200),
   venue_type: z.string().min(1),
@@ -82,41 +133,11 @@ router.get('/', optionalAuth, async (req, res, next) => {
       take: Math.min(parseInt(limit) || 50, 100)
     });
 
-    const stats = await venueReviewStatsByVenueIds(venues.map((v) => v.id));
+    const stats = await safeVenueReviewStatsByVenueIds(venues.map((v) => v.id));
     const vidListRoot = venues.map((v) => v.id);
-    const followRowsRoot =
-      vidListRoot.length === 0
-        ? []
-        : await prisma.venueFollow.groupBy({
-            by: ['venueId'],
-            where: { venueId: { in: vidListRoot } },
-            _count: { _all: true },
-          });
-    const fcMapRoot = new Map(followRowsRoot.map((r) => [r.venueId, r._count._all]));
+    const fcMapRoot = await safeVenueFollowerCountMap(vidListRoot);
 
-    const list = venues.map((v) => {
-      const s = stats.get(v.id);
-      return {
-        id: v.id,
-        name: v.name,
-        venue_type: v.venueType,
-        city: v.city,
-        address: v.address,
-        suburb: v.suburb,
-        province: v.province,
-        latitude: v.latitude,
-        longitude: v.longitude,
-        is_verified: v.isVerified,
-        compliance_status: v.complianceStatus,
-        logo_url: v.logoUrl,
-        cover_image_url: v.coverImageUrl,
-        rating: v.rating,
-        owner_user_id: v.ownerUserId,
-        review_average: s?.review_average ?? 0,
-        review_count: s?.review_count ?? 0,
-        follower_count: fcMapRoot.get(v.id) ?? 0,
-      };
-    });
+    const list = venues.map((v) => formatVenueListRow(v, stats, fcMapRoot.get(v.id) ?? 0));
     res.json(list);
   } catch (err) {
     next(err);
@@ -143,41 +164,29 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       take: Math.min(parseInt(limit) || 50, 100)
     });
 
-    const stats = await venueReviewStatsByVenueIds(venues.map((v) => v.id));
+    const stats = await safeVenueReviewStatsByVenueIds(venues.map((v) => v.id));
     const vidList = venues.map((v) => v.id);
-    const followRows =
-      vidList.length === 0
-        ? []
-        : await prisma.venueFollow.groupBy({
-            by: ['venueId'],
-            where: { venueId: { in: vidList } },
-            _count: { _all: true },
-          });
-    const fcMap = new Map(followRows.map((r) => [r.venueId, r._count._all]));
+    const fcMap = await safeVenueFollowerCountMap(vidList);
 
-    const list = venues.map((v) => {
-      const s = stats.get(v.id);
-      return {
-        id: v.id,
-        name: v.name,
-        venue_type: v.venueType,
-        city: v.city,
-        address: v.address,
-        suburb: v.suburb,
-        province: v.province,
-        latitude: v.latitude,
-        longitude: v.longitude,
-        is_verified: v.isVerified,
-        compliance_status: v.complianceStatus,
-        logo_url: v.logoUrl,
-        cover_image_url: v.coverImageUrl,
-        rating: v.rating,
-        owner_user_id: v.ownerUserId,
-        review_average: s?.review_average ?? 0,
-        review_count: s?.review_count ?? 0,
-        follower_count: fcMap.get(v.id) ?? 0,
-      };
+    const list = venues.map((v) => formatVenueListRow(v, stats, fcMap.get(v.id) ?? 0));
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Authenticated: venues owned by the current user (stable for business dashboard). */
+router.get('/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const where = { deletedAt: null, ownerUserId: req.userId };
+    const venues = await prisma.venue.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      take: 100,
     });
+    const stats = await safeVenueReviewStatsByVenueIds(venues.map((v) => v.id));
+    const fcMap = await safeVenueFollowerCountMap(venues.map((v) => v.id));
+    const list = venues.map((v) => formatVenueListRow(v, stats, fcMap.get(v.id) ?? 0));
     res.json(list);
   } catch (err) {
     next(err);
@@ -238,7 +247,7 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
 
-    const stats = await venueReviewStatsByVenueIds([venue.id]);
+    const stats = await safeVenueReviewStatsByVenueIds([venue.id]);
     const s = stats.get(venue.id);
 
     res.json({

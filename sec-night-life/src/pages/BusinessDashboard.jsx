@@ -104,8 +104,8 @@ export default function BusinessDashboard() {
 
   const { data: venues = [], isLoading: venuesLoading } = useQuery({
     queryKey: ['biz-venues', user?.id],
-    queryFn: () => dataService.Venue.filter({ owner_user_id: user.id }),
-    enabled: !!user,
+    queryFn: () => dataService.Venue.mine(),
+    enabled: !!user?.id,
   });
 
   const venue = venues[0];

@@ -245,9 +245,7 @@ export default function VenueOnboarding() {
   };
 
   const upsertVenue = async (venueData) => {
-    const existingVenues = user?.id
-      ? await dataService.Venue.filter({ owner_user_id: user.id }, undefined, 1)
-      : [];
+    const existingVenues = user?.id ? await dataService.Venue.mine() : [];
 
     if (existingVenues.length > 0) {
       return dataService.Venue.update(existingVenues[0].id, venueData);

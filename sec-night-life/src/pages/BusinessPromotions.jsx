@@ -656,7 +656,7 @@ export default function BusinessPromotions() {
 
   const { data: venues = [] } = useQuery({
     queryKey: ['promotions-venues', user?.id],
-    queryFn: () => dataService.Venue.filter({ owner_user_id: user.id }),
+    queryFn: () => dataService.Venue.mine(),
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,

@@ -177,8 +177,8 @@ export default function Profile() {
       let hasHost = false;
       if (!hasBusiness) {
         try {
-          const venues = await dataService.Venue.filter({ owner_user_id: user.id });
-          hasBusiness = venues.length > 0;
+          const venues = await dataService.Venue.mine();
+          hasBusiness = Array.isArray(venues) && venues.length > 0;
         } catch {}
       }
       try {

@@ -54,11 +54,19 @@ function adapterFor(entityName) {
   return createEntityAdapter(endpoint);
 }
 
+const venueAdapter = adapterFor('Venue');
+
 export const dataService = {
   User: adapterFor('User'),
   Event: adapterFor('Event'),
   Table: adapterFor('Table'),
-  Venue: adapterFor('Venue'),
+  /** Use `mine()` for the signed-in owner's venues (avoids client id / filter mismatches). */
+  Venue: {
+    ...venueAdapter,
+    async mine() {
+      return apiGet('/api/venues/mine');
+    },
+  },
   Job: adapterFor('Job'),
   Notification: adapterFor('Notification'),
   Chat: adapterFor('Chat'),

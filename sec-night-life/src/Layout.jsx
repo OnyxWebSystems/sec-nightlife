@@ -137,8 +137,8 @@ export default function Layout({ children, currentPageName }) {
       } catch {}
       if (!hasBusiness) {
         try {
-          const venues = await dataService.Venue.filter({ owner_user_id: currentUser.id });
-          hasBusiness = venues.length > 0;
+          const venues = await dataService.Venue.mine();
+          hasBusiness = Array.isArray(venues) && venues.length > 0;
         } catch {}
       }
       setUserRoles({ partygoer: true, host: true, business: hasBusiness });

@@ -48,7 +48,7 @@ export default function BusinessJobs() {
 
   const { data: venues = [] } = useQuery({
     queryKey: ['biz-jobs-venues'],
-    queryFn: () => dataService.Venue.filter({ owner_user_id: user.id }),
+    queryFn: () => dataService.Venue.mine(),
     enabled: !!user?.id,
   });
   const venue = Array.isArray(venues) ? venues[0] : null;

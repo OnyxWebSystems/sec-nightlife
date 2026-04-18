@@ -45,7 +45,7 @@ export default function BusinessBookings() {
 
   const { data: venues = [] } = useQuery({
     queryKey: ['biz-venues', user?.id],
-    queryFn: () => dataService.Venue.filter({ owner_user_id: user.id }),
+    queryFn: () => dataService.Venue.mine(),
     enabled: !!user,
   });
   const venue = venues[0];

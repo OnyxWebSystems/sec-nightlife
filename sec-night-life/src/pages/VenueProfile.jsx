@@ -103,7 +103,7 @@ export default function VenueProfile() {
         return apiGet(`/api/venues/${venueIdFromUrl}`);
       }
       if (currentUser?.id) {
-        const venues = await dataService.Venue.filter({ owner_user_id: currentUser.id });
+        const venues = await dataService.Venue.mine();
         return venues[0];
       }
       return undefined;
