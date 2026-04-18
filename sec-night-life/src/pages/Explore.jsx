@@ -43,10 +43,13 @@ export default function Explore() {
     },
   });
 
-  const filteredVenues = venues.filter(venue => 
-    venue.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    venue.city?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredVenues = venues.filter((venue) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      (venue.name ?? '').toLowerCase().includes(q) ||
+      (venue.city ?? '').toLowerCase().includes(q)
+    );
+  });
 
   const verifiedVenues = filteredVenues.filter(v => v.is_verified);
   const otherVenues = filteredVenues.filter(v => !v.is_verified);

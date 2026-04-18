@@ -930,13 +930,14 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       if (data.age_verified === true) {
         delete data.age_verified;
       }
-      if (
-        data.id_document_url &&
-        String(data.id_document_url).trim() !== '' &&
-        !isProfileVerificationSettled(existingProfile?.verificationStatus)
-      ) {
-        data.verification_status = 'submitted';
-      }
+    }
+    // Queue for admin review for any account (including staff) when a new ID file is on file.
+    if (
+      data.id_document_url &&
+      String(data.id_document_url).trim() !== '' &&
+      !isProfileVerificationSettled(existingProfile?.verificationStatus)
+    ) {
+      data.verification_status = 'submitted';
     }
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -1029,13 +1030,13 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       if (data.age_verified === true) {
         delete data.age_verified;
       }
-      if (
-        data.id_document_url &&
-        String(data.id_document_url).trim() !== '' &&
-        !isProfileVerificationSettled(profile?.verificationStatus)
-      ) {
-        data.verification_status = 'submitted';
-      }
+    }
+    if (
+      data.id_document_url &&
+      String(data.id_document_url).trim() !== '' &&
+      !isProfileVerificationSettled(profile?.verificationStatus)
+    ) {
+      data.verification_status = 'submitted';
     }
     const targetUserId = profile?.userId || id;
     if (id !== req.userId && targetUserId !== req.userId && !isStaff(req.userRole)) {

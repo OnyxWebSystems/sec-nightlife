@@ -143,7 +143,7 @@ export default function BusinessEvents() {
 
   const filtered = events
     .filter(e => statusFilter === 'all' || e.status === statusFilter)
-    .filter(e => !search || e.title?.toLowerCase().includes(search.toLowerCase()))
+    .filter(e => !search || (e.title ?? '').toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
   if (!user) return null;

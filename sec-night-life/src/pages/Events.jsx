@@ -58,9 +58,10 @@ export default function Events() {
     return withIndex.map((x) => x.item);
   };
 
-  const filteredEventsRaw = events.filter(event => {
-    const matchesSearch = event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         event.city?.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredEventsRaw = events.filter((event) => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = (event.title ?? '').toLowerCase().includes(q) ||
+                         (event.city ?? '').toLowerCase().includes(q);
     const venue = venuesMap[event.venue_id];
     const matchesVenueType = filters.venueType === 'all' || venue?.venue_type === filters.venueType;
     const matchesCity = filters.city === 'all' || event.city === filters.city;

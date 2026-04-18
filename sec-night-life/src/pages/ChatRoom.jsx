@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -30,21 +30,13 @@ export default function ChatRoom() {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [selectedReaction, setSelectedReaction] = useState(null);
   
-  const urlParams = new URLSearchParams(window.location.search);
-  const chatId = urlParams.get('id');
-  const tableId = urlParams.get('table');
+  const [searchParams] = useSearchParams();
+  const chatId = searchParams.get('id');
+  const tableId = searchParams.get('table');
 
   useEffect(() => {
     loadUser();
   }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, []);
-
-  useEffect(() => {
-    if (messages.length > 0) scrollToBottom();
-  }, [messages.length]);
 
   const loadUser = async () => {
     try {
@@ -112,6 +104,10 @@ export default function ChatRoom() {
     refetchInterval: 8000,
   });
 
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length]);
+
   const { data: participants = [] } = useQuery({
     queryKey: ['chat-participants', chat?.id, chat?.participants, chat?.related_table_id, chat?.relatedTableId],
     queryFn: async () => {
@@ -166,6 +162,7 @@ export default function ChatRoom() {
   const reactToMessageMutation = useMutation({
     mutationFn: async ({ messageId, reaction }) => {
       const msg = messages.find(m => m.id === messageId);
+      if (!msg) return;
       const reactions = msg.reactions || {};
       const userReactions = reactions[user.id] || [];
       

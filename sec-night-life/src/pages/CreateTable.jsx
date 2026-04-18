@@ -101,10 +101,13 @@ export default function CreateTable() {
     }, {});
   }, [venues]);
 
-  const filteredEvents = events.filter(event =>
-    event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    event.city?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredEvents = events.filter((event) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      (event.title ?? '').toLowerCase().includes(q) ||
+      (event.city ?? '').toLowerCase().includes(q)
+    );
+  });
 
   const selectedEvent = events.find(e => e.id === formData.event_id);
 

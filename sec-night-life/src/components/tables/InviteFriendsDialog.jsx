@@ -53,9 +53,10 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event }
     enabled: !!userProfile?.friends?.length,
   });
 
-  const filteredFriends = friends.filter(friend => {
-    const matchesSearch = friend.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         friend.full_name?.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredFriends = friends.filter((friend) => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = (friend.username ?? '').toLowerCase().includes(q) ||
+                         (friend.full_name ?? '').toLowerCase().includes(q);
     const notAlreadyMember = !table?.members?.some(m => m.user_id === friend.id);
     return matchesSearch && notAlreadyMember;
   });

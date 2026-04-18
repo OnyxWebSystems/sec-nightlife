@@ -42,10 +42,13 @@ export default function Map() {
 
   const venuesWithCoords = venues.filter(v => v.latitude && v.longitude);
 
-  const filteredItems = venuesWithCoords.filter(venue =>
-    venue.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    venue.city?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredItems = venuesWithCoords.filter((venue) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      (venue.name ?? '').toLowerCase().includes(q) ||
+      (venue.city ?? '').toLowerCase().includes(q)
+    );
+  });
 
   const modes = [
     { value: 'venues', label: 'Venues' },

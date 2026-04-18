@@ -144,7 +144,8 @@ export default function EditProfile() {
     }
     setIsSaving(true);
     try {
-      const updated = await apiPatch('/api/users/profile', {
+      const trimmedId = formData.id_document_url && String(formData.id_document_url).trim();
+      const payload = {
         full_name: formData.full_name.trim(),
         username: normalizedUsername,
         bio: formData.bio,
@@ -153,7 +154,11 @@ export default function EditProfile() {
         avatar_url: formData.avatar_url || null,
         date_of_birth: formData.date_of_birth || null,
         id_document_url: formData.id_document_url || null,
-      });
+      };
+      if (trimmedId) {
+        payload.verification_status = 'submitted';
+      }
+      const updated = await apiPatch('/api/users/profile', payload);
       setUserProfile((prev) => (prev ? { ...prev, ...updated } : prev));
       toast.success('Profile updated');
       navigate(createPageUrl('Profile'));

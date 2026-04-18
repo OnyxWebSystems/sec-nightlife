@@ -73,9 +73,10 @@ export default function Tables() {
     const venue = venuesMap[table.venue_id];
     
     // Search filter
-    const matchesSearch = 
-      table.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      event?.title?.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = searchQuery.toLowerCase();
+    const matchesSearch =
+      (table.name ?? '').toLowerCase().includes(q) ||
+      (event?.title ?? '').toLowerCase().includes(q);
     
     // City filter
     if (filters.city !== 'all' && event?.city !== filters.city) {
@@ -91,7 +92,8 @@ export default function Tables() {
     }
 
     // Date range filter
-    if (filters.dateRange !== 'all' && event?.date) {
+    if (filters.dateRange !== 'all') {
+      if (!event?.date) return false;
       const eventDate = parseISO(event.date);
       if (filters.dateRange === 'tonight' && !isToday(eventDate)) return false;
       if (filters.dateRange === 'weekend' && !isThisWeekend(eventDate)) return false;
@@ -103,7 +105,8 @@ export default function Tables() {
     }
 
     // Quick filter
-    if (selectedFilter === 'tonight' && event?.date) {
+    if (selectedFilter === 'tonight') {
+      if (!event?.date) return false;
       return matchesSearch && isToday(parseISO(event.date));
     }
     if (selectedFilter === 'low_spend') {

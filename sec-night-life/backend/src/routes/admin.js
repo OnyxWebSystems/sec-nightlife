@@ -13,6 +13,7 @@ import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { sendIdVerificationApprovedEmail } from '../lib/email.js';
 import { requireSuperAdmin } from '../middleware/complianceReviewer.js';
 import { getPromotersLeaderboard } from '../lib/leaderboard.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
 
@@ -765,6 +766,60 @@ router.delete('/delegates/:delegateId', requireSuperAdmin, async (req, res, next
 
 router.get('/dashboard', async (req, res, next) => {
   try {
+    const dashboardQueries = [
+      { name: 'totalUsers', run: () => prisma.user.count({ where: { deletedAt: null } }), fallback: 0 },
+      { name: 'suspendedUsers', run: () => prisma.user.count({ where: { suspendedAt: { not: null }, deletedAt: null } }), fallback: 0 },
+      { name: 'pendingReports', run: () => prisma.report.count({ where: { status: 'pending' } }), fallback: 0 },
+      { name: 'criticalReports', run: () => prisma.report.count({ where: { status: 'pending', priority: 'critical' } }), fallback: 0 },
+      { name: 'highReports', run: () => prisma.report.count({ where: { status: 'pending', priority: 'high' } }), fallback: 0 },
+      { name: 'totalVenues', run: () => prisma.venue.count({ where: { deletedAt: null } }), fallback: 0 },
+      { name: 'pendingVenues', run: () => prisma.venue.count({ where: { complianceStatus: 'pending', deletedAt: null } }), fallback: 0 },
+      {
+        name: 'pendingUserVerifications',
+        run: () =>
+          prisma.userProfile.count({
+            where: {
+              AND: [
+                { NOT: { verificationStatus: { in: ['verified', 'approved', 'rejected'] } } },
+                {
+                  OR: [
+                    { verificationStatus: 'submitted' },
+                    { AND: [{ verificationStatus: 'pending' }, { idDocumentUrl: { not: null } }] },
+                  ],
+                },
+              ],
+            },
+          }),
+        fallback: 0,
+      },
+      {
+        name: 'paymentsAggregate',
+        run: () =>
+          prisma.payment.aggregate({ where: { status: 'success' }, _sum: { amount: true }, _count: true }),
+        fallback: { _sum: { amount: null }, _count: 0 },
+      },
+      {
+        name: 'recentAuditLogs',
+        run: () =>
+          prisma.auditLog.findMany({
+            orderBy: { createdAt: 'desc' },
+            take: 10,
+            include: { user: { select: { email: true } } },
+          }),
+        fallback: [],
+      },
+    ];
+
+    const settled = await Promise.allSettled(dashboardQueries.map((q) => q.run()));
+    const values = settled.map((result, i) => {
+      if (result.status === 'fulfilled') return result.value;
+      logger.warn('admin dashboard query failed', {
+        query: dashboardQueries[i].name,
+        err: String(result.reason?.message || result.reason),
+      });
+      return dashboardQueries[i].fallback;
+    });
+
     const [
       totalUsers,
       suspendedUsers,
@@ -775,45 +830,23 @@ router.get('/dashboard', async (req, res, next) => {
       pendingVenues,
       pendingUserVerifications,
       totalPaymentsSuccess,
-      recentAuditLogs
-    ] = await Promise.all([
-      prisma.user.count({ where: { deletedAt: null } }),
-      prisma.user.count({ where: { suspendedAt: { not: null }, deletedAt: null } }),
-      prisma.report.count({ where: { status: 'pending' } }),
-      prisma.report.count({ where: { status: 'pending', priority: 'critical' } }),
-      prisma.report.count({ where: { status: 'pending', priority: 'high' } }),
-      prisma.venue.count({ where: { deletedAt: null } }),
-      prisma.venue.count({ where: { complianceStatus: 'pending', deletedAt: null } }),
-      prisma.userProfile.count({
-        where: {
-          AND: [
-            { NOT: { verificationStatus: { in: ['verified', 'approved', 'rejected'] } } },
-            {
-              OR: [
-                { verificationStatus: 'submitted' },
-                { AND: [{ verificationStatus: 'pending' }, { idDocumentUrl: { not: null } }] },
-              ],
-            },
-          ],
-        },
-      }),
-      prisma.payment.aggregate({ where: { status: 'success' }, _sum: { amount: true }, _count: true }),
-      prisma.auditLog.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        include: { user: { select: { email: true } } }
-      })
-    ]);
+      recentAuditLogs,
+    ] = values;
 
     res.json({
       stats: {
-        totalUsers, suspendedUsers, pendingReports, totalVenues, pendingVenues,
-        criticalReports, highReports,
+        totalUsers,
+        suspendedUsers,
+        pendingReports,
+        totalVenues,
+        pendingVenues,
+        criticalReports,
+        highReports,
         pendingUserVerifications,
-        totalPaymentAmount: totalPaymentsSuccess._sum.amount ?? 0,
+        totalPaymentAmount: totalPaymentsSuccess._sum?.amount ?? 0,
         totalPaymentCount: totalPaymentsSuccess._count ?? 0,
       },
-      recentActivity: recentAuditLogs
+      recentActivity: recentAuditLogs,
     });
   } catch (err) {
     next(err);

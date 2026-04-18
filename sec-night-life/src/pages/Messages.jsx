@@ -65,7 +65,7 @@ export default function Messages() {
 
   const filtered = combined.filter((c) => {
     const q = searchQuery.toLowerCase();
-    const matches = !q || c.name?.toLowerCase().includes(q) || c.sub?.toLowerCase().includes(q);
+    const matches = !q || (c.name ?? '').toLowerCase().includes(q) || (c.sub ?? '').toLowerCase().includes(q);
     if (selectedTab === 'direct') return matches && c.kind === 'dm';
     if (selectedTab === 'groups') return matches && c.kind === 'group';
     return matches;

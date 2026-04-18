@@ -311,8 +311,9 @@ export default function Home() {
     }
   );
   const filteredVenues = venues.filter(venue => {
-    const matchesSearch = venue.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         venue.city?.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = (venue.name ?? '').toLowerCase().includes(q) ||
+                         (venue.city ?? '').toLowerCase().includes(q);
     const matchesCity = selectedCity === 'all' || venue.city === selectedCity;
     const matchesType = selectedVenueType === 'all' || venue.venue_type === selectedVenueType;
     return matchesSearch && matchesCity && matchesType;

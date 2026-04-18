@@ -102,8 +102,9 @@ export default function AdminDashboard() {
       if (filters.category) qs.set('category', filters.category);
       const res = await apiGet(`/api/admin/reports?${qs.toString()}`);
       setReports(res?.reports || []);
-    } catch {
+    } catch (err) {
       setReports([]);
+      toast.error(`Could not load reports${err?.message ? `: ${err.message}` : ''}`);
     }
   };
 
@@ -130,25 +131,51 @@ export default function AdminDashboard() {
         const shouldLoadAdminQueues = canAdminDashboard;
         const isSuperAdminUser = !!(access?.isSuperAdmin || u?.role === 'SUPER_ADMIN');
         if (shouldLoadAdminQueues) {
-          const [dashboardRes, paymentsRes, usersRes, venuesRes] = await Promise.all([
-            apiGet('/api/admin/dashboard'),
-            apiGet('/api/admin/payments?limit=20'),
-            apiGet('/api/admin/verification/users?status=pending&limit=20'),
-            apiGet('/api/admin/verification/venues?status=pending&limit=20'),
-          ]);
-          setStats(dashboardRes?.stats || {});
-          setPayments(paymentsRes?.payments || []);
-          setUserVerifications(usersRes?.profiles || []);
-          setVenueVerifications(venuesRes?.venues || []);
+          const adminEndpoints = [
+            { key: 'dashboard', label: 'dashboard stats', fetch: () => apiGet('/api/admin/dashboard') },
+            { key: 'payments', label: 'payments', fetch: () => apiGet('/api/admin/payments?limit=20') },
+            { key: 'users', label: 'ID verification queue', fetch: () => apiGet('/api/admin/verification/users?status=pending&limit=20') },
+            { key: 'venues', label: 'venue compliance queue', fetch: () => apiGet('/api/admin/verification/venues?status=pending&limit=20') },
+          ];
+          const settled = await Promise.allSettled(adminEndpoints.map((e) => e.fetch()));
+          settled.forEach((result, i) => {
+            const { label } = adminEndpoints[i];
+            if (result.status === 'fulfilled') {
+              const data = result.value;
+              switch (adminEndpoints[i].key) {
+                case 'dashboard':
+                  setStats(data?.stats || {});
+                  break;
+                case 'payments':
+                  setPayments(data?.payments || []);
+                  break;
+                case 'users':
+                  setUserVerifications(data?.profiles || []);
+                  break;
+                case 'venues':
+                  setVenueVerifications(data?.venues || []);
+                  break;
+                default:
+                  break;
+              }
+            } else {
+              const err = result.reason;
+              const msg = err?.message || String(err);
+              toast.error(`Could not load ${label}${msg ? `: ${msg}` : ''}`);
+            }
+          });
           if (isSuperAdminUser) {
-            try {
-              const flaggedRes = await apiGet('/api/reviews/admin/flagged');
+            const flaggedSettled = await Promise.allSettled([apiGet('/api/reviews/admin/flagged')]);
+            if (flaggedSettled[0].status === 'fulfilled') {
+              const flaggedRes = flaggedSettled[0].value;
               setFlaggedReviews({
                 userReviews: flaggedRes?.userReviews || [],
                 venueReviews: flaggedRes?.venueReviews || [],
               });
-            } catch {
+            } else {
               setFlaggedReviews({ userReviews: [], venueReviews: [] });
+              const err = flaggedSettled[0].reason;
+              toast.error(`Could not load flagged reviews${err?.message ? `: ${err.message}` : ''}`);
             }
             await loadReports();
           }
