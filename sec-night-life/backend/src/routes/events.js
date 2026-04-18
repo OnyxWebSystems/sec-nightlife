@@ -13,6 +13,11 @@ const timeHHMM = z.preprocess(
   z.union([z.string().regex(/^\d{2}:\d{2}$/), z.null()]).optional()
 );
 
+const tablePricingTierSchema = z.object({
+  max_guests: z.number().int().min(1).max(500),
+  min_spend: z.number().min(0),
+});
+
 const eventFields = {
   venue_id: z.string().uuid(),
   title: z.string().min(1).max(300),
@@ -27,6 +32,8 @@ const eventFields = {
   start_time: timeHHMM,
   has_entrance_fee: z.boolean().optional(),
   entrance_fee_amount: z.number().min(0).optional().nullable(),
+  max_hosted_tables: z.number().int().min(1).optional().nullable(),
+  table_pricing_tiers: z.array(tablePricingTierSchema).optional().nullable(),
 };
 
 const eventSchema = z.object(eventFields);
@@ -46,6 +53,8 @@ function mapEventRow(e) {
     start_time: e.startTime,
     has_entrance_fee: e.hasEntranceFee,
     entrance_fee_amount: e.entranceFeeAmount,
+    max_hosted_tables: e.maxHostedTables ?? null,
+    table_pricing_tiers: e.tablePricingTiers ?? null,
   };
 }
 
@@ -70,7 +79,47 @@ function sortEventsByFollowThenDate(events, followedSet, sortDesc) {
   });
 }
 
-function mapEventDetail(event) {
+async function computeEventStats(eventId, maxHostedTables) {
+  const [goingCount, tableRows] = await Promise.all([
+    prisma.eventAttendance.count({ where: { eventId, confirmed: true } }),
+    prisma.table.findMany({
+      where: { eventId, deletedAt: null },
+      select: { status: true, maxGuests: true, currentGuests: true, isPublic: true },
+    }),
+  ]);
+  const hostedTables = tableRows.length;
+  const tablesRemaining =
+    maxHostedTables != null ? Math.max(0, maxHostedTables - hostedTables) : null;
+
+  const isFull = (t) => t.status === 'full' || t.currentGuests >= t.maxGuests;
+  const hasJoinSpace = (t) => t.isPublic && !isFull(t);
+
+  let tablesFull = 0;
+  let tablesFullPublic = 0;
+  let tablesFullPrivate = 0;
+  let tablesWithJoinSpace = 0;
+  for (const t of tableRows) {
+    const full = isFull(t);
+    if (full) {
+      tablesFull++;
+      if (t.isPublic) tablesFullPublic++;
+      else tablesFullPrivate++;
+    }
+    if (hasJoinSpace(t)) tablesWithJoinSpace++;
+  }
+
+  return {
+    going_count: goingCount,
+    hosted_tables: hostedTables,
+    tables_remaining: tablesRemaining,
+    tables_full: tablesFull,
+    tables_full_public: tablesFullPublic,
+    tables_full_private: tablesFullPrivate,
+    tables_with_join_space: tablesWithJoinSpace,
+  };
+}
+
+function mapEventDetail(event, stats = null) {
   return {
     id: event.id,
     title: event.title,
@@ -86,6 +135,10 @@ function mapEventDetail(event) {
     start_time: event.startTime,
     has_entrance_fee: event.hasEntranceFee,
     entrance_fee_amount: event.entranceFeeAmount,
+    max_hosted_tables: event.maxHostedTables ?? null,
+    table_pricing_tiers: event.tablePricingTiers ?? null,
+    ...(stats ? { stats } : {}),
+    total_attending: stats?.going_count ?? 0,
   };
 }
 
@@ -162,7 +215,8 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
         return res.status(403).json({ error: 'Forbidden' });
       }
     }
-    res.json(mapEventDetail(event));
+    const stats = await computeEventStats(event.id, event.maxHostedTables);
+    res.json(mapEventDetail(event, stats));
   } catch (err) {
     next(err);
   }
@@ -194,6 +248,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
         startTime: d.start_time ?? null,
         hasEntranceFee: hasFee,
         entranceFeeAmount: hasFee ? d.entrance_fee_amount : null,
+        maxHostedTables: d.max_hosted_tables ?? null,
+        tablePricingTiers: d.table_pricing_tiers ?? null,
       },
     });
     ensureGroupChatForEvent(event.id, event.title, req.userId).catch((e) => {
@@ -238,6 +294,12 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       }
       updates.hasEntranceFee = nextHasFee;
       updates.entranceFeeAmount = nextHasFee ? nextAmount : null;
+    }
+    if (d.max_hosted_tables !== undefined) {
+      updates.maxHostedTables = d.max_hosted_tables;
+    }
+    if (d.table_pricing_tiers !== undefined) {
+      updates.tablePricingTiers = d.table_pricing_tiers;
     }
 
     const updated = await prisma.event.update({ where: { id: event.id }, data: updates });

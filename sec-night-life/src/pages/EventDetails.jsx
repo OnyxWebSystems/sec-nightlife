@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
+import { apiGet } from '@/api/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -42,10 +43,7 @@ export default function EventDetails() {
 
   const { data: event, isLoading } = useQuery({
     queryKey: ['event', eventId],
-    queryFn: async () => {
-      const events = await dataService.Event.filter({ id: eventId });
-      return events[0];
-    },
+    queryFn: () => apiGet(`/api/events/${eventId}`),
     enabled: !!eventId,
   });
 
@@ -253,7 +251,11 @@ export default function EventDetails() {
               { icon: Calendar, label: 'Date', value: getDateLabel() },
               { icon: Clock, label: 'Time', value: event.start_time || 'TBA' },
               { icon: MapPin, label: 'Location', value: event.city || venue?.city || 'TBA' },
-              { icon: Users, label: 'Going', value: `${event.total_attending || 0} people` },
+              {
+                icon: Users,
+                label: 'Going',
+                value: `${event.stats?.going_count ?? event.total_attending ?? 0} people`,
+              },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{
@@ -271,6 +273,51 @@ export default function EventDetails() {
             ))}
           </div>
         </div>
+
+        {event.stats && (
+          <div className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Tables & attendance</h2>
+            <div style={{ display: 'grid', gap: 10, fontSize: 13, color: 'var(--sec-text-muted)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>Hosted tables</span>
+                <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.hosted_tables}</span>
+              </div>
+              {event.max_hosted_tables != null && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span>Table slots left</span>
+                  <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.tables_remaining ?? 0}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>Open to join (public)</span>
+                <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.tables_with_join_space}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>Tables full (total)</span>
+                <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>{event.stats.tables_full}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+                <span>Full — public / private</span>
+                <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>
+                  {event.stats.tables_full_public} / {event.stats.tables_full_private}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {Array.isArray(event.table_pricing_tiers) && event.table_pricing_tiers.length > 0 && (
+          <div className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)' }}>Venue table options</h2>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--sec-text-muted)', lineHeight: 1.6 }}>
+              {event.table_pricing_tiers.map((t, i) => (
+                <li key={i}>
+                  Up to {t.max_guests} guests · min spend R{Number(t.min_spend).toLocaleString()}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {event.has_entrance_fee && event.entrance_fee_amount != null && (
           <div className="sec-card" style={{

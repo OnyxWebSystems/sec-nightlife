@@ -21,7 +21,6 @@ import {
   UserCheck,
   ChevronLeft,
   MessageCircle,
-  Crown,
   Building2,
   Briefcase
 } from 'lucide-react';
@@ -471,47 +470,27 @@ export default function Profile() {
           )}
 
           {/* Create additional roles - only on own profile */}
-          {isOwnProfile && (!userRoles.host || !userRoles.business) && (
+          {isOwnProfile && !userRoles.business && (
             <div className="pt-4 border-t border-[#262629]">
               <h3 className="font-semibold mb-3 text-sm text-gray-400">Account Types</h3>
               <p className="text-xs text-gray-500 mb-3">Create additional account types to unlock more features.</p>
               <div className="flex flex-col gap-3">
-                {!userRoles.host && (
-                  <Link
-                    to={createPageUrl('CreateTable')}
-                    className="flex items-center gap-4 p-4 rounded-xl border transition-all"
-                    style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--sec-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-elevated)'; }}
-                  >
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
-                      <Crown className="w-6 h-6" style={{ color: 'var(--sec-accent)' }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold">Create Host Account</p>
-                      <p className="text-xs text-gray-500">Host events and manage tables. Create and manage your own events.</p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
-                  </Link>
-                )}
-                {!userRoles.business && (
-                  <Link
-                    to={createPageUrl('VenueOnboarding')}
-                    className="flex items-center gap-4 p-4 rounded-xl border transition-all"
-                    style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--sec-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-elevated)'; }}
-                  >
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
-                      <Building2 className="w-6 h-6" style={{ color: 'var(--sec-accent)' }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold">Create Business Account</p>
-                      <p className="text-xs text-gray-500">Manage venues, promote events, post jobs, and handle bookings.</p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
-                  </Link>
-                )}
+                <Link
+                  to={createPageUrl('VenueOnboarding')}
+                  className="flex items-center gap-4 p-4 rounded-xl border transition-all"
+                  style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--sec-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-elevated)'; }}
+                >
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
+                    <Building2 className="w-6 h-6" style={{ color: 'var(--sec-accent)' }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold">Create Business Account</p>
+                    <p className="text-xs text-gray-500">Manage venues, promote events, post jobs, and handle bookings.</p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                </Link>
               </div>
             </div>
           )}

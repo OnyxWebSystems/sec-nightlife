@@ -930,6 +930,10 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       if (data.age_verified === true) {
         delete data.age_verified;
       }
+      const v = existingProfile?.verificationStatus;
+      if (v === 'verified' || v === 'approved') {
+        delete data.verification_status;
+      }
     }
     // Queue for admin review for any account (including staff) when a new ID file is on file.
     if (
@@ -1029,6 +1033,10 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       }
       if (data.age_verified === true) {
         delete data.age_verified;
+      }
+      const pv = profile?.verificationStatus;
+      if (pv === 'verified' || pv === 'approved') {
+        delete data.verification_status;
       }
     }
     if (

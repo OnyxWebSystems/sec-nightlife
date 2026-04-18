@@ -155,8 +155,14 @@ export default function EditProfile() {
         date_of_birth: formData.date_of_birth || null,
         id_document_url: formData.id_document_url || null,
       };
-      if (trimmedId) {
-        payload.verification_status = 'submitted';
+      const vs = userProfile?.verification_status;
+      const alreadyVerified = vs === 'verified' || vs === 'approved';
+      const prevId = (userProfile?.id_document_url || '').trim();
+      const idDocumentChanged = Boolean(trimmedId && trimmedId !== prevId);
+      if (trimmedId && !alreadyVerified) {
+        if (vs === 'rejected' || vs === 'pending' || !vs || vs === 'submitted' || idDocumentChanged) {
+          payload.verification_status = 'submitted';
+        }
       }
       const updated = await apiPatch('/api/users/profile', payload);
       setUserProfile((prev) => (prev ? { ...prev, ...updated } : prev));

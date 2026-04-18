@@ -14,6 +14,7 @@ import { sendIdVerificationApprovedEmail } from '../lib/email.js';
 import { requireSuperAdmin } from '../middleware/complianceReviewer.js';
 import { getPromotersLeaderboard } from '../lib/leaderboard.js';
 import { logger } from '../lib/logger.js';
+import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
 
 const router = Router();
 
@@ -429,8 +430,23 @@ router.patch('/verification/users/:userId', async (req, res, next) => {
       note: z.string().max(500).optional().nullable(),
     }).parse(req.body);
 
+    const userId = req.params.userId;
+    const existing = await prisma.userProfile.findUnique({
+      where: { userId },
+      select: { id: true, userId: true, verificationStatus: true },
+    });
+    if (!existing) return res.status(404).json({ error: 'Profile not found' });
+
+    if (status === 'verified' && isIdentityVerifiedStatus(existing.verificationStatus)) {
+      return res.json({
+        success: true,
+        alreadyVerified: true,
+        profile: { userId: existing.userId, verificationStatus: existing.verificationStatus },
+      });
+    }
+
     const profile = await prisma.userProfile.update({
-      where: { userId: req.params.userId },
+      where: { userId },
       data: {
         verificationStatus: status,
         verificationRejectionNote: status === 'rejected' ? (note || null) : null,

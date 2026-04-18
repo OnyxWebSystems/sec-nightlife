@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
+import { apiGet } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
 import { 
   Users,
@@ -111,31 +112,39 @@ export default function CreateTable() {
 
   const selectedEvent = events.find(e => e.id === formData.event_id);
 
+  const { data: eventDetail } = useQuery({
+    queryKey: ['event-detail', formData.event_id],
+    queryFn: () => apiGet(`/api/events/${formData.event_id}`),
+    enabled: !!formData.event_id,
+  });
+  const stats = eventDetail?.stats;
+
   const identityOk = isIdentityVerifiedUser(user, userProfile);
+
+  const atTableCapacity =
+    eventDetail?.max_hosted_tables != null && stats && stats.tables_remaining === 0;
 
   const handleSubmit = async () => {
     if (!identityOk) {
       toast.error('Verify your identity in Profile before hosting a table.');
       return;
     }
+    if (atTableCapacity) {
+      toast.error('This event has no table slots left.');
+      return;
+    }
     setIsSubmitting(true);
 
     try {
-      const tableData = {
-        ...formData,
-        host_user_id: userProfile?.id,
+      const table = await dataService.Table.create({
+        event_id: formData.event_id,
         venue_id: selectedEvent?.venue_id,
-        status: 'open',
-        current_guests: 1,
-        members: [{
-          user_id: userProfile?.id,
-          status: 'confirmed',
-          joined_at: new Date().toISOString(),
-          contribution: 0
-        }]
-      };
-
-      const table = await dataService.Table.create(tableData);
+        name: formData.name,
+        max_guests: formData.max_guests,
+        min_spend: formData.min_spend,
+        joining_fee: formData.joining_fee,
+        is_public: formData.is_public,
+      });
       
       await dataService.Chat.create({
         type: 'table',
@@ -150,7 +159,8 @@ export default function CreateTable() {
       setShowSuccessDialog(true);
     } catch (error) {
       console.error('Failed to create table:', error);
-      alert('Failed to create table. Please try again.');
+      const msg = error?.data?.error || error?.message || 'Failed to create table.';
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -263,6 +273,9 @@ export default function CreateTable() {
               exit={{ opacity: 0, x: -20 }}
             >
               <h2 className="text-lg font-semibold mb-4">Select an Event</h2>
+              <p className="text-xs text-gray-500 mb-3">
+                After you pick an event, you&apos;ll see how many people are going, table slots left, and full tables.
+              </p>
               
               <div className="relative mb-4">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -309,6 +322,11 @@ export default function CreateTable() {
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold truncate">{event.title}</h3>
                         {venue && <p className="text-sm text-gray-500">{venue.name}</p>}
+                        {event.max_hosted_tables != null && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Venue cap: {event.max_hosted_tables} hosted table{event.max_hosted_tables === 1 ? '' : 's'}
+                          </p>
+                        )}
                         <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
@@ -344,6 +362,48 @@ export default function CreateTable() {
               className="space-y-6"
             >
               <h2 className="text-lg font-semibold">Table Details</h2>
+
+              {stats && (
+                <div
+                  className="rounded-xl p-4 mb-4 text-sm"
+                  style={{
+                    backgroundColor: 'var(--sec-bg-card)',
+                    border: '1px solid var(--sec-border)',
+                    color: 'var(--sec-text-secondary)',
+                  }}
+                >
+                  <p className="font-semibold text-[var(--sec-text-primary)] mb-2">Event snapshot</p>
+                  <div className="grid gap-1.5 text-xs sm:text-sm">
+                    <span>Going: {stats.going_count} people</span>
+                    <span>Hosted tables: {stats.hosted_tables}</span>
+                    {eventDetail?.max_hosted_tables != null && (
+                      <span>Table slots left: {stats.tables_remaining ?? 0}</span>
+                    )}
+                    <span>Public tables open to join: {stats.tables_with_join_space}</span>
+                    <span>
+                      Tables full: {stats.tables_full} (public {stats.tables_full_public} · private{' '}
+                      {stats.tables_full_private})
+                    </span>
+                  </div>
+                  {atTableCapacity && (
+                    <p className="mt-3 text-amber-400 text-xs font-medium">
+                      No table slots left for this event — choose another event or contact the venue.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {Array.isArray(eventDetail?.table_pricing_tiers) && eventDetail.table_pricing_tiers.length > 0 && (
+                <div className="mb-4 text-xs text-gray-500">
+                  <span className="text-gray-400 font-medium">Venue pricing guide: </span>
+                  {eventDetail.table_pricing_tiers.map((t, i) => (
+                    <span key={i}>
+                      {i > 0 ? ' · ' : ''}
+                      {t.max_guests} guests from R{Number(t.min_spend).toLocaleString()}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               <div>
                 <Label className="text-gray-400 text-sm">Table Name</Label>
@@ -426,6 +486,21 @@ export default function CreateTable() {
               className="space-y-6"
             >
               <h2 className="text-lg font-semibold">Spending Rules</h2>
+
+              {stats && (
+                <div
+                  className="rounded-xl p-3 mb-4 text-xs"
+                  style={{
+                    backgroundColor: 'var(--sec-bg-card)',
+                    border: '1px solid var(--sec-border)',
+                    color: 'var(--sec-text-secondary)',
+                  }}
+                >
+                  Going {stats.going_count} · Slots left{' '}
+                  {eventDetail?.max_hosted_tables != null ? stats.tables_remaining ?? 0 : '—'} · Full tables{' '}
+                  {stats.tables_full}
+                </div>
+              )}
 
               <div className="sec-card rounded-xl p-4">
                 <div className="flex items-start gap-3 mb-4">
@@ -530,11 +605,14 @@ export default function CreateTable() {
               onClick={() => {
                 if (step === 1 && formData.event_id) {
                   setStep(2);
-                } else if (step === 2 && formData.name) {
+                } else if (step === 2 && formData.name && !atTableCapacity) {
                   setStep(3);
                 }
               }}
-              disabled={step === 1 && !formData.event_id || step === 2 && !formData.name}
+              disabled={
+                (step === 1 && !formData.event_id) ||
+                (step === 2 && (!formData.name || atTableCapacity))
+              }
               style={{ flex: 1, height: 56, borderRadius: 12, backgroundColor: 'var(--sec-text-primary)', color: 'var(--sec-bg-base)', fontWeight: 600 }}
               className="disabled:opacity-50"
             >

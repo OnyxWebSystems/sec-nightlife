@@ -32,7 +32,8 @@ const tableCreateSchema = z.object({
   name: z.string().min(1).max(200),
   max_guests: z.number().int().min(1).max(500),
   min_spend: z.number().min(0).optional(),
-  joining_fee: z.number().min(0).optional()
+  joining_fee: z.number().min(0).optional(),
+  is_public: z.boolean().optional(),
 });
 
 function formatTable(t) {
@@ -47,6 +48,7 @@ function formatTable(t) {
     current_guests: t.currentGuests,
     min_spend: t.minSpend,
     joining_fee: t.joiningFee,
+    is_public: t.isPublic ?? true,
     members: t.members,
     pending_requests: t.pendingRequests,
     created_date: t.createdAt.toISOString()
@@ -214,6 +216,18 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
     if (!event) return res.status(404).json({ error: 'Event not found' });
     if (event.venueId !== data.venue_id) return res.status(400).json({ error: 'Venue does not match event' });
 
+    if (event.maxHostedTables != null) {
+      const existingCount = await prisma.table.count({
+        where: { eventId: data.event_id, deletedAt: null },
+      });
+      if (existingCount >= event.maxHostedTables) {
+        return res.status(400).json({
+          error: 'This event has reached the maximum number of hosted tables set by the venue.',
+          code: 'EVENT_TABLES_FULL',
+        });
+      }
+    }
+
     const table = await prisma.table.create({
       data: {
         eventId: data.event_id,
@@ -222,7 +236,8 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
         name: data.name,
         maxGuests: data.max_guests,
         minSpend: data.min_spend,
-        joiningFee: data.joining_fee
+        joiningFee: data.joining_fee,
+        isPublic: data.is_public !== undefined ? data.is_public : true,
       }
     });
 
@@ -732,7 +747,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       status: z.enum(['open', 'full', 'closed']).optional(),
       max_guests: z.number().int().min(1).max(500).optional(),
       min_spend: z.number().min(0).optional(),
-      joining_fee: z.number().min(0).optional()
+      joining_fee: z.number().min(0).optional(),
+      is_public: z.boolean().optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
@@ -744,6 +760,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.max_guests != null) updates.maxGuests = data.max_guests;
     if (data.min_spend != null) updates.minSpend = data.min_spend;
     if (data.joining_fee != null) updates.joiningFee = data.joining_fee;
+    if (data.is_public !== undefined) updates.isPublic = data.is_public;
 
     const updated = await prisma.table.update({ where: { id: table.id }, data: updates });
 
