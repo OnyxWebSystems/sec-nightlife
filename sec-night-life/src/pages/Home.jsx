@@ -200,7 +200,8 @@ export default function Home() {
       setPromotionPage(page);
       const total = typeof data?.total === 'number' ? data.total : 0;
       setHasMorePromotions(page * 10 < total);
-      incoming.forEach((promo) => {
+      // Avoid N concurrent VIEW requests per page (hurts performance on slow networks).
+      incoming.slice(0, 8).forEach((promo) => {
         void apiPost(`/api/promotions/${promo.id}/track`, { type: 'VIEW', sessionId }, { skipAuth: false }).catch(() => {});
       });
     } catch {
@@ -245,10 +246,17 @@ export default function Home() {
     try {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) setUserProfile(profiles[0]);
-    } catch (e) { setUser(null); }
-    finally { setLoading(false); }
+      try {
+        const profiles = await dataService.User.filter({ created_by: currentUser.email });
+        if (profiles.length > 0) setUserProfile(profiles[0]);
+      } catch {
+        // Profile fetch must not sign the user out — only /auth/me failures should.
+      }
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const { data: events = [] } = useQuery({

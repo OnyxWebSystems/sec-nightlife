@@ -66,6 +66,7 @@ export default function Layout({ children, currentPageName }) {
   useEffect(() => {
     if (!user?.id) return undefined;
     const tick = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       try {
         const rows = await apiGet('/api/notifications?limit=100');
         const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
@@ -87,8 +88,15 @@ export default function Layout({ children, currentPageName }) {
       } catch {}
     };
     tick();
-    const timer = window.setInterval(tick, 30000);
-    return () => clearInterval(timer);
+    const timer = window.setInterval(tick, 45000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [user?.id]);
 
   const loadUser = async () => {

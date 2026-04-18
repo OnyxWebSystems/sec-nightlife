@@ -49,9 +49,10 @@ export default function Tables() {
     queryFn: () => dataService.Event.filter({ status: 'published' }),
   });
 
+  // Include non-approved venues so tables tied to pending compliance still resolve venue names.
   const { data: venues = [] } = useQuery({
-    queryKey: ['venues'],
-    queryFn: () => dataService.Venue.filter({ compliance_status: 'approved' }),
+    queryKey: ['venues-for-tables'],
+    queryFn: () => dataService.Venue.filter({}, '-rating', 100),
   });
 
   const eventsMap = events.reduce((acc, event) => {

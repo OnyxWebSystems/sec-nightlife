@@ -36,7 +36,7 @@ export default function Explore() {
   const { data: venues = [], isLoading } = useQuery({
     queryKey: ['venues', selectedType, selectedCity],
     queryFn: async () => {
-      const filter = { compliance_status: 'approved' };
+      const filter = {};
       if (selectedType !== 'all') filter.venue_type = selectedType;
       if (selectedCity) filter.city = selectedCity;
       return dataService.Venue.filter(filter, '-rating', 50);

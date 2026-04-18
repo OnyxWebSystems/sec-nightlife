@@ -109,7 +109,7 @@ export default function ChatRoom() {
     queryKey: ['messages', chat?.id],
     queryFn: () => dataService.Message.filter({ chat_id: chat.id }, 'created_date', 500),
     enabled: !!chat?.id,
-    refetchInterval: 2000,
+    refetchInterval: 8000,
   });
 
   const { data: participants = [] } = useQuery({
