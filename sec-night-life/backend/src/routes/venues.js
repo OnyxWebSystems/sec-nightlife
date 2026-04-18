@@ -123,9 +123,6 @@ router.get('/', optionalAuth, async (req, res, next) => {
     const where = { deletedAt: null };
     if (city) where.city = String(city);
     if (compliance_status) where.complianceStatus = compliance_status;
-    if (req.userId && req.userRole === 'VENUE') {
-      where.ownerUserId = req.userId;
-    }
 
     const venues = await prisma.venue.findMany({
       where,
@@ -153,9 +150,6 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     if (owner_user_id) where.ownerUserId = String(owner_user_id);
     if (compliance_status) where.complianceStatus = compliance_status;
     if (venue_type) where.venueType = String(venue_type);
-    if (req.userId && req.userRole === 'VENUE' && !isStaff(req.userRole)) {
-      where.ownerUserId = req.userId;
-    }
 
     const orderBy = sort === '-rating' ? { rating: 'desc' } : { name: 'asc' };
     const venues = await prisma.venue.findMany({
@@ -175,7 +169,14 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
   }
 });
 
-/** Authenticated: venues owned by the current user (stable for business dashboard). */
+/**
+ * Authenticated: venues owned by the current user (stable for business dashboard).
+ *
+ * If the UI shows "No Venue Registered" but rows exist in Neon, verify linkage (not Prisma connectivity):
+ *   SELECT id, email, role FROM users WHERE email ILIKE '%you@example.com%';
+ *   SELECT id, name, owner_user_id, deleted_at FROM venues WHERE name ILIKE '%your venue%';
+ *   Expect venues.owner_user_id = users.id for your login.
+ */
 router.get('/mine', authenticateToken, async (req, res, next) => {
   try {
     const where = { deletedAt: null, ownerUserId: req.userId };

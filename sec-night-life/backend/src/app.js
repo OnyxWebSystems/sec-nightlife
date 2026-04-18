@@ -42,7 +42,9 @@ import leaderboardRoutes from './routes/leaderboard.js';
 import promoterRoutes from './routes/promoters.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
-import { optionalAuth } from './middleware/auth.js';
+import { authenticateToken, optionalAuth } from './middleware/auth.js';
+import { requireAdmin } from './middleware/rbac.js';
+import { prisma } from './lib/prisma.js';
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -162,6 +164,31 @@ app.use('/api/promoters', generalLimiter, promoterRoutes);
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+/** Compare venue counts with Neon SQL without Prisma CLI. Dev: open. Production: admin JWT only. */
+async function healthDbHandler(req, res, next) {
+  try {
+    const [venueCountAll, venueCountActive] = await Promise.all([
+      prisma.venue.count(),
+      prisma.venue.count({ where: { deletedAt: null } }),
+    ]);
+    res.json({
+      ok: true,
+      timestamp: new Date().toISOString(),
+      venueCountAll,
+      venueCountActive,
+      ...(req.userId ? { authenticatedUserId: req.userId } : {}),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+if (isProd) {
+  app.get('/api/health/db', authenticateToken, requireAdmin, healthDbHandler);
+} else {
+  app.get('/api/health/db', optionalAuth, healthDbHandler);
+}
 
 // Error handler
 app.use(errorHandler);
