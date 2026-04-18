@@ -326,11 +326,15 @@ export default function BusinessEvents() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="text-white sm:max-w-[520px]" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-          <DialogHeader>
+        <DialogContent
+          className="text-white sm:max-w-[520px] flex flex-col max-h-[90vh] overflow-hidden p-0 gap-0"
+          style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+        >
+          <DialogHeader className="px-6 pt-6 pb-3 shrink-0 border-b border-[var(--sec-border)]">
             <DialogTitle>{editingEvent ? 'Edit Event' : 'Create Event'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 mt-2">
+          <div className="overflow-y-auto overscroll-contain px-6 py-4 flex-1 min-h-0">
+          <div className="space-y-4">
             <div>
               <Label className="text-gray-400 text-sm">Event Title *</Label>
               <Input
@@ -519,7 +523,7 @@ export default function BusinessEvents() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-3 pt-2 pb-1">
               <Button variant="outline" onClick={closeDialog} className="flex-1 h-11 rounded-xl" style={{ borderColor: 'var(--sec-border)' }}>
                 Cancel
               </Button>
@@ -533,6 +537,7 @@ export default function BusinessEvents() {
                 {editingEvent ? 'Update' : 'Create'}
               </Button>
             </div>
+          </div>
           </div>
         </DialogContent>
       </Dialog>

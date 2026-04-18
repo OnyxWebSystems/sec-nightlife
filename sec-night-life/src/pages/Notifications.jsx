@@ -164,12 +164,18 @@ export default function Notifications() {
 
   const markAsReadMutation = useMutation({
     mutationFn: (id) => apiPatch(`/api/notifications/${id}/read`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      window.dispatchEvent(new CustomEvent('sec_notifications_refresh'));
+    },
   });
 
   const markAsUnreadMutation = useMutation({
     mutationFn: (id) => apiPatch(`/api/notifications/${id}/unread`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      window.dispatchEvent(new CustomEvent('sec_notifications_refresh'));
+    },
   });
 
   const dedupedNotifications = useMemo(() => {
@@ -198,18 +204,16 @@ export default function Notifications() {
   const unreadCount = visibleNotifications.filter((n) => !n.is_read).length;
 
   const markAllAsRead = async () => {
-    const toMark = visibleNotifications.filter((n) => !n.is_read).map((n) => n.id);
-    if (!toMark.length) return;
-    await Promise.all(toMark.map((id) => markAsReadMutation.mutateAsync(id).catch(() => null)));
-    toast('All notifications marked as read', {
-      action: {
-        label: 'Undo',
-        onClick: async () => {
-          await Promise.all(toMark.map((id) => markAsUnreadMutation.mutateAsync(id).catch(() => null)));
-        },
-      },
-    });
-    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    const visibleUnread = visibleNotifications.filter((n) => !n.is_read).length;
+    if (visibleUnread === 0) return;
+    try {
+      await apiPatch('/api/notifications/read-all', {});
+      toast.success('All notifications marked as read');
+      await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      window.dispatchEvent(new CustomEvent('sec_notifications_refresh'));
+    } catch {
+      toast.error('Could not mark notifications as read');
+    }
   };
 
   const openNotification = async (n) => {

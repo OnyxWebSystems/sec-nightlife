@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import * as authService from '@/services/authService';
@@ -63,29 +63,34 @@ export default function Layout({ children, currentPageName }) {
     prevMessageUnreadRef.current = messageUnread;
   }, [messageUnread]);
 
+  const fetchNotificationCounts = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const rows = await apiGet('/api/notifications?limit=100');
+      const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
+        ...n,
+        is_read: n.read === true || n.is_read === true,
+      }));
+      setNotifications(notifs);
+      const fallbackUnread = notifs.filter((n) => !n.is_read).length;
+      const u = await apiGet('/api/notifications/unread-count');
+      setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
+      const m = await apiGet('/api/messages/unread-total');
+      setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
+      try {
+        const h = await apiGet('/api/host/notifications/unread-count');
+        setHostUnread(typeof h?.count === 'number' ? h.count : 0);
+      } catch {
+        setHostUnread(0);
+      }
+    } catch {}
+  }, [user?.id]);
+
   useEffect(() => {
     if (!user?.id) return undefined;
-    const tick = async () => {
+    const tick = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      try {
-        const rows = await apiGet('/api/notifications?limit=100');
-        const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
-          ...n,
-          is_read: n.read === true || n.is_read === true,
-        }));
-        setNotifications(notifs);
-        const fallbackUnread = notifs.filter((n) => !n.is_read).length;
-        const u = await apiGet('/api/notifications/unread-count');
-        setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
-        const m = await apiGet('/api/messages/unread-total');
-        setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
-        try {
-          const h = await apiGet('/api/host/notifications/unread-count');
-          setHostUnread(typeof h?.count === 'number' ? h.count : 0);
-        } catch {
-          setHostUnread(0);
-        }
-      } catch {}
+      fetchNotificationCounts();
     };
     tick();
     const timer = window.setInterval(tick, 45000);
@@ -97,7 +102,13 @@ export default function Layout({ children, currentPageName }) {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [user?.id]);
+  }, [user?.id, fetchNotificationCounts]);
+
+  useEffect(() => {
+    const onRefresh = () => fetchNotificationCounts();
+    window.addEventListener('sec_notifications_refresh', onRefresh);
+    return () => window.removeEventListener('sec_notifications_refresh', onRefresh);
+  }, [fetchNotificationCounts]);
 
   const loadUser = async () => {
     const token = localStorage?.getItem('access_token') || sessionStorage?.getItem('access_token');
