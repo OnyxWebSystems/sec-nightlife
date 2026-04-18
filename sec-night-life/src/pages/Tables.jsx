@@ -150,7 +150,7 @@ export default function Tables() {
         <div style={{ padding: 'var(--space-4) var(--space-6)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <h1 style={{ fontSize: 24, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Tables</h1>
-            <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
+            <Link to={`${createPageUrl('HostDashboard')}?create=table`} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', textDecoration: 'none' }}>
               <Plus size={18} strokeWidth={1.5} />
               Create
             </Link>
@@ -238,7 +238,7 @@ export default function Tables() {
             </div>
             <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No open tables</h3>
             <p style={{ color: 'var(--sec-text-muted)', marginBottom: 24 }}>Be the first to create one!</p>
-            <Link to={createPageUrl('CreateTable')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', textDecoration: 'none' }}>
+            <Link to={`${createPageUrl('HostDashboard')}?create=table`} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', textDecoration: 'none' }}>
               <Plus size={18} strokeWidth={1.5} />
               Create a Table
             </Link>

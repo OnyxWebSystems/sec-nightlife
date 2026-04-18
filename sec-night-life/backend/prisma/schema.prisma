@@ -152,6 +152,7 @@ enum NotificationType {
   REVIEW_REMOVED_BY_ADMIN
   TABLE_INVITE
   IDENTITY_VERIFICATION_REMINDER
+  EVENT_INTEREST_REMINDER
 }
 
 enum LegalDocumentType {
@@ -285,6 +286,7 @@ model User {
   legalAcceptances            LegalDocumentAcceptance[]
   promoterFollowers           PromoterFollow[]           @relation("PromoterFollowers")
   promoterFollowing           PromoterFollow[]           @relation("PromoterFollowing")
+  eventInterestRemindersSent  EventInterestReminderSent[]
 
   @@unique([email, role])
   @@index([email])
@@ -356,6 +358,7 @@ model UserProfile {
   musicPreferences          String[]  @default([]) @map("music_preferences")
   friends                   String[]  @default([])
   followedVenues            String[]  @default([]) @map("followed_venues")
+  interestedEvents          String[]  @default([]) @map("interested_events")
   onboardingComplete        Boolean   @default(false) @map("onboarding_complete")
   createdAt                 DateTime  @default(now()) @map("created_at")
   updatedAt                 DateTime  @updatedAt @map("updated_at")
@@ -364,6 +367,21 @@ model UserProfile {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_profiles")
+}
+
+// Dedupe T-3h interest reminders (cron idempotency).
+model EventInterestReminderSent {
+  id      String   @id @default(cuid())
+  userId  String   @map("user_id")
+  eventId String   @map("event_id")
+  sentAt  DateTime @default(now()) @map("sent_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([eventId])
+  @@map("event_interest_reminders_sent")
 }
 
 // ─── Tier 1: Venues ───────────────────────────────────────────────────────
@@ -557,6 +575,7 @@ model Event {
   promotedPosts Promotion[]
   groupChat     GroupChat?
   userReviews   UserReview[]
+  eventInterestRemindersSent EventInterestReminderSent[]
 
   @@index([venueId])
   @@index([date])

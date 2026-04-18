@@ -78,6 +78,7 @@ export default function EventDetails() {
       setIsInterested(newInterested);
       toast.success(newInterested ? 'Added to interested events' : 'Removed from interested events');
       queryClient.invalidateQueries(['event', eventId]);
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
     },
   });
 
@@ -464,7 +465,7 @@ export default function EventDetails() {
               Tables ({tables.length})
             </h2>
             <Link
-              to={createPageUrl(`CreateTable?event=${eventId}`)}
+              to={`${createPageUrl('HostDashboard')}?create=table&event=${encodeURIComponent(eventId)}`}
               style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: 'var(--sec-text-secondary)', textDecoration: 'none' }}
             >
               <Plus size={14} strokeWidth={2} />
@@ -523,7 +524,7 @@ export default function EventDetails() {
               </div>
               <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 16 }}>No tables available yet</p>
               <Link
-                to={createPageUrl(`CreateTable?event=${eventId}`)}
+                to={`${createPageUrl('HostDashboard')}?create=table&event=${encodeURIComponent(eventId)}`}
                 className="sec-btn sec-btn-secondary"
                 style={{ display: 'inline-flex', textDecoration: 'none' }}
               >

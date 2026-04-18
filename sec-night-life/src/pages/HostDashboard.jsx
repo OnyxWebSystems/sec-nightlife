@@ -79,6 +79,7 @@ export default function HostDashboard() {
   });
   const [saving, setSaving] = useState(false);
   const [pendingTableId, setPendingTableId] = useState(null);
+  const [eventSearch, setEventSearch] = useState('');
 
   useEffect(() => {
     authService.getCurrentUser().then(setUser).catch(() => authService.redirectToLogin());
@@ -86,6 +87,7 @@ export default function HostDashboard() {
 
   useEffect(() => {
     const c = searchParams.get('create');
+    const preEventId = searchParams.get('event');
     if (c === 'party') {
       setShowPartyModal(true);
       setTab('parties');
@@ -93,6 +95,9 @@ export default function HostDashboard() {
     if (c === 'table') {
       setShowTableModal(true);
       setTab('tables');
+      if (preEventId) {
+        setTableForm((f) => ({ ...f, tableType: 'IN_APP_EVENT', eventId: preEventId }));
+      }
     }
     if (c === 'invite') {
       setTab('tables');
@@ -141,6 +146,16 @@ export default function HostDashboard() {
     () => publicEvents.find((e) => e.id === tableForm.eventId),
     [publicEvents, tableForm.eventId],
   );
+
+  const filteredPublicEvents = useMemo(() => {
+    const q = eventSearch.trim().toLowerCase();
+    if (!q) return publicEvents;
+    return publicEvents.filter(
+      (e) =>
+        (e.title || '').toLowerCase().includes(q) ||
+        (e.city || '').toLowerCase().includes(q),
+    );
+  }, [publicEvents, eventSearch]);
 
   const { data: pendingRequests = [], refetch: refetchPending, isFetching: pendingLoading } = useQuery({
     queryKey: ['host-table-pending', pendingTableId],
@@ -742,20 +757,34 @@ export default function HostDashboard() {
               {tableForm.tableType === 'IN_APP_EVENT' ? (
                 <>
                   <label className="block text-sm font-medium">
-                    Event
-                    <select
+                    Find event
+                    <input
+                      type="search"
+                      placeholder="Search by title or city…"
                       className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                      value={tableForm.eventId}
-                      onChange={(e) => setTableForm((f) => ({ ...f, eventId: e.target.value }))}
-                    >
-                      <option value="">Select event</option>
-                      {publicEvents.map((ev) => (
-                        <option key={ev.id} value={ev.id}>
-                          {ev.title}
-                        </option>
-                      ))}
-                    </select>
+                      value={eventSearch}
+                      onChange={(e) => setEventSearch(e.target.value)}
+                    />
                   </label>
+                  <div className="rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] max-h-44 overflow-y-auto">
+                    {filteredPublicEvents.length === 0 ? (
+                      <p className="px-3 py-3 text-xs text-[var(--sec-text-muted)]">No matches</p>
+                    ) : (
+                      filteredPublicEvents.slice(0, 50).map((ev) => (
+                        <button
+                          key={ev.id}
+                          type="button"
+                          onClick={() => setTableForm((f) => ({ ...f, eventId: ev.id }))}
+                          className={`w-full text-left px-3 py-2.5 text-sm border-b border-[var(--sec-border)] last:border-0 transition-colors ${
+                            tableForm.eventId === ev.id ? 'bg-[var(--sec-bg-hover)]' : 'hover:bg-[var(--sec-bg-base)]'
+                          }`}
+                        >
+                          <div className="font-medium">{ev.title}</div>
+                          <div className="text-xs opacity-70">{ev.city}</div>
+                        </button>
+                      ))
+                    )}
+                  </div>
                   {selectedEvent && (
                     <div className="rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] px-3 py-2 text-xs space-y-1">
                       <div className="font-medium text-[var(--sec-text-primary)]">Event location</div>

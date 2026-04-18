@@ -5,7 +5,6 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet } from '@/api/client';
 import SecLogo from '@/components/ui/SecLogo';
-import CreateActionCenter from '@/components/CreateActionCenter';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
@@ -30,7 +29,6 @@ export default function Layout({ children, currentPageName }) {
   const prevMessageUnreadRef = useRef(null);
   const [activeMode, setActiveMode] = useState(null);
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
   const [complianceAccess, setComplianceAccess] = useState({ canReview: false, isSuperAdmin: false });
   const longPressTimerRef = useRef(null);
@@ -208,7 +206,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Home', icon: Home, page: 'Home' },
         { name: 'Host', icon: Crown, page: 'HostDashboard' },
         { name: 'Friends', icon: Users, page: 'Friends' },
-        { name: 'Create', icon: Plus, page: 'CreateTable', isCreate: true },
+        { name: 'Create', icon: Plus, page: 'HostDashboard', query: '?create=table' },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ],
@@ -265,7 +263,7 @@ export default function Layout({ children, currentPageName }) {
     : [
         { name: 'Home', icon: Home, page: 'Home' },
         { name: 'Host', icon: Crown, page: 'HostDashboard' },
-        { name: 'Create', icon: Plus, page: null, isCreate: true },
+        { name: 'Create', icon: Plus, page: 'HostDashboard', query: '?create=table' },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ];
@@ -323,35 +321,25 @@ export default function Layout({ children, currentPageName }) {
         )}
 
         <nav style={{ flex: 1, padding: '14px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {primaryNavB.map((item) =>
-            item.isCreate ? (
-              <button
-                key={item.page + item.name}
-                onClick={() => setShowCreateModal(true)}
-                className="sec-nav-item"
-                style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'none', font: 'inherit' }}
-              >
-                <item.icon {...iconProps} />
-                <span>{item.name}</span>
-                <span className="sec-badge sec-badge-gold" style={{ marginLeft: 'auto' }}>New</span>
-              </button>
-            ) : (
+          {primaryNavB.map((item) => (
               <Link
-                key={item.page + item.name}
+                key={item.page + item.name + (item.query || '')}
                 to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
                 className="sec-nav-item"
                 style={{ position: 'relative', ...(isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}) }}
               >
                 <item.icon {...iconProps} />
                 <span>{item.name}</span>
+                {item.page === 'HostDashboard' && item.query === '?create=table' && (
+                  <span className="sec-badge sec-badge-gold" style={{ marginLeft: 'auto' }}>New</span>
+                )}
                 {item.badge > 0 && (
                   <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, borderRadius: 9, backgroundColor: 'var(--sec-accent)', color: '#000', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
                     {item.badge > 99 ? '99+' : item.badge}
                   </span>
                 )}
               </Link>
-            )
-          )}
+          ))}
           <div style={{ margin: '10px 2px', height: 1, backgroundColor: 'var(--sec-border)' }} />
           {secondaryNavB.map((item) => (
             <Link
@@ -419,7 +407,6 @@ export default function Layout({ children, currentPageName }) {
         {children}
       </main>
 
-      <CreateActionCenter open={showCreateModal} onOpenChange={setShowCreateModal} userRoles={userRoles} activeMode={mode} />
 
       {/* ── Mobile profile switcher (Instagram-style) ── */}
       <Dialog open={showModeSwitcher} onOpenChange={setShowModeSwitcher}>
@@ -489,14 +476,14 @@ export default function Layout({ children, currentPageName }) {
       >
         <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'space-around', height: 64, paddingLeft: 4, paddingRight: 4 }}>
           {mobileNav.map((item) => {
-            const isCreate = item.isCreate;
-            const active = isCreate ? showCreateModal : isActive(item.page);
+            const active = isActive(item.page);
+            const isCreateTab = item.name === 'Create' && item.query === '?create=table';
             const navContent = (
               <>
-                {active && !isCreate && (
+                {active && (
                   <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 24, height: 2, background: 'var(--sec-gradient-silver)', borderRadius: 2 }} />
                 )}
-                {isCreate ? (
+                {isCreateTab ? (
                   <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--sec-gradient-silver)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 12px rgba(192,192,192,0.22)', color: 'var(--sec-bg-base)' }}>
                     <item.icon size={22} strokeWidth={2} />
                   </div>
@@ -513,26 +500,13 @@ export default function Layout({ children, currentPageName }) {
                 <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'inherit' }}>{item.name}</span>
               </>
             );
-            // Instagram-style: long-press or double-tap Profile to switch modes (if multiple)
             const isProfile = item.page === 'Profile';
             const openModeSwitcher = () => {
               if (availableModes.length > 1) setShowModeSwitcher(true);
             };
+            const to = item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page);
 
-            return isCreate ? (
-              <button
-                key="create"
-                onClick={() => setShowCreateModal(true)}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                  padding: '12px 8px', flex: 1, minWidth: 0, border: 'none', background: 'none', cursor: 'pointer',
-                  color: 'var(--sec-accent)',
-                }}
-              >
-                {navContent}
-              </button>
-            ) : (
-              isProfile ? (
+            return isProfile ? (
                 <button
                   key={item.page}
                   onClick={() => navigate(createPageUrl(item.page))}
@@ -574,8 +548,8 @@ export default function Layout({ children, currentPageName }) {
                 </button>
               ) : (
                 <Link
-                  key={item.page}
-                  to={createPageUrl(item.page)}
+                  key={item.page + (item.query || '') + item.name}
+                  to={to}
                   style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
                     padding: '12px 8px', flex: 1, minWidth: 0, textDecoration: 'none',
@@ -584,8 +558,7 @@ export default function Layout({ children, currentPageName }) {
                 >
                   {navContent}
                 </Link>
-              )
-            );
+              );
           })}
         </div>
       </nav>

@@ -37,6 +37,7 @@ const NOTIFICATION_ICONS = {
   table_invite: Users,
   TABLE_INVITE: Users,
   IDENTITY_VERIFICATION_REMINDER: Bell,
+  EVENT_INTEREST_REMINDER: Calendar,
   table_request: Users,
   table_update: Users,
   table_full: Users,
@@ -64,7 +65,8 @@ const NOTIFICATION_COLORS = {
   event_reminder: 'sec-badge-silver',
   payment: 'sec-badge-success',
   compliance: 'sec-badge-gold',
-  system: 'sec-badge-muted'
+  system: 'sec-badge-muted',
+  EVENT_INTEREST_REMINDER: 'sec-badge-silver',
 };
 
 export default function Notifications() {
@@ -227,8 +229,10 @@ export default function Notifications() {
       navigate(`${createPageUrl('Messages')}?group=${n.referenceId}`);
     } else if (t === 'IDENTITY_VERIFICATION_REMINDER') {
       navigate(createPageUrl('EditProfile'));
-    } else if (t === 'TABLE_INVITE' && n.referenceId) {
+    }     else if (t === 'TABLE_INVITE' && n.referenceId) {
       navigate(`${createPageUrl('TableDetails')}?id=${n.referenceId}`);
+    } else if (t === 'EVENT_INTEREST_REMINDER' && n.referenceId) {
+      navigate(`${createPageUrl('EventDetails')}?id=${n.referenceId}`);
     } else if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
       navigate(n.referenceId);
     } else if (actionUrl) {
@@ -302,8 +306,13 @@ export default function Notifications() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {unreadCount > 0 && (
-                <Button onClick={markAllAsRead} variant="ghost" style={{ color: 'var(--sec-accent)' }}>
+              {visibleNotifications.length > 0 && (
+                <Button
+                  onClick={markAllAsRead}
+                  variant="ghost"
+                  disabled={unreadCount === 0}
+                  style={{ color: unreadCount === 0 ? 'var(--sec-text-muted)' : 'var(--sec-accent)' }}
+                >
                   Mark all read
                 </Button>
               )}

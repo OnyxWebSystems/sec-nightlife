@@ -5,7 +5,7 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Search, MapPin, Clock, Users, SlidersHorizontal, Sparkles, Ticket, ChevronRight } from 'lucide-react';
+import { Calendar, Search, MapPin, Clock, Users, SlidersHorizontal, Sparkles, Ticket, ChevronRight, Heart } from 'lucide-react';
 import { format, parseISO, isToday, isTomorrow, addDays, startOfWeek, eachDayOfInterval } from 'date-fns';
 import { motion } from 'framer-motion';
 import { getEventImage } from '@/lib/placeholders';
@@ -41,6 +41,18 @@ export default function Events() {
         return profiles[0];
       } catch { return null; }
     },
+  });
+
+  const interestedIds = (userProfile?.interested_events || []).slice(0, 50);
+  const { data: interestedEventRows = [] } = useQuery({
+    queryKey: ['interested-events-resolve', interestedIds.join('|')],
+    queryFn: async () => {
+      const results = await Promise.all(
+        interestedIds.map((id) => apiGet(`/api/events/${id}`).catch(() => null))
+      );
+      return results.filter(Boolean);
+    },
+    enabled: interestedIds.length > 0,
   });
 
   const venuesMap = venues.reduce((acc, venue) => { acc[venue.id] = venue; return acc; }, {});
@@ -220,6 +232,31 @@ export default function Events() {
 
       {/* ── Content ── */}
       <div style={{ padding: '24px 20px' }}>
+
+        {interestedEventRows.length > 0 && (
+          <section style={{ marginBottom: 36 }}>
+            <div className="sec-section-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 30, height: 30, borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--sec-accent-muted)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Heart size={15} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
+                </div>
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Events you&apos;re interested in</h2>
+              </div>
+              <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Saved from event details</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+              {interestedEventRows.map((event, index) => (
+                <motion.div key={event.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                  <EventCard event={event} />
+                </motion.div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Host Events (informal) */}
         {hostEvents.length > 0 && (

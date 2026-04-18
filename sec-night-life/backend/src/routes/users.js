@@ -57,6 +57,25 @@ function collectEventIdsFromPaymentMetadata(meta) {
   return ids;
 }
 
+/** Venue event UUIDs the user saved as interested (max 50, deduped). */
+function normalizeInterestedEvents(input) {
+  if (input == null) return undefined;
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const t = raw.trim();
+    if (!/^[0-9a-f-]{36}$/i.test(t)) continue;
+    const k = t.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
 /** Max 10 items, each max 30 chars, trim, dedupe case-insensitively */
 function normalizeInterestList(input) {
   if (input == null) return [];
@@ -109,6 +128,7 @@ const USER_PROFILE_COMPAT_SELECT_LIST = `
       music_preferences AS "musicPreferences",
       friends,
       followed_venues AS "followedVenues",
+      interested_events AS "interestedEvents",
       onboarding_complete AS "onboardingComplete"`;
 
 async function readUserProfileCompat(userId) {
@@ -164,6 +184,7 @@ async function upsertUserProfileCompat(userId, data) {
     musicPreferences: data.musicPreferences ?? existing?.musicPreferences ?? [],
     friends: data.friends ?? existing?.friends ?? [],
     followedVenues: data.followedVenues ?? existing?.followedVenues ?? [],
+    interestedEvents: data.interestedEvents ?? existing?.interestedEvents ?? [],
     onboardingComplete: data.onboardingComplete ?? existing?.onboardingComplete ?? false,
   };
 
@@ -184,7 +205,8 @@ async function upsertUserProfileCompat(userId, data) {
            music_preferences = $13,
            friends = $14,
            followed_venues = $15,
-           onboarding_complete = $16,
+           interested_events = $16::text[],
+           onboarding_complete = $17,
            updated_at = NOW()
        WHERE user_id = $1`,
       userId,
@@ -202,6 +224,7 @@ async function upsertUserProfileCompat(userId, data) {
       payload.musicPreferences,
       payload.friends,
       payload.followedVenues,
+      payload.interestedEvents,
       payload.onboardingComplete
     );
   } else {
@@ -209,8 +232,8 @@ async function upsertUserProfileCompat(userId, data) {
       `INSERT INTO user_profiles
        (id, user_id, username, bio, city, avatar_url, favorite_drink, date_of_birth, id_document_url,
         age_verified, verification_status, payment_setup_complete, interests, music_preferences, friends,
-        followed_venues, onboarding_complete, created_at, updated_at)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())`,
+        followed_venues, interested_events, onboarding_complete, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::text[], $17, NOW(), NOW())`,
       userId,
       payload.username,
       payload.bio,
@@ -226,6 +249,7 @@ async function upsertUserProfileCompat(userId, data) {
       payload.musicPreferences,
       payload.friends,
       payload.followedVenues,
+      payload.interestedEvents,
       payload.onboardingComplete
     );
   }
@@ -577,6 +601,7 @@ const profileUpdateSchema = z.object({
   music_preferences: z.array(z.string().max(30)).max(10).optional().nullable(),
   friends: z.array(z.string()).optional().nullable(),
   followed_venues: z.array(z.string()).optional().nullable(),
+  interested_events: z.array(z.string().uuid()).max(50).optional().nullable(),
   onboarding_complete: z.boolean().optional().nullable()
 });
 
@@ -616,6 +641,7 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       music_preferences: profile?.musicPreferences ?? [],
       friends: profile?.friends ?? [],
       followed_venues: profile?.followedVenues ?? [],
+      interested_events: profile?.interestedEvents ?? [],
       onboarding_complete: profile?.onboardingComplete ?? false
     };
     res.json(Array.isArray(result) ? result : [result]);
@@ -673,6 +699,7 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       music_preferences: profile?.musicPreferences ?? [],
       friends: profile?.friends ?? [],
       followed_venues: profile?.followedVenues ?? [],
+      interested_events: isSelf ? profile?.interestedEvents ?? [] : [],
       onboarding_complete: profile?.onboardingComplete ?? false
     };
     res.json([result]);
@@ -818,6 +845,7 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
         music_preferences: p?.musicPreferences ?? [],
         friends: p?.friends ?? [],
         followed_venues: p?.followedVenues ?? [],
+        interested_events: u.id === req.userId ? p?.interestedEvents ?? [] : [],
         onboarding_complete: p?.onboardingComplete ?? false
       };
     });
@@ -873,7 +901,11 @@ router.post('/', authenticateToken, async (req, res, next) => {
         musicPreferences: data.music_preferences === null ? [] : normalizeInterestList(data.music_preferences),
       }),
       ...(data.friends != null && { friends: data.friends }),
-      ...(data.followed_venues != null && { followedVenues: data.followed_venues })
+      ...(data.followed_venues != null && { followedVenues: data.followed_venues }),
+      ...(data.interested_events !== undefined && {
+        interestedEvents:
+          data.interested_events === null ? [] : normalizeInterestedEvents(data.interested_events),
+      }),
     };
     let profile;
     try {
@@ -906,6 +938,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       music_preferences: profile.musicPreferences ?? [],
       friends: profile.friends ?? [],
       followed_venues: profile.followedVenues ?? [],
+      interested_events: profile.interestedEvents ?? [],
       onboarding_complete: profile.onboardingComplete
     });
   } catch (err) {
@@ -980,13 +1013,23 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
         musicPreferences: data.music_preferences === null ? [] : normalizeInterestList(data.music_preferences),
       }),
       ...(data.friends != null && { friends: data.friends }),
-      ...(data.followed_venues != null && { followedVenues: data.followed_venues })
+      ...(data.followed_venues != null && { followedVenues: data.followed_venues }),
+      ...(data.interested_events !== undefined && {
+        interestedEvents:
+          data.interested_events === null ? [] : normalizeInterestedEvents(data.interested_events),
+      }),
     };
-    const profile = await prisma.userProfile.upsert({
-      where: { userId: req.userId },
-      create: { userId: req.userId, ...profileData },
-      update: profileData
-    });
+    let profile;
+    try {
+      profile = await prisma.userProfile.upsert({
+        where: { userId: req.userId },
+        create: { userId: req.userId, ...profileData },
+        update: profileData
+      });
+    } catch (err) {
+      if (!isMissingLeaderboardColumnsError(err)) throw err;
+      profile = await upsertUserProfileCompat(req.userId, profileData);
+    }
     const userFresh = await prisma.user.findUnique({
       where: { id: req.userId },
       select: { email: true, fullName: true, username: true }
@@ -1010,6 +1053,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       music_preferences: profile.musicPreferences ?? [],
       friends: profile.friends ?? [],
       followed_venues: profile.followedVenues ?? [],
+      interested_events: profile.interestedEvents ?? [],
       onboarding_complete: profile.onboardingComplete
     });
   } catch (err) {
@@ -1085,6 +1129,10 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     }
     if (data.friends != null) updates.friends = data.friends;
     if (data.followed_venues != null) updates.followedVenues = data.followed_venues;
+    if (data.interested_events !== undefined) {
+      updates.interestedEvents =
+        data.interested_events === null ? [] : normalizeInterestedEvents(data.interested_events);
+    }
     if (data.onboarding_complete != null) updates.onboardingComplete = data.onboarding_complete;
     let updated;
     try {
@@ -1120,6 +1168,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       music_preferences: updated.musicPreferences ?? [],
       friends: updated.friends ?? [],
       followed_venues: updated.followedVenues ?? [],
+      interested_events: updated.interestedEvents ?? [],
       onboarding_complete: updated.onboardingComplete
     });
   } catch (err) {

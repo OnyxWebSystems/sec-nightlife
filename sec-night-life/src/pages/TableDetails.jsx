@@ -9,6 +9,7 @@ import {
   ChevronLeft, Share2, Users, DollarSign, Calendar, Clock,
   BadgeCheck, MessageCircle, UserPlus, Check, X, Crown,
   MoreVertical, CreditCard, Link as LinkIcon, Copy, ChevronRight,
+  MapPin, Navigation,
 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -92,6 +93,22 @@ export default function TableDetails() {
     queryKey: ['table', tableId],
     queryFn: async () => { const t = await dataService.Table.filter({ id: tableId }); return t[0]; },
     enabled: !!tableId,
+  });
+
+  const { data: hostedTable, isLoading: hostedLoading } = useQuery({
+    queryKey: ['hosted-table-detail', tableId],
+    queryFn: async () => {
+      try {
+        return await apiGet(`/api/host/hosted-tables/${tableId}`);
+      } catch {
+        return null;
+      }
+    },
+    enabled:
+      !!tableId &&
+      !isVenueSource &&
+      (source === 'hosted' || (!isLoading && !table)),
+    retry: false,
   });
   const { data: venueTable, isLoading: venueLoading } = useQuery({
     queryKey: ['venue-table', tableId],
@@ -325,10 +342,83 @@ export default function TableDetails() {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || (!isVenueSource && !table && hostedLoading)) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
         <div className="sec-spinner" />
+      </div>
+    );
+  }
+
+  if (!isVenueSource && !table && hostedTable?.kind === 'hosted') {
+    const mapQuery = hostedTable.resolvedAddress || hostedTable.venueAddress || hostedTable.venueName || '';
+    const joinHosted = async () => {
+      if (!userProfile) {
+        authService.redirectToLogin(window.location.href);
+        return;
+      }
+      try {
+        const r = await apiPost(`/api/host/tables/${tableId}/join`, {});
+        queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
+        if (r?.pending) toast.success('Request sent. The host will approve your join.');
+        else toast.success('Joined table');
+      } catch (e) {
+        toast.error(e?.message || 'Could not join table');
+      }
+    };
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 96 }}>
+        <header style={{
+          position: 'sticky', top: 0, zIndex: 40,
+          backgroundColor: 'rgba(0,0,0,0.92)',
+          borderBottom: '1px solid var(--sec-border)',
+          padding: '0 20px', height: 56,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <button type="button" onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ padding: 8 }}>
+            <ChevronLeft size={20} />
+          </button>
+        </header>
+        <div style={{ padding: 20 }}>
+          <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Hosted table</p>
+          <h1 style={{ fontSize: 22, fontWeight: 700, marginTop: 6 }}>{hostedTable.tableName}</h1>
+          {hostedTable.event?.title && (
+            <p style={{ fontSize: 14, color: 'var(--sec-text-secondary)', marginTop: 8 }}>{hostedTable.event.title}</p>
+          )}
+          <div className="sec-card" style={{ padding: 16, marginTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <MapPin size={18} style={{ flexShrink: 0, marginTop: 2, color: 'var(--sec-accent)' }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 4 }}>Location</div>
+                <div style={{ fontSize: 15, fontWeight: 500 }}>{hostedTable.resolvedAddress}</div>
+                {mapQuery && (
+                  <a
+                    href={`https://maps.google.com/?q=${encodeURIComponent(mapQuery)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="sec-link"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 14 }}
+                  >
+                    <Navigation size={16} />
+                    Open in Maps
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+          {hostedTable.event?.id && (
+            <Link
+              to={createPageUrl(`EventDetails?id=${hostedTable.event.id}`)}
+              className="sec-btn sec-btn-secondary sec-btn-full"
+              style={{ marginTop: 14, display: 'block', textAlign: 'center', textDecoration: 'none' }}
+            >
+              View event details
+            </Link>
+          )}
+          <button type="button" className="sec-btn sec-btn-primary sec-btn-full" style={{ marginTop: 12, height: 48 }} onClick={joinHosted}>
+            Request to join
+          </button>
+        </div>
       </div>
     );
   }
@@ -346,6 +436,9 @@ export default function TableDetails() {
 
   const progress = ((table?.current_guests || 1) / (table?.max_guests || 10)) * 100;
   const spendPerPerson = Math.ceil((table?.min_spend || 0) / (table?.max_guests || 1));
+  const venueAddressLine = venue
+    ? [venue.address, venue.suburb, venue.city, venue.province].filter(Boolean).join(', ')
+    : '';
 
   const getDateLabel = () => {
     if (!event?.date) return '';
@@ -464,6 +557,28 @@ export default function TableDetails() {
             />
           </div>
         </div>
+
+        {venueAddressLine && (
+          <div className="sec-card" style={{ padding: '16px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <MapPin size={18} style={{ flexShrink: 0, marginTop: 2, color: 'var(--sec-accent)' }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 4 }}>Venue location</div>
+                <div style={{ fontSize: 15, fontWeight: 500 }}>{venueAddressLine}</div>
+                <a
+                  href={`https://maps.google.com/?q=${encodeURIComponent(venueAddressLine)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="sec-link"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 14 }}
+                >
+                  <Navigation size={16} />
+                  Open in Maps
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Event row ── */}
         {event && (

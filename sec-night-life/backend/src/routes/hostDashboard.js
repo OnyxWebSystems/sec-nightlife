@@ -272,6 +272,86 @@ router.get('/parties/public', optionalAuth, async (req, res, next) => {
   }
 });
 
+/** Public-ish detail for TableDetails when id is a HostedTable (not legacy `tables`). */
+router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
+  try {
+    const t = await prisma.hostedTable.findFirst({
+      where: { id: req.params.tableId },
+      include: {
+        host: { select: publicHostSelect },
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            startTime: true,
+            city: true,
+            venue: {
+              select: {
+                name: true,
+                address: true,
+                suburb: true,
+                city: true,
+                province: true,
+                latitude: true,
+                longitude: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    const isVisible = t.status === 'ACTIVE' && t.isPublic;
+    if (!isVisible) {
+      const uid = req.userId;
+      const allowed =
+        uid &&
+        (t.hostUserId === uid ||
+          (await prisma.hostedTableMember.findFirst({
+            where: { hostedTableId: t.id, userId: uid },
+          })));
+      if (!allowed) return res.status(404).json({ error: 'Not found' });
+    }
+    const eventLocation =
+      t.tableType === 'IN_APP_EVENT' && t.event ? buildEventLocationPayload(t.event) : null;
+    const resolvedAddress =
+      eventLocation?.displayLabel ||
+      [t.venueAddress, t.venueName].filter(Boolean).join(', ') ||
+      t.venueName;
+    res.json({
+      kind: 'hosted',
+      id: t.id,
+      tableName: t.tableName,
+      tableDescription: t.tableDescription,
+      status: t.status,
+      venueName: t.venueName,
+      venueAddress: t.venueAddress,
+      resolvedAddress,
+      eventDate: t.eventDate,
+      eventTime: t.eventTime,
+      eventId: t.eventId,
+      eventLocation,
+      event: t.event
+        ? {
+            id: t.event.id,
+            title: t.event.title,
+            date: t.event.date,
+            start_time: t.event.startTime,
+            city: t.event.city,
+          }
+        : null,
+      host: await formatPublicHost(t.host),
+      spotsRemaining: t.spotsRemaining,
+      guestQuantity: t.guestQuantity,
+      hasJoiningFee: t.hasJoiningFee,
+      joiningFee: t.joiningFee,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // ——— Hosted tables: public available ————————————————————————————
 router.get('/tables/available', optionalAuth, async (req, res, next) => {
   try {

@@ -525,14 +525,23 @@ export default function Home() {
                   {table.boosted && (
                     <span style={{ fontSize: 10, marginTop: 6, display: 'inline-block', padding: '2px 8px', borderRadius: 999, background: 'var(--sec-success-muted)' }}>Boosted</span>
                   )}
-                  <button
-                    type="button"
-                    className="sec-btn sec-btn-secondary sec-btn-full"
-                    style={{ marginTop: 12 }}
-                    onClick={() => joinHostedTable(table.id)}
-                  >
-                    Join Table
-                  </button>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <button
+                      type="button"
+                      className="sec-btn sec-btn-secondary"
+                      style={{ flex: 1 }}
+                      onClick={() => joinHostedTable(table.id)}
+                    >
+                      Join Table
+                    </button>
+                    <Link
+                      to={createPageUrl(`TableDetails?id=${table.id}&source=hosted`)}
+                      className="sec-btn sec-btn-ghost"
+                      style={{ flex: 1, textAlign: 'center', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      Details
+                    </Link>
+                  </div>
                 </div>
               </motion.div>
             ))}
