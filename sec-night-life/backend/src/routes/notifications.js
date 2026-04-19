@@ -45,9 +45,14 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
       read: false,
       ...(type ? { type } : { NOT: { type: { in: EXCLUDED_IN_APP_TYPES } } }),
     };
+    const legacyWhere = {
+      userId: req.userId,
+      isRead: false,
+      ...(type ? { type } : { NOT: { type: { in: EXCLUDED_IN_APP_TYPES } } }),
+    };
     const [inApp, legacy] = await Promise.all([
       prisma.inAppNotification.count({ where: inAppWhere }),
-      prisma.notification.count({ where: { userId: req.userId, isRead: false } }),
+      prisma.notification.count({ where: legacyWhere }),
     ]);
     res.json({ count: inApp + legacy });
   } catch (err) {
@@ -58,7 +63,7 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
     const take = page * limit;
 
     const [inAppRows, legacyRows] = await Promise.all([
@@ -163,16 +168,37 @@ router.patch('/:notificationId/read', authenticateToken, async (req, res, next) 
   try {
     const id = req.params.notificationId;
 
-    const [inApp, legacy] = await Promise.all([
-      prisma.inAppNotification.updateMany({
+    const existingInApp = await prisma.inAppNotification.findFirst({
+      where: { id, userId: req.userId },
+    });
+
+    let inApp;
+    if (existingInApp?.type === 'IDENTITY_VERIFICATION_REMINDER') {
+      inApp = await prisma.inAppNotification.updateMany({
+        where: {
+          userId: req.userId,
+          type: 'IDENTITY_VERIFICATION_REMINDER',
+          read: false,
+          title: existingInApp.title,
+          ...(existingInApp.referenceId != null
+            ? { referenceId: existingInApp.referenceId }
+            : { referenceId: null }),
+        },
+        data: { read: true },
+      });
+    } else if (existingInApp) {
+      inApp = await prisma.inAppNotification.updateMany({
         where: { id, userId: req.userId },
         data: { read: true },
-      }),
-      prisma.notification.updateMany({
-        where: { id, userId: req.userId },
-        data: { isRead: true },
-      }),
-    ]);
+      });
+    } else {
+      inApp = { count: 0 };
+    }
+
+    const legacy = await prisma.notification.updateMany({
+      where: { id, userId: req.userId },
+      data: { isRead: true },
+    });
     if (inApp.count === 0 && legacy.count === 0) {
       return res.status(404).json({ error: 'Not found' });
     }

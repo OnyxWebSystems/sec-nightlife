@@ -151,7 +151,7 @@ export default function Notifications() {
   const { data: notifications = [], isLoading } = useQuery({
     queryKey: ['notifications', user?.id],
     queryFn: () =>
-      apiGet('/api/notifications').then((rows) =>
+      apiGet('/api/notifications?limit=100').then((rows) =>
         (Array.isArray(rows) ? rows : []).map((n) => ({
           ...n,
           message: n.body ?? n.message,
@@ -180,28 +180,12 @@ export default function Notifications() {
     },
   });
 
-  const dedupedNotifications = useMemo(() => {
-    const map = new Map();
-    for (const n of notifications) {
-      const key = `${n.type}|${n.title}|${n.message}|${n.referenceType || ''}|${n.referenceId || ''}|${n.action_url || ''}`;
-      if (!map.has(key)) {
-        map.set(key, n);
-        continue;
-      }
-      const prev = map.get(key);
-      const prevTime = new Date(prev.created_date || 0).getTime();
-      const curTime = new Date(n.created_date || 0).getTime();
-      if (curTime > prevTime) map.set(key, n);
-    }
-    return [...map.values()];
-  }, [notifications]);
-
   const visibleNotifications = useMemo(() => {
-    const base = dedupedNotifications.filter((n) => !deletedIds.includes(n.id));
+    const base = notifications.filter((n) => !deletedIds.includes(n.id));
     if (view === 'favorites') return base.filter((n) => favoriteIds.includes(n.id));
     if (view === 'archived') return base.filter((n) => archivedIds.includes(n.id));
     return base.filter((n) => !archivedIds.includes(n.id));
-  }, [dedupedNotifications, deletedIds, view, favoriteIds, archivedIds]);
+  }, [notifications, deletedIds, view, favoriteIds, archivedIds]);
 
   const unreadCount = visibleNotifications.filter((n) => !n.is_read).length;
 

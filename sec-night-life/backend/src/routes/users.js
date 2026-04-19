@@ -9,6 +9,7 @@ import { requireVerified } from '../middleware/requireVerified.js';
 import { auditFromReq } from '../lib/audit.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
+import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
 
 const router = Router();
 
@@ -113,6 +114,37 @@ function isMissingLeaderboardColumnsError(err) {
 /** Identity review finished — do not re-queue on later profile saves. */
 function isProfileVerificationSettled(status) {
   return status === 'verified' || status === 'approved' || status === 'rejected';
+}
+
+/** Single source of truth for API `age_verified`: status wins over a stale boolean column. */
+function deriveAgeVerifiedForApi(profile) {
+  const st = profile?.verificationStatus;
+  if (st === 'rejected') return false;
+  if (isIdentityVerifiedStatus(st)) return true;
+  return Boolean(profile?.ageVerified);
+}
+
+async function readExistingProfileForPatch(userId) {
+  try {
+    const p = await prisma.userProfile.findUnique({
+      where: { userId },
+      select: { verificationStatus: true, interestedEvents: true, idDocumentUrl: true },
+    });
+    if (p) return p;
+  } catch {
+    // fall through to compat read
+  }
+  try {
+    const raw = await readUserProfileCompat(userId);
+    if (!raw) return null;
+    return {
+      verificationStatus: raw.verificationStatus,
+      interestedEvents: raw.interestedEvents,
+      idDocumentUrl: raw.idDocumentUrl,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -643,7 +675,7 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       favorite_drink: profile?.favoriteDrink,
       date_of_birth: profile?.dateOfBirth,
       id_document_url: profile?.idDocumentUrl,
-      age_verified: profile?.ageVerified ?? false,
+      age_verified: deriveAgeVerifiedForApi(profile),
       verification_status: profile?.verificationStatus ?? 'pending',
       verification_rejection_note: profile?.verificationRejectionNote ?? null,
       payment_setup_complete: profile?.paymentSetupComplete ?? false,
@@ -701,7 +733,7 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       favorite_drink: profile?.favoriteDrink,
       date_of_birth: isSelf ? profile?.dateOfBirth : profile?.dateOfBirth,
       id_document_url: isSelf ? profile?.idDocumentUrl : null,
-      age_verified: profile?.ageVerified ?? false,
+      age_verified: deriveAgeVerifiedForApi(profile),
       verification_status: profile?.verificationStatus ?? 'pending',
       verification_rejection_note: isSelf ? profile?.verificationRejectionNote ?? null : null,
       payment_setup_complete: profile?.paymentSetupComplete ?? false,
@@ -848,7 +880,7 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
         favorite_drink: p?.favoriteDrink,
         date_of_birth: p?.dateOfBirth,
         id_document_url: p?.idDocumentUrl,
-        age_verified: p?.ageVerified ?? false,
+        age_verified: deriveAgeVerifiedForApi(p),
         verification_status: p?.verificationStatus ?? 'pending',
         payment_setup_complete: p?.paymentSetupComplete ?? false,
         is_verified_promoter: p?.isVerifiedPromoter ?? false,
@@ -974,10 +1006,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const data = { ...parsed.data };
     const staff = isStaff(req.userRole);
-    const existingProfile = await prisma.userProfile.findUnique({
-      where: { userId: req.userId },
-      select: { verificationStatus: true, interestedEvents: true },
-    });
+    const existingProfile = await readExistingProfileForPatch(req.userId);
     if (!staff) {
       if (data.verification_status === 'verified') {
         return res.status(403).json({ error: 'Identity verification is granted by administrators only.' });
@@ -990,12 +1019,21 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
         delete data.verification_status;
       }
     }
-    // Queue for admin review for any account (including staff) when a new ID file is on file.
-    if (
-      data.id_document_url &&
-      String(data.id_document_url).trim() !== '' &&
-      !isProfileVerificationSettled(existingProfile?.verificationStatus)
-    ) {
+    const prevStatus = existingProfile?.verificationStatus;
+    const prevId = String(existingProfile?.idDocumentUrl || '').trim();
+    const nextId =
+      data.id_document_url !== undefined && data.id_document_url != null
+        ? String(data.id_document_url).trim()
+        : '';
+    let shouldQueueSubmitted = false;
+    if (nextId !== '') {
+      if (!isProfileVerificationSettled(prevStatus)) {
+        shouldQueueSubmitted = true;
+      } else if (isIdentityVerifiedStatus(prevStatus) && nextId !== prevId) {
+        shouldQueueSubmitted = true;
+      }
+    }
+    if (shouldQueueSubmitted) {
       data.verification_status = 'submitted';
     }
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
@@ -1074,7 +1112,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       favorite_drink: profile.favoriteDrink,
       date_of_birth: profile.dateOfBirth,
       id_document_url: profile.idDocumentUrl,
-      age_verified: profile.ageVerified ?? false,
+      age_verified: deriveAgeVerifiedForApi(profile),
       verification_status: profile.verificationStatus,
       verification_rejection_note: profile.verificationRejectionNote,
       payment_setup_complete: profile.paymentSetupComplete,
@@ -1097,9 +1135,28 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const data = { ...parsed.data };
     const staff = isStaff(req.userRole);
-    const profile = await prisma.userProfile.findFirst({
-      where: { OR: [{ userId: id }, { id }] },
-    });
+    let profile = null;
+    try {
+      profile = await prisma.userProfile.findFirst({
+        where: { OR: [{ userId: id }, { id }] },
+      });
+    } catch {
+      profile = null;
+    }
+    if (!profile) {
+      try {
+        profile = await readUserProfileCompat(id);
+      } catch {
+        profile = null;
+      }
+    }
+    if (!profile && id && String(id).length > 30) {
+      try {
+        profile = await readUserProfileCompatByProfileRowId(id);
+      } catch {
+        profile = null;
+      }
+    }
     if (!staff) {
       if (data.verification_status === 'verified') {
         return res.status(403).json({ error: 'Identity verification is granted by administrators only.' });
@@ -1112,15 +1169,26 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
         delete data.verification_status;
       }
     }
-    if (
-      data.id_document_url &&
-      String(data.id_document_url).trim() !== '' &&
-      !isProfileVerificationSettled(profile?.verificationStatus)
-    ) {
+    const prevStatus = profile?.verificationStatus;
+    const prevIdDoc = String(profile?.idDocumentUrl || '').trim();
+    const nextIdDoc =
+      data.id_document_url !== undefined && data.id_document_url != null
+        ? String(data.id_document_url).trim()
+        : '';
+    let shouldQueueSubmittedPatch = false;
+    if (nextIdDoc !== '') {
+      if (!isProfileVerificationSettled(prevStatus)) {
+        shouldQueueSubmittedPatch = true;
+      } else if (isIdentityVerifiedStatus(prevStatus) && nextIdDoc !== prevIdDoc) {
+        shouldQueueSubmittedPatch = true;
+      }
+    }
+    if (shouldQueueSubmittedPatch) {
       data.verification_status = 'submitted';
     }
     const targetUserId = profile?.userId || id;
-    const prevInterested = profile?.interestedEvents ?? [];
+    const prevInterested =
+      profile?.interestedEvents ?? (await readExistingProfileForPatch(targetUserId))?.interestedEvents ?? [];
     if (id !== req.userId && targetUserId !== req.userId && !isStaff(req.userRole)) {
       return res.status(403).json({ error: 'Cannot update another user' });
     }
@@ -1193,7 +1261,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       favorite_drink: updated.favoriteDrink,
       date_of_birth: updated.dateOfBirth,
       id_document_url: updated.idDocumentUrl,
-      age_verified: updated.ageVerified ?? false,
+      age_verified: deriveAgeVerifiedForApi(updated),
       verification_status: updated.verificationStatus,
       verification_rejection_note: updated.verificationRejectionNote,
       payment_setup_complete: updated.paymentSetupComplete,

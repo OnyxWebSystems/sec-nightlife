@@ -268,6 +268,13 @@ export default function Profile() {
   const tablesJoinedCount = socialStats?.tablesJoined ?? 0;
   const friendsCount = socialStats?.friendCount ?? (displayProfile?.friends?.length || 0);
 
+  const vs = displayProfile?.verification_status;
+  const showAgeVerifiedBadge =
+    vs === 'verified' ||
+    vs === 'approved' ||
+    displayProfile?.age_verified === true ||
+    (isOwnProfile && user?.identity_verified);
+
   if (!user || !displayProfile) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
@@ -350,7 +357,7 @@ export default function Profile() {
                   Verified Promoter
                 </span>
               )}
-              {displayProfile.age_verified && (
+              {showAgeVerifiedBadge && (
                 <span className="sec-badge sec-badge-success">Age Verified</span>
               )}
             </div>

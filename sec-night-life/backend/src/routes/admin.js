@@ -468,6 +468,14 @@ router.patch('/verification/users/:userId', async (req, res, next) => {
         select: { id: true, email: true, fullName: true },
       });
       if (targetUser) {
+        await prisma.inAppNotification.updateMany({
+          where: {
+            userId: targetUser.id,
+            type: 'IDENTITY_VERIFICATION_REMINDER',
+            read: false,
+          },
+          data: { read: true },
+        });
         await createInAppNotification({
           userId: targetUser.id,
           type: 'IDENTITY_VERIFICATION_REMINDER',
