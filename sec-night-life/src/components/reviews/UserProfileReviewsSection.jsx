@@ -341,7 +341,7 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
       {showReviewsIGave && isOwnProfile && <ReviewsIGave onEdit={openEdit} />}
 
       <Dialog open={writeOpen} onOpenChange={(o) => { if (!o) { setWriteOpen(false); setEditReview(null); } }}>
-        <DialogContent className="max-w-[480px] max-h-[90vh] overflow-y-auto bg-[#0A0A0B] border-[#262629]">
+        <DialogContent className="max-w-app md:max-w-app-md max-h-[90vh] overflow-y-auto bg-[#0A0A0B] border-[#262629]">
           <DialogHeader>
             <DialogTitle>
               {editReview ? 'Edit review' : `Review @${profileUsername || 'user'}`}
@@ -388,7 +388,7 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
       </Dialog>
 
       <Dialog open={!!flagReview} onOpenChange={(o) => { if (!o) setFlagReview(null); }}>
-        <DialogContent className="max-w-[480px] bg-[#0A0A0B] border-[#262629]">
+        <DialogContent className="max-w-app md:max-w-app-md bg-[#0A0A0B] border-[#262629]">
           <DialogHeader>
             <DialogTitle>Why are you flagging this review?</DialogTitle>
           </DialogHeader>

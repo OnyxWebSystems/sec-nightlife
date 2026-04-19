@@ -1,62 +1,71 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import * as React from 'react';
 import { loadGoogleMapsApi } from '@/lib/googleMapsApi';
 
-const GoogleMapsContext = createContext({
-  status: 'idle',
-  error: null,
-});
+const listeners = new Set();
+let shared = { status: 'idle', error: null };
+let loadStarted = false;
+let authPollId = null;
 
-export function GoogleMapsProvider({ children }) {
-  const [status, setStatus] = useState('loading');
-  const [error, setError] = useState(null);
-  const didUnmount = useRef(false);
+function emit() {
+  listeners.forEach((fn) => {
+    try {
+      fn();
+    } catch {}
+  });
+}
 
-  useEffect(() => {
-    didUnmount.current = false;
-    let authFailurePoll = null;
+function startLoad() {
+  if (loadStarted) return;
+  loadStarted = true;
+  shared = { status: 'loading', error: null };
+  emit();
 
-    loadGoogleMapsApi()
-      .then(() => {
-        if (didUnmount.current) return;
-        setStatus('ready');
+  loadGoogleMapsApi()
+    .then(() => {
+      shared = { status: 'ready', error: null };
+      emit();
+      let tick = 0;
+      authPollId = window.setInterval(() => {
+        tick += 1;
+        if (typeof window !== 'undefined' && window.__googleMapsAuthFailure) {
+          shared = { status: 'error', error: new Error('Google Maps authentication failed.') };
+          emit();
+          if (authPollId) window.clearInterval(authPollId);
+          authPollId = null;
+          return;
+        }
+        if (tick >= 120 && authPollId) {
+          window.clearInterval(authPollId);
+          authPollId = null;
+        }
+      }, 500);
+    })
+    .catch((err) => {
+      shared = { status: 'error', error: err };
+      emit();
+    });
+}
 
-        // Google Maps auth/billing/key-restriction failures can occur after script load.
-        // When that happens, switch components into their manual fallback state.
-        // Bounded polling: do not run forever once the API is healthy (avoids perpetual 500ms wakeups).
-        const GMAPS_AUTH_FAILURE_MAX_TICKS = 120;
-        let gmapsPollTick = 0;
-        authFailurePoll = window.setInterval(() => {
-          if (didUnmount.current) return;
-          gmapsPollTick += 1;
-          if (window.__googleMapsAuthFailure) {
-            setError(new Error('Google Maps authentication failed.'));
-            setStatus('error');
-            window.clearInterval(authFailurePoll);
-            return;
-          }
-          if (gmapsPollTick >= GMAPS_AUTH_FAILURE_MAX_TICKS) {
-            window.clearInterval(authFailurePoll);
-          }
-        }, 500);
-      })
-      .catch((err) => {
-        if (didUnmount.current) return;
-        setError(err);
-        setStatus('error');
-      });
+/**
+ * Loads the Maps JS API on first subscription (not at app boot).
+ */
+export function useGoogleMaps() {
+  const [state, setState] = React.useState(() => ({ ...shared }));
 
+  React.useEffect(() => {
+    const onUpdate = () => setState({ ...shared });
+    listeners.add(onUpdate);
+    startLoad();
+    setState({ ...shared });
     return () => {
-      didUnmount.current = true;
-      if (authFailurePoll) window.clearInterval(authFailurePoll);
+      listeners.delete(onUpdate);
     };
   }, []);
 
-  const value = useMemo(() => ({ status, error }), [status, error]);
-
-  return <GoogleMapsContext.Provider value={value}>{children}</GoogleMapsContext.Provider>;
+  return state;
 }
 
-export function useGoogleMaps() {
-  return useContext(GoogleMapsContext);
+/** No-op wrapper — maps load lazily via `useGoogleMaps`. Kept for optional nesting. */
+export function GoogleMapsProvider({ children }) {
+  return children;
 }
-

@@ -245,7 +245,7 @@ export default function VenueReviewsSection({
       )}
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-[480px] bg-[#0A0A0B] border-[#262629]">
+        <DialogContent className="max-w-app md:max-w-app-md bg-[#0A0A0B] border-[#262629]">
           <DialogHeader>
             <DialogTitle>Review {venueName}</DialogTitle>
           </DialogHeader>
@@ -292,7 +292,7 @@ export default function VenueReviewsSection({
       </AlertDialog>
 
       <Dialog open={!!flagReview} onOpenChange={(o) => { if (!o) setFlagReview(null); }}>
-        <DialogContent className="max-w-[480px] bg-[#0A0A0B] border-[#262629]">
+        <DialogContent className="max-w-app md:max-w-app-md bg-[#0A0A0B] border-[#262629]">
           <DialogHeader>
             <DialogTitle>Why are you flagging this review?</DialogTitle>
           </DialogHeader>

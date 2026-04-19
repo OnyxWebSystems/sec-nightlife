@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import * as authService from '@/services/authService';
+import { useAuth } from '@/lib/AuthContext';
 import { dataService } from '@/services/dataService';
 import { apiGet } from '@/api/client';
 import { flushPendingLegalAccepts } from '@/lib/pendingLegalAccept';
@@ -21,8 +22,7 @@ const MODES = [
 
 export default function Layout({ children, currentPageName }) {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
+  const { user, userProfile } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
@@ -34,7 +34,6 @@ export default function Layout({ children, currentPageName }) {
   const [complianceAccess, setComplianceAccess] = useState({ canReview: false, isSuperAdmin: false });
   const longPressTimerRef = useRef(null);
 
-  useEffect(() => { loadUser(); }, []);
   function playMessageChime() {
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -122,20 +121,23 @@ export default function Layout({ children, currentPageName }) {
     return () => window.removeEventListener('sec_notifications_refresh', onRefresh);
   }, [fetchNotificationCounts]);
 
-  const loadUser = async () => {
-    const token = localStorage?.getItem('access_token') || sessionStorage?.getItem('access_token');
-    if (!token) return;
-    try {
-      const currentUser = await authService.getCurrentUser();
-      setUser(currentUser);
-
+  useEffect(() => {
+    if (!user?.id) {
+      setNotifications([]);
+      setNotificationCount(0);
+      setMessageUnread(0);
+      setHostUnread(0);
+      setUserRoles({ partygoer: true, host: false, business: false });
+      setActiveMode(null);
+      setComplianceAccess({ canReview: false, isSuperAdmin: false });
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
       try {
         await flushPendingLegalAccepts();
       } catch {}
-
-      // Set business nav before optional calls (profile filter, notifications) so a failure there
-      // cannot leave VENUE owners stuck in party-goer mode (e.g. after P2022 on user_profiles).
-      let hasBusiness = currentUser.role === 'VENUE';
+      let hasBusiness = user.role === 'VENUE';
       try {
         const rolesRes = await apiGet('/api/user-roles/me');
         if (rolesRes?.business) hasBusiness = true;
@@ -146,6 +148,7 @@ export default function Layout({ children, currentPageName }) {
           hasBusiness = Array.isArray(venues) && venues.length > 0;
         } catch {}
       }
+      if (cancelled) return;
       setUserRoles({ partygoer: true, host: true, business: hasBusiness });
 
       const saved = localStorage.getItem('sec_active_mode');
@@ -155,52 +158,22 @@ export default function Layout({ children, currentPageName }) {
       else if (hasBusiness) defaultMode = 'business';
       setActiveMode(defaultMode);
 
-      await Promise.all([
-        (async () => {
-          try {
-            const access = await apiGet('/api/compliance-documents/me/access');
-            setComplianceAccess({
-              canReview: !!access?.canReview,
-              isSuperAdmin: !!access?.isSuperAdmin,
-            });
-          } catch {
-            setComplianceAccess({ canReview: false, isSuperAdmin: false });
-          }
-        })(),
-        (async () => {
-          try {
-            const profiles = await dataService.User.filter({ created_by: currentUser.email });
-            if (profiles.length > 0) setUserProfile(profiles[0]);
-          } catch {}
-        })(),
-        (async () => {
-          try {
-            const rows = await apiGet('/api/notifications?limit=100');
-            const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
-              ...n,
-              is_read: n.read === true || n.is_read === true,
-            }));
-            setNotifications(notifs);
-            const fallbackUnread = notifs.filter((n) => !n.is_read).length;
-            try {
-              const u = await apiGet('/api/notifications/unread-count');
-              setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
-            } catch {
-              setNotificationCount(fallbackUnread);
-            }
-          } catch {}
-        })(),
-        (async () => {
-          try {
-            const m = await apiGet('/api/messages/unread-total');
-            setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
-          } catch {
-            setMessageUnread(0);
-          }
-        })(),
-      ]);
-    } catch (e) {}
-  };
+      try {
+        const access = await apiGet('/api/compliance-documents/me/access');
+        if (!cancelled) {
+          setComplianceAccess({
+            canReview: !!access?.canReview,
+            isSuperAdmin: !!access?.isSuperAdmin,
+          });
+        }
+      } catch {
+        if (!cancelled) setComplianceAccess({ canReview: false, isSuperAdmin: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.email, user?.role]);
 
   const switchMode = (mode) => {
     setActiveMode(mode);
@@ -403,7 +376,7 @@ export default function Layout({ children, currentPageName }) {
 
       {/* ── Main Content ── */}
       <main
-        className="lg:ml-[240px] min-h-screen w-full max-w-[480px] lg:max-w-none mx-auto lg:mx-0"
+        className="lg:ml-[240px] min-h-screen w-full max-w-app md:max-w-app-md lg:max-w-none mx-auto lg:mx-0 px-4 sm:px-6 box-border min-w-0"
         style={{
           paddingBottom: 'calc(84px + env(safe-area-inset-bottom))',
         }}

@@ -297,7 +297,7 @@ export default function HostDashboard() {
   }
 
   return (
-    <div className="px-4 py-6 max-w-[480px] mx-auto pb-24">
+    <div className="px-4 py-6 max-w-app md:max-w-app-md mx-auto pb-24">
       <div className="flex items-center gap-2 mb-6">
         <SecLogo size={30} />
         <div>

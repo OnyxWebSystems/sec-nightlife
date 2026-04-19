@@ -64,7 +64,7 @@ export default function UserProfile() {
 
   if (isLoading || !userId) {
     return (
-      <div className="min-h-screen flex items-center justify-center max-w-[480px] mx-auto">
+      <div className="min-h-screen flex items-center justify-center max-w-app md:max-w-app-md mx-auto">
         <div className="w-10 h-10 border-2 border-t-transparent border-[var(--sec-accent)] rounded-full animate-spin" />
       </div>
     );
@@ -72,7 +72,7 @@ export default function UserProfile() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 max-w-[480px] mx-auto">
+      <div className="min-h-screen flex items-center justify-center px-4 max-w-app md:max-w-app-md mx-auto">
         <div className="text-center">
           <h2 className="text-lg font-bold mb-2">User not found</h2>
           <Button className="min-h-[44px]" onClick={() => navigate(-1)}>
@@ -92,7 +92,7 @@ export default function UserProfile() {
   };
 
   return (
-    <div className="min-h-screen pb-24 max-w-[480px] mx-auto px-4">
+    <div className="min-h-screen pb-24 max-w-app md:max-w-app-md mx-auto px-4">
       <div className="pt-4 flex items-center gap-2">
         <button
           type="button"

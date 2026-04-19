@@ -97,7 +97,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
       : detail?.eventName || detail?.name || 'Group';
 
   return (
-    <div className="flex flex-col min-h-[70vh] max-w-[480px] mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]">
+    <div className="flex flex-col min-h-[70vh] max-w-app md:max-w-app-md mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]">
       <div className="flex items-center justify-between gap-2 p-3 border-b border-[#262629]">
         <div className="flex items-center gap-2 min-w-0">
           <button type="button" className="min-h-[44px] min-w-[44px] flex items-center justify-center" onClick={onBack}>

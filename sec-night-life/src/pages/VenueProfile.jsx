@@ -234,7 +234,7 @@ export default function VenueProfile() {
   const showApply = currentUser && !isOwner;
 
   return (
-    <div className="min-h-screen pb-8 max-w-[480px] mx-auto">
+    <div className="min-h-screen pb-8 max-w-app md:max-w-app-md mx-auto">
       <VenueShareModal
         open={shareOpen}
         onOpenChange={setShareOpen}

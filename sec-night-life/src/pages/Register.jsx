@@ -127,7 +127,7 @@ export default function Register() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[#0A0A0B]">
-      <div className="w-full max-w-[480px]">
+      <div className="w-full max-w-app md:max-w-app-md">
         <h1 className="text-2xl font-bold text-white mb-2">Create Account</h1>
         <p className="text-gray-400 mb-6">SEC Nightlife</p>
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>

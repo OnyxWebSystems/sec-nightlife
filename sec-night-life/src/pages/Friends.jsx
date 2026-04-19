@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 
-const MAX_W = 'max-w-[480px] mx-auto';
+const MAX_W = 'max-w-app md:max-w-app-md mx-auto';
 
 function useDebounced(value, ms) {
   const [v, setV] = useState(value);

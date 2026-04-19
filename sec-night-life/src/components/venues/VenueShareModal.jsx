@@ -105,7 +105,7 @@ export default function VenueShareModal({ open, onOpenChange, venueId, venueName
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[480px] max-h-[90vh] overflow-y-auto bg-[#0A0A0B] border-[#262629] text-left">
+      <DialogContent className="max-w-app md:max-w-app-md max-h-[90vh] overflow-y-auto bg-[#0A0A0B] border-[#262629] text-left">
         <DialogHeader>
           <DialogTitle>Share venue</DialogTitle>
         </DialogHeader>

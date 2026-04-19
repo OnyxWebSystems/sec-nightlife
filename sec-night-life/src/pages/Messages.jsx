@@ -82,7 +82,7 @@ export default function Messages() {
 
   if (dm) {
     return (
-      <div className="max-w-[480px] mx-auto px-2 py-4">
+      <div className="max-w-app md:max-w-app-md mx-auto px-2 py-4">
         <DMThread conversationId={dm} onBack={closeThread} />
       </div>
     );
@@ -90,14 +90,14 @@ export default function Messages() {
 
   if (group) {
     return (
-      <div className="max-w-[480px] mx-auto px-2 py-4">
+      <div className="max-w-app md:max-w-app-md mx-auto px-2 py-4">
         <GroupThread groupChatId={group} chatKind={groupKind} onBack={closeThread} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen max-w-[480px] mx-auto pb-24" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+    <div className="min-h-screen max-w-app md:max-w-app-md mx-auto pb-24" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
       <header className="sticky top-0 z-40 border-b border-[var(--sec-border)] bg-black/90 backdrop-blur px-4 py-3">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-semibold">Messages</h1>

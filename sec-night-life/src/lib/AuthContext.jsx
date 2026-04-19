@@ -1,10 +1,12 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import * as authService from '@/services/authService';
+import { dataService } from '@/services/dataService';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -13,6 +15,7 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
     if (!token) {
       setUser(null);
+      setUserProfile(null);
       setIsAuthenticated(false);
       setIsLoadingAuth(false);
       return;
@@ -31,8 +34,15 @@ export const AuthProvider = ({ children }) => {
         can_admin_dashboard: currentUser.can_admin_dashboard,
       });
       setIsAuthenticated(true);
+      try {
+        const profiles = await dataService.User.filter({ created_by: currentUser.email });
+        setUserProfile(profiles.length > 0 ? profiles[0] : null);
+      } catch {
+        setUserProfile(null);
+      }
     } catch (err) {
       setUser(null);
+      setUserProfile(null);
       setIsAuthenticated(false);
       if (err?.status === 401 || err?.status === 403) {
         setAuthError({ type: 'auth_required', message: 'Please sign in' });
@@ -50,6 +60,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = (shouldRedirect = true) => {
     setUser(null);
+    setUserProfile(null);
     setIsAuthenticated(false);
     authService.logout(shouldRedirect);
   };
@@ -61,6 +72,7 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={{
       user,
+      userProfile,
       isAuthenticated,
       isLoadingAuth,
       isLoadingPublicSettings: isLoadingAuth,

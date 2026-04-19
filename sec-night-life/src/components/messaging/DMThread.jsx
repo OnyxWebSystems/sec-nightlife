@@ -121,7 +121,7 @@ export default function DMThread({ conversationId, onBack }) {
   const lastOwn = [...messages].reverse().find((m) => m.senderUserId === me?.id);
 
   return (
-    <div className="flex flex-col min-h-[70vh] max-w-[480px] mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]">
+    <div className="flex flex-col min-h-[70vh] max-w-app md:max-w-app-md mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]">
       <div className="flex items-center gap-2 p-3 border-b border-[#262629]">
         <button type="button" className="min-h-[44px] min-w-[44px] flex items-center justify-center" onClick={onBack}>
           <ChevronLeft className="w-6 h-6" />

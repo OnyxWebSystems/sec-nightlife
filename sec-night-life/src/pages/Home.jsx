@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
@@ -28,8 +27,8 @@ function getOrCreateSessionId() {
   }
 }
 
-/** Fixed width for horizontal snap row; fits small screens without overflowing. */
-const PROMO_CARD_OUTER_WIDTH = 'min(320px, calc(100vw - 56px))';
+/** Fixed width for horizontal snap row; uses parent width to avoid horizontal page scroll. */
+const PROMO_CARD_OUTER_WIDTH = 'min(320px, calc(100% - 16px))';
 
 const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, onOpen }) {
   const boosted = Boolean(p.boosted);
@@ -157,9 +156,7 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
 export default function Home() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { user, userProfile, isLoadingAuth, logout } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCity, setSelectedCity] = useState('all');
@@ -169,10 +166,6 @@ export default function Home() {
   const [promotions, setPromotions] = useState([]);
   const [hasMorePromotions, setHasMorePromotions] = useState(false);
   const [sessionId] = useState(() => getOrCreateSessionId());
-
-  const { logout } = useAuth();
-
-  useEffect(() => { loadUser(); }, []);
 
   /**
    * Promotions feed city: only when the user picks a city in Home filters.
@@ -212,9 +205,9 @@ export default function Home() {
   }, [promotionsExplicitCity, sessionId]);
 
   useEffect(() => {
-    if (!user && loading) return;
+    if (isLoadingAuth) return;
     void loadPromotions(1, false);
-  }, [user, loading, promotionsExplicitCity, loadPromotions]);
+  }, [isLoadingAuth, promotionsExplicitCity, loadPromotions]);
 
   const handlePromotionClick = async (promotion) => {
     void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});
@@ -242,48 +235,43 @@ export default function Home() {
     }
   };
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await authService.getCurrentUser();
-      setUser(currentUser);
-      try {
-        const profiles = await dataService.User.filter({ created_by: currentUser.email });
-        if (profiles.length > 0) setUserProfile(profiles[0]);
-      } catch {
-        // Profile fetch must not sign the user out — only /auth/me failures should.
-      }
-    } catch {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const listStale = 120_000;
 
   const { data: events = [] } = useQuery({
     queryKey: ['featured-events'],
     queryFn: () => dataService.Event.filter({ status: 'published' }, '-date', 10),
+    staleTime: listStale,
+    enabled: !isLoadingAuth,
   });
 
   const { data: hostTablesData, isLoading: tablesLoading } = useQuery({
     queryKey: ['host-tables-available'],
     queryFn: () => apiGet('/api/host/tables/available?limit=10&page=1'),
+    staleTime: listStale,
+    enabled: !isLoadingAuth,
   });
   const hostTables = hostTablesData?.items || [];
   const { data: venueTablesData } = useQuery({
     queryKey: ['venue-tables-available'],
     queryFn: () => apiGet('/api/venue-tables/available?limit=10&page=1'),
+    staleTime: listStale,
+    enabled: !isLoadingAuth,
   });
   const venueTables = venueTablesData?.items || [];
 
   const { data: hostPartiesData } = useQuery({
     queryKey: ['host-parties-public-home'],
     queryFn: () => apiGet('/api/host/parties/public?limit=10&page=1'),
+    staleTime: listStale,
+    enabled: !isLoadingAuth,
   });
   const hostParties = hostPartiesData?.items || [];
 
   const { data: venues = [] } = useQuery({
     queryKey: ['all-venues'],
     queryFn: () => dataService.Venue.list(),
+    staleTime: listStale,
+    enabled: !isLoadingAuth,
   });
 
   const cities = [...new Set(venues.map(v => v.city).filter(Boolean))];
@@ -330,14 +318,15 @@ export default function Home() {
   const { data: featuredEventDetails } = useQuery({
     queryKey: ['featured-events-stats', featuredEvents.map((e) => e.id).join('|')],
     queryFn: () => Promise.all(featuredEvents.map((e) => apiGet(`/api/events/${e.id}`))),
-    enabled: featuredEvents.length > 0,
+    staleTime: listStale,
+    enabled: !isLoadingAuth && featuredEvents.length > 0,
   });
   const featuredCards =
     featuredEventDetails?.length === featuredEvents.length && featuredEvents.length > 0
       ? featuredEventDetails
       : featuredEvents;
 
-  if (loading) {
+  if (isLoadingAuth) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
         <div className="sec-spinner" />

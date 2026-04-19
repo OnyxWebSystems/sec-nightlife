@@ -4,6 +4,12 @@ module.exports = {
     content: ["./index.html", "./src/**/*.{ts,tsx,js,jsx}"],
   theme: {
   	extend: {
+  		maxWidth: {
+  			/** App content column: phone */
+  			app: 'min(100%, 30rem)',
+  			/** Wider cap on tablet / landscape */
+  			'app-md': 'min(100%, 42rem)',
+  		},
   		borderRadius: {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',
