@@ -113,12 +113,15 @@ const publicHostSelect = {
 };
 
 async function formatPublicHost(user) {
+  if (!user || typeof user !== 'object') {
+    return { username: null, fullName: null, avatarUrl: null, averageRating: null };
+  }
   const profile = user.userProfile;
   const username = profile?.username || user.username;
   const avatarUrl = profile?.avatarUrl || null;
   return {
     username,
-    fullName: user.fullName,
+    fullName: user.fullName ?? null,
     avatarUrl,
     averageRating: profile?.serviceRatingAvg != null ? Number(profile.serviceRatingAvg) : null,
   };
@@ -391,12 +394,20 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
       },
     });
     let friendIds = new Set();
-    if (req.userId) friendIds = await getFriendIds(req.userId);
+    if (req.userId) {
+      try {
+        friendIds = await getFriendIds(req.userId);
+      } catch (e) {
+        logger.warn('getFriendIds failed in /tables/available', { err: e?.message });
+      }
+    }
     const scored = rows.map((t) => ({ t, friend: friendIds.has(t.hostUserId) }));
     scored.sort((a, b) => {
       if (a.t.boosted !== b.t.boosted) return a.t.boosted ? -1 : 1;
       if (a.friend !== b.friend) return a.friend ? -1 : 1;
-      return a.t.eventDate.getTime() - b.t.eventDate.getTime();
+      const ad = a.t.eventDate instanceof Date ? a.t.eventDate.getTime() : 0;
+      const bd = b.t.eventDate instanceof Date ? b.t.eventDate.getTime() : 0;
+      return ad - bd;
     });
     const slice = scored.slice((page - 1) * limit, page * limit);
     const out = await Promise.all(
@@ -424,7 +435,12 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
         spotsRemaining: t.spotsRemaining,
         boosted: t.boosted,
         eventId: t.eventId,
-        host: await formatPublicHost(t.host),
+        host: await formatPublicHost(t.host ?? null).catch(() => ({
+          username: null,
+          fullName: null,
+          avatarUrl: null,
+          averageRating: null,
+        })),
       })),
     );
     res.json({ items: out, page, limit, total: scored.length });

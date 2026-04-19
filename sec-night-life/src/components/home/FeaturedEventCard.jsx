@@ -7,6 +7,8 @@ import { getEventImage, NIGHTLIFE_PLACEHOLDERS } from '@/lib/placeholders';
 
 export default function FeaturedEventCard({ event }) {
   const [imgError, setImgError] = useState(false);
+  if (!event?.id) return null;
+
   const imgSrc = imgError ? NIGHTLIFE_PLACEHOLDERS.event : getEventImage(event?.cover_image_url);
 
   const getDateLabel = () => {

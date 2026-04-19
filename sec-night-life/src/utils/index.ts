@@ -1,5 +1,6 @@
-export function createPageUrl(pageName: string) {
-    return '/' + pageName.replace(/ /g, '-');
+export function createPageUrl(pageName: string | null | undefined) {
+    const name = pageName == null ? '' : String(pageName);
+    return '/' + name.replace(/ /g, '-');
 }
 
 /** Canonical web origin for share links (not the API URL). */

@@ -13,7 +13,7 @@ export default function NavigationTracker() {
     // Log user activity when navigating to a page
     useEffect(() => {
         // Extract page name from pathname
-        const pathname = location.pathname;
+        const pathname = location.pathname ?? '';
         let pageName;
 
         if (pathname === '/' || pathname === '') {

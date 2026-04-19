@@ -6,7 +6,7 @@ import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { format, isToday, isTomorrow, parseISO } from 'date-fns';
+import { format, isToday, isTomorrow, isValid, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
 import { ChevronRight, Search, SlidersHorizontal, BadgeCheck, Trophy, Bell, Users } from 'lucide-react';
 
@@ -515,7 +515,11 @@ export default function Home() {
                 <div className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
                   <div style={{ fontWeight: 600 }}>{table.tableName || table.venueName}</div>
                   <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-                    {table.eventDate && format(parseISO(table.eventDate), 'EEE d MMM')} · {table.eventTime}
+                    {(() => {
+                      if (!table.eventDate) return `— · ${table.eventTime ?? ''}`;
+                      const d = parseISO(table.eventDate);
+                      return `${isValid(d) ? format(d, 'EEE d MMM') : '—'} · ${table.eventTime ?? ''}`;
+                    })()}
                   </div>
                   <div style={{ fontSize: 12, marginTop: 6 }}>
                     Host: {table.host?.username || '—'}
@@ -619,13 +623,17 @@ export default function Home() {
                     <div className="sec-list-row__body">
                       <div className="sec-list-row__title">{event.title}</div>
                       <div className="sec-list-row__subtitle" style={{ display: 'flex', gap: 10 }}>
-                        {event.date && (
+                        {event.date && (() => {
+                          const d = parseISO(event.date);
+                          if (!isValid(d)) return null;
+                          return (
                           <span>
-                            {isToday(parseISO(event.date)) ? 'Tonight' :
-                             isTomorrow(parseISO(event.date)) ? 'Tomorrow' :
-                             format(parseISO(event.date), 'EEE, MMM d')}
+                            {isToday(d) ? 'Tonight' :
+                             isTomorrow(d) ? 'Tomorrow' :
+                             format(d, 'EEE, MMM d')}
                           </span>
-                        )}
+                          );
+                        })()}
                         {event.city && <span>{event.city}</span>}
                       </div>
                     </div>

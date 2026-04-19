@@ -11,7 +11,7 @@ export default function VenueCard({ venue }) {
   if (!mounted || !venue?.id) return null;
 
   const venueTypeLabel = venue.venue_type
-    ? venue.venue_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    ? String(venue.venue_type).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
     : null;
 
   const imgSrc = imgError ? NIGHTLIFE_PLACEHOLDERS.venue : getVenueImage(venue.cover_image_url, venue.venue_type);
