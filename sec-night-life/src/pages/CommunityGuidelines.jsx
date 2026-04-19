@@ -1,36 +1,91 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
-import LegalPdfPanel from '@/components/legal/LegalPdfPanel';
-import { LEGAL_PDF } from '@/legal/documentUrls';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import LegalDocumentPage from '@/components/legal/LegalDocumentPage';
+import { LegalPolicySection } from '@/components/legal/LegalPolicySection';
 
 export default function CommunityGuidelines() {
-  const navigate = useNavigate();
-
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <header className="sticky top-0 z-40 border-b" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-        <div className="px-4 py-4 flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'var(--sec-bg-card)' }}
-          >
-            <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
-          </button>
-          <h1 className="text-xl font-bold">Community Guidelines</h1>
-        </div>
-      </header>
+    <LegalDocumentPage
+      title="Community Guidelines"
+      effectiveDate="Effective April 2026 · All users and stakeholders"
+    >
+      <LegalPolicySection title="Purpose and Application">
+        <p>
+          The SEC Community Guidelines establish the foundational behavioral standards required of all users and
+          stakeholders on the Platform. These guidelines are intended to create a safe, respectful, and trustworthy
+          environment that supports both social interaction and commercial activity within the nightlife ecosystem.
+        </p>
+        <p>
+          The Guidelines apply universally to all interactions conducted through SEC, including digital communications
+          such as messaging and profile content, as well as real-world conduct at events, venues, and engagements
+          facilitated by the Platform.
+        </p>
+      </LegalPolicySection>
 
-      <div className="px-4 py-6 max-w-2xl mx-auto">
-        <LegalPdfPanel
-          title="Community Guidelines"
-          pdfSrc={LEGAL_PDF.communityGuidelines}
-          intro="Standards for respectful, safe conduct across SEC—including messaging, profiles, and real-world events."
-          effectiveDate="April 2026"
-        />
-      </div>
-    </div>
+      <LegalPolicySection title="Respectful Conduct and Non-Discrimination">
+        <p>
+          All users are expected to interact with others in a manner that is respectful, lawful, and free from harassment or
+          discrimination. SEC strictly prohibits conduct that targets individuals or groups based on race, gender, sexual
+          orientation, religion, nationality, or any other protected characteristic.
+        </p>
+        <p>
+          Any form of abusive language, threats, intimidation, or harassment is considered a violation of these Guidelines
+          and may result in immediate enforcement action, including account suspension or permanent removal from the
+          Platform.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="Safety in Nightlife Environments">
+        <p>
+          Given the nature of nightlife activities, users are expected to conduct themselves responsibly, particularly in
+          environments involving alcohol consumption. Users must respect venue staff, security personnel, and other
+          patrons, and must comply with all venue rules and legal requirements.
+        </p>
+        <p>
+          SEC does not tolerate violent, disruptive, or unsafe behavior. Any conduct that endangers others or undermines
+          the safety of the environment may result in immediate removal from the Platform.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="Fraud, Misrepresentation, and Platform Abuse">
+        <p>
+          SEC enforces a strict zero-tolerance policy toward fraud and misrepresentation. Users must not create fake
+          accounts, submit false identification, misrepresent events, or engage in deceptive practices.
+        </p>
+        <p>
+          Any attempt to manipulate the Platform, including bypassing payment systems, exploiting features, or engaging in
+          coordinated abuse, will result in enforcement action.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="Enforcement and Moderation">
+        <p>
+          SEC reserves full discretion to monitor, review, and enforce compliance with these Guidelines. Enforcement
+          actions may include content removal, feature restrictions, temporary suspensions, or permanent account
+          termination.
+        </p>
+        <p>
+          SEC is not obligated to provide prior notice before taking enforcement action where necessary to protect the
+          Platform and its users.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="Related documents">
+        <p>
+          <Link to={createPageUrl('UserAgreement')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            User Agreement
+          </Link>
+          {' · '}
+          <Link to={createPageUrl('TermsOfService')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            Terms of Service
+          </Link>
+          {' · '}
+          <Link to={createPageUrl('PromoterCodeOfConduct')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            Promoter Code of Conduct
+          </Link>
+        </p>
+      </LegalPolicySection>
+    </LegalDocumentPage>
   );
 }

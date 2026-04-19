@@ -1,36 +1,125 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
-import LegalPdfPanel from '@/components/legal/LegalPdfPanel';
-import { LEGAL_PDF } from '@/legal/documentUrls';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import LegalDocumentPage from '@/components/legal/LegalDocumentPage';
+import { LegalPolicySection } from '@/components/legal/LegalPolicySection';
 
 export default function VenueComplianceCharter() {
-  const navigate = useNavigate();
-
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <header className="sticky top-0 z-40 border-b" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-        <div className="px-4 py-4 flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'var(--sec-bg-card)' }}
-          >
-            <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
-          </button>
-          <h1 className="text-xl font-bold">Venue Compliance Charter</h1>
-        </div>
-      </header>
+    <LegalDocumentPage
+      title="Venue Compliance Charter"
+      effectiveDate="Governing law: Republic of South Africa · Effective April 2026"
+    >
+      <LegalPolicySection title="1. Purpose and Scope">
+        <p>
+          This Venue Compliance Charter (&quot;Charter&quot;) establishes the legal, operational, and ethical obligations of all
+          venues, event companies, and nightlife establishments (&quot;Venues&quot;) that utilize the SEC platform. This Charter
+          is designed to ensure that all Venues operating through SEC adhere to high standards of legal compliance,
+          safety, transparency, and professional conduct within the nightlife ecosystem.
+        </p>
+        <p>
+          By registering and operating on the SEC platform, Venues agree to be bound by this Charter in addition to all
+          other applicable SEC policies, including the{' '}
+          <Link to={createPageUrl('TermsOfService')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            Terms of Service
+          </Link>
+          ,{' '}
+          <Link to={createPageUrl('PrivacyPolicy')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            Privacy Policy
+          </Link>
+          , and{' '}
+          <Link to={createPageUrl('UserAgreement')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            User Agreement
+          </Link>
+          . This Charter governs all interactions between Venues and users facilitated through the Platform and applies to
+          both digital representations of events and real-world execution.
+        </p>
+      </LegalPolicySection>
 
-      <div className="px-4 py-6 max-w-2xl mx-auto">
-        <LegalPdfPanel
-          title="Venue Compliance Charter"
-          pdfSrc={LEGAL_PDF.venueComplianceCharter}
-          intro="Expectations and requirements for venues operating on SEC—including documentation and verification."
-          effectiveDate="April 2026"
-        />
-      </div>
-    </div>
+      <LegalPolicySection title="2. Legal Compliance and Licensing">
+        <p>
+          Venues are required to operate in full compliance with all applicable laws and regulations within the Republic
+          of South Africa. This includes, but is not limited to, obtaining and maintaining valid licenses for alcohol
+          service, entertainment operations, public gatherings, and business registration.
+        </p>
+        <p>
+          Venues must ensure that all required documentation, including CIPC registration, SARS compliance records, annual
+          returns, and valid liquor licenses, are accurate, current, and submitted during onboarding. Venues are solely
+          responsible for ensuring that such documentation remains valid and up to date at all times.
+        </p>
+        <p>
+          SEC reserves the right to request updated compliance documentation at any time and may suspend or remove Venue
+          listings where compliance cannot be verified.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="3. Safety and Security Obligations">
+        <p>
+          Venues bear full responsibility for ensuring the safety and well-being of all individuals attending events hosted
+          at their premises. This includes implementing appropriate security measures, employing qualified personnel,
+          maintaining emergency response procedures, and adhering to legally mandated capacity limits.
+        </p>
+        <p>
+          Venues must ensure that their premises are structurally safe, that fire safety regulations are met, and that all
+          necessary precautions are taken to prevent overcrowding, violence, or hazardous conditions. SEC does not assume
+          any responsibility for safety failures or incidents occurring at Venue premises.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="4. Alcohol Service Responsibility">
+        <p>
+          Venues are exclusively responsible for the lawful and responsible service of alcohol. This includes verifying the
+          legal drinking age of patrons, preventing over-service, and ensuring compliance with all alcohol-related
+          regulations.
+        </p>
+        <p>
+          SEC does not participate in or control alcohol service in any capacity. Any liability arising from alcohol-related
+          incidents, including intoxication, injury, or legal violations, rests solely with the Venue.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="5. Event Transparency and Accuracy">
+        <p>
+          Venues must ensure that all event listings, descriptions, pricing, and availability information presented on the
+          Platform are accurate, truthful, and not misleading. This includes clear communication of entry requirements,
+          dress codes, minimum spends, and any restrictions applicable to attendees.
+        </p>
+        <p>
+          Misrepresentation of events or services constitutes a violation of this Charter and may result in enforcement
+          action by SEC, including suspension or removal from the Platform.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="6. Financial Responsibility and Refund Obligations">
+        <p>
+          Venues acknowledge and agree that they bear full responsibility for all financial transactions related to their
+          events, including refunds, cancellations, and disputes. SEC operates solely as a facilitator and does not
+          assume liability for financial outcomes.
+        </p>
+        <p>
+          Venues must establish and honor fair refund policies and are required to address user refund requests directly.
+          Failure to do so may result in removal from the Platform. See our{' '}
+          <Link to={createPageUrl('RefundPolicy')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            Refund Policy
+          </Link>
+          .
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="7. Non-Discrimination and Fair Access">
+        <p>
+          Venues must operate in a manner that is consistent with South African anti-discrimination laws. While Venues
+          retain the right to enforce entry policies such as dress codes and capacity limits, such policies must not
+          unlawfully discriminate against individuals based on protected characteristics.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="8. Enforcement and Platform Rights">
+        <p>
+          SEC reserves the right to monitor Venue compliance and to take enforcement action where violations occur. This
+          includes the right to suspend listings, restrict access, or permanently remove Venues from the Platform.
+        </p>
+      </LegalPolicySection>
+    </LegalDocumentPage>
   );
 }

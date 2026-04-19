@@ -1,36 +1,58 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
-import LegalPdfPanel from '@/components/legal/LegalPdfPanel';
-import { LEGAL_PDF } from '@/legal/documentUrls';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import LegalDocumentPage from '@/components/legal/LegalDocumentPage';
+import { LegalPolicySection } from '@/components/legal/LegalPolicySection';
 
 export default function UserAgreement() {
-  const navigate = useNavigate();
-
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <header className="sticky top-0 z-40 border-b" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-        <div className="px-4 py-4 flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'var(--sec-bg-card)' }}
-          >
-            <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
-          </button>
-          <h1 className="text-xl font-bold">User Agreement</h1>
-        </div>
-      </header>
+    <LegalDocumentPage
+      title="User Agreement"
+      effectiveDate="Effective April 2026 · All SEC Nightlife users"
+    >
+      <LegalPolicySection title="1. Purpose">
+        <p>
+          This Agreement establishes the behavioral, ethical, and operational standards required of all users of the SEC
+          Nightlife platform. It applies together with our{' '}
+          <Link to={createPageUrl('TermsOfService')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            Terms of Service
+          </Link>
+          ,{' '}
+          <Link to={createPageUrl('CommunityGuidelines')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            Community Guidelines
+          </Link>
+          , and{' '}
+          <Link to={createPageUrl('PrivacyPolicy')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            Privacy Policy
+          </Link>
+          .
+        </p>
+      </LegalPolicySection>
 
-      <div className="px-4 py-6 max-w-2xl mx-auto">
-        <LegalPdfPanel
-          title="User Agreement"
-          pdfSrc={LEGAL_PDF.userAgreement}
-          intro="This agreement sets behavioral and operational standards for everyone using SEC Nightlife."
-          effectiveDate="April 2026"
-        />
-      </div>
-    </div>
+      <LegalPolicySection title="2. Code of Conduct">
+        <p>Users must behave lawfully, respectfully, and responsibly in all interactions on and off the platform when those interactions arise from SEC-facilitated connections.</p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="3. Nightlife Responsibility">
+        <p>
+          Users acknowledge the risks associated with nightlife and accept full responsibility for their actions at venues
+          and events. SEC does not control venue operations or on-site safety—see our Terms for limitations of liability.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="4. Platform Integrity">
+        <p>
+          Users must not engage in fraud, abuse, or manipulation of the Platform—including fake accounts, payment evasion,
+          or coordinated harm to other users or SEC systems.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="5. Enforcement">
+        <p>
+          SEC reserves full enforcement rights, including warnings, feature restrictions, suspensions, and permanent bans,
+          for violations of this Agreement or other SEC policies.
+        </p>
+      </LegalPolicySection>
+    </LegalDocumentPage>
   );
 }

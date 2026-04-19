@@ -4,18 +4,7 @@ export const LEGAL_ACCEPT_VERSION = {
   privacyPolicy: '1.0',
 };
 
-/**
- * Canonical paths for static legal PDFs (served from /public/legal).
- */
-export const LEGAL_PDF = {
-  termsOfService: '/legal/sec-terms-of-service.pdf',
-  communityGuidelines: '/legal/sec-community-guidelines.pdf',
-  refundPolicy: '/legal/sec-refund-policy.pdf',
-  venueComplianceCharter: '/legal/sec-venue-compliance-charter.pdf',
-  userAgreement: '/legal/user-agreement.pdf',
-};
-
-/** In-app routes (pages.config keys) for HTML policies vs PDF viewers */
+/** In-app routes (pages.config keys) for legal pages */
 export const LEGAL_PAGE = {
   termsOfService: 'TermsOfService',
   privacyPolicy: 'PrivacyPolicy',

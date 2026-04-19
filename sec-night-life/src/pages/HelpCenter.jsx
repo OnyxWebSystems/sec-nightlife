@@ -1,9 +1,52 @@
 import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Mail, BookOpen } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Mail,
+  Sparkles,
+  CreditCard,
+  Building2,
+  UserCircle,
+  LifeBuoy,
+} from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { usePreferences } from '@/context/PreferencesContext';
 import { getHelpCenterLegalNavItems } from '@/legal/legalNavItems';
+
+function PlaceholderTopic({ icon: Icon, title, description }) {
+  return (
+    <div
+      className="rounded-2xl p-4 flex gap-3"
+      style={{
+        backgroundColor: 'var(--sec-bg-card)',
+        border: '1px solid var(--sec-border)',
+        opacity: 0.92,
+      }}
+    >
+      <div
+        className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center"
+        style={{ backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}
+      >
+        <Icon className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-sm" style={{ color: 'var(--sec-text-primary)' }}>
+          {title}
+        </p>
+        <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
+          {description}
+        </p>
+        <span
+          className="inline-block mt-2 text-[11px] font-medium uppercase tracking-wide"
+          style={{ color: 'var(--sec-text-muted)' }}
+        >
+          Coming soon
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export default function HelpCenter() {
   const navigate = useNavigate();
@@ -12,7 +55,10 @@ export default function HelpCenter() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <header className="sticky top-0 z-40 border-b" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+      <header
+        className="sticky top-0 z-40 border-b"
+        style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+      >
         <div className="px-4 py-4 flex items-center gap-4">
           <button
             type="button"
@@ -22,7 +68,12 @@ export default function HelpCenter() {
           >
             <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
           </button>
-          <h1 className="text-xl font-bold">Help Center</h1>
+          <div>
+            <h1 className="text-xl font-bold">Help Center</h1>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--sec-text-muted)' }}>
+              Guides and answers — expanding soon
+            </p>
+          </div>
         </div>
       </header>
 
@@ -31,32 +82,66 @@ export default function HelpCenter() {
           className="rounded-2xl p-6"
           style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
         >
-          <p className="mb-4" style={{ color: 'var(--sec-text-secondary)' }}>
-            If you need help with SEC Nightlife, contact us at:
-          </p>
+          <div className="flex items-start gap-3 mb-2">
+            <LifeBuoy className="w-6 h-6 shrink-0" style={{ color: 'var(--sec-accent)' }} />
+            <div>
+              <p className="font-semibold">Contact support</p>
+              <p className="text-sm mt-1" style={{ color: 'var(--sec-text-secondary)' }}>
+                For account issues, payments, or safety concerns, email us and we&apos;ll get back to you.
+              </p>
+            </div>
+          </div>
           <a
             href="mailto:support@secnightlife.com"
-            className="inline-flex items-center gap-2 font-medium"
+            className="inline-flex items-center gap-2 font-medium mt-3"
             style={{ color: 'var(--sec-accent)' }}
           >
             <Mail className="w-5 h-5" />
             support@secnightlife.com
           </a>
-          <p className="mt-4 text-sm" style={{ color: 'var(--sec-text-muted)' }}>
-            Our team will respond as soon as possible.
-          </p>
+        </div>
+
+        <div>
+          <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--sec-text-muted)' }}>
+            Browse topics (placeholders)
+          </h2>
+          <div className="space-y-3">
+            <PlaceholderTopic
+              icon={Sparkles}
+              title="Getting started"
+              description="Account setup, profile, notifications, and finding events. Full articles will appear here."
+            />
+            <PlaceholderTopic
+              icon={CreditCard}
+              title="Payments & refunds"
+              description="Paystack checkout, tables, tickets, boosts, and how refunds work with venues."
+            />
+            <PlaceholderTopic
+              icon={UserCircle}
+              title="Tables, hosts & jobs"
+              description="Joining tables, hosting house parties, and promoter applications."
+            />
+            <PlaceholderTopic
+              icon={Building2}
+              title="For venues & businesses"
+              description="Onboarding, compliance documents, promotions, and your dashboard."
+            />
+          </div>
         </div>
 
         <div
-          className="rounded-2xl p-6 space-y-4"
-          style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
+          className="rounded-2xl p-5"
+          style={{
+            backgroundColor: 'var(--sec-bg-elevated)',
+            border: '1px dashed var(--sec-border)',
+          }}
         >
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
-            <h2 className="font-semibold text-lg">Help articles</h2>
-          </div>
-          <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
-            Step-by-step guides and FAQs are coming soon. In the meantime, review our policies below.
+          <p className="text-sm font-medium mb-1" style={{ color: 'var(--sec-text-primary)' }}>
+            Search & FAQs
+          </p>
+          <p className="text-xs" style={{ color: 'var(--sec-text-muted)', lineHeight: 1.55 }}>
+            A searchable help library and frequently asked questions are not available yet. We&apos;re building this section
+            out—check back after the next app update.
           </p>
         </div>
 
