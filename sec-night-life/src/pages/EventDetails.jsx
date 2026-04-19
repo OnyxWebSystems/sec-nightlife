@@ -103,7 +103,14 @@ export default function EventDetails() {
       } else {
         setIsInterested(newInterested);
       }
-      toast.success(newInterested ? 'Added to interested events' : 'Removed from interested events');
+      toast.success(newInterested ? 'Added to interested events' : 'Removed from interested events', {
+        action: newInterested
+          ? {
+              label: 'View on Events',
+              onClick: () => navigate(createPageUrl('Events')),
+            }
+          : undefined,
+      });
       queryClient.invalidateQueries(['event', eventId]);
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
     },
@@ -296,6 +303,15 @@ export default function EventDetails() {
               {venue.is_verified && <BadgeCheck size={14} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />}
               <ChevronRight size={14} strokeWidth={1.5} />
             </Link>
+          )}
+          {user && isInterested && (
+            <p style={{ marginTop: 12, fontSize: 13, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
+              Saved — find this and your other picks on the{' '}
+              <Link to={createPageUrl('Events')} className="sec-link" style={{ color: 'var(--sec-accent)', fontWeight: 600 }}>
+                Events
+              </Link>{' '}
+              page.
+            </p>
           )}
         </div>
 

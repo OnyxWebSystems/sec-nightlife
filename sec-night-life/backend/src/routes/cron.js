@@ -5,6 +5,19 @@ import { logger } from '../lib/logger.js';
 
 const router = Router();
 
+/** Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`; local/scripts may use `x-cron-secret`. */
+function isCronAuthorized(req) {
+  const expected = process.env.CRON_SECRET;
+  if (!expected) return false;
+  const x = req.headers['x-cron-secret'];
+  if (x === expected) return true;
+  const auth = req.headers.authorization || req.headers.Authorization;
+  if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
+    return auth.slice(7) === expected;
+  }
+  return false;
+}
+
 /** Calendar day + optional HH:mm (SAST +02:00) — aligns with venue events in ZA. */
 function eventStartDateTime(event) {
   const d = event.date instanceof Date ? event.date : new Date(event.date);
@@ -18,8 +31,7 @@ function eventStartDateTime(event) {
 
 router.get('/expire-promotions', async (req, res, next) => {
   try {
-    const secret = req.headers['x-cron-secret'];
-    if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    if (!isCronAuthorized(req)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -53,8 +65,7 @@ router.get('/expire-promotions', async (req, res, next) => {
 
 router.get('/complete-parties', async (req, res, next) => {
   try {
-    const secret = req.headers['x-cron-secret'];
-    if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    if (!isCronAuthorized(req)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     const now = new Date();
@@ -70,8 +81,7 @@ router.get('/complete-parties', async (req, res, next) => {
 
 router.get('/expire-table-boosts', async (req, res, next) => {
   try {
-    const secret = req.headers['x-cron-secret'];
-    if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    if (!isCronAuthorized(req)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     const now = new Date();
@@ -88,8 +98,7 @@ router.get('/expire-table-boosts', async (req, res, next) => {
 /** T-3h reminders for users who saved venue events as interested (deduped per user+event). */
 router.get('/event-interest-reminders', async (req, res, next) => {
   try {
-    const secret = req.headers['x-cron-secret'];
-    if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    if (!isCronAuthorized(req)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     const now = new Date();
@@ -136,6 +145,7 @@ router.get('/event-interest-reminders', async (req, res, next) => {
         if (existing) continue;
 
         const eventUrl = `${baseUrl}/EventDetails?id=${encodeURIComponent(event.id)}`;
+        const reminderBody = `${event.title} starts in about 3 hours — host a table or join one while spots last.`;
 
         try {
           await prisma.$transaction([
@@ -144,7 +154,7 @@ router.get('/event-interest-reminders', async (req, res, next) => {
                 userId,
                 type: 'EVENT_INTEREST_REMINDER',
                 title: 'Event starting soon',
-                body: `${event.title} starts in about 3 hours.`,
+                body: reminderBody,
                 referenceId: event.id,
                 referenceType: 'EVENT',
               },
@@ -168,8 +178,14 @@ router.get('/event-interest-reminders', async (req, res, next) => {
             await sendEmail({
               to: user.email,
               subject: `Reminder: ${event.title} starts soon`,
-              text: `Hi — "${event.title}" (${event.city || 'Event'}) starts in about 3 hours.\n\nOpen in the app: ${eventUrl}\n`,
-              html: `<p>Your saved event <strong>${event.title}</strong> starts in about 3 hours.</p><p><a href="${eventUrl}">View event</a></p>`,
+              text:
+                `Hi — your saved event "${event.title}" (${event.city || 'Event'}) starts in about 3 hours.\n\n` +
+                `Host a table or join one before the night kicks off.\n\n` +
+                `Open in the app: ${eventUrl}\n`,
+              html:
+                `<p>Your saved event <strong>${event.title}</strong> starts in about 3 hours.</p>` +
+                `<p>Host a table or join one while there is still space.</p>` +
+                `<p><a href="${eventUrl}">View event and tables</a></p>`,
             });
           } catch (mailErr) {
             logger.warn('event-interest-reminder email failed', { userId, eventId: event.id, err: mailErr?.message });

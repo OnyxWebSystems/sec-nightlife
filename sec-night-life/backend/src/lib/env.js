@@ -9,6 +9,9 @@
  *  - In production: Resend email provider must be configured.
  *  - No wildcard CORS origins in production.
  *  - No localhost in CORS_ORIGIN in production.
+ *  - Scheduled jobs: set CRON_SECRET in Vercel (same value as in Project Settings). Vercel Cron
+ *    invokes /api/cron/* with Authorization: Bearer <CRON_SECRET>. Interest reminders need
+ *    APP_URL for email links and DB migrations for interested_events + event_interest_reminders_sent.
  *
  * NEVER allow placeholder secrets in production.
  */
@@ -152,6 +155,14 @@ export function validateEnv() {
       fatal(
         'APP_URL must use HTTPS in production.\n' +
         `  Current value: ${appUrl}`
+      );
+    }
+
+    if (!process.env.CRON_SECRET || process.env.CRON_SECRET.trim() === '') {
+      warn(
+        'CRON_SECRET is not set. Vercel Cron jobs that call /api/cron/* will receive 401 until ' +
+        'CRON_SECRET is set to the same value configured in the Vercel project (Bearer token). ' +
+        'Event interest reminders (T-3h) and other cron tasks will not run.'
       );
     }
   }

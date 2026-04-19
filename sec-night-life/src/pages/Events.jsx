@@ -10,6 +10,72 @@ import { format, parseISO, isToday, isTomorrow, addDays, startOfWeek, eachDayOfI
 import { motion } from 'framer-motion';
 import { getEventImage } from '@/lib/placeholders';
 
+/** Major SA cities + regional hubs — merged with cities from events/venues for the filter dropdown. */
+const CURATED_SA_CITIES = [
+  'Ballito',
+  'Bloemfontein',
+  'Cape Town',
+  'Durban',
+  'East London',
+  'George',
+  'Gqeberha',
+  'Johannesburg',
+  'Kimberley',
+  'Knysna',
+  'Mbombela',
+  'Polokwane',
+  'Pietermaritzburg',
+  'Pretoria',
+  'Rustenburg',
+  'Somerset West',
+  'Stellenbosch',
+  'Umhlanga',
+  'Wild Coast',
+].sort((a, b) => a.localeCompare(b));
+
+function mergeCityOptions(dynamicLabels) {
+  const byKey = new Map();
+  for (const c of CURATED_SA_CITIES) {
+    byKey.set(c.toLowerCase(), c);
+  }
+  for (const raw of dynamicLabels) {
+    if (!raw || typeof raw !== 'string') continue;
+    const t = raw.trim();
+    if (!t) continue;
+    const k = t.toLowerCase();
+    if (!byKey.has(k)) byKey.set(k, t);
+  }
+  return [...byKey.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/** Lowest paid option: ticket tiers and/or door entrance (matches EventCard pricing). */
+function getEffectiveMinPrice(event) {
+  let minTier = null;
+  if (Array.isArray(event.ticket_tiers) && event.ticket_tiers.length > 0) {
+    const nums = event.ticket_tiers.map((t) => Number(t?.price));
+    const valid = nums.filter((n) => !Number.isNaN(n));
+    if (valid.length) minTier = Math.min(...valid);
+  }
+  let door = null;
+  if (event.has_entrance_fee && event.entrance_fee_amount != null) {
+    const n = Number(event.entrance_fee_amount);
+    if (!Number.isNaN(n) && n > 0) door = n;
+  }
+  const candidates = [minTier, door].filter((x) => x != null && !Number.isNaN(x));
+  if (candidates.length === 0) return 0;
+  return Math.min(...candidates);
+}
+
+function matchesPriceRange(event, priceRange) {
+  if (priceRange === 'all') return true;
+  const lowest = getEffectiveMinPrice(event);
+  if (priceRange === 'free') return lowest === 0;
+  if (priceRange === 'under200') return lowest < 200;
+  if (priceRange === '200-500') return lowest >= 200 && lowest <= 500;
+  if (priceRange === 'over500') return lowest > 500;
+  return true;
+}
+
 export default function Events() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -88,20 +154,22 @@ export default function Events() {
   };
 
   const filteredEventsRaw = events.filter((event) => {
-    const q = searchQuery.toLowerCase();
-    const matchesSearch = (event.title ?? '').toLowerCase().includes(q) ||
-                         (event.city ?? '').toLowerCase().includes(q);
+    const q = searchQuery.trim().toLowerCase();
     const venue = venuesMap[event.venue_id];
+    const searchBlob = [
+      event.title,
+      event.city,
+      venue?.name,
+      venue?.city,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    const matchesSearch = !q || searchBlob.includes(q);
     const matchesVenueType = filters.venueType === 'all' || venue?.venue_type === filters.venueType;
-    const matchesCity = filters.city === 'all' || event.city === filters.city;
-    let matchesPrice = true;
-    if (filters.priceRange !== 'all' && event.ticket_tiers?.length > 0) {
-      const lowestPrice = Math.min(...event.ticket_tiers.map(t => t.price));
-      if (filters.priceRange === 'free') matchesPrice = lowestPrice === 0;
-      else if (filters.priceRange === 'under200') matchesPrice = lowestPrice < 200;
-      else if (filters.priceRange === '200-500') matchesPrice = lowestPrice >= 200 && lowestPrice <= 500;
-      else if (filters.priceRange === 'over500') matchesPrice = lowestPrice > 500;
-    }
+    const eventCity = event.city || venue?.city || '';
+    const matchesCity = filters.city === 'all' || eventCity === filters.city;
+    const matchesPrice = matchesPriceRange(event, filters.priceRange);
     return matchesSearch && matchesVenueType && matchesCity && matchesPrice;
   });
   const filteredEvents = sortByFollowedVenueFirst(filteredEventsRaw, (a, b) => {
@@ -124,7 +192,10 @@ export default function Events() {
     return ad - bd;
   }).slice(0, 4);
 
-  const cities = [...new Set(events.map(e => e.city).filter(Boolean))];
+  const cities = mergeCityOptions([
+    ...events.map((e) => e.city),
+    ...venues.map((v) => v.city),
+  ]);
   const todayEvents = filteredEvents.filter(e => e.date && isToday(parseISO(e.date)));
   const tomorrowEvents = filteredEvents.filter(e => e.date && isTomorrow(parseISO(e.date)));
   const upcomingEvents = filteredEvents.filter(e => {
@@ -160,7 +231,7 @@ export default function Events() {
               <Search size={16} strokeWidth={1.5} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
               <input
                 className="sec-input"
-                placeholder="Search events…"
+                placeholder="Search events, city, or venue…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{ paddingLeft: 40 }}
@@ -263,7 +334,9 @@ export default function Events() {
                 </div>
                 <h2 style={{ fontSize: 18, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Events you&apos;re interested in</h2>
               </div>
-              <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Saved from event details</span>
+              <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
+                Saved from event details — they stay listed here while published
+              </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
               {interestedEventRows.map((event, index) => (
