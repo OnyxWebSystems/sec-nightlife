@@ -4,6 +4,7 @@ import { createPageUrl } from './utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet } from '@/api/client';
+import { flushPendingLegalAccepts } from '@/lib/pendingLegalAccept';
 import SecLogo from '@/components/ui/SecLogo';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
@@ -63,32 +64,36 @@ export default function Layout({ children, currentPageName }) {
 
   const fetchNotificationCounts = useCallback(async () => {
     if (!user?.id) return;
-    try {
-      const u = await apiGet('/api/notifications/unread-count');
+    const [unreadRes, notifListRes, msgRes, hostRes] = await Promise.allSettled([
+      apiGet('/api/notifications/unread-count'),
+      apiGet('/api/notifications?limit=100'),
+      apiGet('/api/messages/unread-total'),
+      apiGet('/api/host/notifications/unread-count'),
+    ]);
+    if (unreadRes.status === 'fulfilled') {
+      const u = unreadRes.value;
       setNotificationCount(typeof u?.count === 'number' ? u.count : 0);
-    } catch {
+    } else {
       setNotificationCount(0);
     }
-    try {
-      const rows = await apiGet('/api/notifications?limit=100');
+    if (notifListRes.status === 'fulfilled') {
+      const rows = notifListRes.value;
       const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
         ...n,
         is_read: n.read === true || n.is_read === true,
       }));
       setNotifications(notifs);
-    } catch {
-      /* list is optional for badge; count already set above */
     }
-    try {
-      const m = await apiGet('/api/messages/unread-total');
+    if (msgRes.status === 'fulfilled') {
+      const m = msgRes.value;
       setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
-    } catch {
+    } else {
       setMessageUnread(0);
     }
-    try {
-      const h = await apiGet('/api/host/notifications/unread-count');
+    if (hostRes.status === 'fulfilled') {
+      const h = hostRes.value;
       setHostUnread(typeof h?.count === 'number' ? h.count : 0);
-    } catch {
+    } else {
       setHostUnread(0);
     }
   }, [user?.id]);
@@ -124,6 +129,10 @@ export default function Layout({ children, currentPageName }) {
       const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
 
+      try {
+        await flushPendingLegalAccepts();
+      } catch {}
+
       // Set business nav before optional calls (profile filter, notifications) so a failure there
       // cannot leave VENUE owners stuck in party-goer mode (e.g. after P2022 on user_profiles).
       let hasBusiness = currentUser.role === 'VENUE';
@@ -146,43 +155,50 @@ export default function Layout({ children, currentPageName }) {
       else if (hasBusiness) defaultMode = 'business';
       setActiveMode(defaultMode);
 
-      try {
-        const access = await apiGet('/api/compliance-documents/me/access');
-        setComplianceAccess({
-          canReview: !!access?.canReview,
-          isSuperAdmin: !!access?.isSuperAdmin,
-        });
-      } catch {
-        setComplianceAccess({ canReview: false, isSuperAdmin: false });
-      }
-
-      try {
-        const profiles = await dataService.User.filter({ created_by: currentUser.email });
-        if (profiles.length > 0) setUserProfile(profiles[0]);
-      } catch {}
-
-      try {
-        const rows = await apiGet('/api/notifications?limit=100');
-        const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
-          ...n,
-          is_read: n.read === true || n.is_read === true,
-        }));
-        setNotifications(notifs);
-        const fallbackUnread = notifs.filter((n) => !n.is_read).length;
-        try {
-          const u = await apiGet('/api/notifications/unread-count');
-          setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
-        } catch {
-          setNotificationCount(fallbackUnread);
-        }
-      } catch {}
-
-      try {
-        const m = await apiGet('/api/messages/unread-total');
-        setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
-      } catch {
-        setMessageUnread(0);
-      }
+      await Promise.all([
+        (async () => {
+          try {
+            const access = await apiGet('/api/compliance-documents/me/access');
+            setComplianceAccess({
+              canReview: !!access?.canReview,
+              isSuperAdmin: !!access?.isSuperAdmin,
+            });
+          } catch {
+            setComplianceAccess({ canReview: false, isSuperAdmin: false });
+          }
+        })(),
+        (async () => {
+          try {
+            const profiles = await dataService.User.filter({ created_by: currentUser.email });
+            if (profiles.length > 0) setUserProfile(profiles[0]);
+          } catch {}
+        })(),
+        (async () => {
+          try {
+            const rows = await apiGet('/api/notifications?limit=100');
+            const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
+              ...n,
+              is_read: n.read === true || n.is_read === true,
+            }));
+            setNotifications(notifs);
+            const fallbackUnread = notifs.filter((n) => !n.is_read).length;
+            try {
+              const u = await apiGet('/api/notifications/unread-count');
+              setNotificationCount(typeof u?.count === 'number' ? u.count : fallbackUnread);
+            } catch {
+              setNotificationCount(fallbackUnread);
+            }
+          } catch {}
+        })(),
+        (async () => {
+          try {
+            const m = await apiGet('/api/messages/unread-total');
+            setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
+          } catch {
+            setMessageUnread(0);
+          }
+        })(),
+      ]);
     } catch (e) {}
   };
 

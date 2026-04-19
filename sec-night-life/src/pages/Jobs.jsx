@@ -6,6 +6,7 @@ import { Briefcase, Calendar, ChevronRight, MapPin, Search } from 'lucide-react'
 import { motion } from 'framer-motion';
 import { differenceInDays } from 'date-fns';
 import { apiGet } from '@/api/client';
+import LegalDocLink from '@/components/legal/LegalDocLink';
 
 const JOB_TYPES = ['ALL', 'FULL_TIME', 'PART_TIME', 'ONCE_OFF', 'CONTRACT'];
 const COMPENSATION_TYPES = ['ALL', 'FIXED', 'NEGOTIABLE', 'UNPAID_TRIAL'];
@@ -91,6 +92,24 @@ export default function Jobs() {
         </div>
       </header>
       <div style={{ padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {myApplications.length > 0 && (
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--sec-text-muted)',
+              lineHeight: 1.5,
+              padding: '10px 12px',
+              borderRadius: 12,
+              border: '1px solid var(--sec-border)',
+              backgroundColor: 'var(--sec-bg-card)',
+            }}
+          >
+            Active applications: review the{' '}
+            <LegalDocLink pageName="PromoterCodeOfConduct">Promoter Code of Conduct</LegalDocLink>
+            {' '}and{' '}
+            <LegalDocLink pageName="CommunityGuidelines">Community Guidelines</LegalDocLink>.
+          </div>
+        )}
         {filteredJobs.map((job, index) => (
           <motion.div key={job.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
             <Link to={createPageUrl(`JobDetails?id=${job.id}`)} className="sec-card block rounded-xl p-4 transition-colors group">

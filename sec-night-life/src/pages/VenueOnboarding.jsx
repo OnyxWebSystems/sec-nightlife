@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -25,6 +25,7 @@ import { toast } from 'sonner';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import GoogleMapDisplay from '@/components/GoogleMapDisplay';
 import SecLogo from '@/components/ui/SecLogo';
+import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 
 const VENUE_TYPES = [
   { value: 'nightclub', label: 'Nightclub' },
@@ -875,7 +876,11 @@ export default function VenueOnboarding() {
                   <div>
                     <p className="font-medium text-sm">Why we need these documents</p>
                     <p className="text-xs text-gray-500 mt-1">
-                      To ensure safety and legal compliance, all venues must submit valid business and liquor licensing documentation before going live.
+                      To ensure safety and legal compliance, all venues must submit valid business and liquor licensing documentation before going live. Read the{' '}
+                      <Link to={createPageUrl('VenueComplianceCharter')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+                        Venue Compliance Charter
+                      </Link>
+                      .
                     </p>
                   </div>
                 </div>
@@ -926,6 +931,15 @@ export default function VenueOnboarding() {
              <div className="text-center mb-8">
                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Choose Your Plan</h1>
                <p style={{ color: 'var(--sec-text-muted)' }}>Continue to Paystack to securely complete your subscription payment</p>
+               <div className="mt-3 max-w-md mx-auto text-left">
+                 <RefundPolicyNote />
+                 <p className="text-xs mt-2" style={{ color: 'var(--sec-text-muted)' }}>
+                   Venue obligations:{' '}
+                   <Link to={createPageUrl('VenueComplianceCharter')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+                     Venue Compliance Charter
+                   </Link>
+                 </p>
+               </div>
              </div>
 
              <div className="rounded-2xl p-6" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>

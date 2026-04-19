@@ -5,6 +5,7 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
+import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 
 const SA_CITIES = ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein', 'Port Elizabeth', 'East London', 'Polokwane', 'Nelspruit', 'Rustenburg'];
 const TYPES = [
@@ -748,6 +749,9 @@ export default function BusinessPromotions() {
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '16px 12px 100px' }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Promotions</h1>
       <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 14 }}>Create and manage your venue promotions.</p>
+      <div style={{ marginBottom: 12 }}>
+        <RefundPolicyNote />
+      </div>
 
       <div className="sec-card" style={{ padding: 12, marginBottom: 12 }}>
         <Label>Select Venue</Label>
@@ -767,6 +771,9 @@ export default function BusinessPromotions() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="sec-btn sec-btn-primary" style={{ flex: 1 }} onClick={() => startBoost(justPublished)}>Boost Now</button>
             <button className="sec-btn sec-btn-secondary" style={{ flex: 1 }} onClick={() => setJustPublished(null)}>Maybe Later</button>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <RefundPolicyNote />
           </div>
         </div>
       )}

@@ -4,6 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { apiGet, apiPost } from '@/api/client';
 import { ChevronLeft, Briefcase, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import LegalDocLink from '@/components/legal/LegalDocLink';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 function StatusPill({ status }) {
@@ -119,6 +120,17 @@ export default function MyJobApplications() {
       </header>
 
       <div style={{ padding: 16 }}>
+        {!appsLoading && !appsError && apps.length > 0 && (
+          <div
+            className="sec-card"
+            style={{ padding: '12px 14px', marginBottom: 12, borderRadius: 12, fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}
+          >
+            Promoter work is subject to our{' '}
+            <LegalDocLink pageName="PromoterCodeOfConduct">Promoter Code of Conduct</LegalDocLink>
+            {' '}and{' '}
+            <LegalDocLink pageName="CommunityGuidelines">Community Guidelines</LegalDocLink>.
+          </div>
+        )}
         {appsLoading ? (
           <div style={{ padding: 24, textAlign: 'center' }}>
             <div className="sec-spinner" style={{ margin: '0 auto 12px' }} />

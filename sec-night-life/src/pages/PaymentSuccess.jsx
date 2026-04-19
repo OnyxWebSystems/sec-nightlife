@@ -4,6 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { apiGet, apiPatch } from '@/api/client';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 
 const VENUE_PAYMENT_CONTEXT_KEY = 'sec-venue-onboarding-payment';
 
@@ -66,6 +67,9 @@ export default function PaymentSuccess() {
         <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', lineHeight: 1.6, marginBottom: 16 }}>
           {message || 'Please wait…'}
         </p>
+        <div style={{ marginBottom: 14 }}>
+          <RefundPolicyNote />
+        </div>
         <button
           onClick={() => navigate(nextPath)}
           className="sec-btn sec-btn-primary w-full"

@@ -34,6 +34,7 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { getSettingsLegalNavItems } from '@/legal/legalNavItems';
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -87,6 +88,12 @@ export default function Settings() {
     }
   };
 
+  const supportLegalItems = getSettingsLegalNavItems(t).map((item) => ({
+    icon: FileText,
+    label: item.label,
+    page: item.page,
+  }));
+
   const settingsSections = [
     {
       title: t('account'),
@@ -115,10 +122,8 @@ export default function Settings() {
     {
       title: t('support'),
       items: [
-        { icon: HelpCircle, label: t('helpCenter'), page: 'HelpCenter' },
-        { icon: FileText, label: t('termsOfService'), page: 'TermsOfService' },
-        { icon: FileText, label: t('privacyPolicy'), page: 'PrivacyPolicy' },
-        { icon: FileText, label: 'Promoter Code of Conduct', page: 'PromoterCodeOfConduct' },
+        { icon: HelpCircle, label: supportLegalItems[0].label, page: supportLegalItems[0].page },
+        ...supportLegalItems.slice(1).map((item) => ({ icon: FileText, label: item.label, page: item.page })),
       ],
     },
   ];

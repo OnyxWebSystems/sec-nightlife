@@ -54,6 +54,7 @@ import BusinessJobs from './pages/BusinessJobs';
 import BusinessPromotions from './pages/BusinessPromotions';
 import ChatRoom from './pages/ChatRoom';
 import ChangeEmail from './pages/ChangeEmail';
+import CommunityGuidelines from './pages/CommunityGuidelines';
 import ChangePassword from './pages/ChangePassword';
 import CreateHostEvent from './pages/CreateHostEvent';
 import CreateJob from './pages/CreateJob';
@@ -81,6 +82,7 @@ import Messages from './pages/Messages';
 import Notifications from './pages/Notifications';
 import Onboarding from './pages/Onboarding';
 import ProfileSetup from './pages/ProfileSetup';
+import RefundPolicy from './pages/RefundPolicy';
 import AdminDashboard from './pages/AdminDashboard';
 import AppPreferences from './pages/AppPreferences';
 import Privacy from './pages/Privacy';
@@ -95,9 +97,11 @@ import TablePayment from './pages/TablePayment';
 import Tables from './pages/Tables';
 import TicketSuccess from './pages/TicketSuccess';
 import UserProfile from './pages/UserProfile';
+import UserAgreement from './pages/UserAgreement';
 import VenueAnalytics from './pages/VenueAnalytics';
 import VenueOnboarding from './pages/VenueOnboarding';
 import VenueProfile from './pages/VenueProfile';
+import VenueComplianceCharter from './pages/VenueComplianceCharter';
 import __Layout from './Layout.jsx';
 
 
@@ -109,6 +113,7 @@ export const PAGES = {
     "BusinessPromotions": BusinessPromotions,
     "ChatRoom": ChatRoom,
     "ChangeEmail": ChangeEmail,
+    "CommunityGuidelines": CommunityGuidelines,
     "ChangePassword": ChangePassword,
     "CreateHostEvent": CreateHostEvent,
     "CreateJob": CreateJob,
@@ -135,6 +140,7 @@ export const PAGES = {
     "Notifications": Notifications,
     "Onboarding": Onboarding,
     "ProfileSetup": ProfileSetup,
+    "RefundPolicy": RefundPolicy,
     "AdminDashboard": AdminDashboard,
     "AppPreferences": AppPreferences,
     "Privacy": Privacy,
@@ -149,9 +155,11 @@ export const PAGES = {
     "Tables": Tables,
     "TicketSuccess": TicketSuccess,
     "UserProfile": UserProfile,
+    "UserAgreement": UserAgreement,
     "VenueAnalytics": VenueAnalytics,
     "VenueOnboarding": VenueOnboarding,
     "VenueProfile": VenueProfile,
+    "VenueComplianceCharter": VenueComplianceCharter,
 }
 
 export const pagesConfig = {

@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
+import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { Plus, Loader2, MessageCircle } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
@@ -323,6 +324,9 @@ export default function HostDashboard() {
             >
               <Plus size={16} /> Create
             </button>
+          </div>
+          <div className="mb-3 opacity-90">
+            <RefundPolicyNote />
           </div>
           {loadP ? <Loader2 className="animate-spin" /> : null}
           <div className="space-y-3">

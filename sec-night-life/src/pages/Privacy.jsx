@@ -72,7 +72,12 @@ export default function Privacy() {
               For details on how we collect, use, and protect your data, see our{' '}
               <Link to={createPageUrl('PrivacyPolicy')} className="font-medium" style={{ color: 'var(--sec-accent)' }}>
                 Privacy Policy
-              </Link>.
+              </Link>
+              . All legal documents are listed in{' '}
+              <Link to={createPageUrl('Settings')} className="font-medium" style={{ color: 'var(--sec-accent)' }}>
+                Settings
+              </Link>
+              .
             </p>
           </div>
         </div>

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 
 export default function TablePayment() {
   const navigate = useNavigate();
@@ -224,6 +225,8 @@ export default function TablePayment() {
             </div>
           </div>
         </div>
+
+        <RefundPolicyNote className="text-center" />
       </div>
 
       {/* Fixed Bottom Bar */}

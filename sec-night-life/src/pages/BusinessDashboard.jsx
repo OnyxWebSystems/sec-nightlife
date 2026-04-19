@@ -6,6 +6,7 @@ import { dataService } from '@/services/dataService';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import { toast } from 'sonner';
+import LegalDocLink from '@/components/legal/LegalDocLink';
 import { Button } from "@/components/ui/button";
 import {
   Calendar, BookOpen, Megaphone, BarChart3,
@@ -365,7 +366,10 @@ export default function BusinessDashboard() {
           </div>
           <div>
             <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--sec-text-primary)', margin: 0 }}>Compliance Documents</h3>
-            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>Upload required documents for verification.</p>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+              Upload required documents for verification. See the{' '}
+              <LegalDocLink pageName="VenueComplianceCharter">Venue Compliance Charter</LegalDocLink>.
+            </p>
           </div>
         </div>
 

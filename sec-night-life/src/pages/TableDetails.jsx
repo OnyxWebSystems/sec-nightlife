@@ -22,6 +22,7 @@ import { isIdentityVerifiedUser } from '@/lib/identityVerification';
 import { toast } from 'sonner';
 
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
+import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -337,6 +338,9 @@ export default function TableDetails() {
             {isProcessingPayment ? 'Processing…' : `Pay R${contribution.toFixed(0)} to join`}
           </button>
           <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 8 }}>No refunds: once you join and pay, contribution is retained.</p>
+          <div style={{ marginTop: 8 }}>
+            <RefundPolicyNote />
+          </div>
         </div>
       </div>
     );
@@ -868,6 +872,9 @@ export default function TableDetails() {
                 <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
                   Secure your spot at this table. Payment confirms your attendance.
                 </p>
+                <div style={{ marginTop: 10 }}>
+                  <RefundPolicyNote />
+                </div>
               </div>
             )}
           </div>
@@ -920,6 +927,7 @@ export default function TableDetails() {
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>
               You&apos;ll be redirected to Paystack&apos;s secure checkout
             </p>
+            <RefundPolicyNote className="text-center" />
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>

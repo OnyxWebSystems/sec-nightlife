@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Ticket, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
+import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 
 export default function TicketPurchaseButton({ event }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -155,6 +156,7 @@ export default function TicketPurchaseButton({ event }) {
                       <p className="text-xs text-gray-500 text-center mt-2">
                         Secure payment powered by Paystack
                       </p>
+                      <RefundPolicyNote className="text-center mt-2" style={{ color: 'rgb(107 114 128)' }} />
                     </div>
                   </>
                 )}

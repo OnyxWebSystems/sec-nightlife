@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -611,7 +611,15 @@ export default function ProfileSetup() {
                       Paystack powers all payments
                     </p>
                     <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0, lineHeight: 1.5 }}>
-                      When you buy tickets, join tables, or boost promotions, you&apos;ll be redirected to Paystack&apos;s secure checkout. No need to add a card during setup — use the buttons below when you&apos;re ready to finish.
+                      When you buy tickets, join tables, or boost promotions, you&apos;ll be redirected to Paystack&apos;s secure checkout. No need to add a card during setup — use the buttons below when you&apos;re ready to finish. See the{' '}
+                      <Link to={createPageUrl('RefundPolicy')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
+                        Refund Policy
+                      </Link>
+                      {' '}and{' '}
+                      <Link to={createPageUrl('TermsOfService')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
+                        Terms of Service
+                      </Link>
+                      .
                     </p>
                   </div>
                 </div>

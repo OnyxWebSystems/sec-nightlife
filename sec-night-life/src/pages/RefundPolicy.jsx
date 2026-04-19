@@ -4,7 +4,7 @@ import { ChevronLeft } from 'lucide-react';
 import LegalPdfPanel from '@/components/legal/LegalPdfPanel';
 import { LEGAL_PDF } from '@/legal/documentUrls';
 
-export default function TermsOfService() {
+export default function RefundPolicy() {
   const navigate = useNavigate();
 
   return (
@@ -19,15 +19,15 @@ export default function TermsOfService() {
           >
             <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
           </button>
-          <h1 className="text-xl font-bold">Terms of Service</h1>
+          <h1 className="text-xl font-bold">Refund Policy</h1>
         </div>
       </header>
 
       <div className="px-4 py-6 max-w-2xl mx-auto">
         <LegalPdfPanel
-          title="Terms of Service"
-          pdfSrc={LEGAL_PDF.termsOfService}
-          intro="These terms govern your use of SEC Nightlife. By using the platform, you agree to them."
+          title="Refund Policy"
+          pdfSrc={LEGAL_PDF.refundPolicy}
+          intro="How refunds and payment disputes are handled for purchases made through SEC Nightlife."
           effectiveDate="April 2026"
         />
       </div>

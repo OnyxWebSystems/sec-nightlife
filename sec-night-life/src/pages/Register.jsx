@@ -6,8 +6,11 @@ import { clearTokens, apiGet } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { Loader2, Check, X } from 'lucide-react';
+import { LEGAL_ACCEPT_VERSION } from '@/legal/documentUrls';
+import { setPendingLegalAcceptFromRegister } from '@/lib/pendingLegalAccept';
 
 const ROLE_INTENT_KEY = 'sec-role-intent';
 
@@ -39,6 +42,7 @@ export default function Register() {
   const [usernameCheck, setUsernameCheck] = useState(null);
   const [usernameError, setUsernameError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [agreedToPolicies, setAgreedToPolicies] = useState(false);
 
   const normalizedUsername = useMemo(
     () => username.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''),
@@ -89,6 +93,10 @@ export default function Register() {
       toast.error('Choose an available username (3–30 characters, letters, numbers, underscores)');
       return;
     }
+    if (!agreedToPolicies) {
+      toast.error('Please confirm you agree to the User Agreement, Terms of Service, and Privacy Policy');
+      return;
+    }
     setLoading(true);
     try {
       const r = getBackendRole();
@@ -100,6 +108,10 @@ export default function Register() {
         normalizedUsername
       );
       clearTokens();
+      setPendingLegalAcceptFromRegister({
+        termsVersion: LEGAL_ACCEPT_VERSION.termsOfService,
+        privacyVersion: LEGAL_ACCEPT_VERSION.privacyPolicy,
+      });
       toast.success('Account created! Please sign in.');
       const roleIntent = r === 'VENUE' ? 'VENUE' : 'PARTY_GOER';
       let loginUrl = returnUrl ? createPageUrl('Login') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Login');
@@ -202,9 +214,34 @@ export default function Register() {
             />
             <p className="mt-1 text-xs text-gray-500">Avoid accidental leading/trailing spaces in your password.</p>
           </div>
+
+          <div className="flex gap-3 items-start rounded-xl border border-[#262629] bg-[#141416] p-4">
+            <Checkbox
+              id="agree-policies"
+              checked={agreedToPolicies}
+              onCheckedChange={(v) => setAgreedToPolicies(v === true)}
+              className="mt-0.5 border-[#52525b] data-[state=checked]:bg-[var(--sec-accent)] data-[state=checked]:border-[var(--sec-accent)]"
+            />
+            <label htmlFor="agree-policies" className="text-sm text-gray-300 leading-snug cursor-pointer">
+              I agree to the{' '}
+              <Link to={createPageUrl('UserAgreement')} className="text-[var(--sec-accent)] underline font-medium">
+                User Agreement
+              </Link>
+              ,{' '}
+              <Link to={createPageUrl('TermsOfService')} className="text-[var(--sec-accent)] underline font-medium">
+                Terms of Service
+              </Link>
+              , and{' '}
+              <Link to={createPageUrl('PrivacyPolicy')} className="text-[var(--sec-accent)] underline font-medium">
+                Privacy Policy
+              </Link>
+              .
+            </label>
+          </div>
+
           <Button
             type="submit"
-            disabled={loading || usernameBlocking}
+            disabled={loading || usernameBlocking || !agreedToPolicies}
             className="w-full min-h-[44px]"
           >
             {loading ? 'Creating account...' : 'Create Account'}

@@ -22,11 +22,19 @@ export function GoogleMapsProvider({ children }) {
 
         // Google Maps auth/billing/key-restriction failures can occur after script load.
         // When that happens, switch components into their manual fallback state.
+        // Bounded polling: do not run forever once the API is healthy (avoids perpetual 500ms wakeups).
+        const GMAPS_AUTH_FAILURE_MAX_TICKS = 120;
+        let gmapsPollTick = 0;
         authFailurePoll = window.setInterval(() => {
           if (didUnmount.current) return;
+          gmapsPollTick += 1;
           if (window.__googleMapsAuthFailure) {
             setError(new Error('Google Maps authentication failed.'));
             setStatus('error');
+            window.clearInterval(authFailurePoll);
+            return;
+          }
+          if (gmapsPollTick >= GMAPS_AUTH_FAILURE_MAX_TICKS) {
             window.clearInterval(authFailurePoll);
           }
         }, 500);

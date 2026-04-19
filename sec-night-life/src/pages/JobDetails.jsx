@@ -19,6 +19,7 @@ import {
 import * as authService from '@/services/authService';
 import { toast } from 'sonner';
 import RatePromoterDialog from '@/components/promoter/RatePromoterDialog';
+import LegalDocLink from '@/components/legal/LegalDocLink';
 
 function compensationText(job) {
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
@@ -571,6 +572,12 @@ export default function JobDetails() {
                 <button type="button" className="sec-btn sec-btn-ghost sec-btn-sm" onClick={() => { setCvFileName(''); setCvUrl(''); }}>Remove</button>
               </div>
             ) : null}
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
+              By applying you agree to follow the{' '}
+              <LegalDocLink pageName="PromoterCodeOfConduct">Promoter Code of Conduct</LegalDocLink>
+              {' '}and{' '}
+              <LegalDocLink pageName="CommunityGuidelines">Community Guidelines</LegalDocLink>.
+            </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
               <button type="button" className="sec-btn sec-btn-secondary w-full" style={{ height: 44 }} onClick={() => setShowApplyDialog(false)}>Cancel</button>
               <button

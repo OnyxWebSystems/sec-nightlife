@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 
 export default function TableJoinOnboarding() {
   const navigate = useNavigate();
@@ -389,6 +390,12 @@ export default function TableJoinOnboarding() {
               <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--sec-text-primary)' }}>R{table.joining_fee}</p>
             </div>
           )}
+
+          {table?.joining_fee > 0 ? (
+            <div style={{ marginTop: 8 }}>
+              <RefundPolicyNote />
+            </div>
+          ) : null}
 
           {/* What happens next */}
           <div style={{

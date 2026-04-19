@@ -291,6 +291,14 @@ export default function ChatRoom() {
             <Info className="w-5 h-5" />
           </button>
         </div>
+        <div className="px-4 pb-2">
+          <Link
+            to={createPageUrl('CommunityGuidelines')}
+            className="text-xs text-gray-500 hover:text-gray-300 underline"
+          >
+            Community Guidelines
+          </Link>
+        </div>
       </header>
 
       {/* Messages */}
