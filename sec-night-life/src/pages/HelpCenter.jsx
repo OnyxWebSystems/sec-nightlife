@@ -13,6 +13,10 @@ import {
 import { createPageUrl } from '@/utils';
 import { usePreferences } from '@/context/PreferencesContext';
 import { getHelpCenterLegalNavItems } from '@/legal/legalNavItems';
+import { SUPPORT_EMAIL, ADMIN_EMAIL } from '@/constants/contactEmails';
+
+const SUPPORT_WHATSAPP_NUMBER = '+27 71 434 3982';
+const SUPPORT_WHATSAPP_LINK = 'https://wa.me/27714343982';
 
 function PlaceholderTopic({ icon: Icon, title, description }) {
   return (
@@ -92,13 +96,27 @@ export default function HelpCenter() {
             </div>
           </div>
           <a
-            href="mailto:support@secnightlife.com"
+            href={`mailto:${SUPPORT_EMAIL}`}
             className="inline-flex items-center gap-2 font-medium mt-3"
             style={{ color: 'var(--sec-accent)' }}
           >
             <Mail className="w-5 h-5" />
-            support@secnightlife.com
+            {SUPPORT_EMAIL}
           </a>
+          <a
+            href={`mailto:${ADMIN_EMAIL}`}
+            className="inline-flex items-center gap-2 font-medium mt-2"
+            style={{ color: 'var(--sec-accent)' }}
+          >
+            <Mail className="w-5 h-5" />
+            {ADMIN_EMAIL}
+          </a>
+          <p className="text-sm mt-3" style={{ color: 'var(--sec-text-secondary)' }}>
+            WhatsApp:{' '}
+            <a href={SUPPORT_WHATSAPP_LINK} target="_blank" rel="noreferrer" className="font-medium underline" style={{ color: 'var(--sec-accent)' }}>
+              {SUPPORT_WHATSAPP_NUMBER}
+            </a>
+          </p>
         </div>
 
         <div>

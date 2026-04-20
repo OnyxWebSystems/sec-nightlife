@@ -7,6 +7,7 @@
  *  - JWT secrets must be ≥ 32 chars and must NOT contain placeholder text.
  *  - In production: CORS_ORIGIN and APP_URL must be set.
  *  - In production: Resend email provider must be configured.
+ *  - Optional contact overrides: SUPPORT_CONTACT_EMAIL and ADMIN_CONTACT_EMAIL.
  *  - No wildcard CORS origins in production.
  *  - No localhost in CORS_ORIGIN in production.
  *  - Scheduled jobs: set CRON_SECRET in Vercel (same value as in Project Settings). Vercel Cron
@@ -132,7 +133,8 @@ export function validateEnv() {
     if (hasResend && !process.env.EMAIL_FROM) {
       fatal(
         'EMAIL_FROM must be set when using Resend in production.\n' +
-        '  Example: EMAIL_FROM="SEC Nightlife <noreply@secnightlife.com>".'
+        '  Example: EMAIL_FROM="SEC Nightlife <noreply@secnightlife.com>".\n' +
+        '  Optional: SUPPORT_CONTACT_EMAIL="support@secnightlife.com", ADMIN_CONTACT_EMAIL="admin@secnightlife.com".'
       );
     }
 

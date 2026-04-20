@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import LegalDocumentPage from '@/components/legal/LegalDocumentPage';
 import { LegalPolicySection } from '@/components/legal/LegalPolicySection';
+import { SUPPORT_EMAIL, ADMIN_EMAIL } from '@/constants/contactEmails';
 
 export default function PrivacyPolicy() {
   return (
@@ -127,13 +128,13 @@ export default function PrivacyPolicy() {
 
       <LegalPolicySection title="12. Contact">
         <p>
-          Questions about privacy:{' '}
-          <a href="mailto:privacy@secnightlife.com" className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
-            privacy@secnightlife.com
+          Questions about privacy and legal matters:{' '}
+          <a href={`mailto:${ADMIN_EMAIL}`} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            {ADMIN_EMAIL}
           </a>
           . General support:{' '}
-          <a href="mailto:support@secnightlife.com" className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
-            support@secnightlife.com
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
+            {SUPPORT_EMAIL}
           </a>
           .
         </p>

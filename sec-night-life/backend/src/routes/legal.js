@@ -4,6 +4,8 @@ import { authenticateToken } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
 
 const router = Router();
+const SUPPORT_CONTACT_EMAIL = process.env.SUPPORT_CONTACT_EMAIL || 'support@secnightlife.com';
+const ADMIN_CONTACT_EMAIL = process.env.ADMIN_CONTACT_EMAIL || 'admin@secnightlife.com';
 
 const LEGAL_DOCS = {
   privacy_policy: {
@@ -57,7 +59,7 @@ router.get('/privacy-policy', (req, res) => {
       },
       {
         heading: 'Contact',
-        body: 'For privacy inquiries, contact us at privacy@secnightlife.com'
+        body: `For privacy inquiries, contact us at ${ADMIN_CONTACT_EMAIL}. For general support, contact ${SUPPORT_CONTACT_EMAIL}.`
       }
     ],
     note: 'This is a placeholder. Replace with full legal privacy policy before launch.'
@@ -95,7 +97,7 @@ router.get('/terms-of-service', (req, res) => {
       },
       {
         heading: 'Contact',
-        body: 'For terms inquiries, contact us at legal@secnightlife.com'
+        body: `For terms inquiries, contact us at ${ADMIN_CONTACT_EMAIL}. For general support, contact ${SUPPORT_CONTACT_EMAIL}.`
       }
     ],
     note: 'This is a placeholder. Replace with full legal terms of service before launch.'

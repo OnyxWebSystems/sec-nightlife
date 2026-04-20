@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SUPPORT_EMAIL, ADMIN_EMAIL } from '@/constants/contactEmails';
 
 export default function ChangeEmail() {
   const navigate = useNavigate();
@@ -36,7 +37,7 @@ export default function ChangeEmail() {
                 Email change coming soon
               </h2>
               <p style={{ color: 'var(--sec-text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
-                To change your email address, please contact our support team at support@secnightlife.com. We will assist you with the process.
+                To change your email address, please contact our support team at {SUPPORT_EMAIL}. If your request needs account-level approval, include {ADMIN_EMAIL} and we will assist you with the process.
               </p>
             </div>
           </div>
