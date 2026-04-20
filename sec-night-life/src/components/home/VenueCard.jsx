@@ -29,6 +29,7 @@ export default function VenueCard({ venue }) {
             src={imgSrc}
             alt={venue.name}
             onError={() => setImgError(true)}
+            className="venue-card__image-media"
             style={{
               width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center',
               transition: 'transform 0.35s ease', display: 'block',
