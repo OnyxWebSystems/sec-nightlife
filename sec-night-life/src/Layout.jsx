@@ -376,7 +376,7 @@ export default function Layout({ children, currentPageName }) {
 
       {/* ── Main Content ── */}
       <main
-        className="lg:ml-[240px] min-h-screen w-full max-w-app md:max-w-app-md lg:max-w-none mx-auto lg:mx-0 px-4 sm:px-6 box-border min-w-0 pb-[calc(84px+env(safe-area-inset-bottom))] lg:pb-10"
+        className="lg:ml-[240px] min-h-screen w-full lg:w-[calc(100%-240px)] max-w-app md:max-w-app-md lg:max-w-none mx-auto lg:mx-0 px-4 sm:px-6 box-border min-w-0 pb-[calc(84px+env(safe-area-inset-bottom))] lg:pb-10"
       >
         {complianceAccess.canReview && currentPageName !== 'AdminDashboard' && (
           <div className="lg:hidden" style={{ padding: '12px 16px 0' }}>

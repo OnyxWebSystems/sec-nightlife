@@ -50,7 +50,7 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
         width: '100%',
         maxWidth: '100%',
         minWidth: 0,
-        minHeight: 0,
+        minHeight: 320,
         boxSizing: 'border-box',
         padding: 12,
         cursor: 'pointer',
@@ -80,20 +80,20 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
           Sponsored
         </span>
       )}
-      {p.imageUrl ? (
-        <div
-          style={{
-            width: '100%',
-            maxWidth: '100%',
-            aspectRatio: '16 / 9',
-            maxHeight: 120,
-            flexShrink: 0,
-            overflow: 'hidden',
-            borderRadius: 10,
-            marginBottom: 10,
-            background: 'var(--sec-bg-hover)',
-          }}
-        >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '100%',
+          aspectRatio: '16 / 9',
+          maxHeight: 120,
+          flexShrink: 0,
+          overflow: 'hidden',
+          borderRadius: 10,
+          marginBottom: 10,
+          background: 'var(--sec-bg-hover)',
+        }}
+      >
+        {p.imageUrl ? (
           <img
             src={p.imageUrl}
             alt=""
@@ -106,8 +106,8 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
               pointerEvents: 'none',
             }}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       <div style={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', flexShrink: 0 }}>{p.venueName} · {p.venueType}</p>
         <h3
@@ -468,8 +468,8 @@ export default function Home() {
               </Link>
             </div>
             <div
-              style={{ display: 'flex', gap: 14, overflowX: 'auto', marginLeft: -20, paddingLeft: 20, paddingRight: 20, paddingBottom: 4 }}
-              className="scrollbar-hide"
+              style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 4 }}
+              className="scrollbar-hide -mx-5 px-5 lg:mx-0 lg:px-0"
             >
               {featuredCards.map((event, i) => (
                 <motion.div
@@ -651,32 +651,36 @@ export default function Home() {
           </div>
 
           {promotionLoading && promotions.length === 0 && (
-            <div
-              style={{
-                display: 'flex',
-                gap: 14,
-                overflowX: 'auto',
-                marginLeft: -20,
-                paddingLeft: 20,
-                paddingRight: 20,
-                paddingBottom: 4,
-              }}
-              className="scrollbar-hide"
-            >
-              {[1, 2, 3].map((x) => (
-                <div
-                  key={x}
-                  className="sec-card"
-                  style={{
-                    flexShrink: 0,
-                    width: PROMO_CARD_OUTER_WIDTH,
-                    height: 280,
-                    opacity: 0.55,
-                    scrollSnapAlign: 'start',
-                  }}
-                />
-              ))}
-            </div>
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 14,
+                  overflowX: 'auto',
+                  paddingBottom: 4,
+                }}
+                className="scrollbar-hide -mx-5 px-5 lg:hidden"
+              >
+                {[1, 2, 3].map((x) => (
+                  <div
+                    key={x}
+                    className="sec-card"
+                    style={{
+                      flexShrink: 0,
+                      width: PROMO_CARD_OUTER_WIDTH,
+                      minHeight: 320,
+                      opacity: 0.55,
+                      scrollSnapAlign: 'start',
+                    }}
+                  />
+                ))}
+              </div>
+              <div className="hidden lg:grid lg:grid-cols-2 xl:grid-cols-3 gap-3 mt-1">
+                {[1, 2, 3].map((x) => (
+                  <div key={`desk-skeleton-${x}`} className="sec-card" style={{ minHeight: 320, opacity: 0.55 }} />
+                ))}
+              </div>
+            </>
           )}
 
           {!promotionLoading && promotions.length === 0 && (
@@ -686,41 +690,53 @@ export default function Home() {
           )}
 
           {promotions.length > 0 && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'stretch',
-                gap: 14,
-                overflowX: 'auto',
-                scrollSnapType: 'x mandatory',
-                WebkitOverflowScrolling: 'touch',
-                marginLeft: -20,
-                marginTop: 4,
-                paddingLeft: 20,
-                paddingRight: 20,
-                paddingBottom: 8,
-              }}
-              className="scrollbar-hide"
-            >
-              {promotions.map((p, i) => (
-                <motion.div
-                  key={p.id}
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: Math.min(i * 0.05, 0.3) }}
-                  style={{
-                    flexShrink: 0,
-                    width: PROMO_CARD_OUTER_WIDTH,
-                    scrollSnapAlign: 'start',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignSelf: 'stretch',
-                  }}
-                >
-                  <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
-                </motion.div>
-              ))}
-            </div>
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'stretch',
+                  gap: 14,
+                  overflowX: 'auto',
+                  scrollSnapType: 'x proximity',
+                  WebkitOverflowScrolling: 'touch',
+                  marginTop: 4,
+                  paddingBottom: 8,
+                }}
+                className="scrollbar-hide -mx-5 px-5 lg:hidden"
+              >
+                {promotions.map((p, i) => (
+                  <motion.div
+                    key={p.id}
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: Math.min(i * 0.05, 0.3) }}
+                    style={{
+                      flexShrink: 0,
+                      width: PROMO_CARD_OUTER_WIDTH,
+                      scrollSnapAlign: 'start',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignSelf: 'stretch',
+                    }}
+                  >
+                    <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
+                  </motion.div>
+                ))}
+              </div>
+
+              <div className="hidden lg:grid lg:grid-cols-2 xl:grid-cols-3 gap-3 mt-1">
+                {promotions.map((p, i) => (
+                  <motion.div
+                    key={`desktop-${p.id}`}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: Math.min(i * 0.04, 0.24) }}
+                  >
+                    <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
+                  </motion.div>
+                ))}
+              </div>
+            </>
           )}
 
           {promotions.length > 0 && hasMorePromotions && (

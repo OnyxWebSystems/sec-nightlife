@@ -533,6 +533,23 @@
   }
   .sec-link:hover { color: var(--sec-text-secondary); }
 
+  .venue-card__image {
+    width: 100%;
+    aspect-ratio: 2 / 1;
+    max-height: 140px;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background-color: var(--sec-bg-card);
+    border: 1px solid var(--sec-border);
+    margin-bottom: 10px;
+    position: relative;
+  }
+  @media (min-width: 1280px) {
+    .venue-card__image {
+      max-height: none;
+    }
+  }
+
   /* ─── List row — avatar + title + subtitle + right action ─── */
   .sec-list-row {
     display: flex;

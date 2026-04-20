@@ -24,17 +24,7 @@ export default function VenueCard({ venue }) {
         onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
       >
         {/* Image container */}
-        <div style={{
-          width: '100%',
-          aspectRatio: '2 / 1',
-          maxHeight: 140,
-          borderRadius: 'var(--radius-lg)',
-          overflow: 'hidden',
-          backgroundColor: 'var(--sec-bg-card)',
-          border: '1px solid var(--sec-border)',
-          marginBottom: 10,
-          position: 'relative',
-        }}>
+        <div className="venue-card__image">
           <img
             src={imgSrc}
             alt={venue.name}
