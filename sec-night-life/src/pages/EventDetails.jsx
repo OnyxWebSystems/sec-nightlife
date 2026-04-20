@@ -14,6 +14,7 @@ import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 
 import TrendingTableCard from '@/components/home/TrendingTableCard';
 import TicketPurchaseButton from '@/components/events/TicketPurchaseButton';
+import EventShareModal from '@/components/events/EventShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
 
 export default function EventDetails() {
@@ -22,6 +23,7 @@ export default function EventDetails() {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [isInterested, setIsInterested] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
@@ -171,7 +173,7 @@ export default function EventDetails() {
   const mapQuery = event.venue_address || venue?.address || venueLine;
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 96 }}>
+    <div className="pb-24 lg:pb-8" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
 
       {/* ── Hero image ── */}
       <div style={{ position: 'relative', height: 300 }}>
@@ -239,6 +241,8 @@ export default function EventDetails() {
               </button>
             )}
             <button
+              type="button"
+              onClick={() => setShareOpen(true)}
               style={{
                 width: 40, height: 40, borderRadius: '50%',
                 backgroundColor: 'rgba(0,0,0,0.55)',
@@ -278,7 +282,7 @@ export default function EventDetails() {
       </div>
 
       {/* ── Content ── */}
-      <div style={{ padding: '0 20px', marginTop: -24, position: 'relative' }}>
+      <div style={{ maxWidth: 960, margin: '-24px auto 0', padding: '0 20px', position: 'relative' }}>
 
         {/* Title + venue */}
         <div style={{ marginBottom: 20 }}>
@@ -617,8 +621,8 @@ export default function EventDetails() {
       </div>
 
       {/* ── Sticky bottom bar — price left / CTA right ── */}
-      <div className="sec-bottom-bar" style={{ left: 0, right: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 480, margin: '0 auto' }}>
+      <div className="sec-bottom-bar sec-bottom-bar--responsive">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 960, margin: '0 auto' }}>
           {tables.length > 0 ? (
             <>
               <div className="sec-bottom-bar__price">
@@ -683,6 +687,13 @@ export default function EventDetails() {
           )}
         </div>
       </div>
+
+      <EventShareModal
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        eventId={eventId}
+        eventTitle={event.title}
+      />
     </div>
   );
 }

@@ -12,3 +12,7 @@ export function getPublicAppOrigin(): string {
 export function getVenueProfileShareUrl(venueId: string): string {
     return `${getPublicAppOrigin()}/VenueProfile?id=${encodeURIComponent(venueId)}`;
 }
+
+export function getEventDetailsShareUrl(eventId: string): string {
+    return `${getPublicAppOrigin()}/EventDetails?id=${encodeURIComponent(eventId)}`;
+}

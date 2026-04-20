@@ -359,6 +359,22 @@
     flex: 1;
   }
 
+  @media (min-width: 1024px) {
+    .sec-bottom-bar--responsive {
+      position: sticky;
+      bottom: 24px;
+      left: auto;
+      right: auto;
+      border: 1px solid var(--sec-border);
+      border-radius: var(--radius-xl);
+      background-color: var(--sec-bg-card);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      padding: 14px 16px;
+      margin-top: 12px;
+    }
+  }
+
   /* ─── Bottom sheet — PlayStation/Shelf pattern ─── */
   .sec-bottom-sheet {
     background-color: var(--sec-bg-sheet);

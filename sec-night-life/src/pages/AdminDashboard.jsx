@@ -532,7 +532,7 @@ export default function AdminDashboard() {
   const s = stats || {};
 
   return (
-    <div className="min-h-screen pb-24" style={{ maxWidth: 480, margin: '0 auto' }}>
+    <div className="min-h-screen pb-24 lg:pb-10 max-w-[1100px] mx-auto">
       <Dialog open={!!previewDocument} onOpenChange={(open) => { if (!open) setPreviewDocument(null); }}>
         <DialogContent className="max-w-4xl" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}>
           <DialogHeader>
@@ -610,7 +610,7 @@ export default function AdminDashboard() {
       <div className="p-4 space-y-6">
         {tab === 'overview' && (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <Users size={20} className="text-[var(--sec-accent)] mb-2" />
                 <p className="text-2xl font-bold">{s.totalUsers ?? 0}</p>

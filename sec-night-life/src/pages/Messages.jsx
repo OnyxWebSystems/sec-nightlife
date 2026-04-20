@@ -19,9 +19,21 @@ export default function Messages() {
   const [user, setUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState('all');
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false
+  );
 
   useEffect(() => {
     authService.getCurrentUser().then(setUser).catch(() => authService.redirectToLogin());
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const media = window.matchMedia('(min-width: 1024px)');
+    const sync = () => setIsDesktop(media.matches);
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
   }, []);
 
   const { data: dms = [], isLoading: dmLoading } = useQuery({
@@ -80,24 +92,14 @@ export default function Messages() {
     setSearchParams({});
   };
 
-  if (dm) {
-    return (
-      <div className="max-w-app md:max-w-app-md mx-auto px-2 py-4">
-        <DMThread conversationId={dm} onBack={closeThread} />
-      </div>
-    );
-  }
+  const selectedConversation = useMemo(() => {
+    if (dm) return combined.find((c) => c.kind === 'dm' && c.id === dm) || null;
+    if (group) return combined.find((c) => c.kind === 'group' && c.id === group) || null;
+    return null;
+  }, [combined, dm, group]);
 
-  if (group) {
-    return (
-      <div className="max-w-app md:max-w-app-md mx-auto px-2 py-4">
-        <GroupThread groupChatId={group} chatKind={groupKind} onBack={closeThread} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen max-w-app md:max-w-app-md mx-auto pb-24" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+  const conversationList = (
+    <>
       <header className="sticky top-0 z-40 border-b border-[var(--sec-border)] bg-black/90 backdrop-blur px-4 py-3">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-semibold">Messages</h1>
@@ -134,7 +136,7 @@ export default function Messages() {
       </header>
 
       <div className="px-4 py-3 space-y-2">
-        {(dmLoading || gLoading) && <p className="text-sm text-gray-500">Loading…</p>}
+        {(dmLoading || gLoading) && <p className="text-sm text-gray-500">Loading...</p>}
 
         {selectedTab === 'direct' && !dmLoading && filtered.length === 0 && (
           <div className="text-center py-12 space-y-4">
@@ -157,6 +159,7 @@ export default function Messages() {
             type="button"
             onClick={() => openChat(c)}
             className="w-full flex items-center gap-3 p-3 rounded-xl bg-[#141416] border border-[#262629] text-left min-h-[56px]"
+            style={selectedConversation?.id === c.id && selectedConversation?.kind === c.kind ? { borderColor: 'var(--sec-accent)' } : undefined}
           >
             <div className="w-12 h-12 rounded-full overflow-hidden bg-[#262629] flex items-center justify-center flex-shrink-0">
               {c.kind === 'dm' ? (
@@ -189,6 +192,57 @@ export default function Messages() {
           </button>
         ))}
       </div>
+    </>
+  );
+
+  if (isDesktop) {
+    return (
+      <div className="min-h-screen max-w-[1280px] mx-auto pb-10" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+        <div className="grid lg:grid-cols-[360px_minmax(0,1fr)] gap-4 px-3 md:px-4 py-4">
+          <section className="rounded-2xl border border-[#262629] overflow-hidden bg-[#0A0A0B] min-h-[78vh]">
+            {conversationList}
+          </section>
+          <section className="rounded-2xl border border-[#262629] overflow-hidden bg-[#0A0A0B] min-h-[78vh]">
+            {dm ? (
+              <div className="px-2 py-2">
+                <DMThread conversationId={dm} onBack={closeThread} />
+              </div>
+            ) : group ? (
+              <div className="px-2 py-2">
+                <GroupThread groupChatId={group} chatKind={groupKind} onBack={closeThread} />
+              </div>
+            ) : (
+              <div className="h-full flex items-center justify-center p-6 text-center">
+                <div>
+                  <p className="text-sm text-gray-400">Select a conversation to open the thread.</p>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  if (dm) {
+    return (
+      <div className="max-w-[1100px] mx-auto px-2 md:px-4 py-4">
+        <DMThread conversationId={dm} onBack={closeThread} />
+      </div>
+    );
+  }
+
+  if (group) {
+    return (
+      <div className="max-w-[1100px] mx-auto px-2 md:px-4 py-4">
+        <GroupThread groupChatId={group} chatKind={groupKind} onBack={closeThread} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen max-w-[1100px] mx-auto pb-24 lg:pb-10" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+      {conversationList}
     </div>
   );
 }

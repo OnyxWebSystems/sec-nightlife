@@ -297,7 +297,7 @@ export default function HostDashboard() {
   }
 
   return (
-    <div className="px-4 py-6 max-w-app md:max-w-app-md mx-auto pb-24">
+    <div className="px-4 py-6 max-w-[1100px] mx-auto pb-24 lg:pb-10">
       <div className="flex items-center gap-2 mb-6">
         <SecLogo size={30} />
         <div>
@@ -329,7 +329,7 @@ export default function HostDashboard() {
             <RefundPolicyNote />
           </div>
           {loadP ? <Loader2 className="animate-spin" /> : null}
-          <div className="space-y-3">
+          <div className="grid gap-3 xl:grid-cols-2">
             {parties.map((p) => {
               const sb = STATUS_BADGE[p.status] || STATUS_BADGE.DRAFT;
               return (
@@ -403,7 +403,7 @@ export default function HostDashboard() {
             </button>
           </div>
           {loadT ? <Loader2 className="animate-spin" /> : null}
-          <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-2">
             {tables.map((t) => {
               const loc =
                 t.eventLocation?.displayLabel ||
@@ -553,7 +553,7 @@ export default function HostDashboard() {
 
         <TabsContent value="jobs">
           {loadJ ? <Loader2 className="animate-spin" /> : null}
-          <div className="space-y-2">
+          <div className="grid gap-2 xl:grid-cols-2">
             {jobs.map((j) => (
               <div key={j.id} className="sec-card p-3 rounded-lg border border-[var(--sec-border)] text-sm">
                 <div className="font-medium">{j.title}</div>
@@ -568,7 +568,7 @@ export default function HostDashboard() {
         </TabsContent>
 
         <TabsContent value="activity">
-          <div className="sec-card p-4 rounded-xl space-y-2 text-sm">
+          <div className="sec-card p-4 rounded-xl text-sm grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <div>Total parties hosted: {activity?.totalHousePartiesHosted ?? '—'}</div>
             <div>Total tables hosted: {activity?.totalTablesHosted ?? '—'}</div>
             <div>Party attendees (going): {activity?.totalPartyAttendees ?? '—'}</div>

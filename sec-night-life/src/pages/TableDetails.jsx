@@ -470,7 +470,7 @@ export default function TableDetails() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 96 }}>
+    <div className="pb-24 lg:pb-8" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
 
       {/* ── Header ── */}
       <header style={{
@@ -496,7 +496,7 @@ export default function TableDetails() {
         </div>
       </header>
 
-      <div style={{ maxWidth: 640, margin: '0 auto', padding: '20px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ maxWidth: 960, margin: '0 auto', padding: '20px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* ── Table info card ── */}
         <div className="sec-card" style={{ padding: '20px 20px 16px' }}>
@@ -762,8 +762,8 @@ export default function TableDetails() {
       </div>
 
       {/* ── Sticky bottom bar ── */}
-      <div className="sec-bottom-bar">
-        <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 640, margin: '0 auto' }}>
+      <div className="sec-bottom-bar sec-bottom-bar--responsive">
+        <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 960, margin: '0 auto' }}>
           {isHost ? (
             <>
               <button

@@ -316,7 +316,7 @@ export default function BusinessDashboard() {
   };
 
   return (
-    <div style={{ padding: 'var(--space-6) var(--space-5)', maxWidth: 1100, margin: '0 auto' }}>
+    <div className="pb-10" style={{ padding: 'var(--space-6) var(--space-5)', maxWidth: 1100, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
@@ -456,7 +456,7 @@ export default function BusinessDashboard() {
       )}
 
       {/* Stat Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: 24 }}>
         <StatCard icon={Calendar} label="Total Events" value={events.length} sub={`${upcomingEvents.length} upcoming`} />
         <StatCard icon={BookOpen} label="Table Bookings" value={totalBookings} sub={`${activeBookings} active`} />
         <StatCard icon={Star} label="Average Rating" value={avgRating} sub={`${reviews.length} reviews`} />
@@ -466,7 +466,7 @@ export default function BusinessDashboard() {
       {/* Quick Actions */}
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Quick Actions</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           <QuickAction icon={Plus} label="Create Event" page="BusinessEvents" />
           <QuickAction icon={BookOpen} label="Manage Bookings" page="BusinessBookings" />
           <QuickAction icon={BarChart3} label="View Analytics" page="VenueAnalytics" />
