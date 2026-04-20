@@ -12,7 +12,10 @@ export const PAGES = Object.fromEntries(
     const m = path.match(/\.\/pages\/(.+)\.jsx$/);
     const name = m ? m[1] : null;
     if (!name) return null;
-    return [name, lazy(loader)];
+    return [
+      name,
+      lazy(() => loader().then((mod) => ({ default: mod.default }))),
+    ];
   }).filter(Boolean)
 );
 
