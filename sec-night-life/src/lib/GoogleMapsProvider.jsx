@@ -41,8 +41,10 @@ function startLoad() {
       }, 500);
     })
     .catch((err) => {
-      shared = { status: 'error', error: err };
+      shared = { status: 'error', error: err instanceof Error ? err : new Error(String(err || 'Google Maps failed to load.')) };
       emit();
+      // Allow a fresh retry when a new subscriber mounts again.
+      loadStarted = false;
     });
 }
 

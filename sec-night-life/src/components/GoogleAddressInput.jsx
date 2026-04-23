@@ -82,7 +82,7 @@ export default function GoogleAddressInput({
 }) {
   const inputRef = useRef(null);
   const [autocomplete, setAutocomplete] = useState(null);
-  const { status: mapsStatus } = useGoogleMaps();
+  const { status: mapsStatus, error: mapsError } = useGoogleMaps();
 
   const structuredValue = useMemo(() => toStructuredValue(value), [value]);
   const [draft, setDraft] = useState(structuredValue?.formattedAddress || '');
@@ -148,6 +148,11 @@ export default function GoogleAddressInput({
         <div className="mt-2 space-y-4">
           <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
             Maps failed to load. You can still register; location-based features will improve once Maps works.
+            {mapsError?.message ? (
+              <div className="mt-1 text-xs text-red-300">
+                {mapsError.message}
+              </div>
+            ) : null}
           </div>
 
           <div>
