@@ -23,6 +23,7 @@ export const translations = {
     privacyPolicy: 'Privacy Policy',
     userAgreement: 'User Agreement',
     communityGuidelines: 'Community Guidelines',
+    gbvConsequences: 'GBV & Safety Consequences',
     refundPolicy: 'Refund Policy',
     venueComplianceCharter: 'Venue Compliance Charter',
     promoterCodeOfConduct: 'Promoter Code of Conduct',

@@ -11,6 +11,7 @@ export const LEGAL_PAGE = {
   promoterCodeOfConduct: 'PromoterCodeOfConduct',
   userAgreement: 'UserAgreement',
   communityGuidelines: 'CommunityGuidelines',
+  gbvConsequences: 'GbvConsequences',
   refundPolicy: 'RefundPolicy',
   venueComplianceCharter: 'VenueComplianceCharter',
 };

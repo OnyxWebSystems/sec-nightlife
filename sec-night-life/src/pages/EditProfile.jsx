@@ -21,6 +21,11 @@ const DRINKS = [
   'Whiskey', 'Vodka', 'Gin', 'Tequila', 'Rum', 'Champagne',
   'Wine', 'Beer', 'Cocktails', 'Non-alcoholic',
 ];
+const GENDER_OPTIONS = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'other', label: 'Other' },
+];
 
 export default function EditProfile() {
   const navigate = useNavigate();
@@ -35,6 +40,7 @@ export default function EditProfile() {
     bio: '',
     city: '',
     favorite_drink: '',
+    gender: '',
     avatar_url: '',
     date_of_birth: '',
     id_document_url: '',
@@ -89,6 +95,7 @@ export default function EditProfile() {
         bio: profile.bio || '',
         city: profile.city || '',
         favorite_drink: profile.favorite_drink || '',
+        gender: profile.gender || '',
         avatar_url: profile.avatar_url || '',
         date_of_birth: profile.date_of_birth || '',
         id_document_url: profile.id_document_url || '',
@@ -151,6 +158,7 @@ export default function EditProfile() {
         bio: formData.bio,
         city: formData.city || null,
         favorite_drink: formData.favorite_drink || null,
+        gender: formData.gender || null,
         avatar_url: formData.avatar_url || null,
         date_of_birth: formData.date_of_birth || null,
         id_document_url: formData.id_document_url || null,
@@ -427,6 +435,40 @@ export default function EditProfile() {
                     style={{ color: 'var(--sec-text-primary)', cursor: 'pointer' }}
                   >
                     {city}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <div style={labelStyle}>
+              <User size={12} strokeWidth={2} />
+              Gender
+            </div>
+            <Select value={formData.gender} onValueChange={(v) => setFormData((prev) => ({ ...prev, gender: v }))}>
+              <SelectTrigger style={{
+                height: 46,
+                backgroundColor: 'var(--sec-bg-elevated)',
+                border: '1px solid var(--sec-border)',
+                borderRadius: 'var(--radius-md)',
+                color: formData.gender ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
+                fontSize: 14,
+              }}>
+                <SelectValue placeholder="Select your gender" />
+              </SelectTrigger>
+              <SelectContent style={{
+                backgroundColor: 'var(--sec-bg-elevated)',
+                border: '1px solid var(--sec-border)',
+                borderRadius: 'var(--radius-lg)',
+              }}>
+                {GENDER_OPTIONS.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    style={{ color: 'var(--sec-text-primary)', cursor: 'pointer' }}
+                  >
+                    {option.label}
                   </SelectItem>
                 ))}
               </SelectContent>

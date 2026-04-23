@@ -19,6 +19,12 @@ import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 
 const MAX_W = 'max-w-app md:max-w-app-md mx-auto';
+function genderLabel(value) {
+  if (value === 'male') return 'Male';
+  if (value === 'female') return 'Female';
+  if (value === 'other') return 'Other';
+  return null;
+}
 
 function useDebounced(value, ms) {
   const [v, setV] = useState(value);
@@ -235,6 +241,7 @@ export default function Friends() {
                       </div>
                       <p className="text-xs font-medium truncate text-center">{u.fullName || u.username}</p>
                       <p className="text-[10px] text-gray-500 truncate text-center">@{u.username || 'user'}</p>
+                      {genderLabel(u.gender) && <p className="text-[10px] text-gray-500 truncate text-center">{genderLabel(u.gender)}</p>}
                       <Button
                         size="sm"
                         className="w-full mt-2 min-h-[44px]"
@@ -278,6 +285,7 @@ export default function Friends() {
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{f.fullName || f.username}</p>
                         <p className="text-xs text-gray-500 truncate">@{f.username || 'user'}</p>
+                        {genderLabel(f.gender) && <p className="text-xs text-gray-600">{genderLabel(f.gender)}</p>}
                         {f.city && <p className="text-xs text-gray-600">{f.city}</p>}
                       </div>
                       <div className="flex flex-col gap-1">
@@ -365,6 +373,7 @@ export default function Friends() {
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{row.user.fullName}</p>
                           <p className="text-xs text-gray-500">@{row.user.username}</p>
+                          {genderLabel(row.user.gender) && <p className="text-xs text-gray-600">{genderLabel(row.user.gender)}</p>}
                         </div>
                       </div>
                       <div className="flex gap-2">
@@ -410,6 +419,7 @@ export default function Friends() {
                       <div>
                         <p className="font-medium">{row.user.fullName}</p>
                         <p className="text-xs text-gray-500">@{row.user.username}</p>
+                        {genderLabel(row.user.gender) && <p className="text-xs text-gray-600">{genderLabel(row.user.gender)}</p>}
                       </div>
                       <Button variant="outline" className="min-h-[44px]" onClick={() => onCancelRequest(row.friendshipId)}>
                         Cancel

@@ -36,6 +36,11 @@ const DRINKS = [
   'Whiskey', 'Vodka', 'Gin', 'Tequila', 'Rum', 'Champagne',
   'Wine', 'Beer', 'Cocktails', 'Non-alcoholic',
 ];
+const GENDER_OPTIONS = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'other', label: 'Other' },
+];
 
 export default function ProfileSetup() {
   const navigate = useNavigate();
@@ -55,6 +60,7 @@ export default function ProfileSetup() {
     avatar_url: '',
     city: '',
     favorite_drink: '',
+    gender: '',
     date_of_birth: '',
     id_document_url: '',
   });
@@ -85,6 +91,7 @@ export default function ProfileSetup() {
           avatar_url: profile.avatar_url || '',
           city: profile.city || '',
           favorite_drink: profile.favorite_drink || '',
+          gender: profile.gender || '',
           date_of_birth: profile.date_of_birth || '',
           id_document_url: profile.id_document_url || '',
         }));
@@ -138,7 +145,7 @@ export default function ProfileSetup() {
   const canProceed = () => {
     if (step === 1) return formData.username && formData.bio.trim().length > 0;
     if (step === 2) return formData.city && formData.favorite_drink;
-    if (step === 3) return true;
+    if (step === 3) return Boolean(formData.gender);
     if (step === 4) return false;
     return true;
   };
@@ -154,6 +161,7 @@ export default function ProfileSetup() {
         bio: formData.bio,
         city: formData.city,
         favorite_drink: formData.favorite_drink,
+        gender: formData.gender,
         age_verified: false,
         verification_status: hasId ? 'submitted' : 'pending',
         payment_setup_complete: paymentCompleted,
@@ -531,6 +539,33 @@ export default function ProfileSetup() {
                   Age verification
                 </h1>
                 <p style={{ color: 'var(--sec-text-muted)' }}>Add your date of birth and ID for admin review (optional now)</p>
+              </div>
+
+              <div>
+                <div style={labelStyle}>
+                  <User size={12} strokeWidth={2} /> Gender
+                </div>
+                <Select
+                  value={formData.gender}
+                  onValueChange={(v) => setFormData((prev) => ({ ...prev, gender: v }))}
+                >
+                  <SelectTrigger style={{ ...inputStyle, paddingLeft: 14 }}>
+                    <SelectValue placeholder="Select your gender" />
+                  </SelectTrigger>
+                  <SelectContent
+                    style={{
+                      backgroundColor: 'var(--sec-bg-elevated)',
+                      border: '1px solid var(--sec-border)',
+                      borderRadius: 'var(--radius-lg)',
+                    }}
+                  >
+                    {GENDER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value} style={{ color: 'var(--sec-text-primary)' }}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>

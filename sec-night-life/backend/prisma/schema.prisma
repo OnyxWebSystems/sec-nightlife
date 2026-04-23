@@ -333,6 +333,7 @@ model UserProfile {
   city                      String?
   avatarUrl                 String?   @map("avatar_url")
   favoriteDrink             String?   @map("favorite_drink")
+  gender                    String?
   dateOfBirth               String?   @map("date_of_birth")
   idDocumentUrl             String?   @map("id_document_url")
   ageVerified               Boolean   @default(false) @map("age_verified")

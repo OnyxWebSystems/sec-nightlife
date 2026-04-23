@@ -643,6 +643,8 @@ export default function TableDetails() {
               const memberData = table.members?.find(m => m.user_id === member.id);
               const isHostMember = member.id === table.host_user_id;
               const isPendingMember = memberData?.status === 'pending';
+              const genderLabel =
+                member.gender === 'male' ? 'Male' : member.gender === 'female' ? 'Female' : member.gender === 'other' ? 'Other' : null;
 
               return (
                 <motion.div
@@ -692,6 +694,11 @@ export default function TableDetails() {
                     <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>
                       {isHostMember ? 'Host' : isPendingMember ? 'Pending' : 'Confirmed'}
                     </p>
+                    {genderLabel && (
+                      <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>
+                        {genderLabel}
+                      </p>
+                    )}
                   </div>
 
                   {/* Host accept/reject controls */}

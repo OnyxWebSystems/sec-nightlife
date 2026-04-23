@@ -12,6 +12,7 @@ import { orderedParticipants } from '../lib/conversationHelpers.js';
 import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
 
 const router = Router();
+const PROFILE_GENDER_VALUES = ['male', 'female', 'other'];
 
 const usernameCheckLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -159,6 +160,7 @@ const USER_PROFILE_COMPAT_SELECT_LIST = `
       city,
       avatar_url AS "avatarUrl",
       favorite_drink AS "favoriteDrink",
+      gender,
       date_of_birth AS "dateOfBirth",
       id_document_url AS "idDocumentUrl",
       age_verified AS "ageVerified",
@@ -218,6 +220,7 @@ async function upsertUserProfileCompat(userId, data) {
     city: data.city ?? existing?.city ?? null,
     avatarUrl: data.avatarUrl ?? existing?.avatarUrl ?? null,
     favoriteDrink: data.favoriteDrink ?? existing?.favoriteDrink ?? null,
+    gender: data.gender ?? existing?.gender ?? null,
     dateOfBirth: data.dateOfBirth ?? existing?.dateOfBirth ?? null,
     idDocumentUrl: data.idDocumentUrl ?? existing?.idDocumentUrl ?? null,
     ageVerified: data.ageVerified ?? existing?.ageVerified ?? false,
@@ -239,17 +242,18 @@ async function upsertUserProfileCompat(userId, data) {
            city = $4,
            avatar_url = $5,
            favorite_drink = $6,
-           date_of_birth = $7,
-           id_document_url = $8,
-           age_verified = $9,
-           verification_status = $10,
-           payment_setup_complete = $11,
-           interests = $12,
-           music_preferences = $13,
-           friends = $14,
-           followed_venues = $15,
-           interested_events = $16::text[],
-           onboarding_complete = $17,
+           gender = $7,
+           date_of_birth = $8,
+           id_document_url = $9,
+           age_verified = $10,
+           verification_status = $11,
+           payment_setup_complete = $12,
+           interests = $13,
+           music_preferences = $14,
+           friends = $15,
+           followed_venues = $16,
+           interested_events = $17::text[],
+           onboarding_complete = $18,
            updated_at = NOW()
        WHERE user_id = $1`,
       userId,
@@ -258,6 +262,7 @@ async function upsertUserProfileCompat(userId, data) {
       payload.city,
       payload.avatarUrl,
       payload.favoriteDrink,
+      payload.gender,
       payload.dateOfBirth,
       payload.idDocumentUrl,
       payload.ageVerified,
@@ -273,16 +278,17 @@ async function upsertUserProfileCompat(userId, data) {
   } else {
     await prisma.$executeRawUnsafe(
       `INSERT INTO user_profiles
-       (id, user_id, username, bio, city, avatar_url, favorite_drink, date_of_birth, id_document_url,
+       (id, user_id, username, bio, city, avatar_url, favorite_drink, gender, date_of_birth, id_document_url,
         age_verified, verification_status, payment_setup_complete, interests, music_preferences, friends,
         followed_venues, interested_events, onboarding_complete, created_at, updated_at)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::text[], $17, NOW(), NOW())`,
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::text[], $18, NOW(), NOW())`,
       userId,
       payload.username,
       payload.bio,
       payload.city,
       payload.avatarUrl,
       payload.favoriteDrink,
+      payload.gender,
       payload.dateOfBirth,
       payload.idDocumentUrl,
       payload.ageVerified,
@@ -385,6 +391,7 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
             bio: true,
             city: true,
             avatarUrl: true,
+            gender: true,
             interests: true,
           },
         },
@@ -597,6 +604,7 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       fullName: user.fullName || '',
       avatarUrl: user.userProfile?.avatarUrl || null,
       city: user.userProfile?.city || null,
+      gender: user.userProfile?.gender || null,
       bio: user.userProfile?.bio || null,
       interests,
       pastEventsAttended,
@@ -632,6 +640,7 @@ const profileUpdateSchema = z.object({
   city: z.string().max(100).optional().nullable(),
   avatar_url: optionalMediaUrl,
   favorite_drink: z.string().max(100).optional().nullable(),
+  gender: z.enum(PROFILE_GENDER_VALUES).optional().nullable(),
   date_of_birth: z.string().max(20).optional().nullable(),
   id_document_url: optionalMediaUrl,
   age_verified: z.boolean().optional().nullable(),
@@ -673,6 +682,7 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       city: profile?.city,
       avatar_url: profile?.avatarUrl,
       favorite_drink: profile?.favoriteDrink,
+      gender: profile?.gender ?? null,
       date_of_birth: profile?.dateOfBirth,
       id_document_url: profile?.idDocumentUrl,
       age_verified: deriveAgeVerifiedForApi(profile),
@@ -731,6 +741,7 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       city: profile?.city,
       avatar_url: profile?.avatarUrl,
       favorite_drink: profile?.favoriteDrink,
+      gender: profile?.gender ?? null,
       date_of_birth: isSelf ? profile?.dateOfBirth : profile?.dateOfBirth,
       id_document_url: isSelf ? profile?.idDocumentUrl : null,
       age_verified: deriveAgeVerifiedForApi(profile),
@@ -878,6 +889,7 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
         city: p?.city,
         avatar_url: p?.avatarUrl,
         favorite_drink: p?.favoriteDrink,
+        gender: p?.gender ?? null,
         date_of_birth: p?.dateOfBirth,
         id_document_url: p?.idDocumentUrl,
         age_verified: deriveAgeVerifiedForApi(p),
@@ -935,6 +947,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       ...(data.city != null && { city: data.city }),
       ...(data.avatar_url != null && { avatarUrl: data.avatar_url }),
       ...(data.favorite_drink != null && { favoriteDrink: data.favorite_drink }),
+      ...(data.gender !== undefined && { gender: data.gender }),
       ...(data.date_of_birth != null && { dateOfBirth: data.date_of_birth }),
       ...(data.id_document_url != null && { idDocumentUrl: data.id_document_url }),
       ...(data.age_verified != null && { ageVerified: data.age_verified }),
@@ -985,6 +998,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       city: profile.city,
       avatar_url: profile.avatarUrl,
       favorite_drink: profile.favoriteDrink,
+      gender: profile.gender ?? null,
       date_of_birth: profile.dateOfBirth,
       verification_status: profile.verificationStatus,
       payment_setup_complete: profile.paymentSetupComplete,
@@ -1060,6 +1074,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       ...(data.city != null && { city: data.city }),
       ...(data.avatar_url !== undefined && { avatarUrl: data.avatar_url }),
       ...(data.favorite_drink != null && { favoriteDrink: data.favorite_drink }),
+      ...(data.gender !== undefined && { gender: data.gender }),
       ...(data.date_of_birth != null && { dateOfBirth: data.date_of_birth }),
       ...(data.id_document_url !== undefined && { idDocumentUrl: data.id_document_url }),
       ...(data.age_verified != null && { ageVerified: data.age_verified }),
@@ -1110,6 +1125,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       city: profile.city,
       avatar_url: profile.avatarUrl,
       favorite_drink: profile.favoriteDrink,
+      gender: profile.gender ?? null,
       date_of_birth: profile.dateOfBirth,
       id_document_url: profile.idDocumentUrl,
       age_verified: deriveAgeVerifiedForApi(profile),
@@ -1214,6 +1230,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.city != null) updates.city = data.city;
     if (data.avatar_url !== undefined) updates.avatarUrl = data.avatar_url;
     if (data.favorite_drink != null) updates.favoriteDrink = data.favorite_drink;
+    if (data.gender !== undefined) updates.gender = data.gender;
     if (data.date_of_birth != null) updates.dateOfBirth = data.date_of_birth;
     if (data.id_document_url !== undefined) updates.idDocumentUrl = data.id_document_url;
     if (data.age_verified != null) updates.ageVerified = data.age_verified;
@@ -1259,6 +1276,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       city: updated.city,
       avatar_url: updated.avatarUrl,
       favorite_drink: updated.favoriteDrink,
+      gender: updated.gender ?? null,
       date_of_birth: updated.dateOfBirth,
       id_document_url: updated.idDocumentUrl,
       age_verified: deriveAgeVerifiedForApi(updated),

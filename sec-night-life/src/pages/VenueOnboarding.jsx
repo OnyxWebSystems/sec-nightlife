@@ -41,6 +41,11 @@ const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton', 
   'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Polokwane'
 ];
+const GENDER_OPTIONS = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'other', label: 'Other' },
+];
 
 const PLAN_PRICES = {
   basic: 299,
@@ -71,6 +76,7 @@ const INITIAL_FORM_DATA = {
   instagram: '',
   capacity: '',
   age_limit: 18,
+  gender: '',
   logo_url: '',
   cover_image_url: '',
   cipc_document_url: '',
@@ -127,6 +133,7 @@ function mapVenueDetailToForm(v) {
     instagram: v.instagram ?? '',
     capacity: v.capacity != null ? String(v.capacity) : '',
     age_limit: v.age_limit != null ? v.age_limit : 18,
+    gender: v.gender ?? '',
     logo_url: v.logo_url ?? '',
     cover_image_url: v.cover_image_url ?? ''
   };
@@ -382,6 +389,7 @@ export default function VenueOnboarding() {
     await apiPatch('/api/users/profile', {
       payment_setup_complete: paymentCompleted,
       onboarding_complete: true,
+      ...(formData.gender ? { gender: formData.gender } : {}),
     });
   };
 
@@ -850,6 +858,22 @@ export default function VenueOnboarding() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                <div>
+                  <Label className="text-gray-400 text-sm">Gender (optional)</Label>
+                  <Select value={formData.gender} onValueChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}>
+                    <SelectTrigger className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl">
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                      {GENDER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value} className="text-white">
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </motion.div>

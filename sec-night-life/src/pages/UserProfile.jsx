@@ -84,6 +84,8 @@ export default function UserProfile() {
   }
 
   const st = profile.friendshipStatus;
+  const genderLabel =
+    profile?.gender === 'male' ? 'Male' : profile?.gender === 'female' ? 'Female' : profile?.gender === 'other' ? 'Other' : null;
 
   const activityLink = (a) => {
     if (a.referenceType === 'EVENT' && a.referenceId) return createPageUrl(`EventDetails?id=${a.referenceId}`);
@@ -116,6 +118,7 @@ export default function UserProfile() {
         </div>
         <h2 className="text-xl font-bold">{profile.fullName || profile.username}</h2>
         <p className="text-gray-500 text-sm">@{profile.username || 'user'}</p>
+        {genderLabel && <p className="text-sm text-gray-400 mt-1">{genderLabel}</p>}
         {profile.city && <p className="text-sm text-gray-400 mt-1">{profile.city}</p>}
         <p className="text-sm mt-3 text-left w-full text-gray-300">{profile.bio || ''}</p>
 

@@ -84,6 +84,8 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event }
         : [...prev, friendId]
     );
   };
+  const genderLabel = (value) =>
+    value === 'male' ? 'Male' : value === 'female' ? 'Female' : value === 'other' ? 'Other' : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -131,6 +133,9 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event }
                     </div>
                     <div className="flex-1 text-left">
                       <p className="font-medium text-sm">{friend.username || friend.full_name}</p>
+                      {genderLabel(friend.gender) && (
+                        <p className="text-xs text-gray-500">{genderLabel(friend.gender)}</p>
+                      )}
                       {friend.city && (
                         <p className="text-xs text-gray-500">{friend.city}</p>
                       )}

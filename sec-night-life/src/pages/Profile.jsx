@@ -267,6 +267,14 @@ export default function Profile() {
   const hostedCount = socialStats?.tablesHosted ?? 0;
   const tablesJoinedCount = socialStats?.tablesJoined ?? 0;
   const friendsCount = socialStats?.friendCount ?? (displayProfile?.friends?.length || 0);
+  const genderLabel =
+    displayProfile?.gender === 'male'
+      ? 'Male'
+      : displayProfile?.gender === 'female'
+        ? 'Female'
+        : displayProfile?.gender === 'other'
+          ? 'Other'
+          : null;
 
   const vs = displayProfile?.verification_status;
   const showAgeVerifiedBadge =
@@ -413,6 +421,12 @@ export default function Profile() {
                 <span className="flex items-center gap-1">
                   <MapPin className="w-4 h-4" />
                   {displayProfile.city}
+                </span>
+              )}
+              {genderLabel && (
+                <span className="flex items-center gap-1">
+                  <UserPlus className="w-4 h-4" />
+                  {genderLabel}
                 </span>
               )}
               {displayProfile.favorite_drink && (

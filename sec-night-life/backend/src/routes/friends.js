@@ -13,7 +13,7 @@ function publicUserSelect() {
     id: true,
     username: true,
     fullName: true,
-    userProfile: { select: { avatarUrl: true, city: true } },
+    userProfile: { select: { avatarUrl: true, city: true, gender: true } },
   };
 }
 
@@ -130,6 +130,7 @@ router.get('/search', authenticateToken, async (req, res, next) => {
         fullName: u.fullName || '',
         avatarUrl: u.userProfile?.avatarUrl || null,
         city: u.userProfile?.city || null,
+        gender: u.userProfile?.gender || null,
         friendshipStatus: st,
         conversationId,
       });
@@ -261,6 +262,7 @@ router.get('/suggestions', authenticateToken, async (req, res, next) => {
         fullName: u.fullName || '',
         avatarUrl: u.userProfile?.avatarUrl || null,
         city: u.userProfile?.city || null,
+        gender: u.userProfile?.gender || null,
         friendshipStatus: st,
       });
       if (out.length >= 20) break;
@@ -508,6 +510,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
           fullName: friendUser.fullName || '',
           avatarUrl: friendUser.userProfile?.avatarUrl || null,
           city: friendUser.userProfile?.city || null,
+          gender: friendUser.userProfile?.gender || null,
           conversationId: conv?.id || null,
           friendshipStatus: 'ACCEPTED',
         });
@@ -555,6 +558,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
         fullName: friendUser.fullName || '',
         avatarUrl: friendUser.userProfile?.avatarUrl || null,
         city: friendUser.userProfile?.city || null,
+        gender: friendUser.userProfile?.gender || null,
         conversationId: conv?.id || null,
         lastActivity: lastAct?.createdAt || null,
       });
@@ -586,6 +590,7 @@ router.get('/requests/incoming', authenticateToken, async (req, res, next) => {
           fullName: r.requester.fullName || '',
           avatarUrl: r.requester.userProfile?.avatarUrl || null,
           city: r.requester.userProfile?.city || null,
+          gender: r.requester.userProfile?.gender || null,
         },
       })),
     );
@@ -613,6 +618,7 @@ router.get('/requests/sent', authenticateToken, async (req, res, next) => {
           fullName: r.receiver.fullName || '',
           avatarUrl: r.receiver.userProfile?.avatarUrl || null,
           city: r.receiver.userProfile?.city || null,
+          gender: r.receiver.userProfile?.gender || null,
         },
       })),
     );

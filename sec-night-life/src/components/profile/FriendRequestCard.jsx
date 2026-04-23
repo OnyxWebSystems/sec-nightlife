@@ -15,6 +15,8 @@ export default function FriendRequestCard({ row }) {
   const queryClient = useQueryClient();
   const { friendshipId, user } = row || {};
   const displayName = user?.fullName || user?.username || 'Someone';
+  const genderLabel =
+    user?.gender === 'male' ? 'Male' : user?.gender === 'female' ? 'Female' : user?.gender === 'other' ? 'Other' : null;
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
@@ -73,6 +75,7 @@ export default function FriendRequestCard({ row }) {
           {user.username ? (
             <p className="text-xs text-gray-500 truncate">@{user.username}</p>
           ) : null}
+          {genderLabel ? <p className="text-xs text-gray-500 truncate">{genderLabel}</p> : null}
         </div>
       </Link>
       <div className="flex gap-2 flex-shrink-0">
