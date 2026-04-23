@@ -154,62 +154,51 @@ export default function Map() {
     [allEvents]
   );
 
-  const venuesWithCoords = useMemo(
-    () => allVenues
-      .map((venue) => {
-        const pos = toLatLng(venue);
-        return pos ? { ...venue, _mapPos: pos } : null;
-      })
-      .filter(Boolean),
+  const normalizedVenues = useMemo(
+    () => allVenues.map((venue) => ({ ...venue, _mapPos: toLatLng(venue) })),
     [allVenues]
   );
 
-  const eventsWithCoords = useMemo(
+  const normalizedEvents = useMemo(
     () => allEvents
       .filter((event) => event?.status !== 'cancelled')
       .map((event) => {
+        const venue = venuesMap[event.venue_id];
         const eventPos = toLatLng(event);
-        if (eventPos) return { ...event, _mapPos: eventPos };
-        const venuePos = toLatLng(venuesMap[event.venue_id]);
-        if (!venuePos) return null;
-        return { ...event, _mapPos: venuePos };
-      })
-      .filter(Boolean),
+        const venuePos = toLatLng(venue);
+        return { ...event, _mapPos: eventPos || venuePos || null };
+      }),
     [allEvents, venuesMap]
   );
 
-  const tablesWithCoords = useMemo(
+  const normalizedTables = useMemo(
     () => tables
       .filter((table) => table?.status !== 'closed' && table?.status !== 'cancelled')
       .map((table) => {
-        const tablePos = toLatLng(table);
-        if (tablePos) return { ...table, _mapPos: tablePos };
         const event = eventsMap[table.event_id];
         const venue = venuesMap[table.venue_id];
+        const tablePos = toLatLng(table);
         const eventPos = toLatLng(event);
         const venuePos = toLatLng(venue);
-        const pos = eventPos || venuePos;
-        if (!pos) return null;
-        return { ...table, _mapPos: pos };
-      })
-      .filter(Boolean),
+        return { ...table, _mapPos: tablePos || eventPos || venuePos || null };
+      }),
     [tables, eventsMap, venuesMap]
   );
 
   const searchTerm = searchQuery.trim().toLowerCase();
   const profileCity = (userProfile?.city || '').trim().toLowerCase();
 
-  const isInUserArea = (item, cityCandidates = []) => {
+  const isInUserArea = (mapPos, cityCandidates = []) => {
     if (areaMode === 'all') return true;
-    if (userLocation?.lat != null && userLocation?.lng != null && item?._mapPos) {
-      return distanceKm(userLocation, item._mapPos) <= NEARBY_RADIUS_KM;
+    if (userLocation?.lat != null && userLocation?.lng != null && mapPos) {
+      return distanceKm(userLocation, mapPos) <= NEARBY_RADIUS_KM;
     }
     if (!profileCity) return true;
     return cityCandidates.some((v) => String(v || '').trim().toLowerCase() === profileCity);
   };
 
   const filteredVenues = useMemo(
-    () => venuesWithCoords.filter((venue) => {
+    () => normalizedVenues.filter((venue) => {
       const matchesSearch = !searchTerm || [
         venue.name,
         venue.city,
@@ -222,14 +211,14 @@ export default function Map() {
         .toLowerCase()
         .includes(searchTerm);
 
-      const inArea = isInUserArea(venue, [venue.city, venue.suburb]);
+      const inArea = isInUserArea(venue._mapPos, [venue.city, venue.suburb]);
       return matchesSearch && inArea;
     }),
-    [venuesWithCoords, searchTerm, userLocation, profileCity, areaMode]
+    [normalizedVenues, searchTerm, userLocation, profileCity, areaMode]
   );
 
   const filteredEvents = useMemo(
-    () => eventsWithCoords.filter((event) => {
+    () => normalizedEvents.filter((event) => {
       const venue = venuesMap[event.venue_id];
       const matchesSearch = !searchTerm || [
         event.title,
@@ -243,14 +232,14 @@ export default function Map() {
         .toLowerCase()
         .includes(searchTerm);
 
-      const inArea = isInUserArea(event, [event.city, venue?.city, venue?.suburb]);
+      const inArea = isInUserArea(event._mapPos, [event.city, venue?.city, venue?.suburb]);
       return matchesSearch && inArea;
     }),
-    [eventsWithCoords, venuesMap, searchTerm, userLocation, profileCity, areaMode]
+    [normalizedEvents, venuesMap, searchTerm, userLocation, profileCity, areaMode]
   );
 
   const filteredTables = useMemo(
-    () => tablesWithCoords.filter((table) => {
+    () => normalizedTables.filter((table) => {
       const event = eventsMap[table.event_id];
       const venue = venuesMap[table.venue_id];
       const matchesSearch = !searchTerm || [
@@ -265,10 +254,10 @@ export default function Map() {
         .toLowerCase()
         .includes(searchTerm);
 
-      const inArea = isInUserArea(table, [event?.city, venue?.city, venue?.suburb]);
+      const inArea = isInUserArea(table._mapPos, [event?.city, venue?.city, venue?.suburb]);
       return matchesSearch && inArea;
     }),
-    [tablesWithCoords, eventsMap, venuesMap, searchTerm, userLocation, profileCity, areaMode]
+    [normalizedTables, eventsMap, venuesMap, searchTerm, userLocation, profileCity, areaMode]
   );
 
   const modeItems = useMemo(() => {
@@ -276,6 +265,11 @@ export default function Map() {
     if (viewMode === 'tables') return filteredTables;
     return filteredVenues;
   }, [viewMode, filteredVenues, filteredEvents, filteredTables]);
+
+  const modeMarkerItems = useMemo(
+    () => modeItems.filter((item) => !!item?._mapPos),
+    [modeItems]
+  );
 
   const modes = [
     { value: 'venues', label: 'Venues' },
@@ -365,7 +359,7 @@ export default function Map() {
     map.markers = [];
 
     // Add new markers
-    modeItems.forEach((item) => {
+    modeMarkerItems.forEach((item) => {
       const marker = new window.google.maps.Marker({
         position: { lat: item._mapPos.lat, lng: item._mapPos.lng },
         map: map,
@@ -383,10 +377,10 @@ export default function Map() {
       marker.addListener('click', () => setSelectedItem(item));
       map.markers.push(marker);
     });
-  }, [map, modeItems]);
+  }, [map, modeMarkerItems]);
 
   const mapLoaded = !!map;
-  const hasNoItemsWithCoords = modeItems.length === 0;
+  const hasNoItemsWithCoords = modeMarkerItems.length === 0;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', display: 'flex', flexDirection: 'column' }}>
@@ -691,12 +685,22 @@ export default function Map() {
                 <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500 }}>
                   {areaMode === 'all' ? 'No events found' : 'No events in your area'}
                 </p>
+                <p style={{ color: 'var(--sec-text-muted)', fontSize: 13, marginTop: 6 }}>
+                  {searchTerm ? 'Try a different search term.' : 'Create or publish an event to see it here.'}
+                </p>
               </div>
             )}
             {viewMode === 'tables' && filteredTables.length === 0 && (
               <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
                 <p style={{ color: 'var(--sec-text-muted)' }}>
                   {areaMode === 'all' ? 'No open tables found right now.' : 'No open tables in your area right now.'}
+                </p>
+              </div>
+            )}
+            {modeItems.length > 0 && modeMarkerItems.length === 0 && (
+              <div style={{ padding: 14, borderRadius: 12, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
+                <p style={{ color: 'var(--sec-text-muted)', fontSize: 12 }}>
+                  Results found, but none have map coordinates yet, so map markers are hidden.
                 </p>
               </div>
             )}
