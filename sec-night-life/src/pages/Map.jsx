@@ -67,17 +67,21 @@ export default function Map() {
 
   const { data: venues = [] } = useQuery({
     queryKey: ['map-venues-full'],
-    queryFn: () => dataService.Venue.filter({}, '-rating', 200),
+    queryFn: () => dataService.Venue.filter({}, '-rating', 1000),
+  });
+  const { data: myVenues = [] } = useQuery({
+    queryKey: ['map-my-venues'],
+    queryFn: () => dataService.Venue.mine(),
   });
 
   const { data: events = [] } = useQuery({
     queryKey: ['map-events-full'],
-    queryFn: () => dataService.Event.filter({ status: 'published' }),
+    queryFn: () => dataService.Event.filter({}, 'date', 1000),
   });
 
   const { data: tables = [] } = useQuery({
     queryKey: ['map-tables-full'],
-    queryFn: () => dataService.Table.filter({ status: 'open' }, '-created_date', 200),
+    queryFn: () => dataService.Table.filter({}, '-created_date', 1000),
   });
 
   const { data: userProfile } = useQuery({
@@ -100,34 +104,69 @@ export default function Map() {
     },
   });
 
+  const allVenues = useMemo(() => {
+    const map = new Map();
+    [...venues, ...myVenues].forEach((v) => {
+      if (v?.id) map.set(v.id, v);
+    });
+    return [...map.values()];
+  }, [venues, myVenues]);
+
+  const myVenueIds = useMemo(
+    () => myVenues.map((v) => v?.id).filter(Boolean),
+    [myVenues]
+  );
+  const myVenueIdsKey = useMemo(
+    () => [...myVenueIds].sort().join('|'),
+    [myVenueIds]
+  );
+  const { data: myVenueEvents = [] } = useQuery({
+    queryKey: ['map-my-venue-events', myVenueIdsKey],
+    queryFn: async () => {
+      if (myVenueIds.length === 0) return [];
+      const rows = await Promise.all(myVenueIds.map((id) => dataService.Event.filter({ venue_id: id }, 'date', 200)));
+      return rows.flat().filter(Boolean);
+    },
+    enabled: myVenueIds.length > 0,
+  });
+
+  const allEvents = useMemo(() => {
+    const map = new Map();
+    [...events, ...myVenueEvents].forEach((e) => {
+      if (e?.id) map.set(e.id, e);
+    });
+    return [...map.values()];
+  }, [events, myVenueEvents]);
+
   const venuesMap = useMemo(
-    () => venues.reduce((acc, v) => {
+    () => allVenues.reduce((acc, v) => {
       acc[v.id] = v;
       return acc;
     }, {}),
-    [venues]
+    [allVenues]
   );
 
   const eventsMap = useMemo(
-    () => events.reduce((acc, e) => {
+    () => allEvents.reduce((acc, e) => {
       acc[e.id] = e;
       return acc;
     }, {}),
-    [events]
+    [allEvents]
   );
 
   const venuesWithCoords = useMemo(
-    () => venues
+    () => allVenues
       .map((venue) => {
         const pos = toLatLng(venue);
         return pos ? { ...venue, _mapPos: pos } : null;
       })
       .filter(Boolean),
-    [venues]
+    [allVenues]
   );
 
   const eventsWithCoords = useMemo(
-    () => events
+    () => allEvents
+      .filter((event) => event?.status !== 'cancelled')
       .map((event) => {
         const eventPos = toLatLng(event);
         if (eventPos) return { ...event, _mapPos: eventPos };
@@ -136,11 +175,12 @@ export default function Map() {
         return { ...event, _mapPos: venuePos };
       })
       .filter(Boolean),
-    [events, venuesMap]
+    [allEvents, venuesMap]
   );
 
   const tablesWithCoords = useMemo(
     () => tables
+      .filter((table) => table?.status !== 'closed' && table?.status !== 'cancelled')
       .map((table) => {
         const tablePos = toLatLng(table);
         if (tablePos) return { ...table, _mapPos: tablePos };
@@ -385,7 +425,7 @@ export default function Map() {
           <div style={{ position: 'relative' }}>
             <Search size={18} strokeWidth={1.5} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
             <input
-              placeholder="Search venues..."
+              placeholder={`Search ${viewMode}...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{
