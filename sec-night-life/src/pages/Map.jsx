@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { dataService } from '@/services/dataService';
@@ -11,19 +11,54 @@ import {
   Star,
   BadgeCheck,
   Calendar,
-  Navigation
+  Navigation,
+  Users,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
 import { useGoogleMaps } from '@/lib/GoogleMapsProvider';
+import * as authService from '@/services/authService';
+import { apiGet } from '@/api/client';
 
 // Johannesburg coordinates as default
 const DEFAULT_CENTER = { lat: -26.2041, lng: 28.0473 };
+const NEARBY_RADIUS_KM = 60;
+
+function parseCoord(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function toLatLng(entity) {
+  const lat = parseCoord(entity?.latitude);
+  const lng = parseCoord(entity?.longitude);
+  if (lat == null || lng == null) return null;
+  return { lat, lng };
+}
+
+function toRad(deg) {
+  return (deg * Math.PI) / 180;
+}
+
+function distanceKm(a, b) {
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s1 = Math.sin(dLat / 2) * Math.sin(dLat / 2);
+  const s2 = Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(s1 + s2), Math.sqrt(1 - s1 - s2));
+  return R * c;
+}
 
 export default function Map() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedVenue, setSelectedVenue] = useState(null);
+  const [selectedItem, setSelectedItem] = useState(null);
   const [viewMode, setViewMode] = useState('venues'); // 'venues' | 'events' | 'tables'
+  const [areaMode, setAreaMode] = useState('nearby'); // 'nearby' | 'all'
   const [userLocation, setUserLocation] = useState(null);
   const [map, setMap] = useState(null);
   const [mapError, setMapError] = useState(null);
@@ -31,24 +66,176 @@ export default function Map() {
   const { status: mapsStatus, error: mapsError } = useGoogleMaps();
 
   const { data: venues = [] } = useQuery({
-    queryKey: ['map-venues'],
-    queryFn: () => dataService.Venue.list(),
+    queryKey: ['map-venues-full'],
+    queryFn: () => dataService.Venue.filter({}, '-rating', 200),
   });
 
   const { data: events = [] } = useQuery({
-    queryKey: ['map-events'],
+    queryKey: ['map-events-full'],
     queryFn: () => dataService.Event.filter({ status: 'published' }),
   });
 
-  const venuesWithCoords = venues.filter(v => v.latitude && v.longitude);
-
-  const filteredItems = venuesWithCoords.filter((venue) => {
-    const q = searchQuery.toLowerCase();
-    return (
-      (venue.name ?? '').toLowerCase().includes(q) ||
-      (venue.city ?? '').toLowerCase().includes(q)
-    );
+  const { data: tables = [] } = useQuery({
+    queryKey: ['map-tables-full'],
+    queryFn: () => dataService.Table.filter({ status: 'open' }, '-created_date', 200),
   });
+
+  const { data: userProfile } = useQuery({
+    queryKey: ['map-user-profile'],
+    queryFn: async () => {
+      try {
+        const user = await authService.getCurrentUser();
+        try {
+          const rows = await apiGet('/api/users/profile');
+          const p = Array.isArray(rows) ? rows[0] : rows;
+          if (p) return p;
+        } catch {
+          // fallback below
+        }
+        const profiles = await dataService.User.filter({ created_by: user.email });
+        return profiles?.[0] ?? null;
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  const venuesMap = useMemo(
+    () => venues.reduce((acc, v) => {
+      acc[v.id] = v;
+      return acc;
+    }, {}),
+    [venues]
+  );
+
+  const eventsMap = useMemo(
+    () => events.reduce((acc, e) => {
+      acc[e.id] = e;
+      return acc;
+    }, {}),
+    [events]
+  );
+
+  const venuesWithCoords = useMemo(
+    () => venues
+      .map((venue) => {
+        const pos = toLatLng(venue);
+        return pos ? { ...venue, _mapPos: pos } : null;
+      })
+      .filter(Boolean),
+    [venues]
+  );
+
+  const eventsWithCoords = useMemo(
+    () => events
+      .map((event) => {
+        const eventPos = toLatLng(event);
+        if (eventPos) return { ...event, _mapPos: eventPos };
+        const venuePos = toLatLng(venuesMap[event.venue_id]);
+        if (!venuePos) return null;
+        return { ...event, _mapPos: venuePos };
+      })
+      .filter(Boolean),
+    [events, venuesMap]
+  );
+
+  const tablesWithCoords = useMemo(
+    () => tables
+      .map((table) => {
+        const tablePos = toLatLng(table);
+        if (tablePos) return { ...table, _mapPos: tablePos };
+        const event = eventsMap[table.event_id];
+        const venue = venuesMap[table.venue_id];
+        const eventPos = toLatLng(event);
+        const venuePos = toLatLng(venue);
+        const pos = eventPos || venuePos;
+        if (!pos) return null;
+        return { ...table, _mapPos: pos };
+      })
+      .filter(Boolean),
+    [tables, eventsMap, venuesMap]
+  );
+
+  const searchTerm = searchQuery.trim().toLowerCase();
+  const profileCity = (userProfile?.city || '').trim().toLowerCase();
+
+  const isInUserArea = (item, cityCandidates = []) => {
+    if (areaMode === 'all') return true;
+    if (userLocation?.lat != null && userLocation?.lng != null && item?._mapPos) {
+      return distanceKm(userLocation, item._mapPos) <= NEARBY_RADIUS_KM;
+    }
+    if (!profileCity) return true;
+    return cityCandidates.some((v) => String(v || '').trim().toLowerCase() === profileCity);
+  };
+
+  const filteredVenues = useMemo(
+    () => venuesWithCoords.filter((venue) => {
+      const matchesSearch = !searchTerm || [
+        venue.name,
+        venue.city,
+        venue.suburb,
+        venue.venue_type,
+        venue.address,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(searchTerm);
+
+      const inArea = isInUserArea(venue, [venue.city, venue.suburb]);
+      return matchesSearch && inArea;
+    }),
+    [venuesWithCoords, searchTerm, userLocation, profileCity, areaMode]
+  );
+
+  const filteredEvents = useMemo(
+    () => eventsWithCoords.filter((event) => {
+      const venue = venuesMap[event.venue_id];
+      const matchesSearch = !searchTerm || [
+        event.title,
+        event.city,
+        event.address,
+        venue?.name,
+        venue?.city,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(searchTerm);
+
+      const inArea = isInUserArea(event, [event.city, venue?.city, venue?.suburb]);
+      return matchesSearch && inArea;
+    }),
+    [eventsWithCoords, venuesMap, searchTerm, userLocation, profileCity, areaMode]
+  );
+
+  const filteredTables = useMemo(
+    () => tablesWithCoords.filter((table) => {
+      const event = eventsMap[table.event_id];
+      const venue = venuesMap[table.venue_id];
+      const matchesSearch = !searchTerm || [
+        table.name,
+        event?.title,
+        venue?.name,
+        event?.city,
+        venue?.city,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(searchTerm);
+
+      const inArea = isInUserArea(table, [event?.city, venue?.city, venue?.suburb]);
+      return matchesSearch && inArea;
+    }),
+    [tablesWithCoords, eventsMap, venuesMap, searchTerm, userLocation, profileCity, areaMode]
+  );
+
+  const modeItems = useMemo(() => {
+    if (viewMode === 'events') return filteredEvents;
+    if (viewMode === 'tables') return filteredTables;
+    return filteredVenues;
+  }, [viewMode, filteredVenues, filteredEvents, filteredTables]);
 
   const modes = [
     { value: 'venues', label: 'Venues' },
@@ -138,11 +325,11 @@ export default function Map() {
     map.markers = [];
 
     // Add new markers
-    filteredItems.forEach((venue) => {
+    modeItems.forEach((item) => {
       const marker = new window.google.maps.Marker({
-        position: { lat: venue.latitude, lng: venue.longitude },
+        position: { lat: item._mapPos.lat, lng: item._mapPos.lng },
         map: map,
-        title: venue.name,
+        title: item.name || item.title || 'Location',
         icon: {
           path: window.google.maps.SymbolPath.CIRCLE,
           scale: 8,
@@ -153,14 +340,13 @@ export default function Map() {
         },
       });
 
-      marker.addListener('click', () => setSelectedVenue(venue));
+      marker.addListener('click', () => setSelectedItem(item));
       map.markers.push(marker);
     });
-  }, [map, filteredItems]);
+  }, [map, modeItems]);
 
   const mapLoaded = !!map;
-  const hasNoVenuesWithCoords = venuesWithCoords.length === 0;
-  const hasSearchNoResults = viewMode === 'venues' && searchQuery && filteredItems.length === 0;
+  const hasNoItemsWithCoords = modeItems.length === 0;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', display: 'flex', flexDirection: 'column' }}>
@@ -241,7 +427,7 @@ export default function Map() {
       </div>
 
       {/* Selected Venue Card - show in list area when venue selected (cleaner) */}
-      {selectedVenue && (
+      {selectedItem && (
         <div style={{ padding: '0 16px 16px' }}>
           <motion.div
             initial={{ opacity: 0 }}
@@ -250,7 +436,7 @@ export default function Map() {
             style={{ borderRadius: 16, padding: 16, position: 'relative' }}
           >
               <button
-                onClick={() => setSelectedVenue(null)}
+                onClick={() => setSelectedItem(null)}
                 className="sec-nav-icon"
                 style={{ position: 'absolute', top: 12, right: 12, width: 32, height: 32, borderRadius: '50%', padding: 0 }}
               >
@@ -259,8 +445,8 @@ export default function Map() {
 
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
                 <div style={{ width: 64, height: 64, borderRadius: 12, backgroundColor: 'var(--sec-bg-elevated)', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {selectedVenue.cover_image_url ? (
-                    <img src={selectedVenue.cover_image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  {selectedItem.cover_image_url ? (
+                    <img src={selectedItem.cover_image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
                     <MapPin size={24} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
                   )}
@@ -268,19 +454,23 @@ export default function Map() {
 
                 <div style={{ flex: 1, minWidth: 0, paddingRight: 40 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <h3 style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>{selectedVenue.name}</h3>
-                    {selectedVenue.is_verified && <BadgeCheck size={16} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />}
+                    <h3 style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+                      {selectedItem.name || selectedItem.title || 'Untitled'}
+                    </h3>
+                    {selectedItem.is_verified && <BadgeCheck size={16} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />}
                   </div>
-                  <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>{selectedVenue.address || selectedVenue.city}</p>
+                  <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                    {selectedItem.address || selectedItem.city || 'Location available on map'}
+                  </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, fontSize: 13 }}>
-                    {selectedVenue.rating > 0 && (
+                    {selectedItem.rating > 0 && (
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--sec-accent)' }}>
                         <Star size={14} strokeWidth={1.5} fill="currentColor" />
-                        {selectedVenue.rating.toFixed(1)}
+                        {selectedItem.rating.toFixed(1)}
                       </span>
                     )}
-                    {selectedVenue.venue_type && (
-                      <span style={{ color: 'var(--sec-text-muted)', textTransform: 'capitalize' }}>{selectedVenue.venue_type.replace('_', ' ')}</span>
+                    {selectedItem.venue_type && (
+                      <span style={{ color: 'var(--sec-text-muted)', textTransform: 'capitalize' }}>{selectedItem.venue_type.replace('_', ' ')}</span>
                     )}
                   </div>
                 </div>
@@ -288,14 +478,20 @@ export default function Map() {
 
               <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
                 <Link
-                  to={createPageUrl(`VenueProfile?id=${selectedVenue.id}`)}
+                  to={
+                    viewMode === 'venues'
+                      ? createPageUrl(`VenueProfile?id=${selectedItem.id}`)
+                      : viewMode === 'events'
+                        ? createPageUrl(`EventDetails?id=${selectedItem.id}`)
+                        : createPageUrl(`TableDetails?id=${selectedItem.id}`)
+                  }
                   className="sec-btn sec-btn-primary"
                   style={{ flex: 1, padding: '10px 16px', textAlign: 'center', textDecoration: 'none' }}
                 >
-                  View Venue
+                  View Details
                 </Link>
                 <a
-                  href={`https://maps.google.com/?q=${selectedVenue.latitude},${selectedVenue.longitude}`}
+                  href={`https://maps.google.com/?q=${selectedItem._mapPos?.lat ?? DEFAULT_CENTER.lat},${selectedItem._mapPos?.lng ?? DEFAULT_CENTER.lng}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="sec-btn sec-btn-secondary"
@@ -312,7 +508,7 @@ export default function Map() {
       {/* Main content - venues/events list */}
       <div style={{ flex: 1, padding: '20px 16px 100px', overflowY: 'auto' }}>
         {/* Mode tabs - moved here for cleaner layout */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           {modes.map((mode) => (
             <button
               key={mode.value}
@@ -332,12 +528,42 @@ export default function Map() {
             </button>
           ))}
         </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          <button
+            onClick={() => setAreaMode('nearby')}
+            style={{
+              padding: '8px 14px',
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              backgroundColor: areaMode === 'nearby' ? 'var(--sec-accent)' : 'var(--sec-bg-card)',
+              color: areaMode === 'nearby' ? 'var(--sec-bg-base)' : 'var(--sec-text-secondary)',
+              border: `1px solid ${areaMode === 'nearby' ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
+            }}
+          >
+            Nearby
+          </button>
+          <button
+            onClick={() => setAreaMode('all')}
+            style={{
+              padding: '8px 14px',
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              backgroundColor: areaMode === 'all' ? 'var(--sec-accent)' : 'var(--sec-bg-card)',
+              color: areaMode === 'all' ? 'var(--sec-bg-base)' : 'var(--sec-text-secondary)',
+              border: `1px solid ${areaMode === 'all' ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
+            }}
+          >
+            All Areas
+          </button>
+        </div>
 
         <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, color: 'var(--sec-text-primary)' }}>
           {viewMode === 'venues' ? 'Nightlife Venues' : viewMode === 'events' ? 'Upcoming Events' : 'Tables'}
         </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {viewMode === 'venues' && filteredItems.map((venue) => (
+            {viewMode === 'venues' && filteredVenues.map((venue) => (
               <Link
                 key={venue.id}
                 to={createPageUrl(`VenueProfile?id=${venue.id}`)}
@@ -358,7 +584,7 @@ export default function Map() {
                 <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
               </Link>
             ))}
-            {viewMode === 'events' && events.slice(0, 20).map((ev) => (
+            {viewMode === 'events' && filteredEvents.slice(0, 50).map((ev) => (
               <Link
                 key={ev.id}
                 to={createPageUrl(`EventDetails?id=${ev.id}`)}
@@ -379,26 +605,59 @@ export default function Map() {
                 <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
               </Link>
             ))}
-            {viewMode === 'venues' && filteredItems.length === 0 && (
+            {viewMode === 'tables' && filteredTables.slice(0, 50).map((table) => {
+              const event = eventsMap[table.event_id];
+              const venue = venuesMap[table.venue_id];
+              return (
+                <Link
+                  key={table.id}
+                  to={createPageUrl(`TableDetails?id=${table.id}`)}
+                  className="sec-card"
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 16, borderRadius: 12, textDecoration: 'none' }}
+                >
+                  <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: 'var(--sec-bg-elevated)', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Users size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h4 style={{ fontWeight: 500, color: 'var(--sec-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{table.name || 'Open Table'}</h4>
+                    <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {venue?.name || 'Venue'}{event?.title ? ` · ${event.title}` : ''}
+                    </p>
+                  </div>
+                  <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
+                </Link>
+              );
+            })}
+            {viewMode === 'venues' && filteredVenues.length === 0 && (
               <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
                 <MapPin size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
                 <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500, marginBottom: 4 }}>
-                  {hasNoVenuesWithCoords ? 'No venues with locations yet' : hasSearchNoResults ? 'No venues match your search' : 'No venues'}
+                  {areaMode === 'all'
+                    ? (hasNoItemsWithCoords ? 'No venues with map locations yet' : 'No venues match your search')
+                    : (hasNoItemsWithCoords ? 'No venues in your area yet' : 'No venues match your search')}
                 </p>
                 <p style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>
-                  {hasNoVenuesWithCoords ? 'Venues will appear here once added.' : hasSearchNoResults ? 'Try a different search term.' : ''}
+                  {hasNoItemsWithCoords
+                    ? (areaMode === 'all'
+                      ? 'Venues will appear here once they have location coordinates.'
+                      : 'Switch to All Areas to browse beyond your nearby area.')
+                    : 'Try a different search term.'}
                 </p>
               </div>
             )}
-            {viewMode === 'events' && events.length === 0 && (
+            {viewMode === 'events' && filteredEvents.length === 0 && (
               <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
                 <Calendar size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', marginBottom: 12 }} />
-                <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500 }}>No upcoming events</p>
+                <p style={{ color: 'var(--sec-text-primary)', fontWeight: 500 }}>
+                  {areaMode === 'all' ? 'No events found' : 'No events in your area'}
+                </p>
               </div>
             )}
-            {viewMode === 'tables' && (
+            {viewMode === 'tables' && filteredTables.length === 0 && (
               <div style={{ padding: 32, textAlign: 'center', backgroundColor: 'var(--sec-bg-elevated)', borderRadius: 16, border: '1px solid var(--sec-border)' }}>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Browse Venues or Events to find tables.</p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>
+                  {areaMode === 'all' ? 'No open tables found right now.' : 'No open tables in your area right now.'}
+                </p>
               </div>
             )}
           </div>
