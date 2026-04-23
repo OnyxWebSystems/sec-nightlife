@@ -31,9 +31,19 @@ function getOrCreateSessionId() {
 const PROMO_CARD_OUTER_WIDTH = 'min(320px, calc(100% - 16px))';
 const PROMOTION_BATCH_SIZE = 8;
 const PROMOTION_ROTATE_MS = 2 * 60 * 1000;
+const DESKTOP_BREAKPOINT_PX = 1024;
+
+function getPromotionLabel(promotion) {
+  if (promotion?.boosted) return 'Sponsored';
+  if (!promotion?.promotionType) return 'Promotion';
+  return String(promotion.promotionType)
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
 
 const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, onOpen }) {
-  const boosted = Boolean(p.boosted);
+  const label = getPromotionLabel(p);
   return (
     <div
       className="sec-card"
@@ -62,26 +72,19 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
         flexDirection: 'column',
       }}
     >
-      {boosted && (
-        <span
-          style={{
-            display: 'inline-block',
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.06em',
-            textTransform: 'uppercase',
-            color: 'var(--sec-text-primary)',
-            background: 'var(--sec-success-muted)',
-            border: '1px solid var(--sec-border-strong)',
-            borderRadius: 999,
-            padding: '3px 8px',
-            marginBottom: 8,
-            flexShrink: 0,
-          }}
-        >
-          Sponsored
-        </span>
-      )}
+      <p
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: 'var(--sec-text-muted)',
+          marginBottom: 8,
+          flexShrink: 0,
+        }}
+      >
+        {label}
+      </p>
       <div
         style={{
           width: '100%',
@@ -166,6 +169,10 @@ export default function Home() {
   const [promotionLoading, setPromotionLoading] = useState(false);
   const [promotions, setPromotions] = useState([]);
   const [sessionId] = useState(() => getOrCreateSessionId());
+  const [isDesktopPromotionsView, setIsDesktopPromotionsView] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth >= DESKTOP_BREAKPOINT_PX;
+  });
 
   /**
    * Promotions feed city: only when the user picks a city in Home filters.
@@ -213,6 +220,14 @@ export default function Home() {
     }, PROMOTION_ROTATE_MS);
     return () => window.clearInterval(timer);
   }, [isLoadingAuth, loadPromotions]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onResize = () => setIsDesktopPromotionsView(window.innerWidth >= DESKTOP_BREAKPOINT_PX);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const handlePromotionClick = async (promotion) => {
     void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});
@@ -696,51 +711,53 @@ export default function Home() {
 
           {promotions.length > 0 && (
             <>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'stretch',
-                  gap: 14,
-                  overflowX: 'auto',
-                  scrollSnapType: 'x proximity',
-                  WebkitOverflowScrolling: 'touch',
-                  marginTop: 4,
-                  paddingBottom: 8,
-                }}
-                className="scrollbar-hide -mx-5 px-5 lg:hidden"
-              >
-                {promotions.map((p, i) => (
-                  <motion.div
-                    key={p.id}
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: Math.min(i * 0.05, 0.3) }}
-                    style={{
-                      flexShrink: 0,
-                      width: PROMO_CARD_OUTER_WIDTH,
-                      scrollSnapAlign: 'start',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignSelf: 'stretch',
-                    }}
-                  >
-                    <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="hidden lg:grid lg:grid-cols-2 xl:grid-cols-3 gap-3 mt-1">
-                {promotions.map((p, i) => (
-                  <motion.div
-                    key={`desktop-${p.id}`}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(i * 0.04, 0.24) }}
-                  >
-                    <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
-                  </motion.div>
-                ))}
-              </div>
+              {!isDesktopPromotionsView ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'stretch',
+                    gap: 14,
+                    overflowX: 'auto',
+                    scrollSnapType: 'x proximity',
+                    WebkitOverflowScrolling: 'touch',
+                    marginTop: 4,
+                    paddingBottom: 8,
+                  }}
+                  className="scrollbar-hide -mx-5 px-5"
+                >
+                  {promotions.map((p, i) => (
+                    <motion.div
+                      key={p.id}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: Math.min(i * 0.05, 0.3) }}
+                      style={{
+                        flexShrink: 0,
+                        width: PROMO_CARD_OUTER_WIDTH,
+                        scrollSnapAlign: 'start',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignSelf: 'stretch',
+                      }}
+                    >
+                      <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
+                    </motion.div>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-3 mt-1">
+                  {promotions.map((p, i) => (
+                    <motion.div
+                      key={`desktop-${p.id}`}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: Math.min(i * 0.04, 0.24) }}
+                    >
+                      <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </>
           )}
 

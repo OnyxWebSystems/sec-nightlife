@@ -535,8 +535,8 @@
 
   .venue-card__image {
     width: 100%;
-    aspect-ratio: 2 / 1;
-    max-height: 140px;
+    aspect-ratio: 16 / 9;
+    max-height: 180px;
     border-radius: var(--radius-lg);
     overflow: hidden;
     background-color: var(--sec-bg-card);
