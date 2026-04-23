@@ -105,7 +105,7 @@ export default function Map() {
   });
 
   const allVenues = useMemo(() => {
-    const map = new Map();
+    const map = new globalThis.Map();
     [...venues, ...myVenues].forEach((v) => {
       if (v?.id) map.set(v.id, v);
     });
@@ -131,7 +131,7 @@ export default function Map() {
   });
 
   const allEvents = useMemo(() => {
-    const map = new Map();
+    const map = new globalThis.Map();
     [...events, ...myVenueEvents].forEach((e) => {
       if (e?.id) map.set(e.id, e);
     });
