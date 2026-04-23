@@ -29,6 +29,8 @@ function getOrCreateSessionId() {
 
 /** Fixed width for horizontal snap row; uses parent width to avoid horizontal page scroll. */
 const PROMO_CARD_OUTER_WIDTH = 'min(320px, calc(100% - 16px))';
+const PROMOTION_BATCH_SIZE = 8;
+const PROMOTION_ROTATE_MS = 2 * 60 * 1000;
 
 const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, onOpen }) {
   const boosted = Boolean(p.boosted);
@@ -84,8 +86,8 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
         style={{
           width: '100%',
           maxWidth: '100%',
-          aspectRatio: '16 / 9',
-          maxHeight: 120,
+          aspectRatio: '16 / 10',
+          minHeight: 132,
           flexShrink: 0,
           overflow: 'hidden',
           borderRadius: 10,
@@ -161,10 +163,8 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCity, setSelectedCity] = useState('all');
   const [selectedVenueType, setSelectedVenueType] = useState('all');
-  const [promotionPage, setPromotionPage] = useState(1);
   const [promotionLoading, setPromotionLoading] = useState(false);
   const [promotions, setPromotions] = useState([]);
-  const [hasMorePromotions, setHasMorePromotions] = useState(false);
   const [sessionId] = useState(() => getOrCreateSessionId());
 
   /**
@@ -177,10 +177,10 @@ export default function Home() {
     return '';
   }, [selectedCity]);
 
-  const loadPromotions = useCallback(async (page, append = true) => {
+  const loadPromotions = useCallback(async () => {
     setPromotionLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '10' });
+      const params = new URLSearchParams({ page: '1', limit: String(PROMOTION_BATCH_SIZE) });
       if (promotionsExplicitCity) {
         params.set('city', promotionsExplicitCity);
       } else {
@@ -189,16 +189,13 @@ export default function Home() {
       params.set('sessionId', sessionId);
       const data = await apiGet(`/api/promotions/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
       const incoming = data?.results || [];
-      setPromotions((prev) => (append ? [...prev, ...incoming] : incoming));
-      setPromotionPage(page);
-      const total = typeof data?.total === 'number' ? data.total : 0;
-      setHasMorePromotions(page * 10 < total);
+      setPromotions(incoming);
       // Avoid N concurrent VIEW requests per page (hurts performance on slow networks).
       incoming.slice(0, 8).forEach((promo) => {
         void apiPost(`/api/promotions/${promo.id}/track`, { type: 'VIEW', sessionId }, { skipAuth: false }).catch(() => {});
       });
     } catch {
-      if (!append) setPromotions([]);
+      setPromotions([]);
     } finally {
       setPromotionLoading(false);
     }
@@ -206,8 +203,16 @@ export default function Home() {
 
   useEffect(() => {
     if (isLoadingAuth) return;
-    void loadPromotions(1, false);
+    void loadPromotions();
   }, [isLoadingAuth, promotionsExplicitCity, loadPromotions]);
+
+  useEffect(() => {
+    if (isLoadingAuth) return undefined;
+    const timer = window.setInterval(() => {
+      void loadPromotions();
+    }, PROMOTION_ROTATE_MS);
+    return () => window.clearInterval(timer);
+  }, [isLoadingAuth, loadPromotions]);
 
   const handlePromotionClick = async (promotion) => {
     void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});
@@ -739,10 +744,10 @@ export default function Home() {
             </>
           )}
 
-          {promotions.length > 0 && hasMorePromotions && (
-            <button className="sec-btn sec-btn-secondary sec-btn-full" disabled={promotionLoading} onClick={() => loadPromotions(promotionPage + 1, true)} style={{ marginTop: 12 }}>
-              {promotionLoading ? 'Loading...' : 'Load more'}
-            </button>
+          {promotions.length > 0 && (
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>
+              Promotions refresh every few minutes. Boosted promotions appear more often, without duplicates in the same batch.
+            </p>
           )}
         </section>
 

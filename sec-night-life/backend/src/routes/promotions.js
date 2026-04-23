@@ -8,6 +8,9 @@ import { sendEmail } from '../lib/email.js';
 
 const router = Router();
 const PROMOTION_TYPES = ['VENUE_PROMOTION', 'EVENT_PROMOTION', 'SPECIAL_OFFER', 'ANNOUNCEMENT'];
+const PROMOTION_ROTATION_WINDOW_MINUTES = 2;
+const BOOSTED_WEIGHT = 3;
+const ORGANIC_WEIGHT = 1;
 
 function formatOwnerPromotion(p) {
   return {
@@ -32,6 +35,20 @@ function formatOwnerPromotion(p) {
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     eventName: p.event?.title || null,
+  };
+}
+
+function computeUniquePromotionStats(impressions = []) {
+  const viewKeys = new Set();
+  const clickKeys = new Set();
+  for (const impression of impressions) {
+    const identity = impression.userId ? `u:${impression.userId}` : `s:${impression.sessionId}`;
+    if (impression.type === 'VIEW') viewKeys.add(identity);
+    if (impression.type === 'CLICK') clickKeys.add(identity);
+  }
+  return {
+    uniqueViews: viewKeys.size,
+    uniqueClicks: clickKeys.size,
   };
 }
 
@@ -80,16 +97,41 @@ function interleavePromotions(boosted, organic) {
   return result;
 }
 
-async function trackFeedImpressions(items, userId, sessionId) {
-  await Promise.all((items || []).map(async (item) => {
-    await prisma.promotion.update({
-      where: { id: item.id },
-      data: item.boosted ? { boostImpressions: { increment: 1 } } : { organicImpressions: { increment: 1 } },
-    });
-    await prisma.promotionImpression.create({
-      data: { promotedPostId: item.id, userId: userId || null, sessionId, type: 'VIEW' },
-    });
-  }));
+function hashString(input) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function seededRandom(seed) {
+  let state = (seed >>> 0) || 1;
+  return () => {
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+/**
+ * Weighted, deterministic order without duplicates:
+ * boosted promotions get higher exposure frequency across rotating windows.
+ */
+function weightedWindowOrder(promotions, sessionSeed) {
+  const rand = seededRandom(hashString(sessionSeed));
+  const prepared = promotions.map((item) => {
+    const weight = item.boosted ? BOOSTED_WEIGHT : ORGANIC_WEIGHT;
+    // Efraimidis-Spirakis style weighted sampling key.
+    const u = Math.max(rand(), Number.EPSILON);
+    const key = Math.pow(u, 1 / weight);
+    return { item, key };
+  });
+  prepared.sort((a, b) => {
+    if (a.key !== b.key) return b.key - a.key;
+    return new Date(b.item.createdAt).getTime() - new Date(a.item.createdAt).getTime();
+  });
+  return prepared.map((x) => x.item);
 }
 
 const emptyToNull = (v) => (v === '' || v === undefined ? null : v);
@@ -260,10 +302,24 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
 
     const promotions = await prisma.promotion.findMany({
       where: { venueId: req.params.venueId, deletedAt: null },
-      include: { event: { select: { title: true } } },
+      include: {
+        event: { select: { title: true } },
+        impressions: { select: { userId: true, sessionId: true, type: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
-    res.json(promotions.map(formatOwnerPromotion));
+    res.json(
+      promotions.map((promotion) => {
+        const base = formatOwnerPromotion(promotion);
+        const unique = computeUniquePromotionStats(promotion.impressions);
+        return {
+          ...base,
+          boostImpressions: unique.uniqueViews,
+          organicImpressions: 0,
+          totalClicks: unique.uniqueClicks,
+        };
+      }),
+    );
   } catch (err) {
     next(err);
   }
@@ -407,13 +463,21 @@ router.post('/:promotionId/track', optionalAuth, async (req, res, next) => {
     const promotion = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, select: { id: true } });
     if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
 
-    if (parsed.data.type === 'VIEW') {
-      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      const existingView = await prisma.promotionImpression.findFirst({
-        where: { promotedPostId: promotion.id, sessionId: parsed.data.sessionId, type: 'VIEW', createdAt: { gte: hourAgo } },
-      });
-      if (existingView) return res.status(200).json({ ok: true });
-    }
+    const isAuthenticated = Boolean(req.userId);
+    const identityWhere = isAuthenticated
+      ? { userId: req.userId }
+      : { sessionId: parsed.data.sessionId };
+
+    const existingInteraction = await prisma.promotionImpression.findFirst({
+      where: {
+        promotedPostId: promotion.id,
+        type: parsed.data.type,
+        ...identityWhere,
+      },
+      select: { id: true },
+    });
+
+    if (existingInteraction) return res.status(200).json({ ok: true, deduped: true });
 
     await prisma.promotionImpression.create({
       data: {
@@ -423,7 +487,17 @@ router.post('/:promotionId/track', optionalAuth, async (req, res, next) => {
         type: parsed.data.type,
       },
     });
-    if (parsed.data.type === 'CLICK') {
+
+    if (parsed.data.type === 'VIEW') {
+      const current = await prisma.promotion.findUnique({
+        where: { id: promotion.id },
+        select: { boosted: true },
+      });
+      await prisma.promotion.update({
+        where: { id: promotion.id },
+        data: current?.boosted ? { boostImpressions: { increment: 1 } } : { organicImpressions: { increment: 1 } },
+      });
+    } else if (parsed.data.type === 'CLICK') {
       await prisma.promotion.update({ where: { id: promotion.id }, data: { totalClicks: { increment: 1 } } });
       if (req.userId) {
         logFriendActivity({
@@ -452,6 +526,9 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const sessionIdQuery = typeof req.query.sessionId === 'string' ? req.query.sessionId.trim() : '';
     const sessionId = sessionIdHeader || sessionIdQuery || 'anon-session';
     const now = new Date();
+    const rotationWindowMinutes = PROMOTION_ROTATION_WINDOW_MINUTES;
+    const rotationWindowMs = rotationWindowMinutes * 60 * 1000;
+    const rotationBucket = Math.floor(now.getTime() / rotationWindowMs);
 
     let city = '';
     if (scopeAll) {
@@ -519,15 +596,15 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
 
-    const mixed = interleavePromotions(scored.filter((p) => p.boosted), scored.filter((p) => !p.boosted));
+    const mixedBase = interleavePromotions(scored.filter((p) => p.boosted), scored.filter((p) => !p.boosted));
+    const mixed = weightedWindowOrder(mixedBase, `${sessionId}|${city || 'all'}|${rotationBucket}`);
     const offset = (page - 1) * limit;
     const results = mixed.slice(offset, offset + limit);
-
-    void trackFeedImpressions(results, req.userId, sessionId).catch(() => {});
 
     res.json({
       page,
       limit,
+      rotationWindowMinutes,
       total: mixed.length,
       results: results.map((p) => ({
         id: p.id,

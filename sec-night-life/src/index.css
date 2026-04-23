@@ -550,12 +550,10 @@
     }
   }
 
-  @media (min-width: 1024px) {
-    .venue-card__image-media {
-      object-fit: contain !important;
-      background-color: var(--sec-bg-base);
-    }
-  }
+.venue-card__image-media {
+  object-fit: cover !important;
+  object-position: center;
+}
 
   /* ─── List row — avatar + title + subtitle + right action ─── */
   .sec-list-row {
