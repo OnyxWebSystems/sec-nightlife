@@ -43,6 +43,7 @@ function getPromotionLabel(promotion) {
 }
 
 const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, onOpen }) {
+  const boosted = Boolean(p?.boosted);
   const label = getPromotionLabel(p);
   return (
     <div
