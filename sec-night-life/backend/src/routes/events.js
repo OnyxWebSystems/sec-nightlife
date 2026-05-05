@@ -22,6 +22,7 @@ const tablePricingTierSchema = z.object({
 const hostingCategorySchema = z.object({
   max_tables: z.number().int().min(1).optional().nullable(),
   tiers: z.array(tablePricingTierSchema).optional().nullable(),
+  host_table_fee_zar: z.number().min(0).optional().nullable(),
 });
 
 const hostingConfigSchema = z.object({

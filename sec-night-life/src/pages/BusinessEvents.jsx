@@ -17,7 +17,7 @@ import {
 import { toast } from 'sonner';
 
 function emptyHostingSection() {
-  return { max_tables: '', tiers: [] };
+  return { max_tables: '', tiers: [], host_table_fee_zar: '' };
 }
 
 function emptyHostingForm() {
@@ -28,6 +28,7 @@ function hostingFromApi(hc) {
   if (!hc || typeof hc !== 'object') return emptyHostingForm();
   const mapSection = (s) => ({
     max_tables: s?.max_tables != null && s.max_tables !== '' ? String(s.max_tables) : '',
+    host_table_fee_zar: s?.host_table_fee_zar != null && s.host_table_fee_zar !== '' ? String(s.host_table_fee_zar) : '',
     tiers: Array.isArray(s?.tiers) && s.tiers.length
       ? s.tiers.map((t) => ({
           max_guests: String(t.max_guests ?? ''),
@@ -166,7 +167,10 @@ export default function BusinessEvents() {
     if (form.start_time) payload.start_time = form.start_time;
     else if (editingEvent) payload.start_time = null;
 
-    const hostingPayload = { general: { max_tables: null, tiers: [] }, vip: { max_tables: null, tiers: [] } };
+    const hostingPayload = {
+      general: { max_tables: null, tiers: [], host_table_fee_zar: null },
+      vip: { max_tables: null, tiers: [], host_table_fee_zar: null },
+    };
     for (const cat of ['general', 'vip']) {
       const sec = form.hosting_config?.[cat];
       const maxT = String(sec?.max_tables || '').trim();
@@ -177,6 +181,15 @@ export default function BusinessEvents() {
           return;
         }
         hostingPayload[cat].max_tables = n;
+      }
+      const hostFeeRaw = String(sec?.host_table_fee_zar ?? '').trim();
+      if (hostFeeRaw) {
+        const hostFee = parseFloat(hostFeeRaw.replace(',', '.'));
+        if (Number.isNaN(hostFee) || hostFee < 0) {
+          toast.error(`${cat === 'vip' ? 'VIP' : 'General'} host table fee must be 0 or more`);
+          return;
+        }
+        hostingPayload[cat].host_table_fee_zar = hostFee;
       }
       const tierRows = (sec?.tiers || []).filter(
         (t) => String(t?.max_guests || '').trim() && String(t?.min_spend ?? '').trim() !== ''
@@ -460,6 +473,26 @@ export default function BusinessEvents() {
                     <p className="text-xs text-gray-500 mt-1">
                       Caps how many {label.toLowerCase()} tables can be hosted for this event.
                     </p>
+                  </div>
+                  <div>
+                    <Label className="text-gray-400 text-sm">Host table fee (ZAR, optional)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={sec.host_table_fee_zar}
+                      onChange={(e) =>
+                        setForm((p) => ({
+                          ...p,
+                          hosting_config: {
+                            ...p.hosting_config,
+                            [cat]: { ...p.hosting_config[cat], host_table_fee_zar: e.target.value },
+                          },
+                        }))
+                      }
+                      placeholder="0 for no host fee"
+                      className="mt-1.5 h-11 rounded-xl max-w-[200px]"
+                      style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                    />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-2">

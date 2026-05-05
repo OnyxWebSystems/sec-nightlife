@@ -649,6 +649,7 @@ const profileUpdateSchema = z.object({
     .optional()
     .nullable(),
   payment_setup_complete: z.boolean().optional().nullable(),
+  paystack_recipient_code: z.string().max(128).optional().nullable(),
   interests: z.array(z.string().max(30)).max(10).optional().nullable(),
   music_preferences: z.array(z.string().max(30)).max(10).optional().nullable(),
   friends: z.array(z.string()).optional().nullable(),
@@ -669,7 +670,7 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
     }
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
-      select: { id: true, email: true, fullName: true, role: true, username: true }
+      select: { id: true, email: true, fullName: true, role: true, username: true, paystackRecipientCode: true }
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
     const result = {
@@ -689,6 +690,7 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       verification_status: profile?.verificationStatus ?? 'pending',
       verification_rejection_note: profile?.verificationRejectionNote ?? null,
       payment_setup_complete: profile?.paymentSetupComplete ?? false,
+      paystack_recipient_code: user.paystackRecipientCode ?? null,
       is_verified_promoter: profile?.isVerifiedPromoter ?? false,
       interests: profile?.interests ?? [],
       music_preferences: profile?.musicPreferences ?? [],
@@ -719,7 +721,7 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
     }
     const user = await prisma.user.findFirst({
       where: { OR: [{ id: targetId }, { id: profile?.userId }], deletedAt: null },
-      select: { id: true, email: true, fullName: true }
+      select: { id: true, email: true, fullName: true, paystackRecipientCode: true }
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -1236,6 +1238,12 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.age_verified != null) updates.ageVerified = data.age_verified;
     if (data.verification_status != null) updates.verificationStatus = data.verification_status;
     if (data.payment_setup_complete != null) updates.paymentSetupComplete = data.payment_setup_complete;
+    if (data.paystack_recipient_code !== undefined) {
+      await prisma.user.update({
+        where: { id: targetUserId },
+        data: { paystackRecipientCode: data.paystack_recipient_code || null },
+      });
+    }
     if (data.interests !== undefined) {
       updates.interests = data.interests === null ? [] : normalizeInterestList(data.interests);
     }
@@ -1265,7 +1273,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     }
     const user = await prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { email: true, fullName: true, username: true }
+      select: { email: true, fullName: true, username: true, paystackRecipientCode: true }
     });
     res.json({
       id: updated.id,
@@ -1283,6 +1291,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       verification_status: updated.verificationStatus,
       verification_rejection_note: updated.verificationRejectionNote,
       payment_setup_complete: updated.paymentSetupComplete,
+      paystack_recipient_code: user.paystackRecipientCode ?? null,
       interests: updated.interests ?? [],
       music_preferences: updated.musicPreferences ?? [],
       friends: updated.friends ?? [],

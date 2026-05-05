@@ -183,6 +183,36 @@ enum HostedTableStatus {
   CLOSED
 }
 
+enum GuestGenderPreference {
+  ANY
+  MALE_ONLY
+  FEMALE_ONLY
+  OTHER_ONLY
+}
+
+enum TicketKind {
+  EVENT_TICKET
+  TABLE_JOIN
+  HOSTED_TABLE_JOIN
+  HOUSE_PARTY
+  TABLE_HOST_FEE
+  EXTERNAL_HOSTED_LISTING
+  VENUE_TABLE_JOIN
+}
+
+enum PayoutRecipientType {
+  USER
+  VENUE
+  PLATFORM
+}
+
+enum PayoutLedgerStatus {
+  PENDING
+  TRANSFERRED
+  FAILED
+  SKIPPED_NO_RECIPIENT
+}
+
 enum TableSourceType {
   IN_APP_EVENT
   EXTERNAL_VENUE
@@ -238,6 +268,7 @@ model User {
   resetTokenHash        String?   @map("reset_token_hash")
   resetTokenExpiry      DateTime? @map("reset_token_expiry")
   isPremium             Boolean   @default(false) @map("is_premium")
+  paystackRecipientCode String?   @map("paystack_recipient_code")
   suspendedAt           DateTime? @map("suspended_at")
   suspendedReason       String?   @map("suspended_reason")
   createdAt             DateTime  @default(now()) @map("created_at")
@@ -287,6 +318,8 @@ model User {
   promoterFollowers           PromoterFollow[]           @relation("PromoterFollowers")
   promoterFollowing           PromoterFollow[]           @relation("PromoterFollowing")
   eventInterestRemindersSent  EventInterestReminderSent[]
+  tickets                     Ticket[]
+  payoutLedgersAsRecipient    PayoutLedger[]             @relation("PayoutRecipientUser")
 
   @@unique([email, role])
   @@index([email])
@@ -408,6 +441,7 @@ model Venue {
   website                     String?
   instagram                   String?
   venuePaystackSubaccountCode String?               @map("venue_paystack_subaccount_code")
+  paystackRecipientCode       String?               @map("paystack_recipient_code")
   capacity                    Int?
   ageLimit                    Int?                  @map("age_limit")
   rating                      Float                 @default(0)
@@ -430,6 +464,7 @@ model Venue {
   complianceDocuments ComplianceDocument[]
   follows             VenueFollow[]
   venueTables         VenueTable[]
+  payoutLedgers       PayoutLedger[] @relation("PayoutRecipientVenue")
 
   @@index([ownerUserId])
   @@index([city])
@@ -612,13 +647,15 @@ model Table {
   maxGuests       Int         @map("max_guests")
   currentGuests   Int         @default(0) @map("current_guests")
   minSpend        Float?      @map("min_spend")
-  joiningFee      Float?      @map("joining_fee")
-  isPublic        Boolean     @default(true) @map("is_public")
-  members         Json        @default("[]")
-  pendingRequests Json        @default("[]") @map("pending_requests")
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
-  deletedAt       DateTime?   @map("deleted_at")
+  joiningFee              Float?                 @map("joining_fee")
+  isPublic                Boolean                @default(true) @map("is_public")
+  guestGenderPreference   GuestGenderPreference  @default(ANY) @map("guest_gender_preference")
+  hostFeePaystackRef      String?                @unique @map("host_fee_paystack_ref")
+  members                 Json                   @default("[]")
+  pendingRequests         Json                   @default("[]") @map("pending_requests")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
+  deletedAt               DateTime?              @map("deleted_at")
 
   event       Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   venue       Venue          @relation(fields: [venueId], references: [id], onDelete: Cascade)
@@ -940,6 +977,54 @@ model Payment {
   @@map("payments")
 }
 
+model Ticket {
+  id                String    @id @default(cuid())
+  userId            String    @map("user_id")
+  kind              TicketKind
+  title             String
+  subtitle          String?   @db.Text
+  paystackReference String    @unique @map("paystack_reference")
+  qrToken           String    @unique @map("qr_token")
+  housePartyId      String?   @map("house_party_id")
+  tableId           String?   @map("table_id")
+  hostedTableId     String?   @map("hosted_table_id")
+  eventId           String?   @map("event_id")
+  venueTableId      String?   @map("venue_table_id")
+  quantity          Int       @default(1)
+  visibleUntil      DateTime  @map("visible_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([visibleUntil])
+  @@map("tickets")
+}
+
+model PayoutLedger {
+  id                 String              @id @default(cuid())
+  paymentReference   String              @map("payment_reference")
+  grossAmount        Float               @map("gross_amount")
+  secAmount          Float               @map("sec_amount")
+  recipientAmount    Float               @map("recipient_amount")
+  recipientType      PayoutRecipientType @map("recipient_type")
+  recipientUserId    String?             @map("recipient_user_id")
+  recipientVenueId   String?             @map("recipient_venue_id")
+  status             PayoutLedgerStatus  @default(PENDING)
+  paystackTransferRef String?            @map("paystack_transfer_ref")
+  errorMessage       String?             @map("error_message") @db.Text
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  recipientUser  User?  @relation("PayoutRecipientUser", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientVenue Venue? @relation("PayoutRecipientVenue", fields: [recipientVenueId], references: [id], onDelete: SetNull)
+
+  @@index([paymentReference])
+  @@index([recipientUserId])
+  @@index([recipientVenueId])
+  @@map("payout_ledgers")
+}
+
 model FriendRequest {
   id         String   @id @default(uuid())
   fromUserId String   @map("from_user_id")
@@ -1134,9 +1219,10 @@ model HouseParty {
   endTime            DateTime         @map("end_time")
   hasEntranceFee     Boolean          @default(false) @map("has_entrance_fee")
   entranceFeeAmount  Float?           @map("entrance_fee_amount")
-  entranceFeeNote    String?          @map("entrance_fee_note")
-  freeEntryGroup     String?          @map("free_entry_group")
-  guestQuantity      Int              @map("guest_quantity")
+  entranceFeeNote          String?               @map("entrance_fee_note")
+  freeEntryGroup           String?               @map("free_entry_group")
+  guestGenderPreference    GuestGenderPreference @default(ANY) @map("guest_gender_preference")
+  guestQuantity            Int                   @map("guest_quantity")
   spotsRemaining     Int              @map("spots_remaining")
   status             HousePartyStatus @default(DRAFT)
   publishedAt        DateTime?        @map("published_at")
@@ -1160,11 +1246,12 @@ model HouseParty {
 }
 
 model HousePartyAttendee {
-  id           String         @id @default(cuid())
-  housePartyId String         @map("house_party_id")
-  userId       String         @map("user_id")
-  status       AttendeeStatus
-  joinedAt     DateTime       @default(now()) @map("joined_at")
+  id                String         @id @default(cuid())
+  housePartyId      String         @map("house_party_id")
+  userId            String         @map("user_id")
+  status            AttendeeStatus
+  joinedAt          DateTime       @default(now()) @map("joined_at")
+  paystackReference String?        @map("paystack_reference")
 
   houseParty HouseParty @relation(fields: [housePartyId], references: [id], onDelete: Cascade)
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1185,10 +1272,12 @@ model HostedTable {
   eventId          String?           @map("event_id")
   venueName        String            @map("venue_name")
   venueAddress     String?           @map("venue_address")
-  eventDate        DateTime          @map("event_date")
-  eventTime        String            @map("event_time")
-  joiningFee       Float?            @map("joining_fee")
-  hasJoiningFee    Boolean           @default(false) @map("has_joining_fee")
+  eventDate                   DateTime                @map("event_date")
+  eventTime                   String                  @map("event_time")
+  joiningFee                  Float?                  @map("joining_fee")
+  hasJoiningFee               Boolean                 @default(false) @map("has_joining_fee")
+  guestGenderPreference       GuestGenderPreference   @default(ANY) @map("guest_gender_preference")
+  externalListingPaystackRef  String?                 @map("external_listing_paystack_ref")
   photo            String?
   photoPublicId    String?           @map("photo_public_id")
   drinkPreferences String?           @map("drink_preferences")
@@ -1342,11 +1431,13 @@ model SplitPaymentLog {
 }
 
 model HostedTableMember {
-  id            String         @id @default(cuid())
-  hostedTableId String         @map("hosted_table_id")
-  userId        String         @map("user_id")
-  status        AttendeeStatus
-  joinedAt      DateTime       @default(now()) @map("joined_at")
+  id                String         @id @default(cuid())
+  hostedTableId     String         @map("hosted_table_id")
+  userId            String         @map("user_id")
+  status            AttendeeStatus
+  joinedAt          DateTime       @default(now()) @map("joined_at")
+  paystackReference String?        @map("paystack_reference")
+  joinFeePaid      Float?         @map("join_fee_paid")
 
   hostedTable HostedTable @relation(fields: [hostedTableId], references: [id], onDelete: Cascade)
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)

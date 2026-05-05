@@ -58,6 +58,7 @@ export default function HostDashboard() {
     entranceFeeAmount: '',
     entranceFeeNote: '',
     freeEntryGroup: '',
+    guestGenderPreference: 'ANY',
   });
   const [tableForm, setTableForm] = useState({
     tableType: 'IN_APP_EVENT',
@@ -77,6 +78,7 @@ export default function HostDashboard() {
     drinkPreferences: '',
     desiredCompany: '',
     isPublic: true,
+    guestGenderPreference: 'ANY',
   });
   const [saving, setSaving] = useState(false);
   const [pendingTableId, setPendingTableId] = useState(null);
@@ -182,6 +184,7 @@ export default function HostDashboard() {
         entranceFeeAmount: partyForm.hasEntranceFee ? parseFloat(partyForm.entranceFeeAmount) : null,
         entranceFeeNote: partyForm.entranceFeeNote || null,
         freeEntryGroup: partyForm.freeEntryGroup || null,
+        guestGenderPreference: partyForm.guestGenderPreference,
       };
       const created = await apiPost('/api/host/parties', payload);
       queryClient.invalidateQueries(['host-parties']);
@@ -213,7 +216,7 @@ export default function HostDashboard() {
           setSaving(false);
           return;
         }
-        await apiPost('/api/host/tables', {
+        const created = await apiPost('/api/host/tables', {
           tableType: 'IN_APP_EVENT',
           tableName: tableForm.tableName,
           tableDescription: tableForm.tableDescription || null,
@@ -228,7 +231,9 @@ export default function HostDashboard() {
           drinkPreferences: tableForm.drinkPreferences || null,
           desiredCompany: tableForm.desiredCompany || null,
           isPublic: tableForm.isPublic,
+          guestGenderPreference: tableForm.guestGenderPreference,
         });
+        if (created?.payment?.authorization_url) window.location.href = created.payment.authorization_url;
       } else {
         if (!tableForm.venueName || !tableForm.eventDate) {
           toast.error('Venue name and date required');
@@ -240,7 +245,7 @@ export default function HostDashboard() {
           setSaving(false);
           return;
         }
-        await apiPost('/api/host/tables', {
+        const created = await apiPost('/api/host/tables', {
           tableType: 'EXTERNAL_VENUE',
           tableName: tableForm.tableName,
           tableDescription: tableForm.tableDescription || null,
@@ -257,7 +262,9 @@ export default function HostDashboard() {
           drinkPreferences: tableForm.drinkPreferences || null,
           desiredCompany: tableForm.desiredCompany || null,
           isPublic: tableForm.isPublic,
+          guestGenderPreference: tableForm.guestGenderPreference,
         });
+        if (created?.payment?.authorization_url) window.location.href = created.payment.authorization_url;
       }
       queryClient.invalidateQueries(['host-tables']);
       toast.success('Table listed');
@@ -693,6 +700,19 @@ export default function HostDashboard() {
                   value={partyForm.freeEntryGroup}
                   onChange={(e) => setPartyForm((f) => ({ ...f, freeEntryGroup: e.target.value }))}
                 />
+                <label className="text-xs text-[var(--sec-text-muted)] block">
+                  Who can join this party?
+                  <select
+                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-sm"
+                    value={partyForm.guestGenderPreference}
+                    onChange={(e) => setPartyForm((f) => ({ ...f, guestGenderPreference: e.target.value }))}
+                  >
+                    <option value="ANY">Everyone</option>
+                    <option value="MALE_ONLY">Male only</option>
+                    <option value="FEMALE_ONLY">Female only</option>
+                    <option value="OTHER_ONLY">Other gender only</option>
+                  </select>
+                </label>
               </div>
             )}
             {partyStep === 4 && (
@@ -907,6 +927,19 @@ export default function HostDashboard() {
                   onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
                 />
               )}
+              <label className="text-xs text-[var(--sec-text-muted)] block">
+                Who can join this table?
+                <select
+                  className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-sm"
+                  value={tableForm.guestGenderPreference}
+                  onChange={(e) => setTableForm((f) => ({ ...f, guestGenderPreference: e.target.value }))}
+                >
+                  <option value="ANY">Everyone</option>
+                  <option value="MALE_ONLY">Male only</option>
+                  <option value="FEMALE_ONLY">Female only</option>
+                  <option value="OTHER_ONLY">Other gender only</option>
+                </select>
+              </label>
               <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2">
                 <label className="flex items-start gap-3 text-sm cursor-pointer">
                   <input

@@ -4,6 +4,7 @@
  * SECURITY: Email verification required for all write actions.
  */
 import { Router } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
@@ -17,6 +18,7 @@ import { logFriendActivity } from '../lib/friendActivity.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
+import { normalizeGuestGenderPreference, genderMatchesPreference } from '../lib/genderPreference.js';
 
 const router = Router();
 
@@ -36,6 +38,7 @@ const tableCreateSchema = z.object({
   min_spend: z.number().min(0).optional(),
   joining_fee: z.number().min(0).optional(),
   is_public: z.boolean().optional(),
+  guest_gender_preference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
 });
 
 function formatTable(t) {
@@ -52,6 +55,7 @@ function formatTable(t) {
     min_spend: t.minSpend,
     joining_fee: t.joiningFee,
     is_public: t.isPublic ?? true,
+    guest_gender_preference: t.guestGenderPreference ?? 'ANY',
     members: t.members,
     pending_requests: t.pendingRequests,
     created_date: t.createdAt.toISOString()
@@ -99,6 +103,34 @@ function extractUserIdsFromPending(pendingRequests) {
     })
     .filter(Boolean);
   return [...new Set(ids)];
+}
+
+async function initializePaystackPayment({ userId, amountZar, metadata }) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  const key = process.env.PAYSTACK_SECRET_KEY;
+  if (!key) throw new Error('Paystack is not configured');
+  const reference = crypto.randomBytes(16).toString('hex');
+  const email = user?.email || 'user@secnightlife.app';
+  await prisma.payment.create({
+    data: { userId, email, amount: amountZar, reference, status: 'pending', type: 'other', metadata: { user_id: userId, ...metadata } },
+  });
+  await prisma.transaction.create({
+    data: { userId, amount: amountZar, currency: 'ZAR', type: 'paystack', status: 'pending', stripeId: reference, metadata: { provider: 'paystack', reference, ...metadata } },
+  });
+  const res = await fetch('https://api.paystack.co/transaction/initialize', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      amount: Math.round(amountZar * 100),
+      reference,
+      metadata: { user_id: userId, ...metadata },
+      callback_url: process.env.APP_URL ? `${process.env.APP_URL}/PaymentSuccess?ref=${reference}` : undefined,
+    }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.status) throw new Error(data?.message || 'Could not initialize payment');
+  return { reference, authorization_url: data.data.authorization_url, access_code: data.data.access_code };
 }
 
 router.get('/', optionalAuth, async (req, res, next) => {
@@ -239,6 +271,30 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
       }
     }
 
+    const hostFee = Number(hosting?.[category]?.host_table_fee_zar || 0);
+    if (hostFee > 0) {
+      const pay = await initializePaystackPayment({
+        userId: req.userId,
+        amountZar: hostFee,
+        metadata: {
+          type: 'TABLE_HOST_FEE',
+          table_create: {
+            event_id: data.event_id,
+            venue_id: data.venue_id,
+            name: data.name,
+            table_category: category,
+            max_guests: data.max_guests,
+            min_spend: data.min_spend ?? null,
+            joining_fee: data.joining_fee ?? null,
+            is_public: data.is_public !== undefined ? data.is_public : true,
+            guest_gender_preference: normalizeGuestGenderPreference(data.guest_gender_preference),
+          },
+          user_id: req.userId,
+        },
+      });
+      return res.status(202).json({ pending_payment: true, amount: hostFee, ...pay });
+    }
+
     const table = await prisma.table.create({
       data: {
         eventId: data.event_id,
@@ -250,6 +306,7 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
         minSpend: data.min_spend,
         joiningFee: data.joining_fee,
         isPublic: data.is_public !== undefined ? data.is_public : true,
+        guestGenderPreference: normalizeGuestGenderPreference(data.guest_gender_preference),
       }
     });
 
@@ -418,6 +475,21 @@ router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified,
 
       const pending = Array.isArray(table.pendingRequests) ? table.pendingRequests : [];
       if (!pending.includes(targetUserId)) throw Object.assign(new Error('Request not found'), { status: 404 });
+      const targetProfile = await tx.userProfile.findUnique({
+        where: { userId: targetUserId },
+        select: { gender: true },
+      });
+      const genderCheck = genderMatchesPreference(targetProfile?.gender, table.guestGenderPreference || 'ANY');
+      if (!genderCheck.ok) {
+        throw Object.assign(
+          new Error(
+            genderCheck.code === 'GENDER_REQUIRED'
+              ? 'Guest must set profile gender before approval for this table.'
+              : 'Guest does not meet this table gender preference.'
+          ),
+          { status: 400 },
+        );
+      }
 
       if (table.currentGuests >= table.maxGuests) throw Object.assign(new Error('Table is at full capacity'), { status: 409 });
 
@@ -635,6 +707,21 @@ router.post('/:id/join', authenticateToken, requireVerified, requireIdentityVeri
       }
 
       const members = Array.isArray(table.members) ? table.members : [];
+      const profile = await tx.userProfile.findUnique({
+        where: { userId },
+        select: { gender: true },
+      });
+      const genderCheck = genderMatchesPreference(profile?.gender, table.guestGenderPreference || 'ANY');
+      if (!genderCheck.ok) {
+        throw Object.assign(
+          new Error(
+            genderCheck.code === 'GENDER_REQUIRED'
+              ? 'Set your profile gender before joining this table.'
+              : 'This table is restricted to a different gender preference.'
+          ),
+          { status: 403 },
+        );
+      }
 
       // SECURITY: no duplicate joins
       const alreadyMember = members.some(m =>
@@ -761,6 +848,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       min_spend: z.number().min(0).optional(),
       joining_fee: z.number().min(0).optional(),
       is_public: z.boolean().optional(),
+      guest_gender_preference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
@@ -773,6 +861,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.min_spend != null) updates.minSpend = data.min_spend;
     if (data.joining_fee != null) updates.joiningFee = data.joining_fee;
     if (data.is_public !== undefined) updates.isPublic = data.is_public;
+    if (data.guest_gender_preference !== undefined) updates.guestGenderPreference = normalizeGuestGenderPreference(data.guest_gender_preference);
 
     const updated = await prisma.table.update({ where: { id: table.id }, data: updates });
 

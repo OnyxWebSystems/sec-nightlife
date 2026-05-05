@@ -12,8 +12,11 @@ import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
+import { normalizeGuestGenderPreference, genderMatchesPreference } from '../lib/genderPreference.js';
+import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 
 const router = Router();
+const EXTERNAL_HOSTED_LISTING_ZAR = 200;
 
 const postingSchema = z.object({
   title: z.string().trim().min(1),
@@ -484,6 +487,7 @@ const createPartySchema = z.object({
   entranceFeeAmount: z.number().optional().nullable(),
   entranceFeeNote: z.string().optional().nullable(),
   freeEntryGroup: z.string().optional().nullable(),
+  guestGenderPreference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
   guestQuantity: z.number().int().min(2).max(500),
 });
 
@@ -514,6 +518,7 @@ router.post('/parties', authenticateToken, requireVerified, async (req, res, nex
         entranceFeeAmount: d.hasEntranceFee ? d.entranceFeeAmount : null,
         entranceFeeNote: d.entranceFeeNote ?? null,
         freeEntryGroup: d.freeEntryGroup ?? null,
+        guestGenderPreference: normalizeGuestGenderPreference(d.guestGenderPreference),
         guestQuantity: d.guestQuantity,
         spotsRemaining: d.guestQuantity,
         status: 'DRAFT',
@@ -678,11 +683,43 @@ router.post('/parties/:partyId/join', authenticateToken, requireVerified, async 
     if (party.hostUserId === req.userId) return res.status(403).json({ error: 'You cannot join your own party' });
     if (party.status !== 'PUBLISHED') return res.status(400).json({ error: 'Party is not published' });
     if (party.startTime <= new Date()) return res.status(400).json({ error: 'Party has already started' });
+    const joinerProfile = await prisma.userProfile.findUnique({
+      where: { userId: req.userId },
+      select: { gender: true },
+    });
+    const genderCheck = genderMatchesPreference(joinerProfile?.gender, party.guestGenderPreference || 'ANY');
+    if (!genderCheck.ok) {
+      return res.status(403).json({
+        error:
+          genderCheck.code === 'GENDER_REQUIRED'
+            ? 'Set your gender in profile before joining this party.'
+            : 'This party is restricted to a different gender preference.',
+      });
+    }
     const existing = await prisma.housePartyAttendee.findUnique({
       where: { housePartyId_userId: { housePartyId: partyId, userId: req.userId } },
     });
     if (existing && existing.status !== 'CANCELLED') {
       return res.status(400).json({ error: 'Already registered' });
+    }
+
+    if (party.hasEntranceFee && Number(party.entranceFeeAmount || 0) > 0) {
+      const pending = await prisma.housePartyAttendee.upsert({
+        where: { housePartyId_userId: { housePartyId: partyId, userId: req.userId } },
+        create: { housePartyId: partyId, userId: req.userId, status: 'PENDING' },
+        update: { status: 'PENDING' },
+      });
+      const pay = await initializePaystackPayment({
+        userId: req.userId,
+        amountZar: Number(party.entranceFeeAmount),
+        metadata: {
+          type: 'HOUSE_PARTY_ENTRANCE',
+          house_party_id: partyId,
+          attendee_id: pending.id,
+          user_id: req.userId,
+        },
+      });
+      return res.json({ status: 'PENDING_PAYMENT', ...pay });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -794,6 +831,7 @@ const createTableSchema = z.object({
   photoPublicId: z.string().optional().nullable(),
   drinkPreferences: z.string().optional().nullable(),
   desiredCompany: z.string().optional().nullable(),
+  guestGenderPreference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
   guestQuantity: z.number().int().min(1).max(20),
   isPublic: z.boolean().default(true),
 });
@@ -838,6 +876,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             eventTime: d.eventTime,
             hasJoiningFee: d.hasJoiningFee,
             joiningFee: d.hasJoiningFee ? d.joiningFee : null,
+            guestGenderPreference: normalizeGuestGenderPreference(d.guestGenderPreference),
             photo: d.photo ?? null,
             photoPublicId: d.photoPublicId ?? null,
             drinkPreferences: d.drinkPreferences ?? null,
@@ -866,6 +905,33 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
         referenceType: 'HOSTED_TABLE',
         description: 'hosted a table',
       });
+      const hosting = normalizeHostingConfig(ev.hostingConfig);
+      const category = d.eventType === 'CLUB_TABLE' ? 'general' : 'vip';
+      const hostFee = Number(hosting?.[category]?.host_table_fee_zar || 0);
+      if (hostFee > 0) {
+        await prisma.hostedTable.update({ where: { id: t.id }, data: { status: 'DRAFT' } });
+        const pay = await initializePaystackPayment({
+          userId: req.userId,
+          amountZar: hostFee,
+          metadata: {
+            type: 'TABLE_HOST_FEE',
+            table_create: {
+              event_id: ev.id,
+              venue_id: ev.venueId,
+              name: d.tableName,
+              table_category: category,
+              max_guests: d.guestQuantity,
+              min_spend: 0,
+              joining_fee: d.hasJoiningFee ? d.joiningFee : null,
+              is_public: d.isPublic,
+              guest_gender_preference: normalizeGuestGenderPreference(d.guestGenderPreference),
+            },
+            user_id: req.userId,
+          },
+        });
+        return res.status(201).json({ ...t, status: 'PENDING_PAYMENT', payment: pay, eventLocation: buildEventLocationPayload(ev) });
+      }
+
       return res.status(201).json({
         ...t,
         eventLocation: buildEventLocationPayload(ev),
@@ -888,6 +954,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
           eventTime: d.eventTime,
           hasJoiningFee: d.hasJoiningFee,
           joiningFee: d.hasJoiningFee ? d.joiningFee : null,
+          guestGenderPreference: normalizeGuestGenderPreference(d.guestGenderPreference),
           photo: d.photo ?? null,
           photoPublicId: d.photoPublicId ?? null,
           drinkPreferences: d.drinkPreferences ?? null,
@@ -914,7 +981,13 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       referenceType: 'HOSTED_TABLE',
       description: 'hosted a table',
     });
-    res.status(201).json(t);
+    const pay = await initializePaystackPayment({
+      userId: req.userId,
+      amountZar: EXTERNAL_HOSTED_LISTING_ZAR,
+      metadata: { type: 'HOSTED_TABLE_EXTERNAL_LISTING', hosted_table_id: t.id, user_id: req.userId },
+    });
+    await prisma.hostedTable.update({ where: { id: t.id }, data: { status: 'DRAFT' } });
+    res.status(201).json({ ...t, status: 'PENDING_PAYMENT', payment: pay });
   } catch (e) {
     next(e);
   }
@@ -1062,11 +1135,27 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
         tableName: true,
         spotsRemaining: true,
         status: true,
+        hasJoiningFee: true,
+        joiningFee: true,
+        guestGenderPreference: true,
       },
     });
     if (!table) return res.status(404).json({ error: 'Not found' });
     if (table.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const targetUserId = req.params.userId;
+    const targetProfile = await prisma.userProfile.findUnique({
+      where: { userId: targetUserId },
+      select: { gender: true },
+    });
+    const genderCheck = genderMatchesPreference(targetProfile?.gender, table.guestGenderPreference || 'ANY');
+    if (!genderCheck.ok) {
+      return res.status(400).json({
+        error:
+          genderCheck.code === 'GENDER_REQUIRED'
+            ? 'User must set profile gender before approval for this table.'
+            : 'User does not meet this table gender preference.',
+      });
+    }
     const member = await prisma.hostedTableMember.findUnique({
       where: { hostedTableId_userId: { hostedTableId: table.id, userId: targetUserId } },
     });
@@ -1078,6 +1167,20 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
       return res.json({ rejected: true });
     }
     if (table.spotsRemaining <= 0) return res.status(400).json({ error: 'Table is full' });
+    if (table.hasJoiningFee && Number(table.joiningFee || 0) > 0) {
+      const pay = await initializePaystackPayment({
+        userId: targetUserId,
+        amountZar: Number(table.joiningFee),
+        metadata: {
+          type: 'HOSTED_TABLE_JOIN',
+          hosted_table_id: table.id,
+          hosted_table_member_id: member.id,
+          user_id: targetUserId,
+        },
+      });
+      return res.json({ approved: true, pendingPayment: true, ...pay });
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.hostedTableMember.update({
         where: { id: member.id },
@@ -1122,6 +1225,7 @@ const patchTableSchema = z.object({
   eventTime: z.string().optional(),
   isPublic: z.boolean().optional(),
   venueAddress: z.string().trim().min(1).optional().nullable(),
+  guestGenderPreference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
 });
 
 router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
@@ -1153,10 +1257,14 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
         where: { hostedTableId: t.id, status: 'GOING' },
       });
       if (d.guestQuantity < going) return res.status(400).json({ error: 'guestQuantity too low' });
+      const updatePayload = { ...d };
+      if (updatePayload.guestGenderPreference != null) {
+        updatePayload.guestGenderPreference = normalizeGuestGenderPreference(updatePayload.guestGenderPreference);
+      }
       const updated = await prisma.hostedTable.update({
         where: { id: t.id },
         data: {
-          ...d,
+          ...updatePayload,
           venueAddress:
             d.venueAddress != null && t.tableType === 'EXTERNAL_VENUE' ? d.venueAddress.trim() : d.venueAddress,
           spotsRemaining: d.guestQuantity - going,
@@ -1171,6 +1279,9 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
       return res.json(updated);
     }
     const data = { ...d };
+    if (data.guestGenderPreference != null) {
+      data.guestGenderPreference = normalizeGuestGenderPreference(data.guestGenderPreference);
+    }
     if (data.venueAddress != null && t.tableType === 'EXTERNAL_VENUE') {
       data.venueAddress = data.venueAddress.trim();
     }
@@ -1223,6 +1334,19 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
     if (!t) return res.status(404).json({ error: 'Not found' });
     if (t.hostUserId === req.userId) return res.status(403).json({ error: 'Cannot join your own table' });
     if (t.status !== 'ACTIVE') return res.status(400).json({ error: 'Table not available' });
+    const joinerProfile = await prisma.userProfile.findUnique({
+      where: { userId: req.userId },
+      select: { gender: true },
+    });
+    const genderCheck = genderMatchesPreference(joinerProfile?.gender, t.guestGenderPreference || 'ANY');
+    if (!genderCheck.ok) {
+      return res.status(403).json({
+        error:
+          genderCheck.code === 'GENDER_REQUIRED'
+            ? 'Set your gender in profile before joining this table.'
+            : 'This table is restricted to a different gender preference.',
+      });
+    }
     const exists = await prisma.hostedTableMember.findUnique({
       where: { hostedTableId_userId: { hostedTableId: t.id, userId: req.userId } },
     });
@@ -1249,6 +1373,22 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
         referenceType: 'HOSTED_TABLE',
       });
       return res.json({ joined: false, pending: true });
+    }
+    if (t.hasJoiningFee && Number(t.joiningFee || 0) > 0) {
+      const member = await prisma.hostedTableMember.create({
+        data: { hostedTableId: t.id, userId: req.userId, status: 'PENDING' },
+      });
+      const pay = await initializePaystackPayment({
+        userId: req.userId,
+        amountZar: Number(t.joiningFee),
+        metadata: {
+          type: 'HOSTED_TABLE_JOIN',
+          hosted_table_id: t.id,
+          hosted_table_member_id: member.id,
+          user_id: req.userId,
+        },
+      });
+      return res.json({ joined: false, pendingPayment: true, ...pay });
     }
     if (t.spotsRemaining <= 0) return res.status(400).json({ error: 'Table not available' });
     await prisma.$transaction(async (tx) => {
@@ -1370,6 +1510,29 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
     });
     if (existingMember?.status === 'GOING') return res.status(400).json({ error: 'Already a member' });
     if (table.spotsRemaining <= 0) return res.status(400).json({ error: 'Table is full' });
+    if (table.hasJoiningFee && Number(table.joiningFee || 0) > 0) {
+      const member =
+        existingMember?.status === 'PENDING'
+          ? existingMember
+          : await prisma.hostedTableMember.create({
+              data: { hostedTableId: table.id, userId: req.userId, status: 'PENDING' },
+            });
+      await prisma.tableInvite.update({
+        where: { id: inv.id },
+        data: { status: 'ACCEPTED', respondedAt: new Date() },
+      });
+      const pay = await initializePaystackPayment({
+        userId: req.userId,
+        amountZar: Number(table.joiningFee),
+        metadata: {
+          type: 'HOSTED_TABLE_JOIN',
+          hosted_table_id: table.id,
+          hosted_table_member_id: member.id,
+          user_id: req.userId,
+        },
+      });
+      return res.json({ pendingPayment: true, ...pay });
+    }
     await prisma.$transaction(async (tx) => {
       await tx.tableInvite.update({
         where: { id: inv.id },

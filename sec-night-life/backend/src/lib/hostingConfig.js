@@ -2,7 +2,7 @@
  * Event hosting_config JSON: separate General vs VIP table caps and pricing tiers.
  */
 export function normalizeHostingConfig(raw) {
-  const emptyCat = () => ({ max_tables: null, tiers: [] });
+  const emptyCat = () => ({ max_tables: null, tiers: [], host_table_fee_zar: null });
   const base = { general: emptyCat(), vip: emptyCat() };
   if (!raw || typeof raw !== 'object') return base;
   for (const k of ['general', 'vip']) {
@@ -14,6 +14,12 @@ export function normalizeHostingConfig(raw) {
       }
       if (Array.isArray(slot.tiers)) {
         base[k].tiers = slot.tiers;
+      }
+      if ('host_table_fee_zar' in slot && slot.host_table_fee_zar !== undefined && slot.host_table_fee_zar !== null) {
+        const n = Number(slot.host_table_fee_zar);
+        base[k].host_table_fee_zar = Number.isFinite(n) && n > 0 ? n : null;
+      } else {
+        base[k].host_table_fee_zar = null;
       }
     }
   }
@@ -32,6 +38,14 @@ export function mergeHostingConfigPatch(existing, patch) {
     }
     if ('tiers' in p) {
       cur[k].tiers = Array.isArray(p.tiers) ? p.tiers : [];
+    }
+    if ('host_table_fee_zar' in p) {
+      if (p.host_table_fee_zar === null || p.host_table_fee_zar === undefined || p.host_table_fee_zar === '') {
+        cur[k].host_table_fee_zar = null;
+      } else {
+        const n = Number(p.host_table_fee_zar);
+        cur[k].host_table_fee_zar = Number.isFinite(n) && n > 0 ? n : null;
+      }
     }
   }
   return cur;
