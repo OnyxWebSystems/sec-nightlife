@@ -60,10 +60,22 @@ app.use(helmet({
 }));
 
 // Strict CORS (normalize origins: trim trailing slashes for comparison)
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:4173')
-  .split(',')
-  .map(o => o.trim().replace(/\/+$/, ''))
-  .filter(Boolean);
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:4173')
+    .split(',')
+    .map(o => o.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
+);
+
+// Ensure frontend origin from APP_URL is accepted as well (common in production deployments).
+if (process.env.APP_URL) {
+  try {
+    const appOrigin = new URL(process.env.APP_URL).origin.replace(/\/+$/, '');
+    if (appOrigin) allowedOrigins.add(appOrigin);
+  } catch {
+    // APP_URL format is validated at startup; ignore here as a defense-in-depth guard.
+  }
+}
 
 app.use(cors({
   origin: (origin, cb) => {
@@ -72,7 +84,7 @@ app.use(cors({
       return cb(null, true);
     }
     const normalizedOrigin = origin.replace(/\/+$/, '');
-    if (allowedOrigins.includes(normalizedOrigin)) return cb(null, true);
+    if (allowedOrigins.has(normalizedOrigin)) return cb(null, true);
     // Allow any Vercel preview URL (*.vercel.app) for preview deployments
     if (normalizedOrigin.endsWith('.vercel.app')) return cb(null, true);
     cb(new Error('CORS: origin not allowed'), false);
