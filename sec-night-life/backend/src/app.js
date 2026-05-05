@@ -173,6 +173,10 @@ app.use('/api/compliance-documents', generalLimiter, complianceDocumentsRoutes);
 app.use('/api/leaderboard', generalLimiter, leaderboardRoutes);
 app.use('/api/promoters', generalLimiter, promoterRoutes);
 
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -206,4 +210,5 @@ if (isProd) {
 app.use(errorHandler);
 
 export { app, logger };
+export default app;
 
