@@ -1,4 +1,5 @@
 import React from 'react';
+import { isStaleChunkLoadError, scheduleChunkReloadOnce } from '@/lib/chunkLoadRecovery';
 
 export class ErrorBoundary extends React.Component {
   state = { error: null };
@@ -9,10 +10,13 @@ export class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('App error:', error, errorInfo);
+    if (isStaleChunkLoadError(error) && scheduleChunkReloadOnce()) return;
   }
 
   render() {
     if (this.state.error) {
+      const err = this.state.error;
+      const staleChunk = isStaleChunkLoadError(err);
       return (
         <div style={{
           minHeight: '100vh',
@@ -27,6 +31,11 @@ export class ErrorBoundary extends React.Component {
           gap: 16,
         }}>
           <h1 style={{ fontSize: 20, color: '#f87171' }}>Something went wrong</h1>
+          {staleChunk && (
+            <p style={{ maxWidth: 520, textAlign: 'center', color: '#a3a3a3', fontSize: 14, lineHeight: 1.5, margin: 0 }}>
+              The app was updated while this tab was open. Use Reload to fetch the latest version.
+            </p>
+          )}
           <pre style={{
             padding: 16,
             background: '#1a1a1a',
@@ -39,7 +48,11 @@ export class ErrorBoundary extends React.Component {
             {this.state.error?.message || String(this.state.error)}
           </pre>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.set('_reload', String(Date.now()));
+              window.location.replace(url.toString());
+            }}
             style={{
               padding: '10px 20px',
               background: '#C9A962',
