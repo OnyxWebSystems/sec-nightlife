@@ -32,6 +32,27 @@ function deriveDirectNeonUrl(databaseUrl) {
   }
 }
 
+function normalizeDbUrl(raw, varName) {
+  if (!raw || typeof raw !== 'string') return null;
+  let v = raw.trim();
+  if (!v) return null;
+  // Allow accidentally pasted "KEY=value" secrets from dashboards.
+  const keyPrefix = `${varName}=`;
+  if (v.startsWith(keyPrefix)) v = v.slice(keyPrefix.length).trim();
+  // Remove optional matching quotes.
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1).trim();
+  }
+  return v || null;
+}
+
+function isPostgresUrl(url) {
+  return typeof url === 'string' && (url.startsWith('postgresql://') || url.startsWith('postgres://'));
+}
+
 function runPrismaMigrateDeployWithRetry({
   maxAttempts = 4,
   migrateDatabaseUrl,
@@ -73,10 +94,17 @@ const hasDatabaseUrl = Boolean(process.env.DATABASE_URL && process.env.DATABASE_
 
 if (hasDatabaseUrl) {
   console.log('[build] DATABASE_URL detected: running prisma migrate deploy + prisma generate');
-  const directFromEnv = process.env.DIRECT_DATABASE_URL?.trim();
-  const derivedDirect = deriveDirectNeonUrl(process.env.DATABASE_URL?.trim());
-  const migrateDatabaseUrl = directFromEnv || derivedDirect || process.env.DATABASE_URL;
-  if (directFromEnv) {
+  const normalizedDatabaseUrl = normalizeDbUrl(process.env.DATABASE_URL, 'DATABASE_URL');
+  const normalizedDirectUrl = normalizeDbUrl(process.env.DIRECT_DATABASE_URL, 'DIRECT_DATABASE_URL');
+  const derivedDirect = deriveDirectNeonUrl(normalizedDatabaseUrl);
+  const migrateDatabaseUrl = normalizedDirectUrl || derivedDirect || normalizedDatabaseUrl;
+  if (!isPostgresUrl(migrateDatabaseUrl)) {
+    console.error(
+      '[build] Invalid database URL format. DATABASE_URL / DIRECT_DATABASE_URL must start with postgres:// or postgresql://'
+    );
+    process.exit(1);
+  }
+  if (normalizedDirectUrl) {
     console.log('[build] Using DIRECT_DATABASE_URL for prisma migrate deploy');
   } else if (derivedDirect) {
     console.log('[build] Using derived direct Neon URL for prisma migrate deploy (pooler avoided)');
