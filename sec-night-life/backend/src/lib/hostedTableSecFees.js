@@ -21,7 +21,7 @@ export function resolveHostingTierCaps(hostingRaw, hostingCategory, hostingTierI
   if (tiers.length === 0) {
     const cap = slot?.max_tables != null ? Number(slot.max_tables) : null;
     const maxGuests = cap != null && Number.isFinite(cap) && cap > 0 ? Math.min(cap, 500) : 500;
-    return { maxGuests, minSpend: null, tierIndex: null };
+    return { maxGuests, minSpend: null, tierIndex: null, tierTableSlots: null };
   }
 
   const idx =
@@ -42,10 +42,16 @@ export function resolveHostingTierCaps(hostingRaw, hostingCategory, hostingTierI
   }
   const minSpend =
     tier.min_spend != null && tier.min_spend !== '' ? Number(tier.min_spend) : null;
+  const slotsRaw = tier.tier_table_slots;
+  const tierTableSlots =
+    slotsRaw != null && Number.isFinite(Number(slotsRaw)) && Number(slotsRaw) > 0
+      ? Number(slotsRaw)
+      : null;
   return {
     maxGuests: Math.min(maxGuests, 500),
     minSpend: minSpend != null && Number.isFinite(minSpend) ? minSpend : null,
     tierIndex: idx,
+    tierTableSlots,
   };
 }
 

@@ -148,10 +148,20 @@ export default function HostDashboard() {
     enabled: showTableModal && tableForm.tableType === 'IN_APP_EVENT',
   });
 
-  const selectedEvent = useMemo(
-    () => publicEvents.find((e) => e.id === tableForm.eventId),
-    [publicEvents, tableForm.eventId],
-  );
+  const { data: selectedEventDetail, isFetching: selectedEventDetailLoading } = useQuery({
+    queryKey: ['event-detail-host', tableForm.eventId],
+    queryFn: () => apiGet(`/api/events/${tableForm.eventId}`),
+    enabled: Boolean(tableForm.eventId && showTableModal && tableForm.tableType === 'IN_APP_EVENT'),
+  });
+
+  const selectedEvent = useMemo(() => {
+    if (!tableForm.eventId) return null;
+    const fromList = publicEvents.find((e) => e.id === tableForm.eventId);
+    if (selectedEventDetail?.id === tableForm.eventId) {
+      return { ...fromList, ...selectedEventDetail };
+    }
+    return fromList ?? null;
+  }, [publicEvents, tableForm.eventId, selectedEventDetail]);
   const selectedHostingTier = useMemo(() => {
     const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
     const categoryKey = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
@@ -169,8 +179,33 @@ export default function HostDashboard() {
       name: (t?.tier_name || t?.name || `Tier ${i + 1}`).toString(),
       maxGuests: t?.max_guests,
       minSpend: t?.min_spend,
+      tableSlots: t?.tier_table_slots,
     }));
   }, [selectedEvent, tableForm.hostingCategory]);
+
+  const hasEventStartTime = Boolean(eventStartTimeForInput(selectedEvent));
+  const inAppHasTiersForCategory = hostingTierOptions.length > 0;
+  const canSubmitInAppTable =
+    Boolean(tableForm.eventId) &&
+    inAppHasTiersForCategory &&
+    hasEventStartTime &&
+    !selectedEventDetailLoading;
+
+  const tableGuestMax = useMemo(() => {
+    if (tableForm.tableType === 'EXTERNAL_VENUE') return 20;
+    const cap = selectedHostingTier?.max_guests != null ? Number(selectedHostingTier.max_guests) : null;
+    if (cap != null && Number.isFinite(cap)) return Math.min(500, cap);
+    return 500;
+  }, [tableForm.tableType, selectedHostingTier?.max_guests]);
+
+  useEffect(() => {
+    if (tableForm.tableType !== 'IN_APP_EVENT') return;
+    const cap = selectedHostingTier?.max_guests != null ? Number(selectedHostingTier.max_guests) : null;
+    if (cap == null || !Number.isFinite(cap)) return;
+    if (tableForm.guestQuantity > cap) {
+      setTableForm((f) => ({ ...f, guestQuantity: cap }));
+    }
+  }, [tableForm.tableType, tableForm.guestQuantity, selectedHostingTier?.max_guests]);
 
   const filteredPublicEvents = useMemo(() => {
     const q = eventSearch.trim().toLowerCase();
@@ -232,6 +267,30 @@ export default function HostDashboard() {
           setSaving(false);
           return;
         }
+        if (selectedEventDetailLoading) {
+          toast.error('Loading event details… try again in a moment.');
+          setSaving(false);
+          return;
+        }
+        if (!inAppHasTiersForCategory) {
+          toast.error(
+            'This event has no table pricing tiers for the selected category. Ask the venue to add tiers in event setup.',
+          );
+          setSaving(false);
+          return;
+        }
+        if (!hasEventStartTime) {
+          toast.error(
+            'This event has no start time. Ask the venue to set an event start time before you can host a table.',
+          );
+          setSaving(false);
+          return;
+        }
+        if (!selectedEvent?.date) {
+          toast.error('Event date missing — pick another event or try again.');
+          setSaving(false);
+          return;
+        }
         const minT = eventStartTimeForInput(selectedEvent);
         if (minT && tableForm.eventTime && tableForm.eventTime < minT) {
           toast.error('Table time cannot be before the event start time');
@@ -249,6 +308,7 @@ export default function HostDashboard() {
           tableDescription: tableForm.tableDescription || null,
           eventType: tableForm.eventType,
           eventId: tableForm.eventId,
+          eventDate: new Date(`${selectedEvent.date}T12:00:00`).toISOString(),
           eventTime: tableForm.eventTime,
           guestQuantity: tableForm.guestQuantity,
           hostingCategory: tableForm.hostingCategory,
@@ -802,7 +862,13 @@ export default function HostDashboard() {
                 <button
                   type="button"
                   className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${tableForm.tableType === 'EXTERNAL_VENUE' ? 'border-[var(--sec-accent)] bg-[var(--sec-bg-elevated)]' : 'border-[var(--sec-border)]'}`}
-                  onClick={() => setTableForm((f) => ({ ...f, tableType: 'EXTERNAL_VENUE' }))}
+                  onClick={() =>
+                    setTableForm((f) => ({
+                      ...f,
+                      tableType: 'EXTERNAL_VENUE',
+                      guestQuantity: Math.min(Number(f.guestQuantity) || 1, 20),
+                    }))
+                  }
                 >
                   External meet-up
                 </button>
@@ -846,11 +912,28 @@ export default function HostDashboard() {
                           .filter(Boolean)
                           .join(' · ')}
                       </div>
-                      {eventStartTimeLabel(selectedEvent) && (
+                      {eventStartTimeLabel(selectedEvent) ? (
                         <div className="opacity-70">Event starts {eventStartTimeLabel(selectedEvent)}</div>
+                      ) : (
+                        <div className="text-[var(--sec-error)] font-medium">
+                          No event start time — the venue must add one before you can list a table.
+                        </div>
                       )}
                     </div>
                   )}
+                  {selectedEventDetailLoading ? (
+                    <p className="text-xs text-[var(--sec-text-muted)] flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                      Loading latest event hosting settings…
+                    </p>
+                  ) : null}
+                  {!selectedEventDetailLoading && selectedEvent && !inAppHasTiersForCategory ? (
+                    <p className="text-xs text-[var(--sec-error)] rounded-lg border border-[var(--sec-border)] px-3 py-2 bg-[var(--sec-bg-elevated)]">
+                      No table pricing tiers for{' '}
+                      <strong>{tableForm.hostingCategory === 'VIP' ? 'VIP' : 'General'}</strong> on this event. Ask the venue
+                      owner to add tiers under event hosting setup.
+                    </p>
+                  ) : null}
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block text-sm font-medium">
                       Hosting category
@@ -866,16 +949,24 @@ export default function HostDashboard() {
                     <label className="block text-sm font-medium">
                       Tier
                       <select
-                        className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                        value={String(tableForm.hostingTierIndex)}
+                        className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] disabled:opacity-60"
+                        disabled={hostingTierOptions.length === 0}
+                        value={
+                          hostingTierOptions.length === 0
+                            ? '0'
+                            : String(Math.min(tableForm.hostingTierIndex, hostingTierOptions.length - 1))
+                        }
                         onChange={(e) => setTableForm((f) => ({ ...f, hostingTierIndex: Number(e.target.value || 0) }))}
                       >
-                        {hostingTierOptions.length === 0 ? <option value="0">Default</option> : null}
-                        {hostingTierOptions.map((t) => (
-                          <option key={t.value} value={t.value}>
-                            {t.name} · Max {t.maxGuests ?? '-'} · Min spend {t.minSpend ?? '-'}
-                          </option>
-                        ))}
+                        {hostingTierOptions.length === 0 ? (
+                          <option value="0">No tiers configured</option>
+                        ) : (
+                          hostingTierOptions.map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.name} · Max {t.maxGuests ?? '-'} · Min spend {t.minSpend ?? '-'} · Tables {t.tableSlots ?? '-'}
+                            </option>
+                          ))
+                        )}
                       </select>
                     </label>
                   </div>
@@ -947,35 +1038,42 @@ export default function HostDashboard() {
                 <input
                   type="time"
                   min={tableForm.tableType === 'IN_APP_EVENT' ? eventStartTimeForInput(selectedEvent) : undefined}
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  disabled={tableForm.tableType === 'IN_APP_EVENT' && selectedEvent && !hasEventStartTime}
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] disabled:opacity-60"
                   value={tableForm.eventTime}
                   onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
                 />
-                {tableForm.tableType === 'IN_APP_EVENT' && eventStartTimeLabel(selectedEvent) && (
+                {tableForm.tableType === 'IN_APP_EVENT' && hasEventStartTime && (
                   <span className="text-xs text-[var(--sec-text-muted)] mt-1 block">
-                    You cannot set a time before the event start time ({eventStartTimeLabel(selectedEvent)}).
+                    Earliest meet time is event start ({eventStartTimeLabel(selectedEvent)}). Earlier times are blocked when
+                    you submit.
                   </span>
                 )}
               </label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                placeholder="Spots at table"
-                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                value={tableForm.guestQuantity}
-                onChange={(e) =>
-                  setTableForm((f) => {
-                    const raw = parseInt(e.target.value, 10) || 1;
-                    const cap = selectedHostingTier?.max_guests ? Number(selectedHostingTier.max_guests) : null;
-                    return { ...f, guestQuantity: cap ? Math.min(raw, cap) : raw };
-                  })
-                }
-              />
+              <label className="block text-sm font-medium">
+                Spots at table
+                <input
+                  type="number"
+                  min={1}
+                  max={tableGuestMax}
+                  placeholder="Spots at table"
+                  className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  value={tableForm.guestQuantity}
+                  onChange={(e) =>
+                    setTableForm((f) => {
+                      const raw = parseInt(e.target.value, 10) || 1;
+                      return { ...f, guestQuantity: Math.min(Math.max(1, raw), tableGuestMax) };
+                    })
+                  }
+                />
+              </label>
               {tableForm.tableType === 'IN_APP_EVENT' && selectedHostingTier?.max_guests ? (
                 <p className="text-xs text-[var(--sec-text-muted)]">
                   Max guests for this tier: {selectedHostingTier.max_guests} — you cannot exceed this limit.
                 </p>
+              ) : null}
+              {tableForm.tableType === 'EXTERNAL_VENUE' ? (
+                <p className="text-xs text-[var(--sec-text-muted)]">External meet-ups allow at most 20 spots.</p>
               ) : null}
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -1024,7 +1122,12 @@ export default function HostDashboard() {
                   </span>
                 </label>
               </div>
-              <button type="button" disabled={saving} className="sec-btn sec-btn-primary w-full" onClick={submitTable}>
+              <button
+                type="button"
+                disabled={saving || (tableForm.tableType === 'IN_APP_EVENT' && !canSubmitInAppTable)}
+                className="sec-btn sec-btn-primary w-full disabled:opacity-50"
+                onClick={submitTable}
+              >
                 List my table
               </button>
             </div>

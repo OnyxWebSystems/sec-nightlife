@@ -846,7 +846,8 @@ const createTableSchema = z.object({
   drinkPreferences: z.string().optional().nullable(),
   desiredCompany: z.string().optional().nullable(),
   guestGenderPreference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
-  guestQuantity: z.number().int().min(1).max(20),
+  /** External meet-ups cap at 20; IN_APP caps at 500 then tier rules apply in handler. */
+  guestQuantity: z.number().int().min(1).max(500),
   hostingCategory: z.enum(['GENERAL', 'VIP']).optional(),
   hostingTierIndex: z.number().int().min(0).optional().nullable(),
   isPublic: z.boolean().default(true),
@@ -864,6 +865,9 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
     if (d.tableType === 'EXTERNAL_VENUE' && (!d.venueAddress || !d.venueAddress.trim())) {
       return res.status(400).json({ error: 'venueAddress is required for external venue tables' });
     }
+    if (d.tableType === 'EXTERNAL_VENUE' && d.guestQuantity > 20) {
+      return res.status(400).json({ error: 'External meet-up tables allow at most 20 guests.' });
+    }
     const future = new Date();
     if (d.tableType === 'IN_APP_EVENT') {
       if (!d.eventId) return res.status(400).json({ error: 'eventId required for in-app event' });
@@ -873,14 +877,76 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       });
       if (!ev) return res.status(404).json({ error: 'Event not found' });
       if (ev.date <= future) return res.status(400).json({ error: 'Event must be in the future' });
+      const startStr = ev.startTime != null ? String(ev.startTime).trim() : '';
+      if (!startStr) {
+        return res.status(400).json({
+          error:
+            'This event has no start time yet. Ask the venue to set an event start time before you can host a table.',
+        });
+      }
       const timeCheck = assertTableTimeNotBeforeEventStart(d.eventTime, ev.startTime);
       if (!timeCheck.ok) return res.status(400).json({ error: timeCheck.error });
       const venueName = ev.venue?.name || d.venueName || 'Venue';
       const venueAddress = formatVenueAddressFromVenue(ev.venue) ?? d.venueAddress?.trim() ?? ev.city ?? null;
       const hostingCategory = d.hostingCategory === 'VIP' ? 'VIP' : 'GENERAL';
-      const tierMeta = resolveHostingTierCaps(ev.hostingConfig, hostingCategory, d.hostingTierIndex);
+      const hosting = normalizeHostingConfig(ev.hostingConfig);
+      const catKey = hostingCategory === 'VIP' ? 'vip' : 'general';
+      const tiers = Array.isArray(hosting[catKey]?.tiers) ? hosting[catKey].tiers : [];
+      if (tiers.length === 0) {
+        return res.status(400).json({
+          error:
+            'This event has no table pricing tiers for the selected category. Ask the venue to add hosting tiers in event setup.',
+        });
+      }
+      let tierMeta;
+      try {
+        tierMeta = resolveHostingTierCaps(ev.hostingConfig, hostingCategory, d.hostingTierIndex);
+      } catch (err) {
+        const msg = err?.message || 'Invalid hosting tier for this event';
+        return res.status(400).json({ error: msg });
+      }
       if (d.guestQuantity > tierMeta.maxGuests) {
         return res.status(400).json({ error: `Guest quantity exceeds tier cap (${tierMeta.maxGuests}).` });
+      }
+      const maxForCategory =
+        hosting[catKey]?.max_tables != null && Number.isFinite(Number(hosting[catKey]?.max_tables))
+          ? Number(hosting[catKey].max_tables)
+          : null;
+      if (maxForCategory != null && maxForCategory > 0) {
+        const categoryUsed = await prisma.hostedTable.count({
+          where: {
+            eventId: d.eventId,
+            tableType: 'IN_APP_EVENT',
+            hostingCategory,
+            status: { in: ['DRAFT', 'ACTIVE', 'FULL'] },
+          },
+        });
+        if (categoryUsed >= maxForCategory) {
+          return res.status(400).json({
+            error:
+              hostingCategory === 'VIP'
+                ? 'This event has reached the maximum number of VIP hosted tables set by the venue.'
+                : 'This event has reached the maximum number of General hosted tables set by the venue.',
+            code: 'EVENT_TABLES_FULL',
+          });
+        }
+      }
+      if (tierMeta.tierIndex != null && tierMeta.tierTableSlots != null) {
+        const tierUsed = await prisma.hostedTable.count({
+          where: {
+            eventId: d.eventId,
+            tableType: 'IN_APP_EVENT',
+            hostingCategory,
+            hostingTierIndex: tierMeta.tierIndex,
+            status: { in: ['DRAFT', 'ACTIVE', 'FULL'] },
+          },
+        });
+        if (tierUsed >= tierMeta.tierTableSlots) {
+          return res.status(400).json({
+            error: `This tier is full for hosted tables (${tierMeta.tierTableSlots} allocated). Choose another tier or ask the venue to increase tier table allocation.`,
+            code: 'EVENT_TIER_TABLES_FULL',
+          });
+        }
       }
       const t = await prisma.$transaction(async (tx) =>
         tx.hostedTable.create({
@@ -1266,7 +1332,7 @@ const patchTableSchema = z.object({
   joiningFee: z.number().min(10).optional().nullable(),
   photo: z.string().url().optional().nullable(),
   photoPublicId: z.string().optional().nullable(),
-  guestQuantity: z.number().int().min(1).max(20).optional(),
+  guestQuantity: z.number().int().min(1).max(500).optional(),
   eventTime: z.string().optional(),
   isPublic: z.boolean().optional(),
   venueAddress: z.string().trim().min(1).optional().nullable(),
@@ -1288,6 +1354,15 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
     if (d.eventTime != null && t.eventId) {
       const ev = await prisma.event.findFirst({ where: { id: t.eventId, deletedAt: null } });
       if (ev) {
+        if (t.tableType === 'IN_APP_EVENT') {
+          const startStr = ev.startTime != null ? String(ev.startTime).trim() : '';
+          if (!startStr) {
+            return res.status(400).json({
+              error:
+                'This event has no start time. The venue must set an event start time before meet times can be validated.',
+            });
+          }
+        }
         const timeCheck = assertTableTimeNotBeforeEventStart(d.eventTime, ev.startTime);
         if (!timeCheck.ok) return res.status(400).json({ error: timeCheck.error });
       }
@@ -1302,6 +1377,24 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
         where: { hostedTableId: t.id, status: 'GOING' },
       });
       if (d.guestQuantity < going) return res.status(400).json({ error: 'guestQuantity too low' });
+      if (t.tableType === 'EXTERNAL_VENUE' && d.guestQuantity > 20) {
+        return res.status(400).json({ error: 'External meet-up tables allow at most 20 guests.' });
+      }
+      if (t.tableType === 'IN_APP_EVENT' && t.eventId) {
+        const evPatch = await prisma.event.findFirst({ where: { id: t.eventId, deletedAt: null } });
+        if (evPatch) {
+          const hostingCategoryPatch = t.hostingCategory === 'VIP' ? 'VIP' : 'GENERAL';
+          let tierMetaPatch;
+          try {
+            tierMetaPatch = resolveHostingTierCaps(evPatch.hostingConfig, hostingCategoryPatch, t.hostingTierIndex);
+          } catch (err) {
+            return res.status(400).json({ error: err?.message || 'Invalid hosting tier for this event' });
+          }
+          if (d.guestQuantity > tierMetaPatch.maxGuests) {
+            return res.status(400).json({ error: `Guest quantity exceeds tier cap (${tierMetaPatch.maxGuests}).` });
+          }
+        }
+      }
       const updatePayload = { ...d };
       if (updatePayload.guestGenderPreference != null) {
         updatePayload.guestGenderPreference = normalizeGuestGenderPreference(updatePayload.guestGenderPreference);

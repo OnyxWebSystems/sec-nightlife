@@ -34,6 +34,7 @@ function hostingFromApi(hc) {
           tier_name: String(t.tier_name ?? t.name ?? ''),
           max_guests: String(t.max_guests ?? ''),
           min_spend: String(t.min_spend ?? ''),
+          tier_table_slots: String(t.tier_table_slots ?? ''),
         }))
       : [],
   });
@@ -196,14 +197,17 @@ export default function BusinessEvents() {
         (t) =>
           String(t?.tier_name || '').trim() &&
           String(t?.max_guests || '').trim() &&
-          String(t?.min_spend ?? '').trim() !== ''
+          String(t?.min_spend ?? '').trim() !== '' &&
+          String(t?.tier_table_slots ?? '').trim() !== ''
       );
       const parsedTiers = [];
+      let totalTierSlots = 0;
       for (const t of tierRows) {
         const mg = parseInt(String(t.max_guests).trim(), 10);
         const ms = parseFloat(String(t.min_spend).replace(',', '.'));
-        if (Number.isNaN(mg) || mg < 1 || Number.isNaN(ms) || ms < 0) {
-          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} pricing tiers (guests and min spend)`);
+        const slots = parseInt(String(t.tier_table_slots).trim(), 10);
+        if (Number.isNaN(mg) || mg < 1 || Number.isNaN(ms) || ms < 0 || Number.isNaN(slots) || slots < 1) {
+          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} pricing tiers (guests, min spend, and table slots)`);
           return;
         }
         const tierName = String(t.tier_name || '').trim();
@@ -211,7 +215,18 @@ export default function BusinessEvents() {
           toast.error(`Each ${cat === 'vip' ? 'VIP' : 'General'} tier needs a name`);
           return;
         }
-        parsedTiers.push({ tier_name: tierName, max_guests: mg, min_spend: ms });
+        parsedTiers.push({ tier_name: tierName, max_guests: mg, min_spend: ms, tier_table_slots: slots });
+        totalTierSlots += slots;
+      }
+      if (parsedTiers.length > 0 && hostingPayload[cat].max_tables == null) {
+        toast.error(`${cat === 'vip' ? 'VIP' : 'General'} max hosted tables is required when pricing tiers are configured`);
+        return;
+      }
+      if (parsedTiers.length > 0 && totalTierSlots !== hostingPayload[cat].max_tables) {
+        toast.error(
+          `${cat === 'vip' ? 'VIP' : 'General'} tier table counts must add up to max hosted tables (${hostingPayload[cat].max_tables}). Current sum: ${totalTierSlots}.`,
+        );
+        return;
       }
       hostingPayload[cat].tiers = parsedTiers;
     }
@@ -519,7 +534,10 @@ export default function BusinessEvents() {
                               ...p.hosting_config,
                               [cat]: {
                                 ...p.hosting_config[cat],
-                                tiers: [...(p.hosting_config[cat].tiers || []), { tier_name: '', max_guests: '', min_spend: '' }],
+                                tiers: [
+                                  ...(p.hosting_config[cat].tiers || []),
+                                  { tier_name: '', max_guests: '', min_spend: '', tier_table_slots: '' },
+                                ],
                               },
                             },
                           }))
@@ -528,6 +546,12 @@ export default function BusinessEvents() {
                         <Plus size={14} className="mr-1" /> Add tier
                       </Button>
                     </div>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Allocated tier tables:{' '}
+                      {(tiers || []).reduce((acc, t) => acc + (parseInt(String(t?.tier_table_slots || ''), 10) || 0), 0)}
+                      {' / '}
+                      {(parseInt(String(sec.max_tables || ''), 10) || 0) || '-'}
+                    </p>
                     <p className="text-xs text-gray-500 mb-2">Guests per table and minimum spend (ZAR).</p>
                     <div className="space-y-2">
                       {tiers.map((tier, idx) => (
@@ -583,6 +607,27 @@ export default function BusinessEvents() {
                               onChange={(e) => {
                                 const next = [...(form.hosting_config[cat].tiers || [])];
                                 next[idx] = { ...next[idx], min_spend: e.target.value };
+                                setForm((p) => ({
+                                  ...p,
+                                  hosting_config: {
+                                    ...p.hosting_config,
+                                    [cat]: { ...p.hosting_config[cat], tiers: next },
+                                  },
+                                }));
+                              }}
+                              className="mt-1 h-10 rounded-xl"
+                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[120px]">
+                            <Label className="text-xs text-gray-500">Hosted tables (tier)</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={tier.tier_table_slots || ''}
+                              onChange={(e) => {
+                                const next = [...(form.hosting_config[cat].tiers || [])];
+                                next[idx] = { ...next[idx], tier_table_slots: e.target.value };
                                 setForm((p) => ({
                                   ...p,
                                   hosting_config: {

@@ -18,18 +18,113 @@ const tablePricingTierSchema = z.object({
   tier_name: z.string().min(1).max(80).optional(),
   max_guests: z.number().int().min(1).max(500),
   min_spend: z.number().min(0),
+  /** Per-tier hosted-table slots; required when tiers exist (enforced in hostingCategorySchema). */
+  tier_table_slots: z.number().int().min(1).optional(),
 });
 
-const hostingCategorySchema = z.object({
-  max_tables: z.number().int().min(1).optional().nullable(),
-  tiers: z.array(tablePricingTierSchema).optional().nullable(),
-  host_table_fee_zar: z.number().min(0).optional().nullable(),
-});
+const hostingCategorySchema = z
+  .object({
+    max_tables: z.number().int().min(1).optional().nullable(),
+    tiers: z.array(tablePricingTierSchema).optional().nullable(),
+    host_table_fee_zar: z.number().min(0).optional().nullable(),
+  })
+  .superRefine((cat, ctx) => {
+    const tiers = cat.tiers;
+    if (!tiers || tiers.length === 0) return;
+    if (cat.max_tables == null || !Number.isFinite(Number(cat.max_tables))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Max hosted tables is required when pricing tiers are configured.',
+        path: ['max_tables'],
+      });
+      return;
+    }
+    const maxT = Number(cat.max_tables);
+    let sum = 0;
+    for (let i = 0; i < tiers.length; i++) {
+      const slots = tiers[i]?.tier_table_slots;
+      if (slots == null || !Number.isFinite(Number(slots))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Hosted table slots are required for each tier when tiers are configured.',
+          path: ['tiers', i, 'tier_table_slots'],
+        });
+        continue;
+      }
+      sum += Number(slots);
+    }
+    if (sum !== maxT) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Tier table counts must add up to max hosted tables (${maxT}). Current sum: ${sum}.`,
+        path: ['tiers'],
+      });
+    }
+  });
 
 const hostingConfigSchema = z.object({
   general: hostingCategorySchema.optional(),
   vip: hostingCategorySchema.optional(),
 });
+
+/** Full merged hosting_config (e.g. after PATCH merge). Same rules as hostingCategorySchema superRefine. */
+function validateMergedHostingConfigTierSlots(raw) {
+  const h = normalizeHostingConfig(raw);
+  for (const cat of ['general', 'vip']) {
+    const sec = h[cat];
+    const tiers = Array.isArray(sec?.tiers) ? sec.tiers : [];
+    if (tiers.length === 0) continue;
+    if (sec.max_tables == null || !Number.isFinite(Number(sec.max_tables))) {
+      return {
+        error: `Hosting (${cat}): max hosted tables is required when pricing tiers are configured.`,
+      };
+    }
+    const maxT = Number(sec.max_tables);
+    let sum = 0;
+    for (let i = 0; i < tiers.length; i++) {
+      const slots = tiers[i]?.tier_table_slots;
+      if (slots == null || !Number.isFinite(Number(slots))) {
+        return {
+          error: `Hosting (${cat}): hosted table slots are required for each tier when tiers are configured.`,
+        };
+      }
+      sum += Number(slots);
+    }
+    if (sum !== maxT) {
+      return {
+        error: `Hosting (${cat}): tier table counts must add up to max hosted tables (${maxT}). Current sum: ${sum}.`,
+      };
+    }
+  }
+  return null;
+}
+
+async function assertHostingTierSlotsVsUsage(eventId, mergedHostingRaw) {
+  const h = normalizeHostingConfig(mergedHostingRaw);
+  for (const cat of ['general', 'vip']) {
+    const prismaCat = cat === 'vip' ? 'VIP' : 'GENERAL';
+    const tiers = Array.isArray(h[cat]?.tiers) ? h[cat].tiers : [];
+    for (let i = 0; i < tiers.length; i++) {
+      const newSlots = tiers[i]?.tier_table_slots;
+      if (newSlots == null || !Number.isFinite(Number(newSlots))) continue;
+      const used = await prisma.hostedTable.count({
+        where: {
+          eventId,
+          hostingCategory: prismaCat,
+          hostingTierIndex: i,
+          status: { not: 'CLOSED' },
+        },
+      });
+      if (Number(newSlots) < used) {
+        const label = tiers[i]?.tier_name != null ? String(tiers[i].tier_name) : `tier ${i + 1}`;
+        return {
+          error: `Hosting (${cat}): "${label}" cannot go below ${used} hosted tables (already listed).`,
+        };
+      }
+    }
+  }
+  return null;
+}
 
 const eventFields = {
   venue_id: z.string().uuid(),
@@ -119,6 +214,70 @@ function computeCategoryTableStats(rows, maxTables) {
     tables_full_private: tablesFullPrivate,
     tables_with_join_space: tablesWithJoinSpace,
   };
+}
+
+function validateHostingTierSlotsConfig(hostingRaw) {
+  const hosting = normalizeHostingConfig(hostingRaw);
+  for (const cat of ['general', 'vip']) {
+    const slot = hosting?.[cat] || {};
+    const tiers = Array.isArray(slot.tiers) ? slot.tiers : [];
+    if (tiers.length === 0) continue;
+    const maxTables = slot.max_tables != null ? Number(slot.max_tables) : null;
+    if (!Number.isFinite(maxTables) || maxTables < 1) {
+      return {
+        ok: false,
+        error: `${cat === 'vip' ? 'VIP' : 'General'} max hosted tables is required when tiers are configured.`,
+      };
+    }
+    let sum = 0;
+    for (const t of tiers) {
+      const slots = t?.tier_table_slots;
+      const n = Number(slots);
+      if (!Number.isFinite(n) || n < 1) {
+        return {
+          ok: false,
+          error: `${cat === 'vip' ? 'VIP' : 'General'} tiers must each set hosted table slots (minimum 1).`,
+        };
+      }
+      sum += n;
+    }
+    if (sum !== maxTables) {
+      return {
+        ok: false,
+        error: `${cat === 'vip' ? 'VIP' : 'General'} tier table counts must add up to max hosted tables (${maxTables}). Current sum: ${sum}.`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+async function assertTierSlotsNotBelowCurrentHostedTables(eventId, hostingRaw) {
+  const hosting = normalizeHostingConfig(hostingRaw);
+  for (const cat of ['general', 'vip']) {
+    const tiers = Array.isArray(hosting?.[cat]?.tiers) ? hosting[cat].tiers : [];
+    if (tiers.length === 0) continue;
+    const hostingCategory = cat === 'vip' ? 'VIP' : 'GENERAL';
+    for (let idx = 0; idx < tiers.length; idx++) {
+      const slots = Number(tiers[idx]?.tier_table_slots);
+      if (!Number.isFinite(slots) || slots < 1) continue;
+      const used = await prisma.hostedTable.count({
+        where: {
+          eventId,
+          tableType: 'IN_APP_EVENT',
+          hostingCategory,
+          hostingTierIndex: idx,
+          status: { in: ['DRAFT', 'ACTIVE', 'FULL'] },
+        },
+      });
+      if (used > slots) {
+        return {
+          ok: false,
+          error: `${cat === 'vip' ? 'VIP' : 'General'} tier ${idx + 1} has ${used} hosted table(s) already, which exceeds new allocation (${slots}).`,
+        };
+      }
+    }
+  }
+  return { ok: true };
 }
 
 async function computeEventStats(eventId, hostingRaw) {
@@ -332,7 +491,12 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       updates.entranceFeeAmount = nextHasFee ? nextAmount : null;
     }
     if (d.hosting_config !== undefined) {
-      updates.hostingConfig = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);
+      const mergedHosting = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);
+      const hostCfgCheck = validateHostingTierSlotsConfig(mergedHosting);
+      if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
+      const tierSlotsCheck = await assertTierSlotsNotBelowCurrentHostedTables(event.id, mergedHosting);
+      if (!tierSlotsCheck.ok) return res.status(400).json({ error: tierSlotsCheck.error });
+      updates.hostingConfig = mergedHosting;
     }
 
     const updated = await prisma.event.update({ where: { id: event.id }, data: updates });
