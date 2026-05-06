@@ -29,6 +29,16 @@ function eventStartTimeLabel(ev) {
   return String(raw).slice(0, 5);
 }
 
+function isTimeEarlierThan(a, b) {
+  if (!a || !b) return false;
+  const am = a.match(/^(\d{1,2}):(\d{2})$/);
+  const bm = b.match(/^(\d{1,2}):(\d{2})$/);
+  if (!am || !bm) return false;
+  const aMin = Number(am[1]) * 60 + Number(am[2]);
+  const bMin = Number(bm[1]) * 60 + Number(bm[2]);
+  return aMin < bMin;
+}
+
 const STATUS_BADGE = {
   DRAFT: { label: 'Draft', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
   PENDING_PAYMENT: { label: 'Pending payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
@@ -158,7 +168,17 @@ export default function HostDashboard() {
     if (!tableForm.eventId) return null;
     const fromList = publicEvents.find((e) => e.id === tableForm.eventId);
     if (selectedEventDetail?.id === tableForm.eventId) {
-      return { ...fromList, ...selectedEventDetail };
+      const merged = { ...fromList, ...selectedEventDetail };
+      const mergedCfg = merged?.hosting_config || merged?.hostingConfig;
+      const listCfg = fromList?.hosting_config || fromList?.hostingConfig;
+      const mergedGeneral = Array.isArray(mergedCfg?.general?.tiers) ? mergedCfg.general.tiers.length : 0;
+      const mergedVip = Array.isArray(mergedCfg?.vip?.tiers) ? mergedCfg.vip.tiers.length : 0;
+      const listGeneral = Array.isArray(listCfg?.general?.tiers) ? listCfg.general.tiers.length : 0;
+      const listVip = Array.isArray(listCfg?.vip?.tiers) ? listCfg.vip.tiers.length : 0;
+      if (mergedGeneral + mergedVip === 0 && listGeneral + listVip > 0) {
+        return { ...merged, hosting_config: listCfg };
+      }
+      return merged;
     }
     return fromList ?? null;
   }, [publicEvents, tableForm.eventId, selectedEventDetail]);
@@ -1041,7 +1061,16 @@ export default function HostDashboard() {
                   disabled={tableForm.tableType === 'IN_APP_EVENT' && selectedEvent && !hasEventStartTime}
                   className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] disabled:opacity-60"
                   value={tableForm.eventTime}
-                  onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
+                  onChange={(e) =>
+                    setTableForm((f) => {
+                      const nextTime = e.target.value;
+                      const minTime = f.tableType === 'IN_APP_EVENT' ? eventStartTimeForInput(selectedEvent) : undefined;
+                      if (minTime && isTimeEarlierThan(nextTime, minTime)) {
+                        return { ...f, eventTime: minTime };
+                      }
+                      return { ...f, eventTime: nextTime };
+                    })
+                  }
                 />
                 {tableForm.tableType === 'IN_APP_EVENT' && hasEventStartTime && (
                   <span className="text-xs text-[var(--sec-text-muted)] mt-1 block">

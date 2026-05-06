@@ -44,6 +44,10 @@ function hostingFromApi(hc) {
   };
 }
 
+function parseTierSlotsTotal(tiers = []) {
+  return tiers.reduce((acc, t) => acc + (parseInt(String(t?.tier_table_slots || ''), 10) || 0), 0);
+}
+
 const EMPTY_EVENT = {
   title: '', description: '', date: '', city: '', status: 'draft',
   cover_image_url: '', ticket_tiers: [],
@@ -193,7 +197,24 @@ export default function BusinessEvents() {
         }
         hostingPayload[cat].host_table_fee_zar = hostFee;
       }
-      const tierRows = (sec?.tiers || []).filter(
+      const rawTiers = sec?.tiers || [];
+      const hasPartialTier = rawTiers.some((t) => {
+        const vals = [
+          String(t?.tier_name || '').trim(),
+          String(t?.max_guests || '').trim(),
+          String(t?.min_spend ?? '').trim(),
+          String(t?.tier_table_slots ?? '').trim(),
+        ];
+        const filled = vals.filter((v) => v !== '').length;
+        return filled > 0 && filled < vals.length;
+      });
+      if (hasPartialTier) {
+        toast.error(
+          `${cat === 'vip' ? 'VIP' : 'General'} tiers must include all fields: name, max guests, min spend, and hosted tables.`,
+        );
+        return;
+      }
+      const tierRows = rawTiers.filter(
         (t) =>
           String(t?.tier_name || '').trim() &&
           String(t?.max_guests || '').trim() &&
@@ -546,9 +567,15 @@ export default function BusinessEvents() {
                         <Plus size={14} className="mr-1" /> Add tier
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-500 mb-2">
+                    <p
+                      className={`text-xs mb-2 ${
+                        sec.max_tables && parseTierSlotsTotal(tiers) > (parseInt(String(sec.max_tables), 10) || 0)
+                          ? 'text-red-400'
+                          : 'text-gray-500'
+                      }`}
+                    >
                       Allocated tier tables:{' '}
-                      {(tiers || []).reduce((acc, t) => acc + (parseInt(String(t?.tier_table_slots || ''), 10) || 0), 0)}
+                      {parseTierSlotsTotal(tiers)}
                       {' / '}
                       {(parseInt(String(sec.max_tables || ''), 10) || 0) || '-'}
                     </p>
@@ -627,7 +654,21 @@ export default function BusinessEvents() {
                               value={tier.tier_table_slots || ''}
                               onChange={(e) => {
                                 const next = [...(form.hosting_config[cat].tiers || [])];
-                                next[idx] = { ...next[idx], tier_table_slots: e.target.value };
+                                const raw = e.target.value;
+                                const nextSlots = parseInt(String(raw || ''), 10) || 0;
+                                const maxTables = parseInt(String(form.hosting_config?.[cat]?.max_tables || ''), 10) || 0;
+                                const usedByOthers = next.reduce(
+                                  (acc, row, rowIdx) =>
+                                    rowIdx === idx ? acc : acc + (parseInt(String(row?.tier_table_slots || ''), 10) || 0),
+                                  0,
+                                );
+                                if (maxTables > 0 && nextSlots + usedByOthers > maxTables) {
+                                  toast.error(
+                                    `${label} tier allocations cannot exceed ${maxTables} total hosted tables for this category.`,
+                                  );
+                                  return;
+                                }
+                                next[idx] = { ...next[idx], tier_table_slots: raw };
                                 setForm((p) => ({
                                   ...p,
                                   hosting_config: {
