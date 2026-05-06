@@ -2,17 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
-import { dataService } from '@/services/dataService';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { apiPost } from '@/api/client';
+import { apiGet } from '@/api/client';
 import {
-  BookOpen, Users, Search, Loader2, Check, X, ChevronRight, Eye
+  BookOpen, Users, Search, Loader2, ChevronRight, Eye
 } from 'lucide-react';
-import { toast } from 'sonner';
 
 function StatusBadge({ status }) {
   const classMap = {
@@ -30,7 +28,6 @@ function StatusBadge({ status }) {
 
 export default function BusinessBookings() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -43,101 +40,41 @@ export default function BusinessBookings() {
     })();
   }, []);
 
-  const { data: venues = [] } = useQuery({
-    queryKey: ['biz-venues', user?.id],
-    queryFn: () => dataService.Venue.mine(),
+  const { data: bookingsData, isLoading } = useQuery({
+    queryKey: ['biz-event-table-bookings', user?.id],
+    queryFn: () => apiGet('/api/business/event-table-bookings'),
     enabled: !!user,
   });
-  const venue = venues[0];
-
-  const { data: tables = [], isLoading } = useQuery({
-    queryKey: ['biz-tables', venue?.id],
-    queryFn: () => dataService.Table.filter({ venue_id: venue.id }),
-    enabled: !!venue,
-  });
-
-  const { data: events = [] } = useQuery({
-    queryKey: ['biz-events', venue?.id],
-    queryFn: () => dataService.Event.filter({ venue_id: venue.id }),
-    enabled: !!venue,
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => dataService.Table.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['biz-tables'] });
-      toast.success('Booking updated');
-    },
-    onError: () => toast.error('Failed to update'),
-  });
-
-  const approveRequestMutation = useMutation({
-    mutationFn: ({ tableId, userId }) => apiPost(`/api/tables/${tableId}/requests/${userId}/approve`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['biz-tables'] });
-      toast.success('Request approved');
-    },
-    onError: (err) => toast.error(err?.data?.error || 'Failed to approve'),
-  });
-
-  const rejectRequestMutation = useMutation({
-    mutationFn: ({ tableId, userId }) => apiPost(`/api/tables/${tableId}/requests/${userId}/reject`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['biz-tables'] });
-      toast.success('Request rejected');
-    },
-    onError: (err) => toast.error(err?.data?.error || 'Failed to reject'),
-  });
-
-  const handleApproveRequest = (table, requestUserId) => {
-    approveRequestMutation.mutate({ tableId: table.id, userId: requestUserId });
-  };
-
-  const handleRejectRequest = (table, requestUserId) => {
-    rejectRequestMutation.mutate({ tableId: table.id, userId: requestUserId });
-  };
-
-  const eventMap = {};
-  events.forEach(e => { eventMap[e.id] = e; });
+  const tables = bookingsData?.items || [];
 
   const filtered = tables
-    .filter(t => statusFilter === 'all' || t.status === statusFilter)
+    .filter(t => statusFilter === 'all' || t.role === statusFilter)
     .filter(t => {
       if (!search) return true;
       const q = search.toLowerCase();
-      const evt = eventMap[t.event_id];
-      return (evt?.title || '').toLowerCase().includes(q) || (t.status || '').includes(q);
+      return (
+        (t?.event?.title || '').toLowerCase().includes(q) ||
+        (t?.hostedTable?.tableName || '').toLowerCase().includes(q) ||
+        (t?.user?.username || '').toLowerCase().includes(q)
+      );
     });
 
   const stats = {
     total: tables.length,
-    open: tables.filter(t => t.status === 'open').length,
-    full: tables.filter(t => t.status === 'full').length,
-    totalGuests: tables.reduce((s, t) => s + (t.current_guests || 0), 0),
-    totalRevenue: tables.reduce((s, t) => s + (t.min_spend || 0), 0),
-    pendingRequests: tables.reduce((s, t) => s + (t.pending_requests?.length || 0), 0),
+    open: tables.filter(t => (t.hostedTable?.status || '').toLowerCase() === 'active').length,
+    full: tables.filter(t => (t.hostedTable?.status || '').toLowerCase() === 'full').length,
+    totalGuests: tables.filter((t) => t.role === 'GUEST').length,
+    totalRevenue: tables.reduce((s, t) => s + Number(t.amountTotal || 0), 0),
+    pendingRequests: 0,
   };
 
   if (!user) return null;
-
-  if (!venue) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
-        <BookOpen size={32} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 12px' }} />
-        <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No Venue Found</h2>
-        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>Register a venue to manage bookings.</p>
-        <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))} style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}>
-          Register Venue
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div style={{ padding: '24px 20px', maxWidth: 900, margin: '0 auto' }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Table Bookings</h1>
-        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{venue.name} &middot; {tables.length} bookings</p>
+        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{tables.length} SEC hosted-table booking records</p>
       </div>
 
       {/* Stats Strip */}
@@ -174,10 +111,8 @@ export default function BusinessBookings() {
           </SelectTrigger>
           <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }} className="text-white">
             <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="full">Full</SelectItem>
-            <SelectItem value="closed">Closed</SelectItem>
+            <SelectItem value="HOST">Host fee</SelectItem>
+            <SelectItem value="GUEST">Guest join</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -200,8 +135,6 @@ export default function BusinessBookings() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filtered.map(t => {
-            const evt = eventMap[t.event_id];
-            const pendingCount = t.pending_requests?.length || 0;
             return (
               <div
                 key={t.id}
@@ -220,14 +153,14 @@ export default function BusinessBookings() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {evt?.title || 'Table Booking'}
+                      {t.event?.title || 'Event booking'}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2 }}>
-                      {t.current_guests || 0}/{t.max_guests || '—'} guests &middot; Min R{t.min_spend || 0}
-                      {t.joining_fee ? ` &middot; Fee R${t.joining_fee}` : ''}
+                      {t.hostedTable?.tableName || 'Hosted table'} · {t.role}
+                      {t.amountTotal ? ` · Paid R${Number(t.amountTotal).toFixed(0)}` : ''}
                     </div>
                   </div>
-                  <StatusBadge status={t.status} />
+                  <StatusBadge status={(t.hostedTable?.status || '').toLowerCase()} />
                   <button
                     onClick={() => setDetailTable(t)}
                     style={{ padding: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
@@ -236,49 +169,9 @@ export default function BusinessBookings() {
                   </button>
                 </div>
 
-                {/* Pending Requests Inline */}
-                {pendingCount > 0 && (
-                  <div style={{
-                    marginTop: 10, padding: '10px 12px', borderRadius: 10,
-                    backgroundColor: 'var(--sec-warning-muted)', border: '1px solid rgba(212,160,23,0.2)',
-                  }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--sec-warning)', marginBottom: 6 }}>
-                      {pendingCount} pending request{pendingCount > 1 ? 's' : ''}
-                    </div>
-                    {(t.pending_requests || []).slice(0, 3).map((req, i) => {
-                      const uid = typeof req === 'string' ? req : req.user_id;
-                      return (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-                          <span style={{ fontSize: 12, color: 'var(--sec-text-secondary)', flex: 1 }}>
-                            Guest request #{i + 1}
-                          </span>
-                          <button
-                            onClick={() => handleApproveRequest(t, uid)}
-                            disabled={approveRequestMutation.isPending || rejectRequestMutation.isPending}
-                            style={{
-                              padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                              backgroundColor: 'var(--sec-success-muted)', color: 'var(--sec-success)', fontSize: 11, fontWeight: 600,
-                            }}
-                          >
-                            <Check size={12} style={{ display: 'inline', marginRight: 3 }} />
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleRejectRequest(t, uid)}
-                            disabled={approveRequestMutation.isPending || rejectRequestMutation.isPending}
-                            style={{
-                              padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                              backgroundColor: 'var(--sec-error-muted)', color: 'var(--sec-error)', fontSize: 11, fontWeight: 600,
-                            }}
-                          >
-                            <X size={12} style={{ display: 'inline', marginRight: 3 }} />
-                            Reject
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--sec-text-muted)' }}>
+                  User: {t.user?.username || 'guest'} · Entrance: R{Number(t.entranceZar || 0).toFixed(0)} · Component: R{Number(t.componentZar || 0).toFixed(0)}
+                </div>
               </div>
             );
           })}
@@ -295,37 +188,23 @@ export default function BusinessBookings() {
             <div className="space-y-3 mt-2">
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Status</span>
-                <StatusBadge status={detailTable.status} />
+                <StatusBadge status={(detailTable.hostedTable?.status || '').toLowerCase()} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Guests</span>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{detailTable.current_guests || 0} / {detailTable.max_guests || '—'}</span>
+                <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Role</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{detailTable.role}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Min Spend</span>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>R {detailTable.min_spend || 0}</span>
+                <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Total paid</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>R {detailTable.amountTotal || 0}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Joining Fee</span>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>R {detailTable.joining_fee || 0}</span>
+                <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Reference</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{detailTable.paystackReference || '—'}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Members</span>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{detailTable.members?.length || 0}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Pending Requests</span>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{detailTable.pending_requests?.length || 0}</span>
-              </div>
-              {detailTable.event_id && eventMap[detailTable.event_id] && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Event</span>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{eventMap[detailTable.event_id].title}</span>
-                </div>
-              )}
               <div className="pt-2">
                 <Button
-                  onClick={() => { setDetailTable(null); navigate(createPageUrl('ManageTable') + '?id=' + detailTable.id); }}
+                  onClick={() => { setDetailTable(null); navigate(createPageUrl('TableDetails') + `?id=${detailTable.hostedTable?.id}&source=hosted`); }}
                   className="w-full h-10 rounded-xl font-semibold"
                   style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
                 >

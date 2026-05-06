@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { dataService } from '@/services/dataService';
+import { apiGet } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
 import { Users, Search, Plus, SlidersHorizontal } from 'lucide-react';
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import {
 import { parseISO, isToday, isThisWeek, isSaturday, isSunday } from 'date-fns';
 import { motion } from 'framer-motion';
 
-import TrendingTableCard from '@/components/home/TrendingTableCard';
+import HostedTableCard from '@/components/home/HostedTableCard';
 
 const isThisWeekend = (date) => {
   return isThisWeek(date) && (isSaturday(date) || isSunday(date));
@@ -39,53 +39,52 @@ export default function Tables() {
     venueType: 'all'
   });
 
-  const { data: tables = [], isLoading } = useQuery({
-    queryKey: ['tables'],
-    queryFn: () => dataService.Table.filter({ status: 'open' }, '-created_date', 100),
+  const { data: hostedResp, isLoading } = useQuery({
+    queryKey: ['tables-hosted-available'],
+    queryFn: () => apiGet('/api/host/tables/available?limit=100&page=1'),
   });
-
-  const { data: events = [] } = useQuery({
-    queryKey: ['table-events'],
-    queryFn: () => dataService.Event.filter({ status: 'published' }),
+  const { data: venueResp } = useQuery({
+    queryKey: ['tables-venue-available'],
+    queryFn: () => apiGet('/api/venue-tables/available?limit=100&page=1'),
   });
+  const hostedTables = hostedResp?.items || [];
+  const venueTables = venueResp?.items || [];
+  const tables = [...hostedTables, ...venueTables.map((v) => ({
+    id: `venue-${v.id}`,
+    rawId: v.id,
+    source: 'venue',
+    tableName: v.tableName,
+    displayLocation: v.venue?.city || v.venue?.name || 'Venue',
+    event: v.event ? { id: v.event.id, title: v.event.title, date: v.event.date, city: v.venue?.city || null } : null,
+    host: { username: v.venue?.name || 'Venue' },
+    spotsRemaining: v.spotsRemaining || 0,
+    hasJoiningFee: true,
+    joiningFee: null,
+    minimumSpend: v.minimumSpend || 0,
+    tableType: 'EXTERNAL_VENUE',
+    status: v.status,
+  }))];
 
-  // Include non-approved venues so tables tied to pending compliance still resolve venue names.
-  const { data: venues = [] } = useQuery({
-    queryKey: ['venues-for-tables'],
-    queryFn: () => dataService.Venue.filter({}, '-rating', 100),
-  });
-
-  const eventsMap = events.reduce((acc, event) => {
-    acc[event.id] = event;
-    return acc;
-  }, {});
-
-  const venuesMap = venues.reduce((acc, venue) => {
-    acc[venue.id] = venue;
-    return acc;
-  }, {});
-
-  // Get unique cities
-  const cities = [...new Set(events.map(e => e.city).filter(Boolean))];
+  const cities = [...new Set(tables.map((t) => t?.event?.city || t?.displayLocation).filter(Boolean))];
 
   const filteredTables = tables.filter(table => {
-    const event = eventsMap[table.event_id];
-    const venue = venuesMap[table.venue_id];
-    
-    // Search filter
+    const event = table.event || null;
     const q = searchQuery.toLowerCase();
     const matchesSearch =
-      (table.name ?? '').toLowerCase().includes(q) ||
-      (event?.title ?? '').toLowerCase().includes(q);
+      (table.tableName ?? '').toLowerCase().includes(q) ||
+      (table.host?.username ?? '').toLowerCase().includes(q) ||
+      (event?.title ?? '').toLowerCase().includes(q) ||
+      (table.displayLocation ?? '').toLowerCase().includes(q);
     
     // City filter
-    if (filters.city !== 'all' && event?.city !== filters.city) {
+    const cityName = event?.city || table.displayLocation;
+    if (filters.city !== 'all' && cityName !== filters.city) {
       return false;
     }
 
     // Min spend filter
     if (filters.minSpend !== 'all') {
-      const minSpend = table.min_spend || 0;
+      const minSpend = table.minimumSpend || 0;
       if (filters.minSpend === 'low' && minSpend >= 5000) return false;
       if (filters.minSpend === 'medium' && (minSpend < 5000 || minSpend >= 10000)) return false;
       if (filters.minSpend === 'high' && minSpend < 10000) return false;
@@ -100,17 +99,16 @@ export default function Tables() {
     }
 
     // Venue type filter
-    if (filters.venueType !== 'all' && venue?.venue_type !== filters.venueType) {
-      return false;
-    }
+    if (filters.venueType !== 'all' && table.source === 'venue') return false;
 
     // Quick filter
     if (selectedFilter === 'tonight') {
-      if (!event?.date) return false;
-      return matchesSearch && isToday(parseISO(event.date));
+      const d = event?.date || table.eventDate;
+      if (!d) return false;
+      return matchesSearch && isToday(parseISO(d));
     }
     if (selectedFilter === 'low_spend') {
-      return matchesSearch && (table.min_spend || 0) < 5000;
+      return matchesSearch && (table.minimumSpend || 0) < 5000;
     }
     
     return matchesSearch;
@@ -118,8 +116,8 @@ export default function Tables() {
 
   // Sort tables
   const sortedTables = [...filteredTables].sort((a, b) => {
-    const eventA = eventsMap[a.event_id];
-    const eventB = eventsMap[b.event_id];
+    const eventA = a.event;
+    const eventB = b.event;
 
     if (sortBy === 'date') {
       if (!eventA?.date) return 1;
@@ -128,11 +126,11 @@ export default function Tables() {
     }
     
     if (sortBy === 'popularity') {
-      return (b.current_guests || 0) - (a.current_guests || 0);
+      return (b.spotsRemaining || 0) - (a.spotsRemaining || 0);
     }
     
     if (sortBy === 'spend') {
-      return (a.min_spend || 0) - (b.min_spend || 0);
+      return (a.minimumSpend || 0) - (b.minimumSpend || 0);
     }
     
     return 0;
@@ -207,11 +205,11 @@ export default function Tables() {
               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Open Tables</p>
             </div>
             <div>
-              <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>{tables.reduce((acc, t) => acc + (t.current_guests || 1), 0)}</p>
+              <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>{tables.reduce((acc, t) => acc + Math.max(0, (t.guestQuantity || 0) - (t.spotsRemaining || 0)), 0)}</p>
               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>People Joining</p>
             </div>
             <div>
-              <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-silver)', marginBottom: 4 }}>{tables.filter(t => (t.max_guests || 10) - (t.current_guests || 1) > 0).length}</p>
+              <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-silver)', marginBottom: 4 }}>{tables.filter(t => (t.spotsRemaining || 0) > 0).length}</p>
               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Spots Available</p>
             </div>
           </div>
@@ -226,7 +224,22 @@ export default function Tables() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
             >
-              <TrendingTableCard table={table} />
+              {table.source === 'venue' ? (
+                <div className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
+                  <div style={{ fontWeight: 600 }}>{table.tableName}</div>
+                  <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                    {table.displayLocation} · {table.spotsRemaining} spots left
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 6 }}>
+                    Min spend: R{Number(table.minimumSpend || 0).toFixed(0)}
+                  </div>
+                  <Link to={createPageUrl(`TableDetails?id=${table.rawId}&source=venue`)} className="sec-btn sec-btn-secondary" style={{ marginTop: 12, display: 'inline-flex', textDecoration: 'none' }}>
+                    View & Join
+                  </Link>
+                </div>
+              ) : (
+                <HostedTableCard table={table} onJoin={() => window.location.assign(createPageUrl(`TableDetails?id=${table.id}&source=hosted`))} />
+              )}
             </motion.div>
           ))}
         </div>

@@ -71,6 +71,9 @@ export default function HostDashboard() {
     eventDate: '',
     eventTime: '21:00',
     guestQuantity: 4,
+    hostingCategory: 'GENERAL',
+    hostingTierIndex: 0,
+    tierMaxGuests: null,
     hasJoiningFee: false,
     joiningFee: '',
     photo: '',
@@ -149,6 +152,14 @@ export default function HostDashboard() {
     () => publicEvents.find((e) => e.id === tableForm.eventId),
     [publicEvents, tableForm.eventId],
   );
+  const selectedHostingTier = useMemo(() => {
+    const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
+    const categoryKey = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
+    const tiers = Array.isArray(cfg?.[categoryKey]?.tiers) ? cfg[categoryKey].tiers : [];
+    const idx = Number(tableForm.hostingTierIndex || 0);
+    if (!tiers[idx]) return null;
+    return { ...tiers[idx], index: idx };
+  }, [selectedEvent, tableForm.hostingCategory, tableForm.hostingTierIndex]);
 
   const filteredPublicEvents = useMemo(() => {
     const q = eventSearch.trim().toLowerCase();
@@ -224,6 +235,8 @@ export default function HostDashboard() {
           eventId: tableForm.eventId,
           eventTime: tableForm.eventTime,
           guestQuantity: tableForm.guestQuantity,
+          hostingCategory: tableForm.hostingCategory,
+          hostingTierIndex: Number(tableForm.hostingTierIndex || 0),
           hasJoiningFee: tableForm.hasJoiningFee,
           joiningFee: tableForm.hasJoiningFee ? Number(tableForm.joiningFee) : null,
           photo: tableForm.photo || null,
@@ -822,6 +835,37 @@ export default function HostDashboard() {
                       )}
                     </div>
                   )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block text-sm font-medium">
+                      Hosting category
+                      <select
+                        className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                        value={tableForm.hostingCategory}
+                        onChange={(e) => setTableForm((f) => ({ ...f, hostingCategory: e.target.value, hostingTierIndex: 0 }))}
+                      >
+                        <option value="GENERAL">General</option>
+                        <option value="VIP">VIP</option>
+                      </select>
+                    </label>
+                    <label className="block text-sm font-medium">
+                      Tier
+                      <select
+                        className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                        value={String(tableForm.hostingTierIndex)}
+                        onChange={(e) => setTableForm((f) => ({ ...f, hostingTierIndex: Number(e.target.value || 0) }))}
+                      >
+                        {(() => {
+                          const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
+                          const key = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
+                          const tiers = Array.isArray(cfg?.[key]?.tiers) ? cfg[key].tiers : [];
+                          if (tiers.length === 0) return <option value="0">Default</option>;
+                          return tiers.map((t, i) => (
+                            <option key={i} value={i}>Tier {i + 1} · Max {t?.max_guests ?? '-'} · Min spend {t?.min_spend ?? '-'}</option>
+                          ));
+                        })()}
+                      </select>
+                    </label>
+                  </div>
                 </>
               ) : (
                 <>
@@ -909,6 +953,11 @@ export default function HostDashboard() {
                 value={tableForm.guestQuantity}
                 onChange={(e) => setTableForm((f) => ({ ...f, guestQuantity: parseInt(e.target.value, 10) || 1 }))}
               />
+              {tableForm.tableType === 'IN_APP_EVENT' && selectedHostingTier?.max_guests ? (
+                <p className="text-xs text-[var(--sec-text-muted)]">
+                  Max guests for this tier: {selectedHostingTier.max_guests} — do not exceed.
+                </p>
+              ) : null}
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"

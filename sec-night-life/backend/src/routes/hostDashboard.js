@@ -14,6 +14,7 @@ import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
 import { normalizeGuestGenderPreference, genderMatchesPreference } from '../lib/genderPreference.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
+import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from '../lib/hostedTableSecFees.js';
 
 const router = Router();
 const EXTERNAL_HOSTED_LISTING_ZAR = 200;
@@ -438,6 +439,18 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
         spotsRemaining: t.spotsRemaining,
         boosted: t.boosted,
         eventId: t.eventId,
+        hostingCategory: t.hostingCategory ?? null,
+        hostingTierIndex: t.hostingTierIndex ?? null,
+        tierMaxGuests: t.tierMaxGuests ?? null,
+        event: t.event
+          ? {
+              id: t.event.id,
+              title: t.event.title,
+              date: t.event.date,
+              start_time: t.event.startTime,
+              city: t.event.city || null,
+            }
+          : null,
         host: await formatPublicHost(t.host ?? null).catch(() => ({
           username: null,
           fullName: null,
@@ -833,6 +846,8 @@ const createTableSchema = z.object({
   desiredCompany: z.string().optional().nullable(),
   guestGenderPreference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
   guestQuantity: z.number().int().min(1).max(20),
+  hostingCategory: z.enum(['GENERAL', 'VIP']).optional(),
+  hostingTierIndex: z.number().int().min(0).optional().nullable(),
   isPublic: z.boolean().default(true),
 });
 
@@ -861,6 +876,11 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       if (!timeCheck.ok) return res.status(400).json({ error: timeCheck.error });
       const venueName = ev.venue?.name || d.venueName || 'Venue';
       const venueAddress = formatVenueAddressFromVenue(ev.venue) ?? d.venueAddress?.trim() ?? ev.city ?? null;
+      const hostingCategory = d.hostingCategory === 'VIP' ? 'VIP' : 'GENERAL';
+      const tierMeta = resolveHostingTierCaps(ev.hostingConfig, hostingCategory, d.hostingTierIndex);
+      if (d.guestQuantity > tierMeta.maxGuests) {
+        return res.status(400).json({ error: `Guest quantity exceeds tier cap (${tierMeta.maxGuests}).` });
+      }
       const t = await prisma.$transaction(async (tx) =>
         tx.hostedTable.create({
           data: {
@@ -883,6 +903,10 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             desiredCompany: d.desiredCompany ?? null,
             guestQuantity: d.guestQuantity,
             spotsRemaining: d.guestQuantity - 1,
+            hostingCategory,
+            hostingTierIndex: tierMeta.tierIndex,
+            tierMaxGuests: tierMeta.maxGuests,
+            tierMinSpend: tierMeta.minSpend,
             isPublic: d.isPublic,
             status: 'ACTIVE',
             members: {
@@ -905,21 +929,27 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
         referenceType: 'HOSTED_TABLE',
         description: 'hosted a table',
       });
-      const hosting = normalizeHostingConfig(ev.hostingConfig);
-      const category = d.eventType === 'CLUB_TABLE' ? 'general' : 'vip';
-      const hostFee = Number(hosting?.[category]?.host_table_fee_zar || 0);
+      const hostFee = getHostTableFeeZar(ev.hostingConfig, hostingCategory);
+      const entranceZar = getEventEntranceZar(ev);
       if (hostFee > 0) {
         await prisma.hostedTable.update({ where: { id: t.id }, data: { status: 'DRAFT' } });
+        const totalHostPay = hostFee + entranceZar;
         const pay = await initializePaystackPayment({
           userId: req.userId,
-          amountZar: hostFee,
+          amountZar: totalHostPay,
           metadata: {
             type: 'TABLE_HOST_FEE',
+            hosted_table_id: t.id,
+            event_id: ev.id,
+            venue_id: ev.venueId,
+            entrance_zar: entranceZar,
+            host_fee_zar: hostFee,
+            amount_total_zar: totalHostPay,
             table_create: {
               event_id: ev.id,
               venue_id: ev.venueId,
               name: d.tableName,
-              table_category: category,
+              table_category: hostingCategory === 'VIP' ? 'vip' : 'general',
               max_guests: d.guestQuantity,
               min_spend: 0,
               joining_fee: d.hasJoiningFee ? d.joiningFee : null,
@@ -1133,6 +1163,7 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
         id: true,
         hostUserId: true,
         tableName: true,
+        eventId: true,
         spotsRemaining: true,
         status: true,
         hasJoiningFee: true,
@@ -1168,13 +1199,26 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
     }
     if (table.spotsRemaining <= 0) return res.status(400).json({ error: 'Table is full' });
     if (table.hasJoiningFee && Number(table.joiningFee || 0) > 0) {
+      const event = table.eventId
+        ? await prisma.event.findFirst({
+            where: { id: table.eventId, deletedAt: null },
+            select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+          })
+        : null;
+      const entranceZar = getEventEntranceZar(event);
+      const joinZar = Number(table.joiningFee);
       const pay = await initializePaystackPayment({
         userId: targetUserId,
-        amountZar: Number(table.joiningFee),
+        amountZar: entranceZar + joinZar,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: table.id,
           hosted_table_member_id: member.id,
+          event_id: event?.id || null,
+          venue_id: event?.venueId || null,
+          entrance_zar: entranceZar,
+          join_zar: joinZar,
+          amount_total_zar: entranceZar + joinZar,
           user_id: targetUserId,
         },
       });
@@ -1375,16 +1419,29 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       return res.json({ joined: false, pending: true });
     }
     if (t.hasJoiningFee && Number(t.joiningFee || 0) > 0) {
+      const event = t.eventId
+        ? await prisma.event.findFirst({
+            where: { id: t.eventId, deletedAt: null },
+            select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+          })
+        : null;
+      const entranceZar = getEventEntranceZar(event);
+      const joinZar = Number(t.joiningFee);
       const member = await prisma.hostedTableMember.create({
         data: { hostedTableId: t.id, userId: req.userId, status: 'PENDING' },
       });
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: Number(t.joiningFee),
+        amountZar: entranceZar + joinZar,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: t.id,
           hosted_table_member_id: member.id,
+          event_id: event?.id || null,
+          venue_id: event?.venueId || null,
+          entrance_zar: entranceZar,
+          join_zar: joinZar,
+          amount_total_zar: entranceZar + joinZar,
           user_id: req.userId,
         },
       });
@@ -1511,6 +1568,14 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
     if (existingMember?.status === 'GOING') return res.status(400).json({ error: 'Already a member' });
     if (table.spotsRemaining <= 0) return res.status(400).json({ error: 'Table is full' });
     if (table.hasJoiningFee && Number(table.joiningFee || 0) > 0) {
+      const event = table.eventId
+        ? await prisma.event.findFirst({
+            where: { id: table.eventId, deletedAt: null },
+            select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+          })
+        : null;
+      const entranceZar = getEventEntranceZar(event);
+      const joinZar = Number(table.joiningFee);
       const member =
         existingMember?.status === 'PENDING'
           ? existingMember
@@ -1523,11 +1588,16 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
       });
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: Number(table.joiningFee),
+        amountZar: entranceZar + joinZar,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: table.id,
           hosted_table_member_id: member.id,
+          event_id: event?.id || null,
+          venue_id: event?.venueId || null,
+          entrance_zar: entranceZar,
+          join_zar: joinZar,
+          amount_total_zar: entranceZar + joinZar,
           user_id: req.userId,
         },
       });

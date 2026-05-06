@@ -55,9 +55,10 @@ export async function issueTicketAndNotify(db, params) {
     },
   });
 
-  let qrDataUrl = '';
+  const QR_CID = 'sec-ticket-qr';
+  let qrPngBuffer = null;
   try {
-    qrDataUrl = await QRCode.toDataURL(qrContent, { width: 200, margin: 1 });
+    qrPngBuffer = await QRCode.toBuffer(qrContent, { type: 'png', width: 200, margin: 1 });
   } catch (e) {
     logger.warn('QR generation failed', { err: e?.message });
   }
@@ -92,10 +93,13 @@ export async function issueTicketAndNotify(db, params) {
           <p style="margin:0 0 8px;"><strong>${title}</strong></p>
           ${subtitle ? `<p style="color:#aaa;margin:0 0 16px;">${subtitle}</p>` : ''}
           <p style="margin:0 0 16px;">Open <a href="${profileUrl}" style="color:#8cf;">Profile → Tickets</a> in the SEC app to show your QR code at the door.</p>
-          ${qrDataUrl ? `<p style="margin:16px 0;"><img src="${qrDataUrl}" alt="Ticket QR" width="200" height="200" style="display:block;border-radius:8px;" /></p>` : ''}
+          ${qrPngBuffer ? `<p style="margin:16px 0;"><img src="cid:${QR_CID}" alt="Ticket QR" width="200" height="200" style="display:block;border-radius:8px;" /></p>` : ''}
           <p style="font-size:12px;color:#666;">Reference: ${paystackReference}</p>
         </div>
       `,
+      attachments: qrPngBuffer
+        ? [{ filename: 'ticket-qr.png', content: qrPngBuffer, contentId: QR_CID }]
+        : undefined,
     }).catch((e) => logger.warn('ticket email failed', { err: e?.message }));
   }
 

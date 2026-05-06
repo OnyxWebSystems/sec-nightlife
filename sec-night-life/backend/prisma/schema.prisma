@@ -190,6 +190,11 @@ enum GuestGenderPreference {
   OTHER_ONLY
 }
 
+enum HostingTableCategory {
+  GENERAL
+  VIP
+}
+
 enum TicketKind {
   EVENT_TICKET
   TABLE_JOIN
@@ -320,6 +325,7 @@ model User {
   eventInterestRemindersSent  EventInterestReminderSent[]
   tickets                     Ticket[]
   payoutLedgersAsRecipient    PayoutLedger[]             @relation("PayoutRecipientUser")
+  eventVenueTableBookings     EventVenueTableBooking[]
 
   @@unique([email, role])
   @@index([email])
@@ -465,6 +471,7 @@ model Venue {
   follows             VenueFollow[]
   venueTables         VenueTable[]
   payoutLedgers       PayoutLedger[] @relation("PayoutRecipientVenue")
+  eventVenueTableBookings EventVenueTableBooking[]
 
   @@index([ownerUserId])
   @@index([city])
@@ -612,6 +619,7 @@ model Event {
   groupChat     GroupChat?
   userReviews   UserReview[]
   eventInterestRemindersSent EventInterestReminderSent[]
+  eventVenueTableBookings    EventVenueTableBooking[]
 
   @@index([venueId])
   @@index([date])
@@ -1290,6 +1298,11 @@ model HostedTable {
   boostedAt        DateTime?         @map("boosted_at")
   boostExpiresAt   DateTime?         @map("boost_expires_at")
   boostPaystackRef String?           @map("boost_paystack_ref")
+  hostingCategory        HostingTableCategory? @map("hosting_category")
+  hostingTierIndex       Int?                @map("hosting_tier_index")
+  tierMaxGuests          Int?                @map("tier_max_guests")
+  tierMinSpend           Float?              @map("tier_min_spend")
+  hostFeePaystackRef     String?             @unique @map("host_fee_paystack_ref")
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
@@ -1298,11 +1311,38 @@ model HostedTable {
   members HostedTableMember[]
   invites TableInvite[]
   groupChat HostedTableGroupChat?
+  eventVenueBookings EventVenueTableBooking[]
 
   @@index([hostUserId])
   @@index([status])
   @@index([eventDate])
   @@map("hosted_tables")
+}
+
+/// SEC event hosted-table activity for venue owner dashboards (host + confirmed guests).
+model EventVenueTableBooking {
+  id                String   @id @default(cuid())
+  venueId           String   @map("venue_id")
+  eventId           String   @map("event_id")
+  hostedTableId     String   @map("hosted_table_id")
+  userId            String   @map("user_id")
+  role              String   @map("role")
+  paystackReference String?  @map("paystack_reference")
+  amountTotal       Float?   @map("amount_total")
+  entranceZar       Float?   @map("entrance_zar")
+  componentZar      Float?   @map("component_zar")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  venue       Venue       @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  event       Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  hostedTable HostedTable @relation(fields: [hostedTableId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([venueId])
+  @@index([eventId])
+  @@index([hostedTableId])
+  @@index([userId])
+  @@map("event_venue_table_bookings")
 }
 
 model HostedTableGroupChat {

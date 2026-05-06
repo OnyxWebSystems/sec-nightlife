@@ -18,6 +18,7 @@ import { logFriendActivity } from '../lib/friendActivity.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
+import { getEventEntranceZar } from '../lib/hostedTableSecFees.js';
 import { normalizeGuestGenderPreference, genderMatchesPreference } from '../lib/genderPreference.js';
 
 const router = Router();
@@ -273,11 +274,18 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
 
     const hostFee = Number(hosting?.[category]?.host_table_fee_zar || 0);
     if (hostFee > 0) {
+      const entranceZar = getEventEntranceZar(event);
+      const totalHostPay = hostFee + entranceZar;
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: hostFee,
+        amountZar: totalHostPay,
         metadata: {
           type: 'TABLE_HOST_FEE',
+          event_id: event.id,
+          venue_id: event.venueId,
+          entrance_zar: entranceZar,
+          host_fee_zar: hostFee,
+          amount_total_zar: totalHostPay,
           table_create: {
             event_id: data.event_id,
             venue_id: data.venue_id,

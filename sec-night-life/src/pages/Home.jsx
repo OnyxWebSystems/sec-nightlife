@@ -11,6 +11,7 @@ import { ChevronRight, Search, SlidersHorizontal, BadgeCheck, Trophy, Bell, User
 
 import FeaturedEventCard from '@/components/home/FeaturedEventCard';
 import VenueCard from '@/components/home/VenueCard';
+import HostedTableCard from '@/components/home/HostedTableCard';
 import QuickActions from '@/components/home/QuickActions';
 import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
@@ -524,41 +525,7 @@ export default function Home() {
             <div className="grid gap-2 xl:grid-cols-2">
               {hostTables.slice(0, 8).map((table, i) => (
                 <motion.div key={table.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
-                  <div className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
-                    <div style={{ fontWeight: 600 }}>{table.tableName || table.venueName}</div>
-                    <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-                      {(() => {
-                        if (!table.eventDate) return `— · ${table.eventTime ?? ''}`;
-                        const d = parseISO(table.eventDate);
-                        return `${isValid(d) ? format(d, 'EEE d MMM') : '—'} · ${table.eventTime ?? ''}`;
-                      })()}
-                    </div>
-                    <div style={{ fontSize: 12, marginTop: 6 }}>
-                      Host: {table.host?.username || '—'}
-                      {table.host?.averageRating != null && ` · ★ ${Number(table.host.averageRating).toFixed(1)}`}
-                    </div>
-                    <div style={{ fontSize: 12, marginTop: 4 }}>{table.spotsRemaining} spots left</div>
-                    {table.boosted && (
-                      <span style={{ fontSize: 10, marginTop: 6, display: 'inline-block', padding: '2px 8px', borderRadius: 999, background: 'var(--sec-success-muted)' }}>Boosted</span>
-                    )}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                      <button
-                        type="button"
-                        className="sec-btn sec-btn-secondary"
-                        style={{ flex: 1 }}
-                        onClick={() => joinHostedTable(table.id)}
-                      >
-                        Join Table
-                      </button>
-                      <Link
-                        to={createPageUrl(`TableDetails?id=${table.id}&source=hosted`)}
-                        className="sec-btn sec-btn-ghost"
-                        style={{ flex: 1, textAlign: 'center', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        Details
-                      </Link>
-                    </div>
-                  </div>
+                  <HostedTableCard table={table} onJoin={(row) => joinHostedTable(row.id)} compact />
                 </motion.div>
               ))}
               {venueTables.slice(0, 8).map((table, i) => (

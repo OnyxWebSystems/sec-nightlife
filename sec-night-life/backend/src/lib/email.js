@@ -12,10 +12,32 @@ function createResendClient() {
   return new Resend(process.env.RESEND_API_KEY);
 }
 
-export async function sendEmail({ to, subject, html, text }) {
+/**
+ * @param {object} params
+ * @param {string} params.to
+ * @param {string} params.subject
+ * @param {string} [params.html]
+ * @param {string} [params.text]
+ * @param {Array<{ filename: string, content: string | Buffer, contentId?: string }>} [params.attachments] Inline images: set contentId → HTML uses src="cid:contentId" (Resend: inlineContentId)
+ */
+export async function sendEmail({ to, subject, html, text, attachments }) {
   const resend = createResendClient();
   const from = getFromAddress();
-  await resend.emails.send({ from, to, subject, html, text });
+  const payload = { from, to, subject, html, text };
+  if (attachments?.length) {
+    payload.attachments = attachments.map((a) => {
+      const content =
+        typeof a.content === 'string'
+          ? a.content
+          : Buffer.isBuffer(a.content)
+            ? a.content
+            : Buffer.from(String(a.content), 'base64');
+      const row = { filename: a.filename, content };
+      if (a.contentId) row.inlineContentId = a.contentId;
+      return row;
+    });
+  }
+  await resend.emails.send(payload);
   logger.info('Email sent via Resend', { to, subject });
 }
 
