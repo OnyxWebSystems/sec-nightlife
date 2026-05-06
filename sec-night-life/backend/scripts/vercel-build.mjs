@@ -21,12 +21,33 @@ function isRetryableMigrateLockError(output) {
   return output.includes('P1002') && output.includes('pg_advisory_lock');
 }
 
-function runPrismaMigrateDeployWithRetry(maxAttempts = 4) {
+function deriveDirectNeonUrl(databaseUrl) {
+  if (!databaseUrl || !databaseUrl.includes('-pooler.')) return null;
+  try {
+    const u = new URL(databaseUrl);
+    u.hostname = u.hostname.replace('-pooler.', '.');
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+function runPrismaMigrateDeployWithRetry({
+  maxAttempts = 4,
+  migrateDatabaseUrl,
+} = {}) {
+  const migrateEnv = {
+    ...process.env,
+    ...(migrateDatabaseUrl ? { DATABASE_URL: migrateDatabaseUrl } : {}),
+    // Prefer IPv4 in CI to reduce intermittent DNS/network issues.
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, '--dns-result-order=ipv4first'].filter(Boolean).join(' '),
+  };
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const result = spawnSync('npx', ['prisma', 'migrate', 'deploy'], {
       stdio: 'pipe',
       encoding: 'utf8',
-      shell: process.platform === 'win32'
+      shell: process.platform === 'win32',
+      env: migrateEnv,
     });
     const combinedOutput = `${result.stdout || ''}\n${result.stderr || ''}`;
     if (result.stdout) process.stdout.write(result.stdout);
@@ -52,7 +73,17 @@ const hasDatabaseUrl = Boolean(process.env.DATABASE_URL && process.env.DATABASE_
 
 if (hasDatabaseUrl) {
   console.log('[build] DATABASE_URL detected: running prisma migrate deploy + prisma generate');
-  runPrismaMigrateDeployWithRetry();
+  const directFromEnv = process.env.DIRECT_DATABASE_URL?.trim();
+  const derivedDirect = deriveDirectNeonUrl(process.env.DATABASE_URL?.trim());
+  const migrateDatabaseUrl = directFromEnv || derivedDirect || process.env.DATABASE_URL;
+  if (directFromEnv) {
+    console.log('[build] Using DIRECT_DATABASE_URL for prisma migrate deploy');
+  } else if (derivedDirect) {
+    console.log('[build] Using derived direct Neon URL for prisma migrate deploy (pooler avoided)');
+  } else {
+    console.log('[build] Using DATABASE_URL for prisma migrate deploy');
+  }
+  runPrismaMigrateDeployWithRetry({ migrateDatabaseUrl });
   run('npx', ['prisma', 'generate']);
 } else {
   console.log('[build] DATABASE_URL not set: skipping prisma migrate deploy, running prisma generate only');
