@@ -10,6 +10,10 @@ export default function HostedTableCard({ table, onJoin, compact = false }) {
   const rating = table?.host?.averageRating;
   const isVip = String(table?.hostingCategory || '').toUpperCase() === 'VIP';
   const sourceBadge = table?.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External';
+  const joinedCount =
+    table?.joinedCount != null
+      ? Number(table.joinedCount)
+      : Math.max(0, Number(table?.guestQuantity || 0) - Number(table?.spotsRemaining || 0));
 
   return (
     <div
@@ -45,6 +49,7 @@ export default function HostedTableCard({ table, onJoin, compact = false }) {
 
       <div style={{ marginTop: 6, fontSize: 12, color: 'var(--sec-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
         <Users size={13} />
+        {joinedCount} joined ·
         {table?.spotsRemaining ?? 0} spots left
         {table?.hasJoiningFee && Number(table?.joiningFee || 0) > 0 ? ` · Join R${Number(table.joiningFee).toFixed(0)}` : ' · Free join'}
       </div>

@@ -224,7 +224,7 @@ function buildEventLocationPayload(event) {
 router.get('/parties/public', optionalAuth, async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(10, parseInt(req.query.limit) || 10);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
     const city = req.query.city ? String(req.query.city).trim() : '';
     const now = new Date();
     const where = {
@@ -442,6 +442,7 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
         hostingCategory: t.hostingCategory ?? null,
         hostingTierIndex: t.hostingTierIndex ?? null,
         tierMaxGuests: t.tierMaxGuests ?? null,
+        tierMinSpend: t.tierMinSpend ?? null,
         event: t.event
           ? {
               id: t.event.id,

@@ -160,6 +160,17 @@ export default function HostDashboard() {
     if (!tiers[idx]) return null;
     return { ...tiers[idx], index: idx };
   }, [selectedEvent, tableForm.hostingCategory, tableForm.hostingTierIndex]);
+  const hostingTierOptions = useMemo(() => {
+    const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
+    const key = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
+    const tiers = Array.isArray(cfg?.[key]?.tiers) ? cfg[key].tiers : [];
+    return tiers.map((t, i) => ({
+      value: i,
+      name: (t?.tier_name || t?.name || `Tier ${i + 1}`).toString(),
+      maxGuests: t?.max_guests,
+      minSpend: t?.min_spend,
+    }));
+  }, [selectedEvent, tableForm.hostingCategory]);
 
   const filteredPublicEvents = useMemo(() => {
     const q = eventSearch.trim().toLowerCase();
@@ -224,6 +235,11 @@ export default function HostDashboard() {
         const minT = eventStartTimeForInput(selectedEvent);
         if (minT && tableForm.eventTime && tableForm.eventTime < minT) {
           toast.error('Table time cannot be before the event start time');
+          setSaving(false);
+          return;
+        }
+        if (selectedHostingTier?.max_guests && Number(tableForm.guestQuantity) > Number(selectedHostingTier.max_guests)) {
+          toast.error(`Guest quantity cannot exceed selected tier max (${selectedHostingTier.max_guests}).`);
           setSaving(false);
           return;
         }
@@ -854,15 +870,12 @@ export default function HostDashboard() {
                         value={String(tableForm.hostingTierIndex)}
                         onChange={(e) => setTableForm((f) => ({ ...f, hostingTierIndex: Number(e.target.value || 0) }))}
                       >
-                        {(() => {
-                          const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
-                          const key = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
-                          const tiers = Array.isArray(cfg?.[key]?.tiers) ? cfg[key].tiers : [];
-                          if (tiers.length === 0) return <option value="0">Default</option>;
-                          return tiers.map((t, i) => (
-                            <option key={i} value={i}>Tier {i + 1} · Max {t?.max_guests ?? '-'} · Min spend {t?.min_spend ?? '-'}</option>
-                          ));
-                        })()}
+                        {hostingTierOptions.length === 0 ? <option value="0">Default</option> : null}
+                        {hostingTierOptions.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.name} · Max {t.maxGuests ?? '-'} · Min spend {t.minSpend ?? '-'}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   </div>
@@ -940,7 +953,7 @@ export default function HostDashboard() {
                 />
                 {tableForm.tableType === 'IN_APP_EVENT' && eventStartTimeLabel(selectedEvent) && (
                   <span className="text-xs text-[var(--sec-text-muted)] mt-1 block">
-                    Not before event start ({eventStartTimeLabel(selectedEvent)})
+                    You cannot set a time before the event start time ({eventStartTimeLabel(selectedEvent)}).
                   </span>
                 )}
               </label>
@@ -951,11 +964,17 @@ export default function HostDashboard() {
                 placeholder="Spots at table"
                 className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
                 value={tableForm.guestQuantity}
-                onChange={(e) => setTableForm((f) => ({ ...f, guestQuantity: parseInt(e.target.value, 10) || 1 }))}
+                onChange={(e) =>
+                  setTableForm((f) => {
+                    const raw = parseInt(e.target.value, 10) || 1;
+                    const cap = selectedHostingTier?.max_guests ? Number(selectedHostingTier.max_guests) : null;
+                    return { ...f, guestQuantity: cap ? Math.min(raw, cap) : raw };
+                  })
+                }
               />
               {tableForm.tableType === 'IN_APP_EVENT' && selectedHostingTier?.max_guests ? (
                 <p className="text-xs text-[var(--sec-text-muted)]">
-                  Max guests for this tier: {selectedHostingTier.max_guests} — do not exceed.
+                  Max guests for this tier: {selectedHostingTier.max_guests} — you cannot exceed this limit.
                 </p>
               ) : null}
               <label className="flex items-center gap-2 text-sm">

@@ -170,7 +170,7 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
 router.get('/available', optionalAuth, async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(10, parseInt(req.query.limit) || 10);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
     const rows = await prisma.venueTable.findMany({
       where: {
         isActive: true,

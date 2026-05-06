@@ -15,6 +15,7 @@ const timeHHMM = z.preprocess(
 );
 
 const tablePricingTierSchema = z.object({
+  tier_name: z.string().min(1).max(80).optional(),
   max_guests: z.number().int().min(1).max(500),
   min_spend: z.number().min(0),
 });

@@ -31,6 +31,7 @@ function hostingFromApi(hc) {
     host_table_fee_zar: s?.host_table_fee_zar != null && s.host_table_fee_zar !== '' ? String(s.host_table_fee_zar) : '',
     tiers: Array.isArray(s?.tiers) && s.tiers.length
       ? s.tiers.map((t) => ({
+          tier_name: String(t.tier_name ?? t.name ?? ''),
           max_guests: String(t.max_guests ?? ''),
           min_spend: String(t.min_spend ?? ''),
         }))
@@ -192,7 +193,10 @@ export default function BusinessEvents() {
         hostingPayload[cat].host_table_fee_zar = hostFee;
       }
       const tierRows = (sec?.tiers || []).filter(
-        (t) => String(t?.max_guests || '').trim() && String(t?.min_spend ?? '').trim() !== ''
+        (t) =>
+          String(t?.tier_name || '').trim() &&
+          String(t?.max_guests || '').trim() &&
+          String(t?.min_spend ?? '').trim() !== ''
       );
       const parsedTiers = [];
       for (const t of tierRows) {
@@ -202,7 +206,12 @@ export default function BusinessEvents() {
           toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} pricing tiers (guests and min spend)`);
           return;
         }
-        parsedTiers.push({ max_guests: mg, min_spend: ms });
+        const tierName = String(t.tier_name || '').trim();
+        if (!tierName) {
+          toast.error(`Each ${cat === 'vip' ? 'VIP' : 'General'} tier needs a name`);
+          return;
+        }
+        parsedTiers.push({ tier_name: tierName, max_guests: mg, min_spend: ms });
       }
       hostingPayload[cat].tiers = parsedTiers;
     }
@@ -510,7 +519,7 @@ export default function BusinessEvents() {
                               ...p.hosting_config,
                               [cat]: {
                                 ...p.hosting_config[cat],
-                                tiers: [...(p.hosting_config[cat].tiers || []), { max_guests: '', min_spend: '' }],
+                                tiers: [...(p.hosting_config[cat].tiers || []), { tier_name: '', max_guests: '', min_spend: '' }],
                               },
                             },
                           }))
@@ -523,6 +532,26 @@ export default function BusinessEvents() {
                     <div className="space-y-2">
                       {tiers.map((tier, idx) => (
                         <div key={idx} className="flex gap-2 items-end flex-wrap">
+                          <div className="flex-1 min-w-[120px]">
+                            <Label className="text-xs text-gray-500">Tier name</Label>
+                            <Input
+                              value={tier.tier_name || ''}
+                              onChange={(e) => {
+                                const next = [...(form.hosting_config[cat].tiers || [])];
+                                next[idx] = { ...next[idx], tier_name: e.target.value };
+                                setForm((p) => ({
+                                  ...p,
+                                  hosting_config: {
+                                    ...p.hosting_config,
+                                    [cat]: { ...p.hosting_config[cat], tiers: next },
+                                  },
+                                }));
+                              }}
+                              className="mt-1 h-10 rounded-xl"
+                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                              placeholder={`e.g. ${label} Bronze`}
+                            />
+                          </div>
                           <div className="flex-1 min-w-[100px]">
                             <Label className="text-xs text-gray-500">Max guests</Label>
                             <Input

@@ -42,12 +42,21 @@ export default function Tables() {
   const { data: hostedResp, isLoading } = useQuery({
     queryKey: ['tables-hosted-available'],
     queryFn: () => apiGet('/api/host/tables/available?limit=100&page=1'),
+    refetchInterval: 15000,
   });
   const { data: venueResp } = useQuery({
     queryKey: ['tables-venue-available'],
     queryFn: () => apiGet('/api/venue-tables/available?limit=100&page=1'),
+    refetchInterval: 15000,
   });
-  const hostedTables = hostedResp?.items || [];
+  const hostedTables = (hostedResp?.items || []).map((t) => ({
+    ...t,
+    source: 'hosted',
+    currentGuests: Math.max(0, Number(t.guestQuantity || 0) - Number(t.spotsRemaining || 0)),
+    joinedCount: Math.max(0, Number(t.guestQuantity || 0) - Number(t.spotsRemaining || 0)),
+    minimumSpend: Number(t.tierMinSpend || 0),
+    venueType: t.tableType === 'IN_APP_EVENT' ? 'event' : 'external',
+  }));
   const venueTables = venueResp?.items || [];
   const tables = [...hostedTables, ...venueTables.map((v) => ({
     id: `venue-${v.id}`,
@@ -57,6 +66,10 @@ export default function Tables() {
     displayLocation: v.venue?.city || v.venue?.name || 'Venue',
     event: v.event ? { id: v.event.id, title: v.event.title, date: v.event.date, city: v.venue?.city || null } : null,
     host: { username: v.venue?.name || 'Venue' },
+    venueType: v.venue?.venueType || null,
+    currentGuests: Number(v.currentOccupancy || 0),
+    guestQuantity: Number(v.guestCapacity || 0),
+    joinedCount: Number(v.currentOccupancy || 0),
     spotsRemaining: v.spotsRemaining || 0,
     hasJoiningFee: true,
     joiningFee: null,
@@ -98,8 +111,10 @@ export default function Tables() {
       if (filters.dateRange === 'weekend' && !isThisWeekend(eventDate)) return false;
     }
 
-    // Venue type filter
-    if (filters.venueType !== 'all' && table.source === 'venue') return false;
+    if (filters.venueType !== 'all') {
+      const vt = String(table.venueType || '').toLowerCase();
+      if (vt !== String(filters.venueType).toLowerCase()) return false;
+    }
 
     // Quick filter
     if (selectedFilter === 'tonight') {
@@ -120,13 +135,17 @@ export default function Tables() {
     const eventB = b.event;
 
     if (sortBy === 'date') {
-      if (!eventA?.date) return 1;
-      if (!eventB?.date) return -1;
-      return new Date(eventA.date) - new Date(eventB.date);
+      const da = eventA?.date || a.eventDate;
+      const db = eventB?.date || b.eventDate;
+      if (!da) return 1;
+      if (!db) return -1;
+      return new Date(da) - new Date(db);
     }
     
     if (sortBy === 'popularity') {
-      return (b.spotsRemaining || 0) - (a.spotsRemaining || 0);
+      const joinedA = a.joinedCount ?? Math.max(0, (a.guestQuantity || 0) - (a.spotsRemaining || 0));
+      const joinedB = b.joinedCount ?? Math.max(0, (b.guestQuantity || 0) - (b.spotsRemaining || 0));
+      return joinedB - joinedA;
     }
     
     if (sortBy === 'spend') {
@@ -198,23 +217,6 @@ export default function Tables() {
       </header>
 
       <div style={{ padding: 'var(--space-6)' }}>
-        <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24, textAlign: 'center' }}>
-            <div>
-              <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-accent)', marginBottom: 4 }}>{tables.length}</p>
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Open Tables</p>
-            </div>
-            <div>
-              <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>{tables.reduce((acc, t) => acc + Math.max(0, (t.guestQuantity || 0) - (t.spotsRemaining || 0)), 0)}</p>
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>People Joining</p>
-            </div>
-            <div>
-              <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-silver)', marginBottom: 4 }}>{tables.filter(t => (t.spotsRemaining || 0) > 0).length}</p>
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Spots Available</p>
-            </div>
-          </div>
-        </div>
-
         {/* Tables Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {sortedTables.map((table, index) => (
@@ -228,7 +230,7 @@ export default function Tables() {
                 <div className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
                   <div style={{ fontWeight: 600 }}>{table.tableName}</div>
                   <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-                    {table.displayLocation} · {table.spotsRemaining} spots left
+                    {table.displayLocation} · {table.joinedCount || 0} joined · {table.spotsRemaining} spots left
                   </div>
                   <div style={{ fontSize: 12, marginTop: 6 }}>
                     Min spend: R{Number(table.minimumSpend || 0).toFixed(0)}
