@@ -1,5 +1,14 @@
 import { Resend } from 'resend';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { logger } from './logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const SEC_EMAIL_LOGO_CID = 'sec-email-logo';
+const SEC_EMAIL_LOGO_PRIMARY_PATH = path.resolve(__dirname, '../../public/Logo/sec-email-logo.png');
+const SEC_EMAIL_LOGO_FALLBACK_PATH = path.resolve(__dirname, '../../public/Logo/sec-logo.png');
 
 function getFromAddress() {
   return process.env.EMAIL_FROM || 'noreply@secnightlife.com';
@@ -10,6 +19,72 @@ function createResendClient() {
     throw new Error('RESEND_API_KEY is not configured');
   }
   return new Resend(process.env.RESEND_API_KEY);
+}
+
+function getSecEmailLogoAttachment() {
+  const logoPath = fs.existsSync(SEC_EMAIL_LOGO_PRIMARY_PATH)
+    ? SEC_EMAIL_LOGO_PRIMARY_PATH
+    : SEC_EMAIL_LOGO_FALLBACK_PATH;
+  if (!fs.existsSync(logoPath)) return null;
+
+  return {
+    filename: path.basename(logoPath),
+    content: fs.readFileSync(logoPath),
+    contentId: SEC_EMAIL_LOGO_CID,
+  };
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatTextAsHtml(text = '') {
+  return String(text)
+    .split(/\n{2,}/)
+    .map((block) => `<p style="margin:0 0 12px;line-height:1.6;">${escapeHtml(block).replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+}
+
+function withSecEmailBranding(innerHtml) {
+  return `
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0f1011;color:#e9ecef;border:1px solid #232528;border-radius:16px;overflow:hidden;">
+      <div style="padding:20px 20px 14px;border-bottom:1px solid #232528;background:#0b0c0d;">
+        <div style="display:inline-block;width:64px;height:64px;border-radius:999px;overflow:hidden;background:#0b0c0d;vertical-align:middle;">
+          <img src="cid:${SEC_EMAIL_LOGO_CID}" alt="SEC logo" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:999px;border:0;outline:0;" />
+        </div>
+        <div style="display:inline-block;vertical-align:middle;margin-left:12px;">
+          <div style="font-size:18px;font-weight:700;line-height:1.2;color:#ffffff;">SEC Nightlife</div>
+          <div style="font-size:12px;line-height:1.4;color:#9aa0a6;">Your night. Simplified.</div>
+        </div>
+      </div>
+      <div style="padding:20px;background:#111315;color:#e9ecef;">
+        ${innerHtml}
+      </div>
+    </div>
+  `;
+}
+
+function prepareEmailPayload({ html, text, attachments }) {
+  const bodyHtml = html || formatTextAsHtml(text || '');
+  const brandedHtml = bodyHtml ? withSecEmailBranding(bodyHtml) : undefined;
+
+  const nextAttachments = Array.isArray(attachments) ? [...attachments] : [];
+  const hasLogoCid = nextAttachments.some((a) => a?.contentId === SEC_EMAIL_LOGO_CID);
+  if (!hasLogoCid) {
+    const secLogoAttachment = getSecEmailLogoAttachment();
+    if (secLogoAttachment) nextAttachments.push(secLogoAttachment);
+  }
+
+  return {
+    html: brandedHtml,
+    text,
+    attachments: nextAttachments.length > 0 ? nextAttachments : undefined,
+  };
 }
 
 /**
@@ -23,9 +98,10 @@ function createResendClient() {
 export async function sendEmail({ to, subject, html, text, attachments }) {
   const resend = createResendClient();
   const from = getFromAddress();
-  const payload = { from, to, subject, html, text };
-  if (attachments?.length) {
-    payload.attachments = attachments.map((a) => {
+  const prepared = prepareEmailPayload({ html, text, attachments });
+  const payload = { from, to, subject, html: prepared.html, text: prepared.text };
+  if (prepared.attachments?.length) {
+    payload.attachments = prepared.attachments.map((a) => {
       const content =
         typeof a.content === 'string'
           ? a.content
@@ -42,24 +118,8 @@ export async function sendEmail({ to, subject, html, text, attachments }) {
 }
 
 export async function sendBulkEmails(messages) {
-  const resend = createResendClient();
-  const from = getFromAddress();
   if (!Array.isArray(messages) || messages.length === 0) return;
-
-  const payload = messages.map((m) => ({
-    from,
-    to: m.to,
-    subject: m.subject,
-    html: m.html,
-    text: m.text
-  }));
-
-  const batchSend = resend.batch?.send?.bind(resend.batch);
-  if (typeof batchSend === 'function') {
-    await batchSend(payload);
-  } else {
-    await Promise.all(payload.map((m) => resend.emails.send(m)));
-  }
+  await Promise.all(messages.map((m) => sendEmail(m)));
 }
 
 export async function sendVerificationEmail(to, token) {

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Link2, MessageCircle, Search } from 'lucide-react';
+import { FaFacebookF, FaWhatsapp, FaXTwitter } from 'react-icons/fa6';
 
 export default function EventShareModal({ open, onOpenChange, eventId, eventTitle }) {
   const [query, setQuery] = useState('');
@@ -172,17 +173,26 @@ export default function EventShareModal({ open, onOpenChange, eventId, eventTitl
               </Button>
               <Button type="button" variant="outline" className="justify-start" asChild>
                 <a href={wa} target="_blank" rel="noopener noreferrer">
-                  Share on WhatsApp
+                  <span className="inline-flex items-center gap-2">
+                    <FaWhatsapp className="w-4 h-4 shrink-0 text-[#25D366]" aria-hidden="true" />
+                    <span>Share on WhatsApp</span>
+                  </span>
                 </a>
               </Button>
               <Button type="button" variant="outline" className="justify-start" asChild>
                 <a href={tw} target="_blank" rel="noopener noreferrer">
-                  Share on Twitter / X
+                  <span className="inline-flex items-center gap-2">
+                    <FaXTwitter className="w-4 h-4 shrink-0 text-[#E5E7EB]" aria-hidden="true" />
+                    <span>Share on Twitter / X</span>
+                  </span>
                 </a>
               </Button>
               <Button type="button" variant="outline" className="justify-start" asChild>
                 <a href={fb} target="_blank" rel="noopener noreferrer">
-                  Share on Facebook
+                  <span className="inline-flex items-center gap-2">
+                    <FaFacebookF className="w-4 h-4 shrink-0 text-[#1877F2]" aria-hidden="true" />
+                    <span>Share on Facebook</span>
+                  </span>
                 </a>
               </Button>
             </div>
