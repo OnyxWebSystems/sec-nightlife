@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -31,6 +31,7 @@ export default function BusinessBookings() {
   const [user, setUser] = useState(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedEventId, setSelectedEventId] = useState('all');
   const [detailTable, setDetailTable] = useState(null);
 
   useEffect(() => {
@@ -46,8 +47,31 @@ export default function BusinessBookings() {
     enabled: !!user,
   });
   const tables = bookingsData?.items || [];
+  const eventOptions = useMemo(() => {
+    const map = new Map();
+    for (const table of tables) {
+      const eventId = table?.event?.id;
+      if (!eventId || map.has(eventId)) continue;
+      const eventTitle = table?.event?.title?.trim();
+      const eventDate = table?.event?.date;
+      const label = eventTitle || (eventDate ? `Untitled event (${eventDate})` : 'Untitled event');
+      map.set(eventId, { id: eventId, label });
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [tables]);
 
-  const filtered = tables
+  useEffect(() => {
+    if (selectedEventId === 'all') return;
+    if (!eventOptions.some((option) => option.id === selectedEventId)) {
+      setSelectedEventId('all');
+    }
+  }, [eventOptions, selectedEventId]);
+
+  const eventScopedTables = selectedEventId === 'all'
+    ? tables
+    : tables.filter((table) => table?.event?.id === selectedEventId);
+
+  const filtered = eventScopedTables
     .filter(t => statusFilter === 'all' || t.role === statusFilter)
     .filter(t => {
       if (!search) return true;
@@ -60,11 +84,11 @@ export default function BusinessBookings() {
     });
 
   const stats = {
-    total: tables.length,
-    open: tables.filter(t => (t.hostedTable?.status || '').toLowerCase() === 'active').length,
-    full: tables.filter(t => (t.hostedTable?.status || '').toLowerCase() === 'full').length,
-    totalGuests: tables.filter((t) => t.role === 'GUEST').length,
-    totalRevenue: tables.reduce((s, t) => s + Number(t.amountTotal || 0), 0),
+    total: eventScopedTables.length,
+    open: eventScopedTables.filter(t => (t.hostedTable?.status || '').toLowerCase() === 'active').length,
+    full: eventScopedTables.filter(t => (t.hostedTable?.status || '').toLowerCase() === 'full').length,
+    totalGuests: eventScopedTables.filter((t) => t.role === 'GUEST').length,
+    totalRevenue: eventScopedTables.reduce((s, t) => s + Number(t.amountTotal || 0), 0),
     pendingRequests: 0,
   };
 
@@ -74,7 +98,9 @@ export default function BusinessBookings() {
     <div style={{ padding: '24px 20px', maxWidth: 900, margin: '0 auto' }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Table Bookings</h1>
-        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{tables.length} SEC hosted-table booking records</p>
+        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
+          {eventScopedTables.length} SEC hosted-table booking records
+        </p>
       </div>
 
       {/* Stats Strip */}
@@ -115,6 +141,19 @@ export default function BusinessBookings() {
             <SelectItem value="GUEST">Guest join</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={selectedEventId} onValueChange={setSelectedEventId}>
+          <SelectTrigger className="w-[220px] h-10 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+            <SelectValue placeholder="Filter by event" />
+          </SelectTrigger>
+          <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }} className="text-white">
+            <SelectItem value="all">All events</SelectItem>
+            {eventOptions.map((eventOption) => (
+              <SelectItem key={eventOption.id} value={eventOption.id}>
+                {eventOption.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Bookings List */}
@@ -129,7 +168,7 @@ export default function BusinessBookings() {
         }}>
           <BookOpen size={28} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 10px' }} />
           <p style={{ fontSize: 14, color: 'var(--sec-text-muted)' }}>
-            {search ? 'No matching bookings' : 'No table bookings yet'}
+            {search ? 'No matching bookings' : selectedEventId === 'all' ? 'No table bookings yet' : 'No bookings for this event'}
           </p>
         </div>
       ) : (

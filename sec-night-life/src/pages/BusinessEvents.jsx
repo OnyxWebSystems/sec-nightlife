@@ -49,7 +49,7 @@ function parseTierSlotsTotal(tiers = []) {
 }
 
 const EMPTY_EVENT = {
-  title: '', description: '', date: '', city: '', status: 'draft',
+  title: '', description: '', date: '', city: '', location_address: '', location_city: '', location_suburb: '', location_province: '', status: 'draft',
   cover_image_url: '', ticket_tiers: [],
   start_time: '',
   has_entrance_fee: false,
@@ -115,7 +115,7 @@ export default function BusinessEvents() {
 
   const openCreate = () => {
     setEditingEvent(null);
-    setForm({ ...EMPTY_EVENT, city: venue?.city || '' });
+    setForm({ ...EMPTY_EVENT });
     setDialogOpen(true);
   };
 
@@ -126,6 +126,10 @@ export default function BusinessEvents() {
       description: evt.description || '',
       date: evt.date || '',
       city: evt.city || '',
+      location_address: evt.location_address || '',
+      location_city: evt.location_city || evt.city || '',
+      location_suburb: evt.location_suburb || '',
+      location_province: evt.location_province || '',
       status: evt.status || 'draft',
       cover_image_url: evt.cover_image_url || '',
       ticket_tiers: evt.ticket_tiers || [],
@@ -146,8 +150,8 @@ export default function BusinessEvents() {
   };
 
   const handleSave = () => {
-    if (!form.title || !form.date || !form.city) {
-      toast.error('Please fill in title, date, and city');
+    if (!form.title || !form.date) {
+      toast.error('Please fill in title and date');
       return;
     }
     if (form.has_entrance_fee) {
@@ -160,7 +164,11 @@ export default function BusinessEvents() {
     const payload = {
       title: form.title,
       date: form.date,
-      city: form.city,
+      city: form.city?.trim() || undefined,
+      location_address: form.location_address?.trim() || undefined,
+      location_city: form.location_city?.trim() || undefined,
+      location_suburb: form.location_suburb?.trim() || undefined,
+      location_province: form.location_province?.trim() || undefined,
       status: form.status,
       has_entrance_fee: form.has_entrance_fee,
       entrance_fee_amount: form.has_entrance_fee
@@ -366,7 +374,7 @@ export default function BusinessEvents() {
                 <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2 }}>
                   {evt.date}
                   {evt.start_time ? ` · ${evt.start_time}` : ''}
-                  {' · '}{evt.city}
+                  {' · '}{evt.location_city || evt.city}
                 </div>
               </div>
 
@@ -435,14 +443,64 @@ export default function BusinessEvents() {
                 />
               </div>
               <div>
-                <Label className="text-gray-400 text-sm">City *</Label>
+                <Label className="text-gray-400 text-sm">City (legacy optional)</Label>
                 <Input
                   value={form.city}
                   onChange={e => setForm(p => ({ ...p, city: e.target.value }))}
-                  placeholder="Johannesburg"
+                  placeholder="Optional: fallback uses venue city"
                   className="mt-1.5 h-11 rounded-xl"
                 style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                 />
+              </div>
+            </div>
+            <div className="space-y-3 rounded-xl border p-4" style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-elevated)' }}>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--sec-text-primary)' }}>
+                Event location override (optional)
+              </h3>
+              <p className="text-xs text-gray-500">
+                Leave any field empty to use this venue's location for that field.
+              </p>
+              <div>
+                <Label className="text-gray-400 text-sm">Address</Label>
+                <Input
+                  value={form.location_address}
+                  onChange={e => setForm(p => ({ ...p, location_address: e.target.value }))}
+                  placeholder="Optional street address override"
+                  className="mt-1.5 h-11 rounded-xl"
+                  style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-gray-400 text-sm">City</Label>
+                  <Input
+                    value={form.location_city}
+                    onChange={e => setForm(p => ({ ...p, location_city: e.target.value }))}
+                    placeholder="Optional city override"
+                    className="mt-1.5 h-11 rounded-xl"
+                    style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                  />
+                </div>
+                <div>
+                  <Label className="text-gray-400 text-sm">Suburb</Label>
+                  <Input
+                    value={form.location_suburb}
+                    onChange={e => setForm(p => ({ ...p, location_suburb: e.target.value }))}
+                    placeholder="Optional suburb override"
+                    className="mt-1.5 h-11 rounded-xl"
+                    style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                  />
+                </div>
+                <div>
+                  <Label className="text-gray-400 text-sm">Province</Label>
+                  <Input
+                    value={form.location_province}
+                    onChange={e => setForm(p => ({ ...p, location_province: e.target.value }))}
+                    placeholder="Optional province override"
+                    className="mt-1.5 h-11 rounded-xl"
+                    style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                  />
+                </div>
               </div>
             </div>
             <div>

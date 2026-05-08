@@ -596,6 +596,10 @@ model Event {
   description       String?
   date              DateTime
   city              String
+  locationAddress   String?     @map("location_address")
+  locationCity      String?     @map("location_city")
+  locationSuburb    String?     @map("location_suburb")
+  locationProvince  String?     @map("location_province")
   status            EventStatus @default(draft)
   isFeatured        Boolean     @default(false) @map("is_featured")
   coverImageUrl     String?     @map("cover_image_url")

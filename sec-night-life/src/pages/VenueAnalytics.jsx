@@ -19,6 +19,9 @@ export default function VenueAnalytics() {
   const [user, setUser] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
   const [dateRange, setDateRange] = useState('30');
+  const [revenueMode, setRevenueMode] = useState('gross');
+  const [revenueScope, setRevenueScope] = useState('all_events');
+  const [selectedEventId, setSelectedEventId] = useState('');
 
   useEffect(() => {
     loadUser();
@@ -57,16 +60,46 @@ export default function VenueAnalytics() {
     enabled: !!selectedVenue
   });
 
+  useEffect(() => {
+    setRevenueScope('all_events');
+    setSelectedEventId('');
+  }, [selectedVenue]);
+
+  useEffect(() => {
+    if (!events.length) {
+      setSelectedEventId('');
+      return;
+    }
+    if (!selectedEventId || !events.some((event) => event.id === selectedEventId)) {
+      setSelectedEventId(events[0].id);
+    }
+  }, [events, selectedEventId]);
+
   // Calculate metrics
   const calculateMetrics = () => {
     const cutoffDate = subDays(new Date(), parseInt(dateRange));
     
-    const recentTransactions = transactions.filter(t => 
-      parseISO(t.created_date) >= cutoffDate && t.status === 'completed'
-    );
+    const completedEventTransactions = transactions.filter((transaction) => {
+      if (transaction.status !== 'completed' || !transaction.event_id || !transaction.created_date) {
+        return false;
+      }
+      return parseISO(transaction.created_date) >= cutoffDate;
+    });
 
-    const totalRevenue = recentTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
-    const ticketSales = recentTransactions.filter(t => t.type === 'ticket').length;
+    const revenueByEvent = completedEventTransactions.reduce((acc, transaction) => {
+      const eventGross = Number(transaction.amount) || 0;
+      acc[transaction.event_id] = (acc[transaction.event_id] || 0) + eventGross;
+      return acc;
+    }, {});
+
+    const totalGrossRevenue = completedEventTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
+    const selectedEventGrossRevenue = selectedEventId ? (revenueByEvent[selectedEventId] || 0) : 0;
+    const eventRevenueCount = Object.keys(revenueByEvent).length;
+    const activeGrossRevenue = revenueScope === 'per_event' ? selectedEventGrossRevenue : totalGrossRevenue;
+    const activeNetRevenue = activeGrossRevenue * 0.85;
+    const activeRevenue = revenueMode === 'net' ? activeNetRevenue : activeGrossRevenue;
+
+    const ticketSales = completedEventTransactions.filter(t => t.type === 'ticket').length;
     const avgRating = reviews.length > 0 
       ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length 
       : 0;
@@ -91,14 +124,20 @@ export default function VenueAnalytics() {
 
     const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
 
+    const avgRevenueDivisor = revenueScope === 'per_event' ? 1 : eventRevenueCount;
+    const avgRevenuePerEventRaw = avgRevenueDivisor > 0 ? (activeGrossRevenue / avgRevenueDivisor) : 0;
+    const avgRevenuePerEvent = revenueMode === 'net' ? avgRevenuePerEventRaw * 0.85 : avgRevenuePerEventRaw;
+
     return {
-      totalRevenue,
+      totalRevenue: activeRevenue,
       ticketSales,
       avgRating,
       totalEvents: events.length,
       upcomingEvents: events.filter(e => new Date(e.date) >= new Date()).length,
       eventTypeCounts,
-      peakHour: peakHour ? `${peakHour[0]}:00` : 'N/A'
+      peakHour: peakHour ? `${peakHour[0]}:00` : 'N/A',
+      avgRevenuePerEvent,
+      eventRevenueCount
     };
   };
 
@@ -162,6 +201,63 @@ export default function VenueAnalytics() {
 
         {metrics && (
           <>
+            {/* Revenue Controls */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="glass-card border-[#262629]">
+                <CardContent className="pt-6 space-y-2">
+                  <p className="text-gray-500 text-sm">Revenue Mode</p>
+                  <Select value={revenueMode} onValueChange={setRevenueMode}>
+                    <SelectTrigger className="bg-[#141416] border-[#262629]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                      <SelectItem value="gross">Gross Revenue</SelectItem>
+                      <SelectItem value="net">Net Revenue (after 15%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card border-[#262629]">
+                <CardContent className="pt-6 space-y-2">
+                  <p className="text-gray-500 text-sm">Revenue Scope</p>
+                  <Select value={revenueScope} onValueChange={setRevenueScope}>
+                    <SelectTrigger className="bg-[#141416] border-[#262629]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                      <SelectItem value="all_events">All Events Combined</SelectItem>
+                      <SelectItem value="per_event">Single Event</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card border-[#262629]">
+                <CardContent className="pt-6 space-y-2">
+                  <p className="text-gray-500 text-sm">Event Selection</p>
+                  <Select
+                    value={selectedEventId}
+                    onValueChange={setSelectedEventId}
+                    disabled={revenueScope !== 'per_event' || events.length === 0}
+                  >
+                    <SelectTrigger className="bg-[#141416] border-[#262629] disabled:opacity-50">
+                      <SelectValue
+                        placeholder={events.length === 0 ? 'No events available' : 'Select an event'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                      {events.map((event) => (
+                        <SelectItem key={event.id} value={event.id}>
+                          {event.title || (event.date ? `Untitled event (${format(new Date(event.date), 'MMM dd')})` : 'Untitled event')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="glass-card border-[#262629]">
@@ -172,7 +268,9 @@ export default function VenueAnalytics() {
                       <p className="text-3xl font-bold text-white mt-1">
                         R{metrics.totalRevenue.toLocaleString()}
                       </p>
-                      <p className="text-xs mt-1" style={{ color: 'var(--sec-success)' }}>↑ Last {dateRange} days</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--sec-success)' }}>
+                        {revenueScope === 'per_event' ? 'Selected event' : 'All hosted events'} - {revenueMode === 'net' ? 'Net' : 'Gross'} - Last {dateRange} days
+                      </p>
                     </div>
                     <DollarSign className="w-8 h-8" style={{ color: 'var(--sec-success)' }} />
                   </div>
@@ -300,7 +398,10 @@ export default function VenueAnalytics() {
                   <div className="p-3 rounded-lg bg-[#141416]">
                     <p className="text-sm text-gray-400 mb-1">Avg. Revenue per Event</p>
                     <p className="text-xl font-bold text-white">
-                      R{metrics.totalEvents > 0 ? Math.round(metrics.totalRevenue / metrics.totalEvents).toLocaleString() : 0}
+                      R{Math.round(metrics.avgRevenuePerEvent).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {revenueScope === 'per_event' ? 'Selected event view' : `${metrics.eventRevenueCount} events with revenue`}
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[#141416]">

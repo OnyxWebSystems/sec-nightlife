@@ -13,6 +13,13 @@ const timeHHMM = z.preprocess(
   (v) => (v === '' || v === undefined ? null : v),
   z.union([z.string().regex(/^\d{2}:\d{2}$/), z.null()]).optional()
 );
+const optionalNonEmptyString = (max = 300) =>
+  z.preprocess((v) => {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== 'string') return v;
+    const t = v.trim();
+    return t === '' ? undefined : t;
+  }, z.string().min(1).max(max).optional());
 
 const tablePricingTierSchema = z.object({
   tier_name: z.string().min(1).max(80).optional(),
@@ -131,7 +138,11 @@ const eventFields = {
   title: z.string().min(1).max(300),
   description: z.string().optional(),
   date: z.string(),
-  city: z.string().min(1),
+  city: optionalNonEmptyString(120),
+  location_address: optionalNonEmptyString(500),
+  location_city: optionalNonEmptyString(120),
+  location_suburb: optionalNonEmptyString(120),
+  location_province: optionalNonEmptyString(120),
   status: z.enum(['draft', 'published']).default('draft'),
   is_featured: z.boolean().optional(),
   cover_image_url: z.string().url().optional().nullable(),
@@ -146,12 +157,17 @@ const eventFields = {
 const eventSchema = z.object(eventFields);
 
 function mapEventRow(e) {
+  const resolvedLocationCity = e.locationCity || e.city;
   return {
     id: e.id,
     title: e.title,
     description: e.description,
     date: e.date.toISOString().slice(0, 10),
     city: e.city,
+    location_address: e.locationAddress || null,
+    location_city: resolvedLocationCity || null,
+    location_suburb: e.locationSuburb || null,
+    location_province: e.locationProvince || null,
     venue_id: e.venueId,
     status: e.status,
     is_featured: e.isFeatured,
@@ -312,12 +328,17 @@ async function computeEventStats(eventId, hostingRaw) {
 
 function mapEventDetail(event, stats = null) {
   const v = event.venue;
+  const resolvedLocationCity = event.locationCity || event.city || v?.city || null;
   return {
     id: event.id,
     title: event.title,
     description: event.description,
     date: event.date.toISOString().slice(0, 10),
     city: event.city,
+    location_address: event.locationAddress || v?.address || null,
+    location_city: resolvedLocationCity,
+    location_suburb: event.locationSuburb || v?.suburb || null,
+    location_province: event.locationProvince || v?.province || null,
     venue_id: event.venueId,
     status: event.status,
     is_featured: event.isFeatured,
@@ -429,13 +450,19 @@ router.post('/', authenticateToken, async (req, res, next) => {
     }
     const venue = await prisma.venue.findFirst({ where: { id: d.venue_id, deletedAt: null } });
     if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Not authorized' });
+    const resolvedLocationCity = d.location_city || d.city || venue.city;
+    if (!resolvedLocationCity) return res.status(400).json({ error: 'Invalid input' });
     const event = await prisma.event.create({
       data: {
         venueId: d.venue_id,
         title: d.title,
         description: d.description,
         date: new Date(d.date),
-        city: d.city,
+        city: resolvedLocationCity,
+        locationAddress: d.location_address || venue.address || null,
+        locationCity: resolvedLocationCity,
+        locationSuburb: d.location_suburb || venue.suburb || null,
+        locationProvince: d.location_province || venue.province || null,
         status: d.status,
         isFeatured: d.is_featured ?? false,
         coverImageUrl: d.cover_image_url,
@@ -468,12 +495,32 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     const parsed = eventSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const d = parsed.data;
+    const body = req.body || {};
+    const hasCityInput = Object.prototype.hasOwnProperty.call(body, 'city');
+    const hasLocationAddressInput = Object.prototype.hasOwnProperty.call(body, 'location_address');
+    const hasLocationCityInput = Object.prototype.hasOwnProperty.call(body, 'location_city');
+    const hasLocationSuburbInput = Object.prototype.hasOwnProperty.call(body, 'location_suburb');
+    const hasLocationProvinceInput = Object.prototype.hasOwnProperty.call(body, 'location_province');
 
     const updates = {};
     if (d.title != null) updates.title = d.title;
     if (d.description != null) updates.description = d.description;
     if (d.date != null) updates.date = new Date(d.date);
-    if (d.city != null) updates.city = d.city;
+    if (hasLocationAddressInput) {
+      updates.locationAddress = d.location_address || event.venue.address || null;
+    }
+    if (hasLocationSuburbInput) {
+      updates.locationSuburb = d.location_suburb || event.venue.suburb || null;
+    }
+    if (hasLocationProvinceInput) {
+      updates.locationProvince = d.location_province || event.venue.province || null;
+    }
+    if (hasCityInput || hasLocationCityInput) {
+      const resolvedCity = d.location_city || d.city || event.venue.city;
+      if (!resolvedCity) return res.status(400).json({ error: 'Invalid input' });
+      updates.city = resolvedCity;
+      updates.locationCity = resolvedCity;
+    }
     if (d.status != null) updates.status = d.status;
     if (d.cover_image_url !== undefined) updates.coverImageUrl = d.cover_image_url;
     if (d.banner_url !== undefined) updates.bannerUrl = d.banner_url;
