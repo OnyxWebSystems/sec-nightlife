@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
 import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -22,6 +23,7 @@ export default function ChatRoom() {
   const queryClient = useQueryClient();
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const messageInputRef = useRef(null);
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [message, setMessage] = useState('');
@@ -217,6 +219,23 @@ export default function ChatRoom() {
     const mentionRegex = /@(\w+)/g;
     const matches = text.match(mentionRegex);
     return matches ? matches.map(m => m.substring(1)) : [];
+  };
+
+  const handleEmojiSelect = (emoji) => {
+    const inputEl = messageInputRef.current;
+    if (!inputEl) {
+      setMessage((prev) => `${prev}${emoji}`);
+      return;
+    }
+    const start = inputEl.selectionStart ?? message.length;
+    const end = inputEl.selectionEnd ?? message.length;
+    const next = `${message.slice(0, start)}${emoji}${message.slice(end)}`;
+    setMessage(next);
+    requestAnimationFrame(() => {
+      inputEl.focus();
+      const caret = start + emoji.length;
+      inputEl.setSelectionRange(caret, caret);
+    });
   };
 
   const renderMessageContent = (content) => {
@@ -437,11 +456,13 @@ export default function ChatRoom() {
               )}
             </Button>
             <Input
+              ref={messageInputRef}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Type a message... (@mention users)"
               className="flex-1 h-12 bg-[#141416] border-[#262629] rounded-xl"
             />
+            <EmojiPickerButton onSelect={handleEmojiSelect} disabled={sendMessageMutation.isPending} />
             <Button
               type="submit"
               disabled={!message.trim() || sendMessageMutation.isPending}

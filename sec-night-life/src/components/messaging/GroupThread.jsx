@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Send, Users, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
 import { apiGet, apiPost, apiDelete } from '@/api/client';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
@@ -17,6 +18,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
   const [deleting, setDeleting] = useState(false);
   const bottomRef = useRef(null);
   const containerRef = useRef(null);
+  const inputRef = useRef(null);
   const lastPollRef = useRef(null);
 
   const apiBase =
@@ -89,6 +91,23 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
   const scrollBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     setShowNew(false);
+  };
+
+  const handleEmojiSelect = (emoji) => {
+    const inputEl = inputRef.current;
+    if (!inputEl) {
+      setBody((prev) => `${prev}${emoji}`);
+      return;
+    }
+    const start = inputEl.selectionStart ?? body.length;
+    const end = inputEl.selectionEnd ?? body.length;
+    const next = `${body.slice(0, start)}${emoji}${body.slice(end)}`;
+    setBody(next);
+    requestAnimationFrame(() => {
+      inputEl.focus();
+      const caret = start + emoji.length;
+      inputEl.setSelectionRange(caret, caret);
+    });
   };
 
   const title =
@@ -197,12 +216,14 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
 
       <div className="p-3 border-t border-[#262629] flex gap-2">
         <Input
+          ref={inputRef}
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder="Type a message..."
           className="min-h-[44px]"
           onKeyDown={(e) => e.key === 'Enter' && send()}
         />
+        <EmojiPickerButton onSelect={handleEmojiSelect} />
         <Button className="min-h-[44px] min-w-[44px]" disabled={!body.trim()} onClick={send}>
           <Send className="w-5 h-5" />
         </Button>

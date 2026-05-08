@@ -1,14 +1,7 @@
 import { Resend } from 'resend';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { logger } from './logger.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SEC_EMAIL_LOGO_CID = 'sec-email-logo';
-const SEC_EMAIL_LOGO_PRIMARY_PATH = path.resolve(__dirname, '../../public/Logo/sec-email-logo.png');
-const SEC_EMAIL_LOGO_FALLBACK_PATH = path.resolve(__dirname, '../../public/Logo/sec-logo.png');
+const SEC_EMAIL_LOGO_PATH = '/Logo/sec-email-logo-transparent.png';
 
 function getFromAddress() {
   return process.env.EMAIL_FROM || 'noreply@secnightlife.com';
@@ -21,17 +14,9 @@ function createResendClient() {
   return new Resend(process.env.RESEND_API_KEY);
 }
 
-function getSecEmailLogoAttachment() {
-  const logoPath = fs.existsSync(SEC_EMAIL_LOGO_PRIMARY_PATH)
-    ? SEC_EMAIL_LOGO_PRIMARY_PATH
-    : SEC_EMAIL_LOGO_FALLBACK_PATH;
-  if (!fs.existsSync(logoPath)) return null;
-
-  return {
-    filename: path.basename(logoPath),
-    content: fs.readFileSync(logoPath),
-    contentId: SEC_EMAIL_LOGO_CID,
-  };
+function getPublicAppBaseUrl() {
+  const raw = (process.env.APP_URL || 'https://sec-nightlife.vercel.app').trim();
+  return raw.replace(/\/+$/, '');
 }
 
 function escapeHtml(value) {
@@ -51,11 +36,12 @@ function formatTextAsHtml(text = '') {
 }
 
 function withSecEmailBranding(innerHtml) {
+  const logoUrl = `${getPublicAppBaseUrl()}${SEC_EMAIL_LOGO_PATH}`;
   return `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0f1011;color:#e9ecef;border:1px solid #232528;border-radius:16px;overflow:hidden;">
       <div style="padding:20px 20px 14px;border-bottom:1px solid #232528;background:#0b0c0d;">
         <div style="display:inline-block;width:64px;height:64px;border-radius:999px;overflow:hidden;background:#0b0c0d;vertical-align:middle;">
-          <img src="cid:${SEC_EMAIL_LOGO_CID}" alt="SEC logo" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:999px;border:0;outline:0;" />
+          <img src="${logoUrl}" alt="SEC logo" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:999px;border:0;outline:0;" />
         </div>
         <div style="display:inline-block;vertical-align:middle;margin-left:12px;">
           <div style="font-size:18px;font-weight:700;line-height:1.2;color:#ffffff;">SEC Nightlife</div>
@@ -73,17 +59,10 @@ function prepareEmailPayload({ html, text, attachments }) {
   const bodyHtml = html || formatTextAsHtml(text || '');
   const brandedHtml = bodyHtml ? withSecEmailBranding(bodyHtml) : undefined;
 
-  const nextAttachments = Array.isArray(attachments) ? [...attachments] : [];
-  const hasLogoCid = nextAttachments.some((a) => a?.contentId === SEC_EMAIL_LOGO_CID);
-  if (!hasLogoCid) {
-    const secLogoAttachment = getSecEmailLogoAttachment();
-    if (secLogoAttachment) nextAttachments.push(secLogoAttachment);
-  }
-
   return {
     html: brandedHtml,
     text,
-    attachments: nextAttachments.length > 0 ? nextAttachments : undefined,
+    attachments,
   };
 }
 

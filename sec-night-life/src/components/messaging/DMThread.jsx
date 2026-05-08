@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ChevronLeft, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
 import { apiGet, apiPost } from '@/api/client';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
@@ -66,6 +67,7 @@ export default function DMThread({ conversationId, onBack }) {
   const [body, setBody] = useState('');
   const [blocked, setBlocked] = useState(false);
   const bottomRef = useRef(null);
+  const inputRef = useRef(null);
   const lastPollRef = useRef(null);
 
   useEffect(() => {
@@ -119,6 +121,23 @@ export default function DMThread({ conversationId, onBack }) {
   };
 
   const lastOwn = [...messages].reverse().find((m) => m.senderUserId === me?.id);
+
+  const handleEmojiSelect = (emoji) => {
+    const inputEl = inputRef.current;
+    if (!inputEl) {
+      setBody((prev) => `${prev}${emoji}`);
+      return;
+    }
+    const start = inputEl.selectionStart ?? body.length;
+    const end = inputEl.selectionEnd ?? body.length;
+    const next = `${body.slice(0, start)}${emoji}${body.slice(end)}`;
+    setBody(next);
+    requestAnimationFrame(() => {
+      inputEl.focus();
+      const caret = start + emoji.length;
+      inputEl.setSelectionRange(caret, caret);
+    });
+  };
 
   return (
     <div className="flex flex-col min-h-[70vh] max-w-app md:max-w-app-md mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]">
@@ -184,12 +203,14 @@ export default function DMThread({ conversationId, onBack }) {
 
       <div className="p-3 border-t border-[#262629] flex gap-2">
         <Input
+          ref={inputRef}
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder="Type a message..."
           className="min-h-[44px]"
           onKeyDown={(e) => e.key === 'Enter' && send()}
         />
+        <EmojiPickerButton disabled={blocked} onSelect={handleEmojiSelect} />
         <Button className="min-h-[44px] min-w-[44px] px-3" disabled={!body.trim()} onClick={send}>
           <Send className="w-5 h-5" />
         </Button>
