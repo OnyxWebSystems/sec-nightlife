@@ -56,6 +56,7 @@ function isPostgresUrl(url) {
 function runPrismaMigrateDeployWithRetry({
   maxAttempts = 4,
   migrateDatabaseUrl,
+  allowLockTimeoutSkip = false,
 } = {}) {
   const migrateEnv = {
     ...process.env,
@@ -77,7 +78,17 @@ function runPrismaMigrateDeployWithRetry({
     if (result.status === 0) return;
 
     const retryable = isRetryableMigrateLockError(combinedOutput);
-    if (!retryable || attempt === maxAttempts) {
+    if (!retryable) {
+      process.exit(result.status ?? 1);
+    }
+    if (attempt === maxAttempts) {
+      if (allowLockTimeoutSkip) {
+        console.warn(
+          '[build] prisma migrate deploy exhausted retries due to advisory lock timeout. ' +
+          'Continuing build because lock-timeout skip is enabled.'
+        );
+        return;
+      }
       process.exit(result.status ?? 1);
     }
 
@@ -111,7 +122,8 @@ if (hasDatabaseUrl) {
   } else {
     console.log('[build] Using DATABASE_URL for prisma migrate deploy');
   }
-  runPrismaMigrateDeployWithRetry({ migrateDatabaseUrl });
+  const allowLockTimeoutSkip = process.env.PRISMA_MIGRATE_ALLOW_LOCK_TIMEOUT_SKIP !== '0';
+  runPrismaMigrateDeployWithRetry({ migrateDatabaseUrl, allowLockTimeoutSkip });
   run('npx', ['prisma', 'generate']);
 } else {
   console.log('[build] DATABASE_URL not set: skipping prisma migrate deploy, running prisma generate only');
