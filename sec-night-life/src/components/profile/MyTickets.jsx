@@ -61,7 +61,9 @@ function TicketQrBlock({ verifyUrl }) {
 function ticketDetailHref(ticket) {
   if (ticket.event_id) return createPageUrl(`EventDetails?id=${ticket.event_id}`);
   if (ticket.table_id) return createPageUrl(`TableDetails?id=${ticket.table_id}`);
-  if (ticket.hosted_table_id) return createPageUrl('HostDashboard');
+  if (ticket.hosted_table_id) {
+    return createPageUrl(`TableDetails?id=${ticket.hosted_table_id}&source=hosted`);
+  }
   return createPageUrl('Profile');
 }
 

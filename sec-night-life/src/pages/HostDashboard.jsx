@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { createPageUrl, getPublicAppOrigin } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost, apiDelete, apiPatch } from '@/api/client';
@@ -9,9 +9,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { Plus, Loader2, MessageCircle } from 'lucide-react';
+import { Plus, Loader2, MessageCircle, Copy, UserPlus } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
+import { Input } from '@/components/ui/input';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 
 function eventStartTimeForInput(ev) {
@@ -46,6 +47,14 @@ const STATUS_BADGE = {
   PUBLISHED: { label: 'Live', bg: 'var(--sec-success-muted)', color: 'var(--sec-text-primary)' },
   CANCELLED: { label: 'Cancelled', bg: 'var(--sec-error-muted)', color: 'var(--sec-error)' },
   COMPLETED: { label: 'Completed', bg: 'var(--sec-bg-card)', color: 'var(--sec-accent)' },
+};
+
+/** Hosted table row uses HostedTableStatus (DRAFT / ACTIVE / FULL). */
+const TABLE_HOST_STATUS_BADGE = {
+  DRAFT: { label: 'Awaiting listing payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
+  ACTIVE: { label: 'Live', bg: 'var(--sec-success-muted)', color: 'var(--sec-text-primary)' },
+  FULL: { label: 'Full', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
+  CLOSED: { label: 'Closed', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
 };
 
 export default function HostDashboard() {
@@ -97,6 +106,8 @@ export default function HostDashboard() {
   const [saving, setSaving] = useState(false);
   const [pendingTableId, setPendingTableId] = useState(null);
   const [eventSearch, setEventSearch] = useState('');
+  const [inviteOpenTableId, setInviteOpenTableId] = useState(null);
+  const [inviteSearch, setInviteSearch] = useState('');
 
   useEffect(() => {
     authService.getCurrentUser().then(async (u) => {
@@ -122,10 +133,20 @@ export default function HostDashboard() {
     }
     if (c === 'invite') {
       setTab('tables');
-      toast.message('Open a table card and use Invite from the full flow in a future update, or invite from table details.');
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!inviteOpenTableId) setInviteSearch('');
+  }, [inviteOpenTableId]);
+
+  const inviteUserSearchQ = useQuery({
+    queryKey: ['host-invite-user-search', inviteSearch.trim()],
+    queryFn: () => apiGet(`/api/host/invite-user-search?q=${encodeURIComponent(inviteSearch.trim())}`),
+    enabled: Boolean(inviteOpenTableId && inviteSearch.trim().length >= 2),
+    staleTime: 20_000,
+  });
 
   const closePartyModal = () => {
     setShowPartyModal(false);
@@ -514,6 +535,49 @@ export default function HostDashboard() {
     }
   };
 
+  const copyHostedTableLink = async (tableId) => {
+    const url = `${getPublicAppOrigin()}${createPageUrl(
+      `TableDetails?id=${encodeURIComponent(tableId)}&source=hosted`,
+    )}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Table link copied');
+    } catch {
+      toast.error('Could not copy link');
+    }
+  };
+
+  const startRetryListingPayment = async (tableId) => {
+    try {
+      const pay = await apiPost(`/api/host/tables/${encodeURIComponent(tableId)}/retry-listing-payment`, {});
+      if (pay?.reference && pay?.access_code) {
+        launchPaystackInline({
+          email: user?.email,
+          amount: Number(pay.amount_zar || 0),
+          reference: pay.reference,
+          accessCode: pay.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || pay.reference);
+            queryClient.invalidateQueries({ queryKey: ['host-tables', user?.id] });
+            toast.success('Payment received — your table is live.');
+          },
+          onCancel: () => {
+            toast.message('Checkout closed', {
+              description: 'Your table stays in draft until payment succeeds. You can retry from your tables list.',
+            });
+            queryClient.invalidateQueries({ queryKey: ['host-tables', user?.id] });
+          },
+        });
+      } else {
+        toast.message('Nothing to pay', {
+          description: 'This listing may already be paid or does not require checkout.',
+        });
+      }
+    } catch (e) {
+      toast.error(e?.message || 'Could not start checkout');
+    }
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -628,7 +692,9 @@ export default function HostDashboard() {
           <div className="flex justify-between items-center mb-4">
             <div>
               <h2 className="font-semibold text-lg">My tables</h2>
-              <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">Each table has a matching group chat.</p>
+              <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
+                Each live table has a group chat. Drafts stay off Home and the Tables tab until listing payment succeeds.
+              </p>
             </div>
             <button
               type="button"
@@ -645,6 +711,7 @@ export default function HostDashboard() {
                 t.eventLocation?.displayLabel ||
                 [t.venueAddress, t.venueName].filter(Boolean).join(' · ') ||
                 t.venueName;
+              const hostStatusBadge = TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
               return (
                 <div
                   key={t.id}
@@ -658,6 +725,12 @@ export default function HostDashboard() {
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
+                      <span
+                        className="text-[10px] px-2 py-0.5 rounded-full"
+                        style={{ background: hostStatusBadge.bg, color: hostStatusBadge.color }}
+                      >
+                        {hostStatusBadge.label}
+                      </span>
                       <span className="text-[10px] px-2 py-0.5 rounded-full border border-[var(--sec-border)]">
                         {t.isPublic ? 'Public' : 'Private'}
                       </span>
@@ -690,6 +763,15 @@ export default function HostDashboard() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2 mt-3">
+                    {t.status === 'DRAFT' && (
+                      <button
+                        type="button"
+                        className="text-xs sec-btn sec-btn-primary py-2 px-3 rounded-xl"
+                        onClick={() => startRetryListingPayment(t.id)}
+                      >
+                        Pay listing & go live
+                      </button>
+                    )}
                     {t.groupChat?.id && (
                       <Link
                         to={`${createPageUrl('Messages')}?group=${encodeURIComponent(t.groupChat.id)}&gk=HOSTED_TABLE`}
@@ -698,6 +780,31 @@ export default function HostDashboard() {
                         <MessageCircle className="w-4 h-4" />
                         Open group chat
                       </Link>
+                    )}
+                    {t.status === 'ACTIVE' && (
+                      <>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-secondary py-2 px-3 rounded-xl"
+                          onClick={() => copyHostedTableLink(t.id)}
+                        >
+                          <Copy className="w-4 h-4" />
+                          Copy table link
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-ghost py-2 px-3 rounded-xl border border-[var(--sec-border)]"
+                          onClick={() =>
+                            setInviteOpenTableId((cur) => {
+                              const next = cur === t.id ? null : t.id;
+                              return next;
+                            })
+                          }
+                        >
+                          <UserPlus className="w-4 h-4" />
+                          {inviteOpenTableId === t.id ? 'Hide invite search' : 'Invite a user'}
+                        </button>
+                      </>
                     )}
                     {t.pendingJoinCount > 0 && (
                       <button
@@ -709,6 +816,70 @@ export default function HostDashboard() {
                       </button>
                     )}
                   </div>
+                  {t.status === 'DRAFT' && (
+                    <p className="text-xs text-[var(--sec-text-muted)] mt-2 leading-relaxed">
+                      This table is not visible to others and has no group chat until Paystack confirms your listing payment.
+                      After it goes live, your host ticket appears under Profile, and you can invite registered users below.
+                    </p>
+                  )}
+                  {t.status === 'ACTIVE' && inviteOpenTableId === t.id && (
+                    <div className="mt-3 rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] p-3 space-y-2">
+                      <p className="text-[11px] text-[var(--sec-text-muted)]">
+                        Search by username or name. Only people with an SEC account receive the in-app invite. Private
+                        tables: you can invite anyone registered — they do not need to be friends with you.
+                      </p>
+                      <Input
+                        placeholder="Type at least 2 characters…"
+                        value={inviteSearch}
+                        onChange={(e) => setInviteSearch(e.target.value)}
+                        className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+                      />
+                      {inviteUserSearchQ.isFetching ? (
+                        <p className="text-xs text-[var(--sec-text-muted)] flex items-center gap-2">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Searching…
+                        </p>
+                      ) : inviteSearch.trim().length >= 2 ? (
+                        <ul className="max-h-40 overflow-y-auto space-y-1">
+                          {(inviteUserSearchQ.data || []).length === 0 ? (
+                            <li className="text-xs text-[var(--sec-text-muted)] px-1 py-2">No matches</li>
+                          ) : (
+                            (inviteUserSearchQ.data || []).map((u) => (
+                              <li
+                                key={u.id}
+                                className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--sec-bg-hover)]"
+                              >
+                                <div className="min-w-0 text-sm">
+                                  <span className="font-medium text-white">@{u.username || 'user'}</span>
+                                  {u.fullName ? (
+                                    <span className="text-[var(--sec-text-muted)] text-xs ml-1 truncate">{u.fullName}</span>
+                                  ) : null}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="text-[10px] sec-btn sec-btn-primary py-1 px-2 rounded-lg shrink-0"
+                                  onClick={async () => {
+                                    try {
+                                      await apiPost(`/api/host/tables/${t.id}/invite`, { inviteeUserId: u.id });
+                                      toast.success('Invite sent');
+                                      setInviteOpenTableId(null);
+                                      setInviteSearch('');
+                                    } catch (err) {
+                                      toast.error(err?.message || 'Could not send invite');
+                                    }
+                                  }}
+                                >
+                                  Invite
+                                </button>
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                      ) : (
+                        <p className="text-[11px] text-[var(--sec-text-muted)]">Enter 2+ characters to search.</p>
+                      )}
+                    </div>
+                  )}
                   {pendingTableId === t.id && (
                     <div className="mt-3 space-y-2 border-t border-[var(--sec-border)] pt-3">
                       {pendingLoading ? (

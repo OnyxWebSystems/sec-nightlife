@@ -20,7 +20,8 @@
     "db:neon-schema": "node scripts/run-neon-schema.js",
     "db:migrate-hardening": "node scripts/run-hardening-migration.js",
     "db:migrate-preprod": "node scripts/run-preprod-migration.js",
-    "db:delete-user-email": "node scripts/delete-users-by-email.mjs"
+    "db:delete-user-email": "node scripts/delete-users-by-email.mjs",
+    "db:cleanup-draft-hosted-tables": "node scripts/cleanup-unpaid-draft-hosted-tables.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0",

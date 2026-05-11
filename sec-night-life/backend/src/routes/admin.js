@@ -339,7 +339,15 @@ router.get('/payments', async (req, res, next) => {
   try {
     const { status, type, limit = 50, offset = 0 } = req.query;
     const where = {};
-    if (status) where.status = String(status);
+    const rawStatus = status != null && String(status) !== '' ? String(status) : '';
+    if (rawStatus === 'all') {
+      // no status filter
+    } else if (rawStatus) {
+      where.status = rawStatus;
+    } else {
+      // Default: completed or failed charges only (exclude abandoned-checkout "pending" noise).
+      where.status = { in: ['success', 'failed'] };
+    }
     if (type) where.type = String(type);
 
     const payments = await prisma.payment.findMany({
@@ -351,7 +359,7 @@ router.get('/payments', async (req, res, next) => {
     const total = await prisma.payment.count({ where });
     const totalsByStatus = await prisma.payment.groupBy({
       by: ['status'],
-      where: { status: 'success' },
+      where,
       _sum: { amount: true },
       _count: true,
     });

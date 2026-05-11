@@ -32,6 +32,7 @@ import {
 } from '../lib/ticketHelpers.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
+import { ensureHostedTableLiveAfterListingPayment } from '../lib/hostedTableAfterListingPaid.js';
 
 const router = Router();
 
@@ -347,6 +348,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
             where: { id: hosted.id },
             data: { status: 'ACTIVE', hostFeePaystackRef: reference },
           });
+          await ensureHostedTableLiveAfterListingPayment(hosted.id);
+          logFriendActivity({
+            userId: String(userId),
+            activityType: 'HOSTED_TABLE',
+            referenceId: hosted.id,
+            referenceType: 'HOSTED_TABLE',
+            description: 'hosted a table',
+          });
           const venueCode = hosted.event?.venueId ? await resolveRecipientCodeForVenue(hosted.event.venueId) : null;
           const totalZar = Number(amount || 0);
           if (totalZar > 0 && hosted.event?.venueId && venueCode) {
@@ -525,6 +534,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
               status: 'ACTIVE',
               externalListingPaystackRef: reference,
             },
+          });
+          await ensureHostedTableLiveAfterListingPayment(ht.id);
+          logFriendActivity({
+            userId: String(userId),
+            activityType: 'HOSTED_TABLE',
+            referenceId: ht.id,
+            referenceType: 'HOSTED_TABLE',
+            description: 'hosted a table',
           });
           const payer = await prisma.user.findUnique({
             where: { id: String(userId) },
@@ -1074,10 +1091,24 @@ async function applyChargeFailedEffects(reference, payload) {
           actionUrl: '/BusinessBookings',
         });
       }
+      if (
+        ht?.status === 'DRAFT' &&
+        ((ht.tableType === 'IN_APP_EVENT' && !ht.hostFeePaystackRef) ||
+          (ht.tableType === 'EXTERNAL_VENUE' && !ht.externalListingPaystackRef))
+      ) {
+        await prisma.hostedTable.delete({ where: { id: ht.id } });
+      }
     }
   }
 
   if (ptype === 'HOSTED_TABLE_JOIN') {
+    const memberId = metaFromCharge.hosted_table_member_id || metaFromCharge.hostedTableMemberId;
+    if (memberId) {
+      const mem = await prisma.hostedTableMember.findUnique({ where: { id: String(memberId) } });
+      if (mem?.status === 'PENDING' && !mem.paystackReference) {
+        await prisma.hostedTableMember.delete({ where: { id: mem.id } }).catch(() => {});
+      }
+    }
     const htid = metaFromCharge.hosted_table_id || metaFromCharge.hostedTableId;
     if (htid) {
       const ht = await prisma.hostedTable.findFirst({

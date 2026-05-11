@@ -4,6 +4,7 @@
  */
 import { Router } from 'express';
 import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
@@ -23,6 +24,13 @@ import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from 
 
 const router = Router();
 const EXTERNAL_HOSTED_LISTING_ZAR = 200;
+
+const inviteUserSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const postingSchema = z.object({
   title: z.string().trim().min(1),
@@ -324,9 +332,16 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     const isVisible = t.status === 'ACTIVE' && t.isPublic;
     if (!isVisible) {
       const uid = req.userId;
+      const pendingInv =
+        uid && t.status === 'ACTIVE'
+          ? await prisma.tableInvite.findFirst({
+              where: { hostedTableId: t.id, inviteeUserId: uid, status: 'PENDING' },
+            })
+          : null;
       const allowed =
         uid &&
         (t.hostUserId === uid ||
+          pendingInv ||
           (await prisma.hostedTableMember.findFirst({
             where: { hostedTableId: t.id, userId: uid },
           })));
@@ -951,7 +966,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             eventId: d.eventId,
             tableType: 'IN_APP_EVENT',
             hostingCategory,
-            status: { in: ['DRAFT', 'ACTIVE', 'FULL'] },
+            status: { in: ['ACTIVE', 'FULL'] },
           },
         });
         if (categoryUsed >= maxForCategory) {
@@ -971,7 +986,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             tableType: 'IN_APP_EVENT',
             hostingCategory,
             hostingTierIndex: tierMeta.tierIndex,
-            status: { in: ['DRAFT', 'ACTIVE', 'FULL'] },
+            status: { in: ['ACTIVE', 'FULL'] },
           },
         });
         if (tierUsed >= tierMeta.tierTableSlots) {
@@ -981,6 +996,13 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
           });
         }
       }
+      const hostFee = getHostTableFeeZar(ev.hostingConfig, hostingCategory);
+      const entranceZar = getEventEntranceZar(ev);
+      const minSpendZar =
+        tierMeta.minSpend != null && Number.isFinite(Number(tierMeta.minSpend)) ? Math.max(0, Number(tierMeta.minSpend)) : 0;
+      const totalHostPay = entranceZar + hostFee + minSpendZar;
+
+      const needsListingPayment = totalHostPay > 0;
       const t = await prisma.$transaction(async (tx) =>
         tx.hostedTable.create({
           data: {
@@ -1002,40 +1024,38 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             drinkPreferences: d.drinkPreferences ?? null,
             desiredCompany: d.desiredCompany ?? null,
             guestQuantity: d.guestQuantity,
-            spotsRemaining: d.guestQuantity - 1,
+            spotsRemaining: needsListingPayment ? d.guestQuantity : d.guestQuantity - 1,
             hostingCategory,
             hostingTierIndex: tierMeta.tierIndex,
             tierMaxGuests: tierMeta.maxGuests,
             tierMinSpend: tierMeta.minSpend,
             isPublic: d.isPublic,
-            status: 'ACTIVE',
-            members: {
-              create: [{ userId: req.userId, status: 'GOING' }],
-            },
-            groupChat: {
-              create: {
-                name: d.tableName,
-                members: { create: [{ userId: req.userId }] },
-              },
-            },
+            status: needsListingPayment ? 'DRAFT' : 'ACTIVE',
+            ...(needsListingPayment
+              ? {}
+              : {
+                  members: { create: [{ userId: req.userId, status: 'GOING' }] },
+                  groupChat: {
+                    create: {
+                      name: d.tableName,
+                      members: { create: [{ userId: req.userId }] },
+                    },
+                  },
+                }),
           },
           include: { members: true, groupChat: true },
         }),
       );
-      await logFriendActivity({
-        userId: req.userId,
-        activityType: 'HOSTED_TABLE',
-        referenceId: t.id,
-        referenceType: 'HOSTED_TABLE',
-        description: 'hosted a table',
-      });
-      const hostFee = getHostTableFeeZar(ev.hostingConfig, hostingCategory);
-      const entranceZar = getEventEntranceZar(ev);
-      const minSpendZar =
-        tierMeta.minSpend != null && Number.isFinite(Number(tierMeta.minSpend)) ? Math.max(0, Number(tierMeta.minSpend)) : 0;
-      const totalHostPay = entranceZar + hostFee + minSpendZar;
-      if (totalHostPay > 0) {
-        await prisma.hostedTable.update({ where: { id: t.id }, data: { status: 'DRAFT' } });
+      if (!needsListingPayment) {
+        await logFriendActivity({
+          userId: req.userId,
+          activityType: 'HOSTED_TABLE',
+          referenceId: t.id,
+          referenceType: 'HOSTED_TABLE',
+          description: 'hosted a table',
+        });
+      }
+      if (needsListingPayment) {
         const pay = await initializePaystackPayment({
           userId: req.userId,
           amountZar: totalHostPay,
@@ -1095,33 +1115,18 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
           drinkPreferences: d.drinkPreferences ?? null,
           desiredCompany: d.desiredCompany ?? null,
           guestQuantity: d.guestQuantity,
-          spotsRemaining: d.guestQuantity - 1,
+          spotsRemaining: d.guestQuantity,
           isPublic: d.isPublic,
-          status: 'ACTIVE',
-          members: { create: [{ userId: req.userId, status: 'GOING' }] },
-          groupChat: {
-            create: {
-              name: d.tableName,
-              members: { create: [{ userId: req.userId }] },
-            },
-          },
+          status: 'DRAFT',
         },
         include: { members: true, groupChat: true },
       }),
     );
-    await logFriendActivity({
-      userId: req.userId,
-      activityType: 'HOSTED_TABLE',
-      referenceId: t.id,
-      referenceType: 'HOSTED_TABLE',
-      description: 'hosted a table',
-    });
     const pay = await initializePaystackPayment({
       userId: req.userId,
       amountZar: EXTERNAL_HOSTED_LISTING_ZAR,
       metadata: { type: 'HOSTED_TABLE_EXTERNAL_LISTING', hosted_table_id: t.id, user_id: req.userId },
     });
-    await prisma.hostedTable.update({ where: { id: t.id }, data: { status: 'DRAFT' } });
     res.status(201).json({ ...t, status: 'PENDING_PAYMENT', payment: pay });
   } catch (e) {
     next(e);
@@ -1140,6 +1145,114 @@ router.post('/tables/:tableId/boost', authenticateToken, requireVerified, async 
       metadata: { type: 'TABLE_BOOST', hostedTableId: t.id, user_id: req.userId },
     });
     res.json(pay);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Search registered users to invite to a hosted table (username / display name). */
+router.get('/invite-user-search', authenticateToken, inviteUserSearchLimiter, async (req, res, next) => {
+  try {
+    if (!assertHostEligibleRole(req, res)) return;
+    const q = String(req.query.q || '')
+      .trim()
+      .slice(0, 40);
+    if (q.length < 2) return res.json([]);
+    const rows = await prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        id: { not: req.userId },
+        OR: [
+          { username: { contains: q, mode: 'insensitive' } },
+          { fullName: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+      take: 15,
+      select: {
+        id: true,
+        username: true,
+        fullName: true,
+        userProfile: { select: { username: true, avatarUrl: true } },
+      },
+    });
+    res.json(
+      rows.map((u) => ({
+        id: u.id,
+        username: u.userProfile?.username || u.username,
+        fullName: u.fullName,
+        avatarUrl: u.userProfile?.avatarUrl || null,
+      })),
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** New Paystack session for an unpaid listing (DRAFT in-app or external). */
+router.post('/tables/:tableId/retry-listing-payment', authenticateToken, requireVerified, async (req, res, next) => {
+  try {
+    if (!assertHostEligibleRole(req, res)) return;
+    const t = await prisma.hostedTable.findFirst({ where: { id: req.params.tableId } });
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (t.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (t.status !== 'DRAFT') {
+      return res.status(400).json({ error: 'This table is not waiting for a listing payment.' });
+    }
+    if (t.tableType === 'IN_APP_EVENT') {
+      if (t.hostFeePaystackRef) return res.status(400).json({ error: 'Listing payment already recorded for this table.' });
+      if (!t.eventId) return res.status(400).json({ error: 'Invalid table' });
+      const ev = await prisma.event.findFirst({
+        where: { id: t.eventId, deletedAt: null },
+        include: { venue: true },
+      });
+      if (!ev) return res.status(400).json({ error: 'Event not found' });
+      const hostingCategory = t.hostingCategory === 'VIP' ? 'VIP' : 'GENERAL';
+      const hostFee = getHostTableFeeZar(ev.hostingConfig, hostingCategory);
+      const entranceZar = getEventEntranceZar(ev);
+      const minSpendZar =
+        t.tierMinSpend != null && Number.isFinite(Number(t.tierMinSpend)) ? Math.max(0, Number(t.tierMinSpend)) : 0;
+      const total = entranceZar + hostFee + minSpendZar;
+      if (total <= 0) return res.status(400).json({ error: 'Nothing to pay for this listing.' });
+      const pay = await initializePaystackPayment({
+        userId: req.userId,
+        amountZar: total,
+        metadata: {
+          type: 'TABLE_HOST_FEE',
+          hosted_table_id: t.id,
+          event_id: ev.id,
+          venue_id: ev.venueId,
+          entrance_zar: entranceZar,
+          host_fee_zar: hostFee,
+          min_spend_zar: minSpendZar,
+          amount_total_zar: total,
+          table_create: {
+            event_id: ev.id,
+            venue_id: ev.venueId,
+            name: t.tableName,
+            table_category: hostingCategory === 'VIP' ? 'vip' : 'general',
+            max_guests: t.guestQuantity,
+            min_spend: minSpendZar,
+            joining_fee: t.hasJoiningFee ? t.joiningFee : null,
+            is_public: t.isPublic,
+            guest_gender_preference: t.guestGenderPreference,
+          },
+          user_id: req.userId,
+        },
+      });
+      return res.json({ ...pay, listingStatus: 'PENDING_PAYMENT' });
+    }
+    if (t.tableType === 'EXTERNAL_VENUE') {
+      if (t.externalListingPaystackRef) {
+        return res.status(400).json({ error: 'Listing payment already recorded for this table.' });
+      }
+      const pay = await initializePaystackPayment({
+        userId: req.userId,
+        amountZar: EXTERNAL_HOSTED_LISTING_ZAR,
+        metadata: { type: 'HOSTED_TABLE_EXTERNAL_LISTING', hosted_table_id: t.id, user_id: req.userId },
+      });
+      return res.json({ ...pay, listingStatus: 'PENDING_PAYMENT' });
+    }
+    return res.status(400).json({ error: 'Unsupported table type' });
   } catch (e) {
     next(e);
   }
@@ -1630,6 +1743,11 @@ router.post('/tables/:tableId/invite', authenticateToken, async (req, res, next)
       return res.status(403).json({ error: 'Only the host can invite people to a private table' });
     }
     if (inviteeUserId === req.userId) return res.status(400).json({ error: 'Invalid invitee' });
+    if (table.status !== 'ACTIVE') {
+      return res.status(400).json({
+        error: 'Complete your listing payment before inviting guests. Your table is not live yet.',
+      });
+    }
     const already = await prisma.hostedTableMember.findUnique({
       where: { hostedTableId_userId: { hostedTableId: table.id, userId: inviteeUserId } },
     });
@@ -1639,7 +1757,8 @@ router.post('/tables/:tableId/invite', authenticateToken, async (req, res, next)
       where: { hostedTableId_inviteeUserId: { hostedTableId: table.id, inviteeUserId } },
     });
     if (pendingInv && pendingInv.status === 'PENDING') return res.status(400).json({ error: 'Invite already pending' });
-    if (!(await areFriends(req.userId, inviteeUserId))) {
+    const inviteeMustBeFriend = table.isPublic || !isHost;
+    if (inviteeMustBeFriend && !(await areFriends(req.userId, inviteeUserId))) {
       return res.status(400).json({ error: 'You must be friends with this user' });
     }
     const inviter = await prisma.user.findUnique({
