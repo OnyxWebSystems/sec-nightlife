@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
+import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 
 export default function TablePayment() {
   const navigate = useNavigate();
@@ -86,8 +87,18 @@ export default function TablePayment() {
         description: `Table: ${table.name}${member?.contribution ? ` - Contribution R${member.contribution}` : ''}${table.joining_fee ? ` + Fee R${table.joining_fee}` : ''}`,
         metadata: { type: 'table', table_id: tableId, user_id: user?.id },
       });
-      if (res?.authorization_url) {
-        window.location.href = res.authorization_url;
+      if (res?.reference && res?.access_code) {
+        await launchPaystackInline({
+          email: user?.email,
+          amount: totalAmount,
+          reference: res.reference,
+          accessCode: res.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || res.reference);
+            navigate(createPageUrl('PaymentSuccess'));
+          },
+          onCancel: () => {},
+        });
       } else {
         throw new Error('No payment URL returned');
       }

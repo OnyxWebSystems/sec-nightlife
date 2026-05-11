@@ -4,6 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
+import { apiPost } from '@/api/client';
 import {
   User,
   MapPin,
@@ -18,6 +19,7 @@ import {
   FileText,
   Wine,
   X,
+  Landmark,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -63,13 +65,16 @@ export default function ProfileSetup() {
     gender: '',
     date_of_birth: '',
     id_document_url: '',
+    payout_account_name: '',
+    payout_account_number: '',
+    payout_bank_code: '',
   });
 
   const steps = [
     { number: 1, title: 'Basics', icon: User },
     { number: 2, title: 'Details', icon: MapPin },
     { number: 3, title: 'Verify', icon: Calendar },
-    { number: 4, title: 'Payment', icon: CreditCard },
+    { number: 4, title: 'Payout', icon: CreditCard },
   ];
 
   useEffect(() => {
@@ -185,7 +190,21 @@ export default function ProfileSetup() {
   };
 
   const handlePaymentSuccess = async () => {
-    await completeOnboarding({ paymentCompleted: true });
+    if (formData.payout_account_name && formData.payout_account_number && formData.payout_bank_code) {
+      try {
+        await apiPost('/api/payments/payout-recipient', {
+          holder_type: 'USER',
+          account_name: formData.payout_account_name,
+          account_number: formData.payout_account_number,
+          bank_code: formData.payout_bank_code,
+          currency: 'ZAR',
+        });
+      } catch (e) {
+        setError(e?.message || 'Could not save payout details');
+        return;
+      }
+    }
+    await completeOnboarding({ paymentCompleted: Boolean(formData.payout_account_name && formData.payout_account_number && formData.payout_bank_code) });
   };
 
   const handleSkipPayment = async () => {
@@ -626,9 +645,9 @@ export default function ProfileSetup() {
             >
               <div className="text-center mb-8">
                 <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
-                  Payment
+                  Get paid faster
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Payments are handled securely at checkout</p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Add payout details now or later in Settings &gt; Payment Methods</p>
               </div>
 
               <div
@@ -643,10 +662,14 @@ export default function ProfileSetup() {
                   <Lock size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent-muted)', flexShrink: 0 }} />
                   <div>
                     <p style={{ fontSize: 14, color: 'var(--sec-text-primary)', margin: '0 0 8px 0' }}>
-                      Paystack powers all payments
+                      Automatic payouts with Paystack
                     </p>
                     <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0, lineHeight: 1.5 }}>
-                      When you buy tickets, join tables, or boost promotions, you&apos;ll be redirected to Paystack&apos;s secure checkout. No need to add a card during setup — use the buttons below when you&apos;re ready to finish. See the{' '}
+                      If you earn from paid tables and activities, your payout can be transferred automatically when your payout details are set. You can skip now and add details later in{' '}
+                      <Link to={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
+                        Settings &gt; Payment Methods
+                      </Link>
+                      . See the{' '}
                       <Link to={createPageUrl('RefundPolicy')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
                         Refund Policy
                       </Link>
@@ -658,6 +681,27 @@ export default function ProfileSetup() {
                     </p>
                   </div>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                <Input
+                  placeholder="Account holder name"
+                  value={formData.payout_account_name}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, payout_account_name: e.target.value }))}
+                  style={inputStyle}
+                />
+                <Input
+                  placeholder="Account number"
+                  value={formData.payout_account_number}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, payout_account_number: e.target.value }))}
+                  style={inputStyle}
+                />
+                <Input
+                  placeholder="Bank code"
+                  value={formData.payout_bank_code}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, payout_bank_code: e.target.value }))}
+                  style={inputStyle}
+                />
               </div>
             </motion.div>
           )}
@@ -760,7 +804,7 @@ export default function ProfileSetup() {
                 }}
               >
                 <CreditCard size={16} strokeWidth={2} />
-                Mark payment setup complete
+                Save payout details and finish
               </button>
             </div>
           )}

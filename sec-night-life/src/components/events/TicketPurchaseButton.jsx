@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Ticket, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
+import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 
 export default function TicketPurchaseButton({ event }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -42,8 +43,19 @@ export default function TicketPurchaseButton({ event }) {
           quantity: String(quantity),
         },
       });
-      if (res?.authorization_url) {
-        window.location.href = res.authorization_url;
+      if (res?.reference && res?.access_code) {
+        await launchPaystackInline({
+          email: user?.email,
+          amount: totalPrice,
+          reference: res.reference,
+          accessCode: res.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || res.reference);
+            toast.success('Payment successful');
+            setIsOpen(false);
+          },
+          onCancel: () => toast.message('Checkout cancelled'),
+        });
       } else {
         throw new Error('No payment URL returned');
       }

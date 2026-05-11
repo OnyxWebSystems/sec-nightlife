@@ -57,7 +57,16 @@ app.set('trust proxy', 1);
 // Security headers
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: isProd ? undefined : false,
+  contentSecurityPolicy: isProd ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", 'https://js.paystack.co'],
+      frameSrc: ["'self'", 'https://checkout.paystack.com', 'https://js.paystack.co'],
+      connectSrc: ["'self'", 'https://api.paystack.co'],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+    },
+  } : false,
   hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false
 }));
 

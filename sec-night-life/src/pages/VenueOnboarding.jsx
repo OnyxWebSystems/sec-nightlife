@@ -47,13 +47,6 @@ const GENDER_OPTIONS = [
   { value: 'other', label: 'Other' },
 ];
 
-const PLAN_PRICES = {
-  basic: 299,
-  premium: 799,
-};
-
-const VENUE_PAYMENT_CONTEXT_KEY = 'sec-venue-onboarding-payment';
-
 const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function venueOnboardingDraftKey(userId) {
@@ -84,7 +77,10 @@ const INITIAL_FORM_DATA = {
   sars_document_url: '',
   annual_returns_url: '',
   liquor_license_url: '',
-  liquor_license_expiry: ''
+  liquor_license_expiry: '',
+  payout_account_name: '',
+  payout_account_number: '',
+  payout_bank_code: ''
 };
 
 function loadParsedDraft(userId) {
@@ -393,7 +389,7 @@ export default function VenueOnboarding() {
     });
   };
 
-  const handleVenueCompletion = async ({ paymentCompleted, startPayment }) => {
+  const handleVenueCompletion = async ({ paymentCompleted }) => {
     setIsSubmitting(true);
     setError('');
 
@@ -448,39 +444,15 @@ export default function VenueOnboarding() {
 
       clearVenueOnboardingDraft(user?.id);
 
-      if (startPayment) {
-        if (window.self !== window.top) {
-          throw new Error('Payment checkout only works in the published app. Please open the app in a new tab.');
-        }
-
-        const planName = selectedPlan === 'premium' ? 'Premium' : 'Basic';
-        const payment = await apiPost('/api/payments/initialize', {
-          amount: PLAN_PRICES[selectedPlan],
-          email: user?.email,
-          description: `Venue subscription: ${planName} plan`,
+      if (formData.payout_account_name && formData.payout_account_number && formData.payout_bank_code) {
+        await apiPost('/api/payments/payout-recipient', {
+          holder_type: 'VENUE',
           venue_id: createdVenue.id,
-          metadata: {
-            type: 'other',
-            context: 'venue_onboarding',
-            venue_id: createdVenue.id,
-            plan: selectedPlan,
-            plan_name: planName,
-          },
+          account_name: formData.payout_account_name,
+          account_number: formData.payout_account_number,
+          bank_code: formData.payout_bank_code,
+          currency: 'ZAR',
         });
-
-        if (!payment?.authorization_url) {
-          throw new Error('No Paystack checkout URL was returned.');
-        }
-
-        localStorage.setItem(VENUE_PAYMENT_CONTEXT_KEY, JSON.stringify({
-          nextPath: createPageUrl('BusinessDashboard'),
-          venueId: createdVenue.id,
-          plan: selectedPlan,
-          planName,
-        }));
-
-        window.location.href = payment.authorization_url;
-        return;
       }
 
       navigate(createPageUrl('BusinessDashboard'));
@@ -492,18 +464,20 @@ export default function VenueOnboarding() {
   };
 
   const handleSkipPayment = async () => {
-    await handleVenueCompletion({ paymentCompleted: false, startPayment: false });
+    await handleVenueCompletion({ paymentCompleted: false });
   };
 
   const handleContinueWithPlan = async () => {
-    await handleVenueCompletion({ paymentCompleted: false, startPayment: true });
+    await handleVenueCompletion({
+      paymentCompleted: Boolean(formData.payout_account_name && formData.payout_account_number && formData.payout_bank_code),
+    });
   };
 
   const steps = [
     { number: 1, title: 'Info', icon: Building },
     { number: 2, title: 'Details', icon: MapPin },
     { number: 3, title: 'Compliance', icon: Shield },
-    { number: 4, title: 'Payment', icon: CreditCard },
+    { number: 4, title: 'Payout', icon: CreditCard },
   ];
 
   const canProceed = () => {
@@ -953,8 +927,8 @@ export default function VenueOnboarding() {
              className="space-y-6"
            >
              <div className="text-center mb-8">
-               <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Choose Your Plan</h1>
-               <p style={{ color: 'var(--sec-text-muted)' }}>Continue to Paystack to securely complete your subscription payment</p>
+               <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Set up payouts</h1>
+               <p style={{ color: 'var(--sec-text-muted)' }}>Optional now. You can also add this later in Settings &gt; Payment Methods.</p>
                <div className="mt-3 max-w-md mx-auto text-left">
                  <RefundPolicyNote />
                  <p className="text-xs mt-2" style={{ color: 'var(--sec-text-muted)' }}>
@@ -966,63 +940,28 @@ export default function VenueOnboarding() {
                </div>
              </div>
 
-             <div className="rounded-2xl p-6" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
-               <div className="flex items-start gap-3 mb-6">
-                 <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
-                   <CreditCard className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
-                 </div>
-                 <div>
-                   <p className="font-medium text-sm" style={{ color: 'var(--sec-text-primary)' }}>Payment Integration</p>
-                   <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)' }}>
-                     After you choose a plan, you will be redirected to Paystack to sign in or complete payment securely on their hosted checkout page.
-                   </p>
-                 </div>
-               </div>
-
-               <div className="space-y-3">
-                 <button
-                   type="button"
-                   onClick={() => setSelectedPlan('basic')}
-                   className="w-full p-4 rounded-xl text-left transition-all"
-                   style={{
-                     border: selectedPlan === 'basic' ? '2px solid var(--sec-accent-border)' : '2px solid var(--sec-border)',
-                     backgroundColor: selectedPlan === 'basic' ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)'
-                   }}
-                 >
-                   <h3 className="font-semibold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Basic Plan</h3>
-                   <p className="text-2xl font-bold mb-1" style={{ color: 'var(--sec-text-primary)' }}>R 299<span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>/month</span></p>
-                   <ul className="text-xs space-y-1 mt-3" style={{ color: 'var(--sec-text-secondary)' }}>
-                     <li>✓ List up to 5 events</li>
-                     <li>✓ Basic analytics</li>
-                     <li>✓ Customer support</li>
-                   </ul>
-                 </button>
-
-                 <button
-                   type="button"
-                   onClick={() => setSelectedPlan('premium')}
-                   className="w-full p-4 rounded-xl text-left transition-all"
-                   style={{
-                     border: selectedPlan === 'premium' ? '2px solid var(--sec-accent-border)' : '2px solid var(--sec-border)',
-                     backgroundColor: selectedPlan === 'premium' ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)'
-                   }}
-                 >
-                   <h3 className="font-semibold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Premium Plan</h3>
-                   <p className="text-2xl font-bold mb-1" style={{ color: 'var(--sec-text-primary)' }}>R 799<span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>/month</span></p>
-                   <ul className="text-xs space-y-1 mt-3" style={{ color: 'var(--sec-text-secondary)' }}>
-                     <li>✓ Unlimited events</li>
-                     <li>✓ Advanced analytics</li>
-                     <li>✓ Priority support</li>
-                     <li>✓ Featured listings</li>
-                   </ul>
-                 </button>
-               </div>
-
-               <div className="rounded-xl p-3 mt-6" style={{ backgroundColor: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
-                 <p className="text-xs text-center" style={{ color: 'rgb(234, 179, 8)' }}>
-                  You can still skip this step and finish venue registration now. Payment can be completed later from your business flow.
-                 </p>
-               </div>
+             <div className="rounded-2xl p-6 space-y-3" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+               <Input
+                 placeholder="Account holder name"
+                 value={formData.payout_account_name}
+                 onChange={(e) => setFormData((prev) => ({ ...prev, payout_account_name: e.target.value }))}
+                 className="h-12 bg-[#141416] border-[#262629] rounded-xl"
+               />
+               <Input
+                 placeholder="Account number"
+                 value={formData.payout_account_number}
+                 onChange={(e) => setFormData((prev) => ({ ...prev, payout_account_number: e.target.value }))}
+                 className="h-12 bg-[#141416] border-[#262629] rounded-xl"
+               />
+               <Input
+                 placeholder="Bank code"
+                 value={formData.payout_bank_code}
+                 onChange={(e) => setFormData((prev) => ({ ...prev, payout_bank_code: e.target.value }))}
+                 className="h-12 bg-[#141416] border-[#262629] rounded-xl"
+               />
+               <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
+                 Missing payout details means your venue payouts stay pending until setup is completed.
+               </p>
 
               {error && (
                 <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm mt-4">
@@ -1063,7 +1002,7 @@ export default function VenueOnboarding() {
                 variant="outline"
                 className="h-14 px-4 rounded-xl bg-[#141416] border-[#262629]"
               >
-                {isSubmitting ? 'Saving...' : 'Skip Payment'}
+                {isSubmitting ? 'Saving...' : 'Skip for now'}
               </Button>
               <Button
                 onClick={handleContinueWithPlan}
@@ -1071,7 +1010,7 @@ export default function VenueOnboarding() {
                 className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
                 style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
               >
-                {isSubmitting ? 'Redirecting...' : `Continue with ${selectedPlan === 'premium' ? 'Premium' : 'Basic'}`}
+                {isSubmitting ? 'Saving...' : 'Save payout details'}
                 {!isSubmitting && <Check className="w-5 h-5 ml-2" />}
               </Button>
             </>

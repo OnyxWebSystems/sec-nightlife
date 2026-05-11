@@ -888,6 +888,77 @@ const initSchema = z.object({
   metadata: z.record(z.any()).optional().nullable(),
 });
 
+const payoutRecipientSchema = z.object({
+  holder_type: z.enum(['USER', 'VENUE']),
+  venue_id: z.string().optional().nullable(),
+  account_name: z.string().min(2).max(120),
+  account_number: z.string().min(6).max(20),
+  bank_code: z.string().min(2).max(20),
+  currency: z.string().default('ZAR'),
+});
+
+router.post('/payout-recipient', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = payoutRecipientSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const d = parsed.data;
+
+    let recipientUserId = req.userId;
+    let recipientVenueId = null;
+    if (d.holder_type === 'VENUE') {
+      if (!d.venue_id) return res.status(400).json({ error: 'venue_id is required for venue payout setup' });
+      const venue = await prisma.venue.findFirst({
+        where: { id: String(d.venue_id), deletedAt: null },
+        select: { id: true, ownerUserId: true },
+      });
+      if (!venue) return res.status(404).json({ error: 'Venue not found' });
+      if (venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Not authorized for this venue' });
+      recipientVenueId = venue.id;
+      recipientUserId = null;
+    }
+
+    const recipientResp = await paystackFetch('/transferrecipient', {
+      method: 'POST',
+      body: {
+        type: 'nuban',
+        name: d.account_name,
+        account_number: d.account_number,
+        bank_code: d.bank_code,
+        currency: d.currency || 'ZAR',
+      },
+    });
+    const recipientCode = recipientResp?.data?.recipient_code;
+    if (!recipientCode) return res.status(502).json({ error: 'Paystack did not return a recipient code' });
+
+    if (d.holder_type === 'VENUE') {
+      await prisma.venue.update({
+        where: { id: recipientVenueId },
+        data: { paystackRecipientCode: recipientCode },
+      });
+    } else {
+      await prisma.user.update({
+        where: { id: req.userId },
+        data: { paystackRecipientCode: recipientCode },
+      });
+      await prisma.userProfile.upsert({
+        where: { userId: req.userId },
+        create: { userId: req.userId, paymentSetupComplete: true },
+        update: { paymentSetupComplete: true },
+      });
+    }
+
+    return res.json({
+      success: true,
+      holder_type: d.holder_type,
+      recipient_code: recipientCode,
+      recipient_name: recipientResp?.data?.name || d.account_name,
+      details: recipientResp?.data?.details || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST /api/payments/initialize — primary endpoint (spec-compliant)
 router.post('/initialize', authenticateToken, async (req, res, next) => {
   try {

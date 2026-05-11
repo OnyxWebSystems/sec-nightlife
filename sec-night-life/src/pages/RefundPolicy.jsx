@@ -52,9 +52,14 @@ export default function RefundPolicy() {
 
       <LegalPolicySection title="4. Escrow and Payment Processing">
         <p>
-          Where escrow functionality is used, funds may be temporarily held to facilitate transactions. SEC does not
-          guarantee the outcome of any financial transaction and assumes no liability for disputes arising from escrow
-          arrangements beyond facilitating technical integration with payment providers.
+          SEC collects payments through payment partners (including Paystack) and applies the platform split for
+          applicable transactions. Where payout recipient details are configured, eligible venue or user earnings are
+          transferred automatically according to platform rules.
+        </p>
+        <p>
+          If recipient setup is missing, payout records may remain in a pending state until details are added in
+          Settings &gt; Payment Methods. SEC does not guarantee transfer timing in cases caused by missing, invalid, or
+          rejected recipient details.
         </p>
       </LegalPolicySection>
 

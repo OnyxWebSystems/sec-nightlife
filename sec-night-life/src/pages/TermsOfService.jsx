@@ -127,12 +127,15 @@ export default function TermsOfService() {
 
       <LegalPolicySection title="7. Payments, Escrow, and Financial Transactions">
         <p>
-          SEC facilitates payments through third-party providers and may offer escrow functionality to enhance
-          transactional security. However, SEC does not act as a financial institution and does not guarantee payment
-          outcomes.
+          SEC facilitates payments through third-party providers. For supported flows, SEC may collect funds and apply
+          platform splits (including SEC fees and partner earnings) as defined by product rules.
         </p>
         <p>
-          Users acknowledge that all financial transactions are conducted at their own risk. Any disputes regarding
+          Eligible earnings for venues and users are transferred through configured payout recipient details. If payout
+          details are missing or invalid, transfers may remain pending until corrected in Settings &gt; Payment Methods.
+        </p>
+        <p>
+          Users acknowledge that all financial transactions are conducted at their own risk. Disputes regarding
           payments must be resolved directly between the relevant parties, subject to our{' '}
           <Link to={createPageUrl('RefundPolicy')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
             Refund Policy

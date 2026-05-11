@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
+import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -128,7 +129,18 @@ export default function TableDetails() {
     setIsProcessingPayment(true);
     try {
       const pay = await apiPost(`/api/venue-tables/${tableId}/join`, { selectedMenuItems: selected });
-      if (pay?.authorization_url) window.location.href = pay.authorization_url;
+      if (pay?.reference && pay?.access_code) {
+        await launchPaystackInline({
+          email: user?.email,
+          amount: pay?.amount || 0,
+          reference: pay.reference,
+          accessCode: pay.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || pay.reference);
+            queryClient.invalidateQueries(['venue-table', tableId]);
+          },
+        });
+      }
     } catch (e) {
       toast.error(e?.message || 'Could not start payment');
     } finally {
@@ -183,8 +195,20 @@ export default function TableDetails() {
         description: `Join Table: ${table.name}`,
         metadata: { type: 'table', table_id: tableId, user_id: userProfile?.id || user?.id },
       });
-      if (res?.authorization_url) window.location.href = res.authorization_url;
-      else throw new Error('No payment URL');
+      if (res?.reference && res?.access_code) {
+        await launchPaystackInline({
+          email: userProfile?.email || user?.email,
+          amount: table.joining_fee,
+          reference: res.reference,
+          accessCode: res.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || res.reference);
+            queryClient.invalidateQueries(['table', tableId]);
+            setShowPaymentDialog(false);
+            toast.success('Payment successful');
+          },
+        });
+      } else throw new Error('No payment reference');
     } catch {
       alert('Payment failed. Please try again.');
     } finally {

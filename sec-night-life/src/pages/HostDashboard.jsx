@@ -12,6 +12,7 @@ import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { Plus, Loader2, MessageCircle } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
+import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 
 function eventStartTimeForInput(ev) {
   if (!ev) return undefined;
@@ -51,6 +52,7 @@ export default function HostDashboard() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [tab, setTab] = useState('parties');
   const [showPartyModal, setShowPartyModal] = useState(false);
   const [showTableModal, setShowTableModal] = useState(false);
@@ -98,7 +100,11 @@ export default function HostDashboard() {
   const [eventSearch, setEventSearch] = useState('');
 
   useEffect(() => {
-    authService.getCurrentUser().then(setUser).catch(() => authService.redirectToLogin());
+    authService.getCurrentUser().then(async (u) => {
+      setUser(u);
+      const profiles = await dataService.User.filter({ created_by: u.email });
+      setUserProfile(profiles?.[0] || null);
+    }).catch(() => authService.redirectToLogin());
   }, []);
 
   useEffect(() => {
@@ -269,7 +275,18 @@ export default function HostDashboard() {
       closePartyModal();
       if (thenPublish && created?.id) {
         const pay = await apiPost(`/api/host/parties/${created.id}/publish`, {});
-        if (pay?.authorization_url) window.location.href = pay.authorization_url;
+        if (pay?.reference && pay?.access_code) {
+          await launchPaystackInline({
+            email: user?.email,
+            amount: 200,
+            reference: pay.reference,
+            accessCode: pay.access_code,
+            onSuccess: async (payload) => {
+              await verifyPaystackReference(payload?.reference || pay.reference);
+              queryClient.invalidateQueries(['host-parties']);
+            },
+          });
+        }
       }
     } catch (e) {
       toast.error(e?.message || 'Could not create party');
@@ -342,7 +359,18 @@ export default function HostDashboard() {
           isPublic: tableForm.isPublic,
           guestGenderPreference: tableForm.guestGenderPreference,
         });
-        if (created?.payment?.authorization_url) window.location.href = created.payment.authorization_url;
+        if (created?.payment?.reference && created?.payment?.access_code) {
+          await launchPaystackInline({
+            email: user?.email,
+            amount: Number(tableForm.hasJoiningFee ? tableForm.joiningFee || 0 : 0),
+            reference: created.payment.reference,
+            accessCode: created.payment.access_code,
+            onSuccess: async (payload) => {
+              await verifyPaystackReference(payload?.reference || created.payment.reference);
+              queryClient.invalidateQueries(['host-tables']);
+            },
+          });
+        }
       } else {
         if (!tableForm.venueName || !tableForm.eventDate) {
           toast.error('Venue name and date required');
@@ -373,7 +401,18 @@ export default function HostDashboard() {
           isPublic: tableForm.isPublic,
           guestGenderPreference: tableForm.guestGenderPreference,
         });
-        if (created?.payment?.authorization_url) window.location.href = created.payment.authorization_url;
+        if (created?.payment?.reference && created?.payment?.access_code) {
+          await launchPaystackInline({
+            email: user?.email,
+            amount: 200,
+            reference: created.payment.reference,
+            accessCode: created.payment.access_code,
+            onSuccess: async (payload) => {
+              await verifyPaystackReference(payload?.reference || created.payment.reference);
+              queryClient.invalidateQueries(['host-tables']);
+            },
+          });
+        }
       }
       queryClient.invalidateQueries(['host-tables']);
       toast.success('Table listed');
@@ -389,7 +428,18 @@ export default function HostDashboard() {
   const publishParty = async (id) => {
     try {
       const pay = await apiPost(`/api/host/parties/${id}/publish`, {});
-      if (pay?.authorization_url) window.location.href = pay.authorization_url;
+      if (pay?.reference && pay?.access_code) {
+        await launchPaystackInline({
+          email: user?.email,
+          amount: 200,
+          reference: pay.reference,
+          accessCode: pay.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || pay.reference);
+            queryClient.invalidateQueries(['host-parties']);
+          },
+        });
+      }
     } catch (e) {
       toast.error(e?.message || 'Payment failed to start');
     }
@@ -398,7 +448,18 @@ export default function HostDashboard() {
   const boostParty = async (id) => {
     try {
       const pay = await apiPost(`/api/host/parties/${id}/boost`, {});
-      if (pay?.authorization_url) window.location.href = pay.authorization_url;
+      if (pay?.reference && pay?.access_code) {
+        await launchPaystackInline({
+          email: user?.email,
+          amount: 200,
+          reference: pay.reference,
+          accessCode: pay.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || pay.reference);
+            queryClient.invalidateQueries(['host-tables']);
+          },
+        });
+      }
     } catch (e) {
       toast.error(e?.message || 'Payment failed to start');
     }
@@ -442,6 +503,16 @@ export default function HostDashboard() {
             </button>
           </div>
           <div className="mb-3 opacity-90">
+            {!userProfile?.payment_setup_complete ? (
+              <div className="mb-3 rounded-xl p-3 border" style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-card)' }}>
+                <p className="text-sm" style={{ color: 'var(--sec-text-primary)' }}>
+                  Add payout details to receive your earnings automatically.
+                  <Link to={createPageUrl('Payments')} className="ml-1 underline" style={{ color: 'var(--sec-accent)' }}>
+                    Settings &gt; Payment Methods
+                  </Link>
+                </p>
+              </div>
+            ) : null}
             <RefundPolicyNote />
           </div>
           {loadP ? <Loader2 className="animate-spin" /> : null}

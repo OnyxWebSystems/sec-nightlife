@@ -47,8 +47,8 @@ export default function PrivacyPolicy() {
         </p>
         <p>
           <strong className="text-[var(--sec-text-primary)]">Payments:</strong> payments are handled by our payment
-          processor (for example Paystack). We receive limited payment metadata (such as status and transaction
-          references), not your full card number.
+          processor (for example Paystack). We receive limited payment metadata (such as status, transaction references,
+          and recipient/transfer status required for payout processing), not your full card number.
         </p>
       </LegalPolicySection>
 

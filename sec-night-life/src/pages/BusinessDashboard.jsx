@@ -91,6 +91,7 @@ export default function BusinessDashboard() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -102,6 +103,13 @@ export default function BusinessDashboard() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    dataService.User.filter({ created_by: user.email }).then((profiles) => {
+      setUserProfile(profiles?.[0] || null);
+    }).catch(() => {});
+  }, [user?.email]);
 
   const { data: venues = [], isLoading: venuesLoading } = useQuery({
     queryKey: ['biz-venues', user?.id],
@@ -341,6 +349,21 @@ export default function BusinessDashboard() {
           </div>
         </div>
       </div>
+      {!userProfile?.payment_setup_complete ? (
+        <div style={{
+          padding: '12px 16px',
+          borderRadius: 12,
+          marginBottom: 16,
+          backgroundColor: 'var(--sec-bg-card)',
+          border: '1px solid var(--sec-border)',
+        }}>
+          <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
+            Payout setup missing. Add your bank details in
+            {' '}<Link to={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>Settings &gt; Payment Methods</Link>
+            {' '}to prevent pending payouts.
+          </p>
+        </div>
+      ) : null}
 
       {/* Compliance Notice */}
       {showComplianceSection &&

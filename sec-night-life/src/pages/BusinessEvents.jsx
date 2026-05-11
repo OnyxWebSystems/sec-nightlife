@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -61,6 +61,7 @@ export default function BusinessEvents() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [form, setForm] = useState({ ...EMPTY_EVENT });
@@ -74,6 +75,13 @@ export default function BusinessEvents() {
       catch { authService.redirectToLogin(); }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    dataService.User.filter({ created_by: user.email }).then((profiles) => {
+      setUserProfile(profiles?.[0] || null);
+    }).catch(() => {});
+  }, [user?.email]);
 
   const { data: venues = [] } = useQuery({
     queryKey: ['biz-venues', user?.id],
@@ -295,6 +303,14 @@ export default function BusinessEvents() {
           <Plus size={16} className="mr-1.5" /> Create Event
         </Button>
       </div>
+      {!userProfile?.payment_setup_complete ? (
+        <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+          <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
+            Payout details missing. Your venue payouts can remain pending until setup is complete in
+            {' '}<Link to={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>Settings &gt; Payment Methods</Link>.
+          </p>
+        </div>
+      ) : null}
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>

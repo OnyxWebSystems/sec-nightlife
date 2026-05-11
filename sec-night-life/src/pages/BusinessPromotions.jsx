@@ -6,6 +6,7 @@ import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
+import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 
 const SA_CITIES = ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein', 'Port Elizabeth', 'East London', 'Polokwane', 'Nelspruit', 'Rustenburg'];
 const TYPES = [
@@ -638,6 +639,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, 
 
 export default function BusinessPromotions() {
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
   const [promotions, setPromotions] = useState([]);
   const [events, setEvents] = useState([]);
@@ -654,6 +656,13 @@ export default function BusinessPromotions() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    dataService.User.filter({ created_by: user.email }).then((profiles) => {
+      setUserProfile(profiles?.[0] || null);
+    }).catch(() => {});
+  }, [user?.email]);
 
   const { data: venues = [] } = useQuery({
     queryKey: ['promotions-venues', user?.id],
@@ -701,12 +710,24 @@ export default function BusinessPromotions() {
   const startBoost = useCallback(async (promotion) => {
     try {
       const payment = await apiPost(`/api/promotions/${promotion.id}/boost`, {});
-      if (payment?.authorization_url) window.location.href = payment.authorization_url;
+      if (payment?.reference && payment?.access_code) {
+        await launchPaystackInline({
+          email: user?.email,
+          amount: 200,
+          reference: payment.reference,
+          accessCode: payment.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || payment.reference);
+            await loadPromotions(selectedVenue);
+            toast.success('Boost payment successful');
+          },
+        });
+      }
       else toast.error('Could not initialize Paystack payment');
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Failed to initialize boost payment');
     }
-  }, []);
+  }, [loadPromotions, selectedVenue, user?.email]);
 
   const patchPromotion = useCallback(async (id, payload) => {
     try {
@@ -750,6 +771,15 @@ export default function BusinessPromotions() {
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Promotions</h1>
       <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 14 }}>Create and manage your venue promotions.</p>
       <div style={{ marginBottom: 12 }}>
+        {!userProfile?.payment_setup_complete ? (
+          <div className="sec-card" style={{ padding: 10, marginBottom: 8 }}>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-primary)' }}>
+              Payout setup missing. Add details in
+              {' '}<a href={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>Settings &gt; Payment Methods</a>
+              {' '}to avoid pending payouts.
+            </p>
+          </div>
+        ) : null}
         <RefundPolicyNote />
       </div>
 
