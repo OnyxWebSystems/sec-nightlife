@@ -339,39 +339,27 @@ async function applyReferenceSideEffects(reference, paystackData) {
       });
       if (hosted && hosted.status === 'DRAFT' && !hosted.hostFeePaystackRef) {
         const entranceZar = Number(metadata.entrance_zar || 0);
-        const hostFeeZar = Number(metadata.host_fee_zar || amount || 0);
-        const expected = entranceZar + hostFeeZar;
+        const hostFeeZar = Number(metadata.host_fee_zar || 0);
+        const minSpendZar = Number(metadata.min_spend_zar ?? metadata.minSpendZar ?? 0) || 0;
+        const expected = entranceZar + hostFeeZar + minSpendZar;
         if (expected > 0 && Math.abs(Number(amount || 0) - expected) < 0.01) {
           await prisma.hostedTable.update({
             where: { id: hosted.id },
             data: { status: 'ACTIVE', hostFeePaystackRef: reference },
           });
           const venueCode = hosted.event?.venueId ? await resolveRecipientCodeForVenue(hosted.event.venueId) : null;
-          const hostCode = await resolveRecipientCodeForUser(String(userId));
-          if (entranceZar > 0 && hosted.event?.venueId) {
-            const { secAmount: secEntrance, recipientAmount: venueEntrance } = splitSecPlatform(entranceZar);
+          const totalZar = Number(amount || 0);
+          if (totalZar > 0 && hosted.event?.venueId && venueCode) {
+            const { secAmount: secTotal, recipientAmount: venueTotal } = splitSecPlatform(totalZar);
             await recordPayoutAndMaybeTransfer({
-              paymentReference: `${reference}:entrance`,
-              grossZar: entranceZar,
-              secAmount: secEntrance,
-              recipientAmount: venueEntrance,
+              paymentReference: `${reference}:host_listing_total`,
+              grossZar: totalZar,
+              secAmount: secTotal,
+              recipientAmount: venueTotal,
               recipientType: 'VENUE',
               recipientVenueId: hosted.event.venueId,
               recipientUserId: null,
               paystackRecipientCode: venueCode,
-            });
-          }
-          if (hostFeeZar > 0) {
-            const { secAmount: secHost, recipientAmount: hostShare } = splitSecPlatform(hostFeeZar);
-            await recordPayoutAndMaybeTransfer({
-              paymentReference: `${reference}:hostfee`,
-              grossZar: hostFeeZar,
-              secAmount: secHost,
-              recipientAmount: hostShare,
-              recipientType: 'USER',
-              recipientUserId: String(userId),
-              recipientVenueId: null,
-              paystackRecipientCode: hostCode,
             });
           }
           const vis = hosted.event ? visibleUntilAfterEventDate(hosted.event.date) : visibleUntilAfterHostedTable(hosted);
@@ -397,6 +385,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
             tableSpecsSummary: formatSpecsFromHostedTable(hosted),
             eventStartsAt,
           });
+          await createInAppNotification({
+            userId: String(userId),
+            type: 'TABLE_JOINED',
+            title: 'Hosted table payment received',
+            body: `Your listing payment for "${hosted.tableName}" was successful. Your table is live.`,
+            referenceId: hosted.id,
+            referenceType: 'HOSTED_TABLE',
+          });
           if (hosted.event?.venueId && hosted.eventId) {
             await recordEventVenueTableBooking({
               venueId: hosted.event.venueId,
@@ -405,9 +401,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
               userId: String(userId),
               role: 'HOST',
               paystackReference: reference,
-              amountTotal: Number(amount || 0),
+              amountTotal: totalZar,
               entranceZar: entranceZar || 0,
-              componentZar: hostFeeZar || 0,
+              componentZar: (hostFeeZar || 0) + (minSpendZar || 0),
             });
           }
           if (hosted.event?.venue?.ownerUserId) {
@@ -417,6 +413,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
               title: 'New hosted table',
               body: `${hosted.tableName} is now active for ${hosted.event?.title || 'your event'}.`,
               actionUrl: `/BusinessBookings`,
+            });
+            await createInAppNotification({
+              userId: hosted.event.venue.ownerUserId,
+              type: 'TABLE_JOINED',
+              title: 'Hosted table live',
+              body: `${hosted.tableName} — host payment completed for ${hosted.event?.title || 'your event'}.`,
+              referenceId: hosted.eventId,
+              referenceType: 'EVENT',
             });
           }
         }
@@ -633,24 +637,30 @@ async function applyReferenceSideEffects(reference, paystackData) {
         where: { id: String(memberId), hostedTableId: String(htid), userId: String(userId) },
         include: { hostedTable: true },
       });
-      if (member && member.paystackReference !== reference && member.hostedTable.hasJoiningFee && member.hostedTable.joiningFee) {
-        const htEvent = member.hostedTable.eventId
-          ? await prisma.event.findFirst({
-              where: { id: member.hostedTable.eventId, deletedAt: null },
-              select: {
-                id: true,
-                venueId: true,
-                date: true,
-                startTime: true,
-                hasEntranceFee: true,
-                entranceFeeAmount: true,
-              },
-            })
-          : null;
-        const entranceZar = Number(metadata.entrance_zar || getEventEntranceZar(htEvent));
-        const joinZar = Number(metadata.join_zar || member.hostedTable.joiningFee || 0);
-        const expected = entranceZar + joinZar;
-        if (Math.abs(Number(amount) - expected) < 0.01) {
+      const htEvent = member?.hostedTable?.eventId
+        ? await prisma.event.findFirst({
+            where: { id: member.hostedTable.eventId, deletedAt: null },
+            select: {
+              id: true,
+              title: true,
+              venueId: true,
+              date: true,
+              startTime: true,
+              hasEntranceFee: true,
+              entranceFeeAmount: true,
+              venue: { select: { ownerUserId: true, name: true } },
+            },
+          })
+        : null;
+      const entranceZar = Number(metadata.entrance_zar || getEventEntranceZar(htEvent));
+      const joinZar = Number(metadata.join_zar ?? member?.hostedTable?.joiningFee ?? 0) || 0;
+      const expected = entranceZar + joinZar;
+      if (
+        member &&
+        member.paystackReference !== reference &&
+        expected > 0 &&
+        Math.abs(Number(amount) - expected) < 0.01
+      ) {
           await prisma.$transaction(async (tx) => {
             const htRow = await tx.hostedTable.findUnique({ where: { id: String(htid) } });
             const mem = await tx.hostedTableMember.findUnique({ where: { id: member.id } });
@@ -678,7 +688,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           });
           if (memFresh?.paystackReference === reference) {
             const htFinal = memFresh.hostedTable;
-            const hostCode = await resolveRecipientCodeForUser(htFinal.hostUserId);
+            const hostCode = joinZar > 0 ? await resolveRecipientCodeForUser(htFinal.hostUserId) : null;
             if (entranceZar > 0 && htEvent?.venueId) {
               const venueCode = await resolveRecipientCodeForVenue(htEvent.venueId);
               const { secAmount: sEnt, recipientAmount: rEnt } = splitSecPlatform(entranceZar);
@@ -693,17 +703,19 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 paystackRecipientCode: venueCode,
               });
             }
-            const { secAmount: sAmt, recipientAmount: rAmt } = splitSecPlatform(joinZar);
-            await recordPayoutAndMaybeTransfer({
-              paymentReference: `${reference}:join`,
-              grossZar: joinZar,
-              secAmount: sAmt,
-              recipientAmount: rAmt,
-              recipientType: 'USER',
-              recipientUserId: htFinal.hostUserId,
-              recipientVenueId: null,
-              paystackRecipientCode: hostCode,
-            });
+            if (joinZar > 0 && hostCode) {
+              const { secAmount: sAmt, recipientAmount: rAmt } = splitSecPlatform(joinZar);
+              await recordPayoutAndMaybeTransfer({
+                paymentReference: `${reference}:join`,
+                grossZar: joinZar,
+                secAmount: sAmt,
+                recipientAmount: rAmt,
+                recipientType: 'USER',
+                recipientUserId: htFinal.hostUserId,
+                recipientVenueId: null,
+                paystackRecipientCode: hostCode,
+              });
+            }
             const payer = await prisma.user.findUnique({
               where: { id: String(userId) },
               select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
@@ -738,11 +750,53 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 componentZar: joinZar,
               });
             }
+            const payerName = payer?.fullName || payer?.username || 'A guest';
+            await createInAppNotification({
+              userId: String(userId),
+              type: 'TABLE_JOINED',
+              title: 'Table join confirmed',
+              body: `Your payment for "${htFinal.tableName}" succeeded. Your ticket is ready — show your QR at the door.`,
+              referenceId: htFinal.id,
+              referenceType: 'HOSTED_TABLE',
+            });
+            if (htEvent?.venue?.ownerUserId) {
+              await createNotification({
+                userId: htEvent.venue.ownerUserId,
+                type: 'payment',
+                title: 'Hosted table guest paid',
+                body: `${payerName} completed payment to join "${htFinal.tableName}"${htEvent.title ? ` (${htEvent.title})` : ''}.`,
+                actionUrl: `/BusinessBookings`,
+              });
+              await createInAppNotification({
+                userId: htEvent.venue.ownerUserId,
+                type: 'TABLE_JOINED',
+                title: 'Hosted table guest paid',
+                body: `${payerName} joined "${htFinal.tableName}" after successful payment.`,
+                referenceId: htEvent.id,
+                referenceType: 'EVENT',
+              });
+            }
+            if (htFinal.hostUserId && String(htFinal.hostUserId) !== String(userId)) {
+              await createNotification({
+                userId: htFinal.hostUserId,
+                type: 'payment',
+                title: 'New guest on your table',
+                body: `${payerName} paid and joined "${htFinal.tableName}".`,
+                actionUrl: `/HostDashboard`,
+              });
+              await createInAppNotification({
+                userId: htFinal.hostUserId,
+                type: 'TABLE_JOINED',
+                title: 'Guest joined your table',
+                body: `${payerName} completed payment and is going to "${htFinal.tableName}".`,
+                referenceId: htFinal.id,
+                referenceType: 'HOSTED_TABLE',
+              });
+            }
           }
         }
       }
     }
-  }
 
   const tableId = metadata.table_id;
   if (tableId && userId && metadata.type !== 'TABLE_HOST_FEE') {
@@ -950,6 +1004,106 @@ async function applyReferenceSideEffects(reference, paystackData) {
         metadata: mergedMeta,
       },
     });
+  }
+}
+
+/** Paystack charge.failed: mark Payment/Transaction failed and notify payer, venue, and table host when applicable. */
+async function applyChargeFailedEffects(reference, payload) {
+  const data = payload?.data || {};
+  const metaFromCharge = data.metadata && typeof data.metadata === 'object' ? data.metadata : {};
+  const prior = await prisma.payment.findUnique({
+    where: { reference },
+    select: { metadata: true, userId: true },
+  });
+  const priorMeta = prior?.metadata && typeof prior.metadata === 'object' ? prior.metadata : {};
+  const mergedMeta = {
+    ...priorMeta,
+    ...metaFromCharge,
+    charge_failed: {
+      message: data.gateway_response || data.message || 'Payment failed',
+      at: new Date().toISOString(),
+    },
+  };
+  await prisma.payment.updateMany({
+    where: { reference },
+    data: { status: 'failed', metadata: mergedMeta },
+  });
+  await prisma.transaction.updateMany({
+    where: { stripeId: reference },
+    data: { status: 'failed', metadata: data },
+  });
+
+  const userId = String(metaFromCharge.user_id || prior?.userId || mergedMeta.user_id || '').trim();
+  const ptype = metaFromCharge.type || mergedMeta.type;
+  const failReason =
+    data.gateway_response || data.message || 'Your bank or card issuer declined the payment.';
+
+  if (userId) {
+    await createNotification({
+      userId,
+      type: 'system',
+      title: 'Payment did not go through',
+      body: `${failReason} Try again or use another card. If this keeps happening, contact support.`,
+      actionUrl: '/HostDashboard',
+    });
+    const failRefId = metaFromCharge.hosted_table_id || metaFromCharge.hostedTableId;
+    await createInAppNotification({
+      userId,
+      type: 'TABLE_JOINED',
+      title: 'Payment failed',
+      body: failReason,
+      referenceId: failRefId ? String(failRefId) : null,
+      referenceType: failRefId ? 'HOSTED_TABLE' : null,
+    });
+  }
+
+  if (ptype === 'TABLE_HOST_FEE') {
+    const htid = metaFromCharge.hosted_table_id || metaFromCharge.hostedTableId;
+    if (htid) {
+      const ht = await prisma.hostedTable.findFirst({
+        where: { id: String(htid) },
+        include: { event: { include: { venue: { select: { ownerUserId: true } } } } },
+      });
+      const ownerId = ht?.event?.venue?.ownerUserId;
+      if (ownerId && ht?.tableName) {
+        await createNotification({
+          userId: ownerId,
+          type: 'system',
+          title: 'Hosted table payment failed',
+          body: `A host listing payment for "${ht.tableName}" did not complete. No card data is stored.`,
+          actionUrl: '/BusinessBookings',
+        });
+      }
+    }
+  }
+
+  if (ptype === 'HOSTED_TABLE_JOIN') {
+    const htid = metaFromCharge.hosted_table_id || metaFromCharge.hostedTableId;
+    if (htid) {
+      const ht = await prisma.hostedTable.findFirst({
+        where: { id: String(htid) },
+        include: { event: { include: { venue: { select: { ownerUserId: true } } } } },
+      });
+      const ownerId = ht?.event?.venue?.ownerUserId;
+      if (ownerId) {
+        await createNotification({
+          userId: ownerId,
+          type: 'system',
+          title: 'Table join payment failed',
+          body: `A guest payment to join "${ht?.tableName || 'a hosted table'}" was not completed.`,
+          actionUrl: '/BusinessBookings',
+        });
+      }
+      if (ht?.hostUserId && String(ht.hostUserId) !== userId) {
+        await createNotification({
+          userId: ht.hostUserId,
+          type: 'system',
+          title: 'Join payment incomplete',
+          body: `A payment to join your table "${ht.tableName}" did not succeed. The guest can try again.`,
+          actionUrl: '/HostDashboard',
+        });
+      }
+    }
   }
 }
 
@@ -1219,6 +1373,14 @@ export async function paystackWebhookHandler(req, res) {
     } catch (e) {
       // Log but don't fail — Paystack may retry
       console.error('Paystack webhook applyReferenceSideEffects error:', e?.message);
+    }
+  }
+
+  if (event === 'charge.failed') {
+    try {
+      await applyChargeFailedEffects(reference, payload);
+    } catch (e) {
+      console.error('Paystack webhook charge.failed error:', e?.message);
     }
   }
 

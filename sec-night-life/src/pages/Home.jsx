@@ -15,6 +15,8 @@ import HostedTableCard from '@/components/home/HostedTableCard';
 import QuickActions from '@/components/home/QuickActions';
 import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
+import { toast } from 'sonner';
+import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 
 function getOrCreateSessionId() {
   try {
@@ -237,14 +239,42 @@ export default function Home() {
   };
 
   const joinHostedTable = async (tableId) => {
+    if (!user?.id || !user?.email) {
+      const returnUrl = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+      navigate(`${createPageUrl('Login')}?returnUrl=${returnUrl}`);
+      toast.message('Sign in to join a table');
+      return;
+    }
     try {
       const r = await apiPost(`/api/host/tables/${tableId}/join`, {});
       queryClient.invalidateQueries(['host-tables-available']);
       if (r?.pending) {
-        window.alert('Request sent. The host will approve your join.');
+        toast.success('Request sent. The host will approve your join.');
+        return;
       }
+      if (r?.pendingPayment && r?.reference && r?.access_code) {
+        const amount = Number(r.amount_zar ?? 0);
+        launchPaystackInline({
+          email: user.email,
+          amount,
+          reference: r.reference,
+          accessCode: r.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || r.reference);
+            queryClient.invalidateQueries(['host-tables-available']);
+            toast.success('Payment successful — your ticket is ready.');
+          },
+          onCancel: () => {
+            toast.message('Checkout closed', {
+              description: 'No charge was completed. Open the table again to retry.',
+            });
+          },
+        });
+        return;
+      }
+      toast.success('You are on the guest list.');
     } catch (e) {
-      window.alert(e?.message || 'Could not join table');
+      toast.error(e?.message || 'Could not join table');
     }
   };
 

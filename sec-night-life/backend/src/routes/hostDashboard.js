@@ -12,7 +12,12 @@ import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
-import { normalizeGuestGenderPreference, genderMatchesPreference } from '../lib/genderPreference.js';
+import { normalizeGuestGenderPreference } from '../lib/genderPreference.js';
+import {
+  isInAppEventInFuture,
+  isExternalMeetupInFuture,
+  shouldShowHostedTableOnHostDashboard,
+} from '../lib/eventWallClock.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from '../lib/hostedTableSecFees.js';
 
@@ -106,7 +111,12 @@ async function initializePaystackPayment({ userId, amountZar, metadata }) {
     err.status = res.status;
     throw err;
   }
-  return { reference, authorization_url: data.data.authorization_url, access_code: data.data.access_code };
+  return {
+    reference,
+    authorization_url: data.data.authorization_url,
+    access_code: data.data.access_code,
+    amount_zar: amountZar,
+  };
 }
 
 const publicHostSelect = {
@@ -293,6 +303,8 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
             date: true,
             startTime: true,
             city: true,
+            hasEntranceFee: true,
+            entranceFeeAmount: true,
             venue: {
               select: {
                 name: true,
@@ -326,6 +338,14 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       eventLocation?.displayLabel ||
       [t.venueAddress, t.venueName].filter(Boolean).join(', ') ||
       t.venueName;
+    const entranceZar = getEventEntranceZar(t.event);
+    const joinZar = t.hasJoiningFee && Number(t.joiningFee) > 0 ? Number(t.joiningFee) : 0;
+    const tierMin =
+      t.tierMinSpend != null && Number.isFinite(Number(t.tierMinSpend)) ? Number(t.tierMinSpend) : null;
+    const gq = Math.max(1, Number(t.guestQuantity) || 1);
+    const minSpendPerPerson =
+      tierMin != null && tierMin > 0 ? Math.ceil(tierMin / gq) : null;
+    const totalPayOnlineZar = entranceZar + joinZar;
     res.json({
       kind: 'hosted',
       id: t.id,
@@ -346,6 +366,8 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
             date: t.event.date,
             start_time: t.event.startTime,
             city: t.event.city,
+            has_entrance_fee: t.event.hasEntranceFee,
+            entrance_fee_amount: t.event.entranceFeeAmount,
           }
         : null,
       host: await formatPublicHost(t.host),
@@ -353,6 +375,14 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       guestQuantity: t.guestQuantity,
       hasJoiningFee: t.hasJoiningFee,
       joiningFee: t.joiningFee,
+      tier_min_spend_zar: tierMin,
+      checkout: {
+        entrance_zar: entranceZar,
+        joining_fee_zar: joinZar,
+        tier_min_spend_zar: tierMin,
+        min_spend_per_person_zar: minSpendPerPerson,
+        total_pay_online_zar: totalPayOnlineZar,
+      },
     });
   } catch (e) {
     next(e);
@@ -868,7 +898,6 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
     if (d.tableType === 'EXTERNAL_VENUE' && d.guestQuantity > 20) {
       return res.status(400).json({ error: 'External meet-up tables allow at most 20 guests.' });
     }
-    const future = new Date();
     if (d.tableType === 'IN_APP_EVENT') {
       if (!d.eventId) return res.status(400).json({ error: 'eventId required for in-app event' });
       const ev = await prisma.event.findFirst({
@@ -876,12 +905,16 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
         include: { venue: true },
       });
       if (!ev) return res.status(404).json({ error: 'Event not found' });
-      if (ev.date <= future) return res.status(400).json({ error: 'Event must be in the future' });
       const startStr = ev.startTime != null ? String(ev.startTime).trim() : '';
       if (!startStr) {
         return res.status(400).json({
           error:
             'This event has no start time yet. Ask the venue to set an event start time before you can host a table.',
+        });
+      }
+      if (!isInAppEventInFuture(ev)) {
+        return res.status(400).json({
+          error: 'This event has already started or is not in the future. Check the event date and start time.',
         });
       }
       const timeCheck = assertTableTimeNotBeforeEventStart(d.eventTime, ev.startTime);
@@ -998,9 +1031,11 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       });
       const hostFee = getHostTableFeeZar(ev.hostingConfig, hostingCategory);
       const entranceZar = getEventEntranceZar(ev);
-      if (hostFee > 0) {
+      const minSpendZar =
+        tierMeta.minSpend != null && Number.isFinite(Number(tierMeta.minSpend)) ? Math.max(0, Number(tierMeta.minSpend)) : 0;
+      const totalHostPay = entranceZar + hostFee + minSpendZar;
+      if (totalHostPay > 0) {
         await prisma.hostedTable.update({ where: { id: t.id }, data: { status: 'DRAFT' } });
-        const totalHostPay = hostFee + entranceZar;
         const pay = await initializePaystackPayment({
           userId: req.userId,
           amountZar: totalHostPay,
@@ -1011,6 +1046,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             venue_id: ev.venueId,
             entrance_zar: entranceZar,
             host_fee_zar: hostFee,
+            min_spend_zar: minSpendZar,
             amount_total_zar: totalHostPay,
             table_create: {
               event_id: ev.id,
@@ -1018,7 +1054,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
               name: d.tableName,
               table_category: hostingCategory === 'VIP' ? 'vip' : 'general',
               max_guests: d.guestQuantity,
-              min_spend: 0,
+              min_spend: minSpendZar,
               joining_fee: d.hasJoiningFee ? d.joiningFee : null,
               is_public: d.isPublic,
               guest_gender_preference: normalizeGuestGenderPreference(d.guestGenderPreference),
@@ -1035,7 +1071,9 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       });
     }
     if (!d.venueName) return res.status(400).json({ error: 'venueName required for external venue' });
-    if (d.eventDate <= future) return res.status(400).json({ error: 'eventDate must be in the future' });
+    if (!isExternalMeetupInFuture(d.eventDate, d.eventTime)) {
+      return res.status(400).json({ error: 'Meet-up date and time must be in the future.' });
+    }
     const t = await prisma.$transaction(async (tx) =>
       tx.hostedTable.create({
         data: {
@@ -1147,7 +1185,8 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             _count: true,
           });
     const pendingByTable = Object.fromEntries(pendingRows.map((r) => [r.hostedTableId, r._count]));
-    const out = tables.map((t) => ({
+    const visibleTables = tables.filter((t) => shouldShowHostedTableOnHostDashboard(t, t.event));
+    const out = visibleTables.map((t) => ({
       ...t,
       eventLocation: t.tableType === 'IN_APP_EVENT' && t.event ? buildEventLocationPayload(t.event) : null,
       pendingJoinCount: pendingByTable[t.id] ?? 0,
@@ -1196,7 +1235,19 @@ router.get('/tables/:tableId/pending-requests', authenticateToken, async (req, r
             id: true,
             username: true,
             fullName: true,
-            userProfile: { select: { username: true, avatarUrl: true } },
+            email: true,
+            userProfile: {
+              select: {
+                username: true,
+                avatarUrl: true,
+                bio: true,
+                gender: true,
+                dateOfBirth: true,
+                city: true,
+                ageVerified: true,
+                verificationStatus: true,
+              },
+            },
           },
         },
       },
@@ -1211,7 +1262,14 @@ router.get('/tables/:tableId/pending-requests', authenticateToken, async (req, r
           id: m.user.id,
           username: m.user.userProfile?.username || m.user.username,
           fullName: m.user.fullName,
+          email: m.user.email,
           avatarUrl: m.user.userProfile?.avatarUrl || null,
+          bio: m.user.userProfile?.bio ?? null,
+          gender: m.user.userProfile?.gender ?? null,
+          date_of_birth: m.user.userProfile?.dateOfBirth ?? null,
+          city: m.user.userProfile?.city ?? null,
+          age_verified: m.user.userProfile?.ageVerified ?? null,
+          verification_status: m.user.userProfile?.verificationStatus ?? null,
         },
       })),
     );
@@ -1235,25 +1293,11 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
         status: true,
         hasJoiningFee: true,
         joiningFee: true,
-        guestGenderPreference: true,
       },
     });
     if (!table) return res.status(404).json({ error: 'Not found' });
     if (table.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const targetUserId = req.params.userId;
-    const targetProfile = await prisma.userProfile.findUnique({
-      where: { userId: targetUserId },
-      select: { gender: true },
-    });
-    const genderCheck = genderMatchesPreference(targetProfile?.gender, table.guestGenderPreference || 'ANY');
-    if (!genderCheck.ok) {
-      return res.status(400).json({
-        error:
-          genderCheck.code === 'GENDER_REQUIRED'
-            ? 'User must set profile gender before approval for this table.'
-            : 'User does not meet this table gender preference.',
-      });
-    }
     const member = await prisma.hostedTableMember.findUnique({
       where: { hostedTableId_userId: { hostedTableId: table.id, userId: targetUserId } },
     });
@@ -1265,27 +1309,28 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
       return res.json({ rejected: true });
     }
     if (table.spotsRemaining <= 0) return res.status(400).json({ error: 'Table is full' });
-    if (table.hasJoiningFee && Number(table.joiningFee || 0) > 0) {
-      const event = table.eventId
-        ? await prisma.event.findFirst({
-            where: { id: table.eventId, deletedAt: null },
-            select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
-          })
-        : null;
-      const entranceZar = getEventEntranceZar(event);
-      const joinZar = Number(table.joiningFee);
+    const approveEvent = table.eventId
+      ? await prisma.event.findFirst({
+          where: { id: table.eventId, deletedAt: null },
+          select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+        })
+      : null;
+    const entranceZarApprove = getEventEntranceZar(approveEvent);
+    const joinZarApprove =
+      table.hasJoiningFee && Number(table.joiningFee || 0) > 0 ? Number(table.joiningFee) : 0;
+    if (entranceZarApprove + joinZarApprove > 0) {
       const pay = await initializePaystackPayment({
         userId: targetUserId,
-        amountZar: entranceZar + joinZar,
+        amountZar: entranceZarApprove + joinZarApprove,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: table.id,
           hosted_table_member_id: member.id,
-          event_id: event?.id || null,
-          venue_id: event?.venueId || null,
-          entrance_zar: entranceZar,
-          join_zar: joinZar,
-          amount_total_zar: entranceZar + joinZar,
+          event_id: approveEvent?.id || null,
+          venue_id: approveEvent?.venueId || null,
+          entrance_zar: entranceZarApprove,
+          join_zar: joinZarApprove,
+          amount_total_zar: entranceZarApprove + joinZarApprove,
           user_id: targetUserId,
         },
       });
@@ -1472,19 +1517,6 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
     if (!t) return res.status(404).json({ error: 'Not found' });
     if (t.hostUserId === req.userId) return res.status(403).json({ error: 'Cannot join your own table' });
     if (t.status !== 'ACTIVE') return res.status(400).json({ error: 'Table not available' });
-    const joinerProfile = await prisma.userProfile.findUnique({
-      where: { userId: req.userId },
-      select: { gender: true },
-    });
-    const genderCheck = genderMatchesPreference(joinerProfile?.gender, t.guestGenderPreference || 'ANY');
-    if (!genderCheck.ok) {
-      return res.status(403).json({
-        error:
-          genderCheck.code === 'GENDER_REQUIRED'
-            ? 'Set your gender in profile before joining this table.'
-            : 'This table is restricted to a different gender preference.',
-      });
-    }
     const exists = await prisma.hostedTableMember.findUnique({
       where: { hostedTableId_userId: { hostedTableId: t.id, userId: req.userId } },
     });
@@ -1512,30 +1544,30 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       });
       return res.json({ joined: false, pending: true });
     }
-    if (t.hasJoiningFee && Number(t.joiningFee || 0) > 0) {
-      const event = t.eventId
-        ? await prisma.event.findFirst({
-            where: { id: t.eventId, deletedAt: null },
-            select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
-          })
-        : null;
-      const entranceZar = getEventEntranceZar(event);
-      const joinZar = Number(t.joiningFee);
+    const joinEvent = t.eventId
+      ? await prisma.event.findFirst({
+          where: { id: t.eventId, deletedAt: null },
+          select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+        })
+      : null;
+    const entranceZarJoin = getEventEntranceZar(joinEvent);
+    const joinZarJoin = t.hasJoiningFee && Number(t.joiningFee || 0) > 0 ? Number(t.joiningFee) : 0;
+    if (entranceZarJoin + joinZarJoin > 0) {
       const member = await prisma.hostedTableMember.create({
         data: { hostedTableId: t.id, userId: req.userId, status: 'PENDING' },
       });
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: entranceZar + joinZar,
+        amountZar: entranceZarJoin + joinZarJoin,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: t.id,
           hosted_table_member_id: member.id,
-          event_id: event?.id || null,
-          venue_id: event?.venueId || null,
-          entrance_zar: entranceZar,
-          join_zar: joinZar,
-          amount_total_zar: entranceZar + joinZar,
+          event_id: joinEvent?.id || null,
+          venue_id: joinEvent?.venueId || null,
+          entrance_zar: entranceZarJoin,
+          join_zar: joinZarJoin,
+          amount_total_zar: entranceZarJoin + joinZarJoin,
           user_id: req.userId,
         },
       });
@@ -1661,15 +1693,15 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
     });
     if (existingMember?.status === 'GOING') return res.status(400).json({ error: 'Already a member' });
     if (table.spotsRemaining <= 0) return res.status(400).json({ error: 'Table is full' });
-    if (table.hasJoiningFee && Number(table.joiningFee || 0) > 0) {
-      const event = table.eventId
-        ? await prisma.event.findFirst({
-            where: { id: table.eventId, deletedAt: null },
-            select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
-          })
-        : null;
-      const entranceZar = getEventEntranceZar(event);
-      const joinZar = Number(table.joiningFee);
+    const inviteEvent = table.eventId
+      ? await prisma.event.findFirst({
+          where: { id: table.eventId, deletedAt: null },
+          select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+        })
+      : null;
+    const entranceZarInv = getEventEntranceZar(inviteEvent);
+    const joinZarInv = table.hasJoiningFee && Number(table.joiningFee || 0) > 0 ? Number(table.joiningFee) : 0;
+    if (entranceZarInv + joinZarInv > 0) {
       const member =
         existingMember?.status === 'PENDING'
           ? existingMember
@@ -1682,16 +1714,16 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
       });
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: entranceZar + joinZar,
+        amountZar: entranceZarInv + joinZarInv,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: table.id,
           hosted_table_member_id: member.id,
-          event_id: event?.id || null,
-          venue_id: event?.venueId || null,
-          entrance_zar: entranceZar,
-          join_zar: joinZar,
-          amount_total_zar: entranceZar + joinZar,
+          event_id: inviteEvent?.id || null,
+          venue_id: inviteEvent?.venueId || null,
+          entrance_zar: entranceZarInv,
+          join_zar: joinZarInv,
+          amount_total_zar: entranceZarInv + joinZarInv,
           user_id: req.userId,
         },
       });

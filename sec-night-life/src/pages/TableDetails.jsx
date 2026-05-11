@@ -380,18 +380,49 @@ export default function TableDetails() {
 
   if (!isVenueSource && !table && hostedTable?.kind === 'hosted') {
     const mapQuery = hostedTable.resolvedAddress || hostedTable.venueAddress || hostedTable.venueName || '';
+    const checkout = hostedTable.checkout || {};
+    const entranceZ = Number(checkout.entrance_zar ?? 0);
+    const joinZ = Number(checkout.joining_fee_zar ?? 0);
+    const totalOnline = Number(checkout.total_pay_online_zar ?? entranceZ + joinZ);
     const joinHosted = async () => {
       if (!userProfile) {
         authService.redirectToLogin(window.location.href);
         return;
       }
+      const needsPay = totalOnline > 0;
       try {
+        if (needsPay) setIsProcessingPayment(true);
         const r = await apiPost(`/api/host/tables/${tableId}/join`, {});
         queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
-        if (r?.pending) toast.success('Request sent. The host will approve your join.');
-        else toast.success('Joined table');
+        if (r?.pending) {
+          toast.success('Request sent. The host will approve your join.');
+          return;
+        }
+        if (r?.pendingPayment && r?.reference && r?.access_code) {
+          const amount = Number(r.amount_zar ?? totalOnline ?? 0);
+          launchPaystackInline({
+            email: user?.email,
+            amount,
+            reference: r.reference,
+            accessCode: r.access_code,
+            onSuccess: async (payload) => {
+              await verifyPaystackReference(payload?.reference || r.reference);
+              queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
+              toast.success('Payment successful — your ticket is ready.');
+            },
+            onCancel: () => {
+              toast.message('Checkout closed', {
+                description: 'No charge was completed. Try again when you are ready.',
+              });
+            },
+          });
+          return;
+        }
+        toast.success('You are on the guest list.');
       } catch (e) {
         toast.error(e?.message || 'Could not join table');
+      } finally {
+        setIsProcessingPayment(false);
       }
     };
     return (
@@ -443,8 +474,50 @@ export default function TableDetails() {
               View event details
             </Link>
           )}
-          <button type="button" className="sec-btn sec-btn-primary sec-btn-full" style={{ marginTop: 12, height: 48 }} onClick={joinHosted}>
-            Request to join
+          {totalOnline > 0 && (
+            <div className="sec-card" style={{ padding: 14, marginTop: 14 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8 }}>
+                Pay online to join (next guest)
+              </p>
+              {entranceZ > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                  <span style={{ color: 'var(--sec-text-muted)' }}>Event entrance</span>
+                  <span>R{entranceZ.toFixed(0)}</span>
+                </div>
+              )}
+              {joinZ > 0 && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                    <span style={{ color: 'var(--sec-text-muted)' }}>Table joining fee (host)</span>
+                    <span>R{joinZ.toFixed(0)}</span>
+                  </div>
+                  <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 6 }}>
+                    Platform fee 15% / 85% to the table host on the joining fee portion.
+                  </p>
+                </>
+              )}
+              {checkout.tier_min_spend_zar != null && Number(checkout.tier_min_spend_zar) > 0 && (
+                <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 8 }}>
+                  Tier min spend (table total): R{Number(checkout.tier_min_spend_zar).toFixed(0)}
+                  {checkout.min_spend_per_person_zar != null
+                    ? ` — about R${Number(checkout.min_spend_per_person_zar).toFixed(0)} per person at this table size.`
+                    : ''}
+                </p>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 700, paddingTop: 8, borderTop: '1px solid var(--sec-border)' }}>
+                <span>Total</span>
+                <span>R{totalOnline.toFixed(0)}</span>
+              </div>
+            </div>
+          )}
+          <button
+            type="button"
+            className="sec-btn sec-btn-primary sec-btn-full"
+            style={{ marginTop: 12, height: 48 }}
+            disabled={isProcessingPayment}
+            onClick={joinHosted}
+          >
+            {isProcessingPayment ? 'Working…' : totalOnline > 0 ? 'Pay & join' : 'Request to join'}
           </button>
         </div>
       </div>

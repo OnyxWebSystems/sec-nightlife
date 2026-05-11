@@ -93,7 +93,6 @@ export default function HostDashboard() {
     drinkPreferences: '',
     desiredCompany: '',
     isPublic: true,
-    guestGenderPreference: 'ANY',
   });
   const [saving, setSaving] = useState(false);
   const [pendingTableId, setPendingTableId] = useState(null);
@@ -224,6 +223,24 @@ export default function HostDashboard() {
     return 500;
   }, [tableForm.tableType, selectedHostingTier?.max_guests]);
 
+  /** Mirrors server listing total: door + host table fee + tier min spend (ZAR). */
+  const inAppListingBreakdown = useMemo(() => {
+    if (tableForm.tableType !== 'IN_APP_EVENT' || !selectedEvent) return null;
+    const ev = selectedEvent;
+    const hasEntrance = Boolean(ev.hasEntranceFee ?? ev.has_entrance_fee);
+    const entranceAmt = Number(ev.entranceFeeAmount ?? ev.entrance_fee_amount ?? 0);
+    const entrance = hasEntrance && Number.isFinite(entranceAmt) && entranceAmt > 0 ? entranceAmt : 0;
+    const cfg = ev.hosting_config || ev.hostingConfig || {};
+    const cat = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
+    const hf = Number(cfg[cat]?.host_table_fee_zar ?? 0);
+    const hostFee = Number.isFinite(hf) && hf > 0 ? hf : 0;
+    const msRaw = selectedHostingTier?.min_spend ?? selectedHostingTier?.minSpend;
+    const minSpend =
+      msRaw != null && msRaw !== '' && Number.isFinite(Number(msRaw)) ? Math.max(0, Number(msRaw)) : 0;
+    const total = entrance + hostFee + minSpend;
+    return { entrance, hostFee, minSpend, total };
+  }, [tableForm.tableType, tableForm.hostingCategory, selectedEvent, selectedHostingTier]);
+
   useEffect(() => {
     if (tableForm.tableType !== 'IN_APP_EVENT') return;
     const cap = selectedHostingTier?.max_guests != null ? Number(selectedHostingTier.max_guests) : null;
@@ -276,13 +293,20 @@ export default function HostDashboard() {
       if (thenPublish && created?.id) {
         const pay = await apiPost(`/api/host/parties/${created.id}/publish`, {});
         if (pay?.reference && pay?.access_code) {
-          await launchPaystackInline({
+          launchPaystackInline({
             email: user?.email,
             amount: 200,
             reference: pay.reference,
             accessCode: pay.access_code,
             onSuccess: async (payload) => {
               await verifyPaystackReference(payload?.reference || pay.reference);
+              queryClient.invalidateQueries(['host-parties']);
+              toast.success('Party listing payment received.');
+            },
+            onCancel: () => {
+              toast.message('Checkout closed', {
+                description: 'Your party stays unpublished until you complete the listing payment.',
+              });
               queryClient.invalidateQueries(['host-parties']);
             },
           });
@@ -357,19 +381,28 @@ export default function HostDashboard() {
           drinkPreferences: tableForm.drinkPreferences || null,
           desiredCompany: tableForm.desiredCompany || null,
           isPublic: tableForm.isPublic,
-          guestGenderPreference: tableForm.guestGenderPreference,
         });
         if (created?.payment?.reference && created?.payment?.access_code) {
-          await launchPaystackInline({
+          launchPaystackInline({
             email: user?.email,
-            amount: Number(tableForm.hasJoiningFee ? tableForm.joiningFee || 0 : 0),
+            amount: Number(created.payment.amount_zar ?? inAppListingBreakdown?.total ?? 0),
             reference: created.payment.reference,
             accessCode: created.payment.access_code,
             onSuccess: async (payload) => {
               await verifyPaystackReference(payload?.reference || created.payment.reference);
               queryClient.invalidateQueries(['host-tables']);
+              toast.success('Payment received — your table is live.');
+              setShowTableModal(false);
+              setSearchParams({}, { replace: true });
+            },
+            onCancel: () => {
+              toast.message('Checkout closed', {
+                description: 'Your table stays in draft until payment succeeds. You can retry from your tables list.',
+              });
+              queryClient.invalidateQueries(['host-tables']);
             },
           });
+          return;
         }
       } else {
         if (!tableForm.venueName || !tableForm.eventDate) {
@@ -399,10 +432,9 @@ export default function HostDashboard() {
           drinkPreferences: tableForm.drinkPreferences || null,
           desiredCompany: tableForm.desiredCompany || null,
           isPublic: tableForm.isPublic,
-          guestGenderPreference: tableForm.guestGenderPreference,
         });
         if (created?.payment?.reference && created?.payment?.access_code) {
-          await launchPaystackInline({
+          launchPaystackInline({
             email: user?.email,
             amount: 200,
             reference: created.payment.reference,
@@ -410,8 +442,18 @@ export default function HostDashboard() {
             onSuccess: async (payload) => {
               await verifyPaystackReference(payload?.reference || created.payment.reference);
               queryClient.invalidateQueries(['host-tables']);
+              toast.success('Listing payment received — your external table is live.');
+              setShowTableModal(false);
+              setSearchParams({}, { replace: true });
+            },
+            onCancel: () => {
+              toast.message('Checkout closed', {
+                description: 'Your external table stays in draft until you complete the listing payment.',
+              });
+              queryClient.invalidateQueries(['host-tables']);
             },
           });
+          return;
         }
       }
       queryClient.invalidateQueries(['host-tables']);
@@ -429,13 +471,20 @@ export default function HostDashboard() {
     try {
       const pay = await apiPost(`/api/host/parties/${id}/publish`, {});
       if (pay?.reference && pay?.access_code) {
-        await launchPaystackInline({
+        launchPaystackInline({
           email: user?.email,
           amount: 200,
           reference: pay.reference,
           accessCode: pay.access_code,
           onSuccess: async (payload) => {
             await verifyPaystackReference(payload?.reference || pay.reference);
+            queryClient.invalidateQueries(['host-parties']);
+            toast.success('Party listing payment received.');
+          },
+          onCancel: () => {
+            toast.message('Checkout closed', {
+              description: 'Your party stays unpublished until you complete the listing payment.',
+            });
             queryClient.invalidateQueries(['host-parties']);
           },
         });
@@ -683,6 +732,33 @@ export default function HostDashboard() {
                               <div className="min-w-0">
                                 <div className="text-sm font-medium truncate">@{pr.user?.username}</div>
                                 <div className="text-[10px] text-[var(--sec-text-muted)] truncate">{pr.user?.fullName}</div>
+                                {pr.user?.gender && (
+                                  <div className="text-[10px] text-[var(--sec-text-muted)] mt-0.5">Gender: {pr.user.gender}</div>
+                                )}
+                                {pr.user?.city && (
+                                  <div className="text-[10px] text-[var(--sec-text-muted)]">City: {pr.user.city}</div>
+                                )}
+                                {pr.user?.bio && (
+                                  <div className="text-[10px] text-[var(--sec-text-muted)] line-clamp-2 mt-1">{pr.user.bio}</div>
+                                )}
+                                {pr.user?.email && (
+                                  <div className="text-[10px] text-[var(--sec-text-muted)] truncate mt-0.5">{pr.user.email}</div>
+                                )}
+                                {(pr.user?.date_of_birth || pr.user?.verification_status) && (
+                                  <div className="text-[10px] text-[var(--sec-text-muted)] mt-0.5">
+                                    {pr.user?.date_of_birth ? `DOB: ${String(pr.user.date_of_birth).slice(0, 10)}` : ''}
+                                    {pr.user?.date_of_birth && pr.user?.verification_status ? ' · ' : ''}
+                                    {pr.user?.verification_status ? `ID: ${pr.user.verification_status}` : ''}
+                                  </div>
+                                )}
+                                {pr.user?.id && (
+                                  <Link
+                                    to={createPageUrl(`Profile?id=${pr.user.id}`)}
+                                    className="text-[10px] text-[var(--sec-accent)] underline mt-1 inline-block"
+                                  >
+                                    View profile
+                                  </Link>
+                                )}
                               </div>
                             </div>
                             <div className="flex gap-1 shrink-0">
@@ -1193,19 +1269,30 @@ export default function HostDashboard() {
                   onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
                 />
               )}
-              <label className="text-xs text-[var(--sec-text-muted)] block">
-                Who can join this table?
-                <select
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-sm"
-                  value={tableForm.guestGenderPreference}
-                  onChange={(e) => setTableForm((f) => ({ ...f, guestGenderPreference: e.target.value }))}
-                >
-                  <option value="ANY">Everyone</option>
-                  <option value="MALE_ONLY">Male only</option>
-                  <option value="FEMALE_ONLY">Female only</option>
-                  <option value="OTHER_ONLY">Other gender only</option>
-                </select>
-              </label>
+              {tableForm.tableType === 'IN_APP_EVENT' && inAppListingBreakdown && inAppListingBreakdown.total > 0 && (
+                <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2 text-sm bg-[var(--sec-bg-elevated)]">
+                  <p className="text-xs font-medium text-[var(--sec-text-muted)] uppercase tracking-wide">Your listing payment</p>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[var(--sec-text-muted)]">Door entrance</span>
+                    <span>R{inAppListingBreakdown.entrance.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[var(--sec-text-muted)]">Booking (host table fee)</span>
+                    <span>R{inAppListingBreakdown.hostFee.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[var(--sec-text-muted)]">Min spend (tier)</span>
+                    <span>R{inAppListingBreakdown.minSpend.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2 pt-2 border-t border-[var(--sec-border)] font-semibold">
+                    <span>Total due now</span>
+                    <span>R{inAppListingBreakdown.total.toFixed(0)}</span>
+                  </div>
+                  <p className="text-[11px] text-[var(--sec-text-muted)] pt-1">
+                    After Paystack succeeds, your table goes live. Payouts: 15% platform / 85% to the venue on this total.
+                  </p>
+                </div>
+              )}
               <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2">
                 <label className="flex items-start gap-3 text-sm cursor-pointer">
                   <input
