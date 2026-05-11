@@ -23,6 +23,12 @@ import {
   visibleUntilAfterParty,
   visibleUntilAfterHostedTable,
   visibleUntilForVenueTableMember,
+  eventStartsAtFromEvent,
+  eventStartsAtFromHostedTable,
+  holderDisplayNameFromUser,
+  formatSpecsFromTable,
+  formatSpecsFromVenueTable,
+  formatSpecsFromHostedTable,
 } from '../lib/ticketHelpers.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
@@ -286,10 +292,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
       include: { event: true, venue: true },
     });
     if (vt && userId) {
-      const vu = await prisma.user.findUnique({ where: { id: String(userId) }, select: { email: true } });
-      const vis = vt.event?.date
+      const vu = await prisma.user.findUnique({
+        where: { id: String(userId) },
+        select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+      });
+      const visFallback = vt.event?.date
         ? visibleUntilForVenueTableMember(vt, vt.event)
         : visibleUntilAfterEventDate(new Date());
+      const eventStartsAt = vt.event ? eventStartsAtFromEvent(vt.event) : null;
       await issueTicketAndNotify(prisma, {
         userId: String(userId),
         email: vu?.email || email,
@@ -297,10 +307,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
         kind: 'VENUE_TABLE_JOIN',
         title: vt.event?.title ? `${vt.tableName} — ${vt.event.title}` : vt.tableName,
         subtitle: vt.venue?.name || null,
-        visibleUntil: vis,
+        visibleUntil: visFallback,
         venueTableId: vt.id,
         eventId: vt.eventId || null,
         quantity: 1,
+        holderDisplayName: holderDisplayNameFromUser(vu),
+        tableSpecsSummary: formatSpecsFromVenueTable(vt),
+        eventStartsAt,
       });
       const { secAmount: sAmt, recipientAmount: vAmt } = splitSecPlatform(Number(amount || 0));
       const venueCode = await resolveRecipientCodeForVenue(vt.venueId);
@@ -362,7 +375,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
             });
           }
           const vis = hosted.event ? visibleUntilAfterEventDate(hosted.event.date) : visibleUntilAfterHostedTable(hosted);
-          const payer = await prisma.user.findUnique({ where: { id: String(userId) }, select: { email: true } });
+          const eventStartsAt = hosted.event
+            ? eventStartsAtFromEvent(hosted.event)
+            : eventStartsAtFromHostedTable(hosted);
+          const payer = await prisma.user.findUnique({
+            where: { id: String(userId) },
+            select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+          });
           await issueTicketAndNotify(prisma, {
             userId: String(userId),
             email: payer?.email || email,
@@ -374,6 +393,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
             hostedTableId: hosted.id,
             eventId: hosted.eventId || null,
             quantity: 1,
+            holderDisplayName: holderDisplayNameFromUser(payer),
+            tableSpecsSummary: formatSpecsFromHostedTable(hosted),
+            eventStartsAt,
           });
           if (hosted.event?.venueId && hosted.eventId) {
             await recordEventVenueTableBooking({
@@ -460,7 +482,11 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 paystackRecipientCode: hostCode,
               });
               const vis = visibleUntilAfterEventDate(event.date);
-              const payer = await prisma.user.findUnique({ where: { id: String(userId) }, select: { email: true } });
+              const eventStartsAt = eventStartsAtFromEvent(event);
+              const payer = await prisma.user.findUnique({
+                where: { id: String(userId) },
+                select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+              });
               await issueTicketAndNotify(prisma, {
                 userId: String(userId),
                 email: payer?.email || email,
@@ -472,6 +498,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 tableId: created.id,
                 eventId: event.id,
                 quantity: 1,
+                holderDisplayName: holderDisplayNameFromUser(payer),
+                tableSpecsSummary: formatSpecsFromTable(created),
+                eventStartsAt,
               });
             }
           }
@@ -493,8 +522,12 @@ async function applyReferenceSideEffects(reference, paystackData) {
               externalListingPaystackRef: reference,
             },
           });
-          const payer = await prisma.user.findUnique({ where: { id: String(userId) }, select: { email: true } });
+          const payer = await prisma.user.findUnique({
+            where: { id: String(userId) },
+            select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+          });
           const vis = visibleUntilAfterHostedTable(ht);
+          const eventStartsAt = eventStartsAtFromHostedTable(ht);
           await issueTicketAndNotify(prisma, {
             userId: String(userId),
             email: payer?.email || email,
@@ -505,6 +538,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
             visibleUntil: vis,
             hostedTableId: ht.id,
             quantity: 1,
+            holderDisplayName: holderDisplayNameFromUser(payer),
+            tableSpecsSummary: formatSpecsFromHostedTable(ht),
+            eventStartsAt,
           });
         }
       }
@@ -552,8 +588,15 @@ async function applyReferenceSideEffects(reference, paystackData) {
               recipientVenueId: null,
               paystackRecipientCode: hostCode,
             });
-            const payer = await prisma.user.findUnique({ where: { id: String(userId) }, select: { email: true } });
+            const payer = await prisma.user.findUnique({
+              where: { id: String(userId) },
+              select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+            });
             const vis = visibleUntilAfterParty(freshAtt.houseParty);
+            const eventStartsAt = freshAtt.houseParty.startTime;
+            const partySpecs = freshAtt.houseParty.location
+              ? `Location: ${freshAtt.houseParty.location}`
+              : null;
             await issueTicketAndNotify(prisma, {
               userId: String(userId),
               email: payer?.email || email,
@@ -564,6 +607,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
               visibleUntil: vis,
               housePartyId: freshAtt.houseParty.id,
               quantity: 1,
+              holderDisplayName: holderDisplayNameFromUser(payer),
+              tableSpecsSummary: partySpecs,
+              eventStartsAt,
             });
             await createInAppNotification({
               userId: freshAtt.houseParty.hostUserId,
@@ -591,7 +637,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
         const htEvent = member.hostedTable.eventId
           ? await prisma.event.findFirst({
               where: { id: member.hostedTable.eventId, deletedAt: null },
-              select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+              select: {
+                id: true,
+                venueId: true,
+                date: true,
+                startTime: true,
+                hasEntranceFee: true,
+                entranceFeeAmount: true,
+              },
             })
           : null;
         const entranceZar = Number(metadata.entrance_zar || getEventEntranceZar(htEvent));
@@ -651,8 +704,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
               recipientVenueId: null,
               paystackRecipientCode: hostCode,
             });
-            const payer = await prisma.user.findUnique({ where: { id: String(userId) }, select: { email: true } });
+            const payer = await prisma.user.findUnique({
+              where: { id: String(userId) },
+              select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+            });
             const vis = visibleUntilAfterHostedTable(htFinal);
+            const eventStartsAt =
+              (htEvent && eventStartsAtFromEvent(htEvent)) || eventStartsAtFromHostedTable(htFinal);
             await issueTicketAndNotify(prisma, {
               userId: String(userId),
               email: payer?.email || email,
@@ -663,6 +721,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
               visibleUntil: vis,
               hostedTableId: htFinal.id,
               quantity: 1,
+              holderDisplayName: holderDisplayNameFromUser(payer),
+              tableSpecsSummary: formatSpecsFromHostedTable(htFinal),
+              eventStartsAt,
             });
             if (htEvent?.venueId && htEvent?.id) {
               await recordEventVenueTableBooking({
@@ -760,7 +821,11 @@ async function applyReferenceSideEffects(reference, paystackData) {
       });
       const evRow = await prisma.event.findFirst({ where: { id: table.eventId, deletedAt: null } });
       const visT = evRow ? visibleUntilAfterEventDate(evRow.date) : new Date(Date.now() + 48 * 60 * 60 * 1000);
-      const payerU = await prisma.user.findUnique({ where: { id: String(userId) }, select: { email: true } });
+      const eventStartsAt = evRow ? eventStartsAtFromEvent(evRow) : null;
+      const payerU = await prisma.user.findUnique({
+        where: { id: String(userId) },
+        select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+      });
       await issueTicketAndNotify(prisma, {
         userId: String(userId),
         email: payerU?.email || email,
@@ -772,6 +837,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
         tableId,
         eventId: table.eventId,
         quantity: 1,
+        holderDisplayName: holderDisplayNameFromUser(payerU),
+        tableSpecsSummary: formatSpecsFromTable(table),
+        eventStartsAt,
       });
     }
   }
@@ -832,8 +900,12 @@ async function applyReferenceSideEffects(reference, paystackData) {
           recipientUserId: null,
           paystackRecipientCode: vCode,
         });
-        const payerEv = await prisma.user.findUnique({ where: { id: String(userId) }, select: { email: true } });
+        const payerEv = await prisma.user.findUnique({
+          where: { id: String(userId) },
+          select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+        });
         const visEv = visibleUntilAfterEventDate(event.date);
+        const eventStartsAt = eventStartsAtFromEvent(event);
         await issueTicketAndNotify(prisma, {
           userId: String(userId),
           email: payerEv?.email || email,
@@ -844,6 +916,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
           visibleUntil: visEv,
           eventId,
           quantity: qty,
+          holderDisplayName: holderDisplayNameFromUser(payerEv),
+          tableSpecsSummary: `${ticketTier} ×${qty}`,
+          eventStartsAt,
         });
       }
     }

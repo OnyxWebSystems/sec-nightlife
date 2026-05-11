@@ -1,85 +1,304 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { apiGet } from '@/api/client';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { apiGet, apiDelete } from '@/api/client';
 import { Card, CardContent } from "@/components/ui/card";
-import { Ticket, Calendar } from 'lucide-react';
+import { Ticket, Calendar, Trash2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Button } from "@/components/ui/button";
 import { Link } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { createPageUrl, getTicketVerifyUrl } from '@/utils';
+import QRCode from 'qrcode';
+import { toast } from 'sonner';
+import {
+  isLikelyOffline,
+  loadMyTicketsSnapshot,
+  saveMyTicketsSnapshot,
+} from '@/lib/ticketOfflineCache';
 
-export default function MyTickets({ userId }) {
-  const { data: tickets = [], isLoading } = useQuery({
-    queryKey: ['my-tickets', userId],
-    queryFn: () => apiGet('/api/tickets/my'),
-    enabled: !!userId
-  });
+function TicketQrBlock({ verifyUrl }) {
+  const [dataUrl, setDataUrl] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const ecLevel = verifyUrl.length > 200 ? 'H' : 'M';
+    QRCode.toDataURL(verifyUrl, {
+      width: 176,
+      margin: 1,
+      errorCorrectionLevel: ecLevel,
+      color: { dark: '#0a0a0b', light: '#ffffff' },
+    })
+      .then((u) => {
+        if (!cancelled) setDataUrl(u);
+      })
+      .catch(() => {
+        if (!cancelled) setDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [verifyUrl]);
 
-  if (isLoading) {
-    return <div className="text-center py-8 text-gray-500">Loading tickets...</div>;
+  if (!dataUrl) {
+    return <div className="w-44 h-44 rounded-md bg-white/10 animate-pulse shrink-0" />;
   }
 
-  if (tickets.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <Ticket className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-        <p className="text-gray-500 mb-4">No tickets purchased yet</p>
-        <Link to={createPageUrl('Events')}>
-          <Button className="sec-btn-accent">
-            Browse Events
-          </Button>
-        </Link>
+  return (
+    <div className="relative w-44 h-44 shrink-0">
+      <img src={dataUrl} alt="" className="w-full h-full rounded-md bg-white p-1 object-contain" />
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-5">
+        <img
+          src="/sec-logo.png"
+          alt=""
+          className="w-9 h-9 object-contain drop-shadow-md rounded-sm bg-white/90 p-0.5"
+          onError={(e) => {
+            e.currentTarget.src = '/Logo/sec-email-logo-transparent.png';
+          }}
+        />
       </div>
-    );
+    </div>
+  );
+}
+
+function ticketDetailHref(ticket) {
+  if (ticket.event_id) return createPageUrl(`EventDetails?id=${ticket.event_id}`);
+  if (ticket.table_id) return createPageUrl(`TableDetails?id=${ticket.table_id}`);
+  if (ticket.hosted_table_id) return createPageUrl('HostDashboard');
+  return createPageUrl('Profile');
+}
+
+export default function MyTickets({ userId }) {
+  const queryClient = useQueryClient();
+  const [tab, setTab] = useState('active');
+  const ticketsCache = useMemo(() => (userId ? loadMyTicketsSnapshot(userId) : null), [userId]);
+
+  const activeQ = useQuery({
+    queryKey: ['my-tickets', userId, 'active'],
+    queryFn: () => apiGet('/api/tickets/my?bucket=active'),
+    enabled: !!userId,
+  });
+
+  const expiredQ = useQuery({
+    queryKey: ['my-tickets', userId, 'expired'],
+    queryFn: () => apiGet('/api/tickets/my?bucket=expired'),
+    enabled: !!userId,
+  });
+
+  useEffect(() => {
+    if (!userId) return;
+    const prev = loadMyTicketsSnapshot(userId) || { active: [], expired: [] };
+    const next = {
+      active: activeQ.isSuccess ? (activeQ.data ?? []) : prev.active,
+      expired: expiredQ.isSuccess ? (expiredQ.data ?? []) : prev.expired,
+    };
+    if (activeQ.isSuccess || expiredQ.isSuccess) {
+      saveMyTicketsSnapshot(userId, next);
+    }
+  }, [userId, activeQ.isSuccess, activeQ.data, expiredQ.isSuccess, expiredQ.data]);
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => apiDelete(`/api/tickets/my/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      toast.success('Removed from history');
+      queryClient.invalidateQueries({ queryKey: ['my-tickets', userId] });
+    },
+    onError: (e) => toast.error(e?.message || 'Could not delete'),
+  });
+
+  const offline = isLikelyOffline();
+  const activeTickets =
+    activeQ.data !== undefined
+      ? activeQ.data
+      : offline && ticketsCache?.active?.length
+        ? ticketsCache.active
+        : activeQ.isError && ticketsCache?.active?.length
+          ? ticketsCache.active
+          : [];
+  const expiredTickets =
+    expiredQ.data !== undefined
+      ? expiredQ.data
+      : offline && ticketsCache?.expired?.length
+        ? ticketsCache.expired
+        : expiredQ.isError && ticketsCache?.expired?.length
+          ? ticketsCache.expired
+          : [];
+
+  const activeFromCache =
+    activeQ.data === undefined && ticketsCache?.active?.length && (offline || activeQ.isError);
+  const expiredFromCache =
+    expiredQ.data === undefined && ticketsCache?.expired?.length && (offline || expiredQ.isError);
+
+  const activeLoading =
+    activeQ.isLoading && !(offline && ticketsCache?.active?.length) && activeTickets.length === 0;
+  const expiredLoading =
+    expiredQ.isLoading && !(offline && ticketsCache?.expired?.length) && expiredTickets.length === 0;
+
+  if (!userId) {
+    return null;
   }
 
   const TicketCard = ({ ticket }) => {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
-      `${window.location.origin}/api/tickets/qr?token=${ticket.qr_token}`,
-    )}`;
+    const expiresRaw = ticket.expires_at || ticket.visible_until;
+    const expiresLabel = expiresRaw
+      ? format(parseISO(expiresRaw), 'MMM dd, yyyy HH:mm')
+      : '—';
+    const isExpiredTab = tab === 'expired';
+    const verifyUrl =
+      ticket.verify_url ||
+      getTicketVerifyUrl(ticket.qr_token, {
+        venueName: ticket.venue_name,
+        eventStartsAt: ticket.event_starts_at,
+      });
+    const doorTimeLabel = ticket.event_starts_at
+      ? format(parseISO(ticket.event_starts_at), 'EEE MMM d · HH:mm')
+      : null;
 
     return (
-      <Link to={ticket.event_id ? createPageUrl(`EventDetails?id=${ticket.event_id}`) : createPageUrl('Profile')}>
-        <Card className="glass-card border-[#262629] hover:border-[var(--sec-accent)]/50 transition-all">
-          <CardContent className="p-4">
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <h3 className="font-semibold mb-1">{ticket.title}</h3>
-                <div className="space-y-1 text-sm text-gray-400">
-                  {ticket.subtitle && (
-                    <div className="flex items-center gap-2">
-                      <Ticket className="w-3 h-3" />
-                      <span>{ticket.subtitle}</span>
-                    </div>
+      <Card className="glass-card border-[#262629] hover:border-[var(--sec-accent)]/30 transition-all">
+        <CardContent className="p-4">
+          <div className="flex gap-4">
+            <div className="flex-1 min-w-0 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-white leading-snug">{ticket.title}</h3>
+                  {ticket.holder_display_name && (
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">{ticket.holder_display_name}</p>
                   )}
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-3 h-3" />
-                    <span>Valid until {format(parseISO(ticket.visible_until), 'MMM dd, yyyy HH:mm')}</span>
-                  </div>
                 </div>
+                <img
+                  src="/sec-logo.png"
+                  alt=""
+                  className="h-8 w-8 object-contain opacity-90 shrink-0"
+                  onError={(e) => {
+                    e.currentTarget.src = '/Logo/sec-email-logo-transparent.png';
+                  }}
+                />
               </div>
-
-              <div className="flex flex-col items-end justify-between">
-                <img src={qrUrl} alt="Ticket QR" className="w-20 h-20 rounded-md bg-white p-1" />
-                <span className="text-xs text-gray-500">
-                  {format(parseISO(ticket.created_at), 'MMM dd')}
+              {ticket.subtitle && (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <Ticket className="w-3.5 h-3.5 shrink-0" />
+                  <span>{ticket.subtitle}</span>
+                </div>
+              )}
+              {ticket.table_specs_summary && (
+                <p className="text-xs text-gray-500 leading-relaxed">{ticket.table_specs_summary}</p>
+              )}
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {isExpiredTab ? 'Expired' : 'Valid through'} {expiresLabel}
                 </span>
               </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button variant="outline" size="sm" className="border-[#262629] h-8" asChild>
+                  <Link to={ticketDetailHref(ticket)}>View details</Link>
+                </Button>
+                {isExpiredTab && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-900/50 text-red-400 hover:bg-red-950/30 h-8"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => deleteMutation.mutate(ticket.id)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1" />
+                    Delete
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-gray-600">
+                Issued {ticket.created_at ? format(parseISO(ticket.created_at), 'MMM dd, yyyy') : '—'}
+              </p>
             </div>
-          </CardContent>
-        </Card>
-      </Link>
+
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <TicketQrBlock verifyUrl={verifyUrl} />
+              {(ticket.venue_name || doorTimeLabel) && (
+                <p className="text-[10px] text-gray-300 text-right max-w-[11rem] leading-snug font-medium">
+                  {[ticket.venue_name, doorTimeLabel].filter(Boolean).join(' · ')}
+                </p>
+              )}
+              <span className="text-[10px] text-gray-600 text-right max-w-[11rem] leading-tight">
+                Venue and time are in the QR link for quick checks
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     );
   };
 
+  const emptyCopyActive = {
+    title: 'No active tickets',
+    hint: 'Book a table or buy an event ticket to see it here.',
+  };
+  const emptyCopyExpired = {
+    title: 'No expired tickets',
+    hint: 'Tickets older than 24h after event start appear here.',
+  };
+
   return (
-    <div className="space-y-6">
-      <h3 className="font-semibold mb-3 text-white">Active Tickets</h3>
-      <div className="space-y-3">
-        {tickets.map(ticket => (
-          <TicketCard key={ticket.id} ticket={ticket} />
-        ))}
+    <div className="space-y-4">
+      <div className="flex w-full rounded-lg border border-[#262629] bg-[#0A0A0B] p-1">
+        <button
+          type="button"
+          className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
+            tab === 'active' ? 'bg-[#1a1a1d] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'
+          }`}
+          onClick={() => setTab('active')}
+        >
+          Active
+        </button>
+        <button
+          type="button"
+          className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
+            tab === 'expired' ? 'bg-[#1a1a1d] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'
+          }`}
+          onClick={() => setTab('expired')}
+        >
+          Expired
+        </button>
       </div>
+
+      {(activeFromCache || expiredFromCache) && (
+        <p className="text-xs text-amber-200/90 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2">
+          Offline or couldn&apos;t refresh — showing tickets last saved on this device. Open Profile online once to
+          update.
+        </p>
+      )}
+
+      {tab === 'active' && (
+        <div className="mt-4 space-y-3">
+          {activeLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading tickets...</div>
+          ) : activeTickets.length === 0 ? (
+            <div className="text-center py-12">
+              <Ticket className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-400 mb-1">{emptyCopyActive.title}</p>
+              <p className="text-gray-500 text-sm mb-4">{emptyCopyActive.hint}</p>
+              <Link to={createPageUrl('Events')}>
+                <Button className="sec-btn-accent">Browse events</Button>
+              </Link>
+            </div>
+          ) : (
+            activeTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)
+          )}
+        </div>
+      )}
+
+      {tab === 'expired' && (
+        <div className="mt-4 space-y-3">
+          {expiredLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading tickets...</div>
+          ) : expiredTickets.length === 0 ? (
+            <div className="text-center py-12">
+              <Ticket className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-400 mb-1">{emptyCopyExpired.title}</p>
+              <p className="text-gray-500 text-sm">{emptyCopyExpired.hint}</p>
+            </div>
+          ) : (
+            expiredTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)
+          )}
+        </div>
+      )}
     </div>
   );
 }

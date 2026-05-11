@@ -326,6 +326,7 @@ model User {
   tickets                     Ticket[]
   payoutLedgersAsRecipient    PayoutLedger[]             @relation("PayoutRecipientUser")
   eventVenueTableBookings     EventVenueTableBooking[]
+  ticketsAdmittedAsStaff    Ticket[]                   @relation("TicketAdmittedBy")
 
   @@unique([email, role])
   @@index([email])
@@ -609,6 +610,8 @@ model Event {
   hasEntranceFee    Boolean     @default(false) @map("has_entrance_fee")
   entranceFeeAmount Float?      @map("entrance_fee_amount")
   hostingConfig     Json?       @map("hosting_config")
+  /// Optional bcrypt hash for venue door staff when recording ticket admits (4–8 digits).
+  doorCheckPinHash   String?     @map("door_check_pin_hash")
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
   deletedAt         DateTime?   @map("deleted_at")
@@ -1006,10 +1009,24 @@ model Ticket {
   visibleUntil      DateTime  @map("visible_until")
   createdAt         DateTime  @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Snapshot of payer display name at issuance (door check).
+  holderDisplayName   String?   @map("holder_display_name")
+  /// Human-readable table/tier context at issuance.
+  tableSpecsSummary   String?   @db.Text @map("table_specs_summary")
+  /// Canonical event start (UTC) for expiry: active until eventStartsAt + 24h.
+  eventStartsAt       DateTime? @map("event_starts_at")
+  /// User hid this ticket from Profile history (soft delete).
+  hiddenFromHistoryAt DateTime? @map("hidden_from_history_at")
+  admittedAt          DateTime? @map("admitted_at")
+  admittedByUserId    String?   @map("admitted_by_user_id")
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  admittedBy User? @relation("TicketAdmittedBy", fields: [admittedByUserId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([visibleUntil])
+  @@index([eventStartsAt])
+  @@index([admittedAt])
   @@map("tickets")
 }
 

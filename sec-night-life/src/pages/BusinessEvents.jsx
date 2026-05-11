@@ -3,16 +3,17 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
+import { apiPut } from '@/api/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2
+  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2, KeyRound
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -68,6 +69,9 @@ export default function BusinessEvents() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [deleteId, setDeleteId] = useState(null);
+  const [doorPinEvent, setDoorPinEvent] = useState(null);
+  const [doorPinInput, setDoorPinInput] = useState('');
+  const [doorPinSaving, setDoorPinSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -110,6 +114,46 @@ export default function BusinessEvents() {
     },
     onError: () => toast.error('Failed to save event'),
   });
+
+  const openDoorPin = (evt) => {
+    setDoorPinEvent(evt);
+    setDoorPinInput('');
+  };
+
+  const saveDoorPin = async () => {
+    if (!doorPinEvent?.id) return;
+    const digits = doorPinInput.replace(/\D/g, '').slice(0, 8);
+    if (digits.length < 4 || digits.length > 8) {
+      toast.error('PIN must be 4–8 digits');
+      return;
+    }
+    setDoorPinSaving(true);
+    try {
+      await apiPut(`/api/events/${doorPinEvent.id}/door-check-pin`, { pin: digits });
+      toast.success('Door PIN saved');
+      queryClient.invalidateQueries({ queryKey: ['biz-events'] });
+      setDoorPinEvent(null);
+    } catch (e) {
+      toast.error(e?.message || 'Failed to save door PIN');
+    } finally {
+      setDoorPinSaving(false);
+    }
+  };
+
+  const removeDoorPin = async () => {
+    if (!doorPinEvent?.id) return;
+    setDoorPinSaving(true);
+    try {
+      await apiPut(`/api/events/${doorPinEvent.id}/door-check-pin`, { pin: null });
+      toast.success('Door PIN removed');
+      queryClient.invalidateQueries({ queryKey: ['biz-events'] });
+      setDoorPinEvent(null);
+    } catch (e) {
+      toast.error(e?.message || 'Failed to remove door PIN');
+    } finally {
+      setDoorPinSaving(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: (id) => dataService.Event.delete(id),
@@ -391,6 +435,14 @@ export default function BusinessEvents() {
                   {evt.date}
                   {evt.start_time ? ` · ${evt.start_time}` : ''}
                   {' · '}{evt.location_city || evt.city}
+                  {evt.door_pin_configured ? (
+                    <span
+                      className="sec-badge sec-badge-success ml-2 align-middle"
+                      style={{ fontSize: 10, padding: '2px 6px', verticalAlign: 'middle' }}
+                    >
+                      Door PIN
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -399,6 +451,13 @@ export default function BusinessEvents() {
               </span>
 
               <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  onClick={() => openDoorPin(evt)}
+                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
+                  title="Door check PIN"
+                >
+                  <KeyRound size={16} />
+                </button>
                 <button
                   onClick={() => navigate(createPageUrl('EventDetails') + '?id=' + evt.id)}
                   style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
@@ -831,6 +890,88 @@ export default function BusinessEvents() {
             </div>
           </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!doorPinEvent}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDoorPinEvent(null);
+            setDoorPinInput('');
+          }
+        }}
+      >
+        <DialogContent className="text-white sm:max-w-[400px]" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+          <DialogHeader>
+            <DialogTitle>Door check PIN</DialogTitle>
+          </DialogHeader>
+          {doorPinEvent && (
+            <>
+              <p className="text-sm text-gray-400">
+                Optional 4–8 digit PIN for <span className="text-gray-200 font-medium">{doorPinEvent.title}</span>.
+                Staff at the door enter it when they record entry from the ticket verify page.
+              </p>
+              <p className="text-xs text-gray-500">
+                Status:{' '}
+                {doorPinEvent.door_pin_configured ? (
+                  <span className="text-emerald-400 font-medium">PIN is set</span>
+                ) : (
+                  <span>No PIN (any authorised staff can admit)</span>
+                )}
+              </p>
+              <div>
+                <Label className="text-gray-400 text-sm">New PIN (digits only)</Label>
+                <Input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="4–8 digits"
+                  value={doorPinInput}
+                  onChange={(e) => setDoorPinInput(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                  className="mt-1.5 h-11 rounded-xl"
+                  style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                />
+              </div>
+              <DialogFooter className="flex-col sm:flex-row gap-2 sm:justify-between sm:space-x-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl w-full sm:w-auto"
+                  style={{ borderColor: 'var(--sec-border)' }}
+                  onClick={() => {
+                    setDoorPinEvent(null);
+                    setDoorPinInput('');
+                  }}
+                  disabled={doorPinSaving}
+                >
+                  Close
+                </Button>
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:ml-auto">
+                  {doorPinEvent.door_pin_configured ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-xl text-red-400 border-red-900/50 hover:bg-red-950/30"
+                      onClick={removeDoorPin}
+                      disabled={doorPinSaving}
+                    >
+                      {doorPinSaving ? <Loader2 size={16} className="animate-spin" /> : 'Remove PIN'}
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    className="rounded-xl font-semibold"
+                    style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
+                    onClick={saveDoorPin}
+                    disabled={doorPinSaving || doorPinInput.replace(/\D/g, '').length < 4}
+                  >
+                    {doorPinSaving ? <Loader2 size={16} className="animate-spin mr-1.5" /> : null}
+                    Save PIN
+                  </Button>
+                </div>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

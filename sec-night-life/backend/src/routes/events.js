@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import bcrypt from 'bcrypt';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { applyEventVenueIsolation, canAccessVenue, isStaff } from '../lib/access.js';
@@ -177,6 +178,7 @@ function mapEventRow(e) {
     has_entrance_fee: e.hasEntranceFee,
     entrance_fee_amount: e.entranceFeeAmount,
     hosting_config: normalizeHostingConfig(e.hostingConfig),
+    door_pin_configured: !!e.doorCheckPinHash,
   };
 }
 
@@ -356,6 +358,7 @@ function mapEventDetail(event, stats = null) {
     venue_province: v?.province ?? null,
     ...(stats ? { stats } : {}),
     total_attending: stats?.going_count ?? 0,
+    door_pin_configured: !!event.doorCheckPinHash,
   };
 }
 
@@ -478,6 +481,34 @@ router.post('/', authenticateToken, async (req, res, next) => {
       logger.error('Group chat creation after event failed', { eventId: event.id, message: e?.message });
     });
     res.status(201).json({ id: event.id, title: event.title, venue_id: event.venueId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/door-check-pin', authenticateToken, async (req, res, next) => {
+  try {
+    const event = await prisma.event.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      include: { venue: true },
+    });
+    if (!event || (event.venue.ownerUserId !== req.userId && !isStaff(req.userRole))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const raw = req.body?.pin;
+    const parsed = z.union([z.string().regex(/^\d{4,8}$/), z.null()]).safeParse(
+      raw === '' || raw === undefined ? null : raw,
+    );
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'PIN must be 4–8 digits, or null to clear' });
+    }
+    const pin = parsed.data;
+    const doorCheckPinHash = pin == null ? null : await bcrypt.hash(pin, 10);
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { doorCheckPinHash },
+    });
+    res.json({ door_pin_configured: doorCheckPinHash != null });
   } catch (err) {
     next(err);
   }

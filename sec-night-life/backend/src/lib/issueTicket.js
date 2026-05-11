@@ -1,14 +1,19 @@
 import QRCode from 'qrcode';
-import { prisma } from './prisma.js';
 import { sendEmail } from './email.js';
 import { createNotification } from './notifications.js';
 import { createInAppNotification } from './inAppNotifications.js';
-import { generateQrToken } from './ticketHelpers.js';
+import {
+  generateQrToken,
+  visibleUntilFromEventStartsAt,
+  holderDisplayNameFromUser,
+} from './ticketHelpers.js';
+import { buildTicketDoorContext } from './ticketDoorContext.js';
+import { buildTicketVerifyUrlWithHints, ticketVerifyPublicOrigin } from './ticketVerifyUrl.js';
 import { logger } from './logger.js';
 
 /**
  * Create a ticket row once per Paystack reference and notify the user.
- * @param {import('@prisma/client').Prisma.TransactionClient | typeof prisma} db
+ * @param {import('@prisma/client').Prisma.TransactionClient | typeof import('./prisma.js').prisma} db
  */
 export async function issueTicketAndNotify(db, params) {
   const {
@@ -25,6 +30,9 @@ export async function issueTicketAndNotify(db, params) {
     eventId = null,
     venueTableId = null,
     quantity = 1,
+    holderDisplayName: holderParam = null,
+    tableSpecsSummary = null,
+    eventStartsAt: eventStartsAtParam = null,
   } = params;
 
   const existing = await db.ticket.findUnique({
@@ -32,10 +40,27 @@ export async function issueTicketAndNotify(db, params) {
   });
   if (existing) return existing;
 
+  let holderDisplayName = holderParam;
+  if (holderDisplayName == null || holderDisplayName === '') {
+    const u = await db.user.findUnique({
+      where: { id: String(userId) },
+      select: { fullName: true, username: true, userProfile: { select: { username: true } } },
+    });
+    holderDisplayName = holderDisplayNameFromUser(u);
+  }
+
+  const eventStartsAt =
+    eventStartsAtParam != null
+      ? eventStartsAtParam instanceof Date
+        ? eventStartsAtParam
+        : new Date(eventStartsAtParam)
+      : null;
+
+  const effectiveVisibleUntil = eventStartsAt
+    ? visibleUntilFromEventStartsAt(eventStartsAt)
+    : visibleUntil;
+
   const qrToken = generateQrToken();
-  const baseUrl = (process.env.APP_URL || '').replace(/\/$/, '');
-  const verifyPath = `/api/tickets/qr?token=${encodeURIComponent(qrToken)}`;
-  const qrContent = baseUrl ? `${baseUrl}${verifyPath}` : verifyPath;
 
   const ticket = await db.ticket.create({
     data: {
@@ -51,19 +76,31 @@ export async function issueTicketAndNotify(db, params) {
       eventId,
       venueTableId,
       quantity,
-      visibleUntil,
+      visibleUntil: effectiveVisibleUntil,
+      holderDisplayName,
+      tableSpecsSummary: tableSpecsSummary ?? null,
+      eventStartsAt,
     },
+  });
+
+  const door = await buildTicketDoorContext(db, ticket);
+  const base = ticketVerifyPublicOrigin();
+  const qrContent = buildTicketVerifyUrlWithHints(base, qrToken, {
+    venueName: door.venue_name,
+    eventStartsAt: ticket.eventStartsAt,
   });
 
   const QR_CID = 'sec-ticket-qr';
   let qrPngBuffer = null;
   try {
-    qrPngBuffer = await QRCode.toBuffer(qrContent, { type: 'png', width: 200, margin: 1 });
+    qrPngBuffer = await QRCode.toBuffer(qrContent, { type: 'png', width: 220, margin: 1, errorCorrectionLevel: 'M' });
   } catch (e) {
     logger.warn('QR generation failed', { err: e?.message });
   }
 
+  const baseUrl = base;
   const profileUrl = baseUrl ? `${baseUrl}/Profile` : '/Profile';
+  const verifyUrl = qrContent.startsWith('http') ? qrContent : baseUrl ? `${baseUrl}${qrContent}` : qrContent;
 
   await createNotification({
     userId,
@@ -86,13 +123,15 @@ export async function issueTicketAndNotify(db, params) {
     sendEmail({
       to: email,
       subject: `Your SEC ticket — ${title}`,
-      text: `Your ticket for "${title}" is confirmed.\n\nView your QR code: ${profileUrl} (Tickets tab)\n\nReference: ${paystackReference}`,
+      text: `Your ticket for "${title}" is confirmed.\n\nScan link (door check): ${verifyUrl}\nProfile (Tickets tab): ${profileUrl}\n\nThe QR in the HTML email is embedded so it usually works offline in your mail app after download. Open the link once online if you want the ticket saved in the SEC app for offline use.\n\nReference: ${paystackReference}`,
       html: `
         <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#111;color:#eee;padding:24px;">
           <h2 style="margin:0 0 12px;">Ticket confirmed</h2>
           <p style="margin:0 0 8px;"><strong>${title}</strong></p>
           ${subtitle ? `<p style="color:#aaa;margin:0 0 16px;">${subtitle}</p>` : ''}
           <p style="margin:0 0 16px;">Open <a href="${profileUrl}" style="color:#8cf;">Profile → Tickets</a> in the SEC app to show your QR code at the door.</p>
+          <p style="margin:0 0 12px;font-size:12px;color:#9aa0a6;line-height:1.5;">Tip: the QR image below is embedded in this email — in most mail apps it stays visible <strong style="color:#e9ecef;">offline</strong> after the message has downloaded. You can also open the link once online so your phone can save the ticket for offline door checks.</p>
+          <p style="margin:0 0 16px;font-size:13px;">Staff can scan: <a href="${verifyUrl}" style="color:#8cf;word-break:break-all;">${verifyUrl}</a></p>
           ${qrPngBuffer ? `<p style="margin:16px 0;"><img src="cid:${QR_CID}" alt="Ticket QR" width="200" height="200" style="display:block;border-radius:8px;" /></p>` : ''}
           <p style="font-size:12px;color:#666;">Reference: ${paystackReference}</p>
         </div>

@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ChevronLeft, Share2, Heart, Calendar, Clock, MapPin,
-  Users, Ticket, BadgeCheck, Music, Star, Plus, ChevronRight, Navigation,
+  Users, Ticket, BadgeCheck, Music, Star, Plus, ChevronRight, Navigation, KeyRound,
 } from 'lucide-react';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 
@@ -171,6 +171,10 @@ export default function EventDetails() {
       .join(', ') || event.city || venue?.city || 'TBA';
 
   const mapQuery = event.venue_address || venue?.address || venueLine;
+
+  const staffRoles = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
+  const canManageDoorPin =
+    Boolean(user && venue && (venue.owner_user_id === user.id || staffRoles.includes(user.role)));
 
   return (
     <div className="pb-24 lg:pb-8" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
@@ -348,6 +352,56 @@ export default function EventDetails() {
             ))}
           </div>
         </div>
+
+        {canManageDoorPin && (
+          <div
+            className="sec-card"
+            style={{
+              padding: 16,
+              marginBottom: 20,
+              border: '1px solid rgba(34,197,94,0.28)',
+              backgroundColor: 'rgba(16,185,129,0.04)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--sec-bg-elevated)',
+                  border: '1px solid var(--sec-border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <KeyRound size={16} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Door staff check-in</h2>
+                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2, lineHeight: 1.45 }}>
+                  Optional PIN used when staff tap Record entry on ticket verify links for this event.
+                </p>
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-primary)', marginBottom: 12, lineHeight: 1.5 }}>
+              Door PIN is currently{' '}
+              <strong style={{ color: event.door_pin_configured ? 'var(--sec-accent)' : 'var(--sec-text-muted)' }}>
+                {event.door_pin_configured ? 'on' : 'off'}
+              </strong>
+              . Staff {event.door_pin_configured ? 'must enter the venue PIN' : 'do not need a PIN'} before entry is
+              recorded in SEC.
+            </p>
+            <Link
+              to={createPageUrl('BusinessEvents')}
+              style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-accent)', textDecoration: 'none' }}
+            >
+              Manage PIN in Events Manager →
+            </Link>
+          </div>
+        )}
 
         {event.stats && (
           <div className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
