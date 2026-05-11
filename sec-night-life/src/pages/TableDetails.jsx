@@ -1029,7 +1029,7 @@ export default function TableDetails() {
             </div>
 
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>
-              You&apos;ll be redirected to Paystack&apos;s secure checkout
+              A secure Paystack window opens on this page — you are not sent to another site.
             </p>
             <RefundPolicyNote className="text-center" />
           </div>
