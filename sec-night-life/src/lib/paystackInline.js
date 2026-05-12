@@ -48,21 +48,45 @@ function loadPaystackScript() {
   return loaderPromise;
 }
 
-function getPublicKey() {
-  return String(import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim();
+let cachedPaystackPublicKey = '';
+let paystackPublicKeyFetch = null;
+
+/**
+ * Inline checkout needs Paystack's **public** key in the browser.
+ * 1) Prefer `VITE_PAYSTACK_PUBLIC_KEY` (baked in at Vite build time).
+ * 2) Otherwise load from `GET /api/payments/paystack-public-key` (uses `PAYSTACK_PUBLIC_KEY` on the API).
+ * Backend-only env vars do not reach the frontend bundle — set the public key on the API or use VITE_ on the SPA build.
+ */
+async function resolvePaystackPublicKey() {
+  const fromVite = String(import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim();
+  if (fromVite.startsWith('pk_')) return fromVite;
+  if (cachedPaystackPublicKey.startsWith('pk_')) return cachedPaystackPublicKey;
+
+  if (!paystackPublicKeyFetch) {
+    paystackPublicKeyFetch = apiGet('/api/payments/paystack-public-key', { skipAuth: true })
+      .then((data) => {
+        const pk = String(data?.public_key || '').trim();
+        if (pk.startsWith('pk_')) cachedPaystackPublicKey = pk;
+        return cachedPaystackPublicKey || '';
+      })
+      .catch(() => '')
+      .finally(() => {
+        paystackPublicKeyFetch = null;
+      });
+  }
+  const pk = await paystackPublicKeyFetch;
+  return pk.startsWith('pk_') ? pk : '';
 }
 
 /**
  * Opens Paystack **on the same page** (overlay). Uses Inline v2 `resumeTransaction`
  * with the `access_code` from your backend — no navigation to checkout.paystack.com.
- *
- * Requires `VITE_PAYSTACK_PUBLIC_KEY` (pk_test_… / pk_live_…) in the frontend env.
  */
 export async function launchPaystackInline({ email, amount, reference, accessCode, onSuccess, onCancel }) {
-  const key = getPublicKey();
-  if (!key || !key.startsWith('pk_')) {
+  const key = await resolvePaystackPublicKey();
+  if (!key) {
     const err = new Error(
-      'Paystack public key is missing or invalid. Add VITE_PAYSTACK_PUBLIC_KEY (pk_test_… or pk_live_…) to sec-night-life/.env and restart `npm run dev`.',
+      'Paystack public key is missing. Add PAYSTACK_PUBLIC_KEY to your backend (same Vercel project as the API) or VITE_PAYSTACK_PUBLIC_KEY to the frontend .env, then restart dev / redeploy.',
     );
     toast.error(err.message);
     throw err;

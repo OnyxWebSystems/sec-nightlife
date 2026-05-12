@@ -62,6 +62,11 @@ function requirePaystackKey() {
   return key;
 }
 
+/** Public key for Paystack Inline in the browser (safe to expose). Set on the API alongside the secret. */
+function getPaystackPublicKeyForClient() {
+  return String(process.env.PAYSTACK_PUBLIC_KEY || process.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim();
+}
+
 async function paystackFetch(path, { method = 'GET', body } = {}) {
   const key = requirePaystackKey();
   const res = await fetch(`https://api.paystack.co${path}`, {
@@ -1155,6 +1160,19 @@ const payoutRecipientSchema = z.object({
   account_number: z.string().min(6).max(20),
   bank_code: z.string().min(2).max(20),
   currency: z.string().default('ZAR'),
+});
+
+// GET /api/payments/paystack-public-key — no auth; SPA inline checkout when VITE_PAYSTACK_PUBLIC_KEY is unset
+router.get('/paystack-public-key', (_req, res) => {
+  const pk = getPaystackPublicKeyForClient();
+  if (!pk || !pk.startsWith('pk_')) {
+    return res.status(503).json({
+      error:
+        'Paystack public key is not configured on the API. Set PAYSTACK_PUBLIC_KEY (pk_test_… or pk_live_…) in the backend environment next to PAYSTACK_SECRET_KEY.',
+    });
+  }
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({ public_key: pk });
 });
 
 router.post('/payout-recipient', authenticateToken, async (req, res, next) => {
