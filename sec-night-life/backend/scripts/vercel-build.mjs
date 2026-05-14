@@ -21,6 +21,14 @@ function isRetryableMigrateLockError(output) {
   return output.includes('P1002') && output.includes('pg_advisory_lock');
 }
 
+/** Neon cold start / transient network from Vercel build regions often surfaces as P1001. */
+function isRetryableConnectionError(output) {
+  return (
+    output.includes('P1001') &&
+    (output.includes("Can't reach database server") || output.includes("Can't reach database"))
+  );
+}
+
 function deriveDirectNeonUrl(databaseUrl) {
   if (!databaseUrl || !databaseUrl.includes('-pooler.')) return null;
   try {
@@ -58,13 +66,22 @@ function runPrismaMigrateDeployWithRetry({
   migrateDatabaseUrl,
   allowLockTimeoutSkip = false,
 } = {}) {
+  const connectionMaxAttempts = Math.max(
+    maxAttempts,
+    parseInt(process.env.PRISMA_MIGRATE_P1001_MAX_ATTEMPTS || '6', 10) || 6
+  );
   const migrateEnv = {
     ...process.env,
     ...(migrateDatabaseUrl ? { DATABASE_URL: migrateDatabaseUrl } : {}),
-    // Prefer IPv4 in CI to reduce intermittent DNS/network issues.
-    NODE_OPTIONS: [process.env.NODE_OPTIONS, '--dns-result-order=ipv4first'].filter(Boolean).join(' '),
+    // Prefer IPv4 in CI to reduce intermittent DNS issues; set PRISMA_MIGRATE_DNS_IPV4FIRST=0 to omit.
+    NODE_OPTIONS: [
+      process.env.NODE_OPTIONS,
+      process.env.PRISMA_MIGRATE_DNS_IPV4FIRST === '0' ? '' : '--dns-result-order=ipv4first',
+    ]
+      .filter(Boolean)
+      .join(' '),
   };
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt <= connectionMaxAttempts; attempt += 1) {
     const result = spawnSync('npx', ['prisma', 'migrate', 'deploy'], {
       stdio: 'pipe',
       encoding: 'utf8',
@@ -77,12 +94,24 @@ function runPrismaMigrateDeployWithRetry({
 
     if (result.status === 0) return;
 
-    const retryable = isRetryableMigrateLockError(combinedOutput);
+    const lockRetryable = isRetryableMigrateLockError(combinedOutput);
+    const connRetryable = isRetryableConnectionError(combinedOutput);
+    const retryable = lockRetryable || connRetryable;
+
     if (!retryable) {
+      if (combinedOutput.includes('P1001')) {
+        console.error(
+          '\n[build] Prisma P1001: database unreachable during migrate. Check:\n' +
+          '  - Neon project is active (not deleted); branch/compute wakes on connect.\n' +
+          '  - DIRECT_DATABASE_URL uses the host from Neon “Connection string” (direct), with ?sslmode=require.\n' +
+          '  - Neon IP allowlist: allow all, or include Vercel build egress (often easier to disable allowlist for serverless DBs).\n' +
+          '  - Retry: set PRISMA_MIGRATE_P1001_MAX_ATTEMPTS=8 if cold starts are slow.\n'
+        );
+      }
       process.exit(result.status ?? 1);
     }
-    if (attempt === maxAttempts) {
-      if (allowLockTimeoutSkip) {
+    if (attempt === connectionMaxAttempts) {
+      if (allowLockTimeoutSkip && lockRetryable) {
         console.warn(
           '[build] prisma migrate deploy exhausted retries due to advisory lock timeout. ' +
           'Continuing build because lock-timeout skip is enabled.'
@@ -92,9 +121,10 @@ function runPrismaMigrateDeployWithRetry({
       process.exit(result.status ?? 1);
     }
 
-    const waitMs = attempt * 5000;
+    const waitMs = lockRetryable ? attempt * 5000 : Math.min(20_000, 3000 + attempt * 2500);
+    const reason = lockRetryable ? 'advisory lock timeout' : 'database unreachable (P1001)';
     console.warn(
-      `[build] prisma migrate deploy hit advisory lock timeout (attempt ${attempt}/${maxAttempts}). ` +
+      `[build] prisma migrate deploy: ${reason} (attempt ${attempt}/${connectionMaxAttempts}). ` +
       `Retrying in ${waitMs / 1000}s...`
     );
     sleep(waitMs);
