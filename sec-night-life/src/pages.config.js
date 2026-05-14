@@ -8,6 +8,15 @@ import { isStaleChunkLoadError, scheduleChunkReloadOnce } from './lib/chunkLoadR
 
 const modules = import.meta.glob('./pages/*.jsx');
 
+/** Warm Vite chunk for a route name (e.g. "Profile") before navigation. Safe to call repeatedly. */
+export function prefetchPage(pageName) {
+  if (!pageName || typeof pageName !== 'string') return Promise.resolve();
+  const key = `./pages/${pageName}.jsx`;
+  const loader = modules[key];
+  if (typeof loader !== 'function') return Promise.resolve();
+  return loader().catch(() => {});
+}
+
 function lazyPage(loader) {
   return lazy(async () => {
     try {

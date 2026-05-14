@@ -70,21 +70,43 @@ export function eventStartsAtFromHostedTable(t) {
   return start;
 }
 
-/** Ticket scan + Profile “active” until this instant. */
+/** Ticket scan + Profile “active” until this instant (legacy: start + 24h). */
 export function visibleUntilFromEventStartsAt(eventStartsAt) {
   if (!eventStartsAt) return null;
   const s = eventStartsAt instanceof Date ? eventStartsAt : new Date(eventStartsAt);
   return new Date(s.getTime() + MS_DAY);
 }
 
+/**
+ * Canonical end instant for an SEC Event row (Prisma `endsAt` or legacy start + 24h).
+ * Accepts camelCase or snake_case from JSON/API.
+ */
+export function eventEndsAtFromEvent(event) {
+  if (!event) return null;
+  const raw = event.endsAt ?? event.ends_at;
+  if (raw) {
+    const e = raw instanceof Date ? raw : new Date(raw);
+    return Number.isNaN(e.getTime()) ? null : e;
+  }
+  const start = eventStartsAtFromEvent(event);
+  if (start) return new Date(start.getTime() + MS_DAY);
+  if (event?.date) return visibleUntilAfterEventDate(event.date);
+  return null;
+}
+
 /** Expiry for API + UI (legacy rows use visible_until only). */
 export function ticketExpiresAtFromRow(row) {
-  if (row.eventStartsAt) {
-    const s = row.eventStartsAt instanceof Date ? row.eventStartsAt : new Date(row.eventStartsAt);
-    return new Date(s.getTime() + MS_DAY);
+  const visRaw = row.visibleUntil ?? row.visible_until;
+  if (visRaw) {
+    const v = visRaw instanceof Date ? visRaw : new Date(visRaw);
+    if (!Number.isNaN(v.getTime())) return v;
   }
-  const v = row.visibleUntil instanceof Date ? row.visibleUntil : new Date(row.visibleUntil);
-  return v;
+  if (row.eventStartsAt || row.event_starts_at) {
+    const s = row.eventStartsAt ?? row.event_starts_at;
+    const st = s instanceof Date ? s : new Date(s);
+    return new Date(st.getTime() + MS_DAY);
+  }
+  return visRaw ? new Date(visRaw) : new Date();
 }
 
 export function holderDisplayNameFromUser(user) {

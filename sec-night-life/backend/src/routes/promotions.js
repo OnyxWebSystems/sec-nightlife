@@ -394,9 +394,17 @@ router.delete('/:promotionId', authenticateToken, async (req, res, next) => {
   }
 });
 
+const boostBodySchema = z.object({
+  days: z.coerce.number().int().min(1).max(30).default(7),
+});
+
 router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => {
   try {
     if (!(await assertPromotionsAccess(req, res))) return;
+    const parsed = boostBodySchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    const boostDays = parsed.data.days;
+
     const promotion = await prisma.promotion.findFirst({
       where: { id: req.params.promotionId, deletedAt: null },
       include: { venue: true },
@@ -412,14 +420,15 @@ router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => 
       select: { email: true },
     });
     const reference = `boost_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    const amountInCents = 15000;
-    const metadata = { promotedPostId: promotion.id, type: 'BOOST', venueId: promotion.venueId };
+    const amountZar = 150 * boostDays;
+    const amountInCents = Math.round(amountZar * 100);
+    const metadata = { promotedPostId: promotion.id, type: 'BOOST', venueId: promotion.venueId, boostDays };
 
     await prisma.payment.create({
       data: {
         userId: req.userId,
         email: owner?.email || 'user@secnightlife.app',
-        amount: 150,
+        amount: amountZar,
         reference,
         status: 'pending',
         type: 'promotion',
@@ -449,6 +458,8 @@ router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => 
       reference,
       authorization_url: json.data.authorization_url,
       access_code: json.data.access_code,
+      amount_zar: amountZar,
+      boost_days: boostDays,
     });
   } catch (err) {
     next(err);

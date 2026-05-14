@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import * as authService from '@/services/authService';
@@ -6,7 +7,7 @@ import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { createPageUrl } from '@/utils';
 
 const SA_CITIES = ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein', 'Port Elizabeth', 'East London', 'Polokwane', 'Nelspruit', 'Rustenburg'];
 const TYPES = [
@@ -617,7 +618,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, 
                     </button>
                   )}
                   <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onBoost(p)}>
-                    Boost (R150)
+                    Boost
                   </button>
                 </div>
               )}
@@ -638,6 +639,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, 
 });
 
 export default function BusinessPromotions() {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
@@ -707,27 +709,13 @@ export default function BusinessPromotions() {
     await loadPromotions(selectedVenue);
   }, [selectedVenue, loadPromotions]);
 
-  const startBoost = useCallback(async (promotion) => {
-    try {
-      const payment = await apiPost(`/api/promotions/${promotion.id}/boost`, {});
-      if (payment?.reference && payment?.access_code) {
-        await launchPaystackInline({
-          email: user?.email,
-          amount: 200,
-          reference: payment.reference,
-          accessCode: payment.access_code,
-          onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || payment.reference);
-            await loadPromotions(selectedVenue);
-            toast.success('Boost payment successful');
-          },
-        });
-      }
-      else toast.error('Could not initialize Paystack payment');
-    } catch (e) {
-      toast.error(e?.data?.error || e.message || 'Failed to initialize boost payment');
-    }
-  }, [loadPromotions, selectedVenue, user?.email]);
+  const goBoostCheckout = useCallback(
+    (promotion) => {
+      if (!promotion?.id) return;
+      navigate(`${createPageUrl('BusinessPromotionBoost')}?id=${encodeURIComponent(promotion.id)}`);
+    },
+    [navigate]
+  );
 
   const patchPromotion = useCallback(async (id, payload) => {
     try {
@@ -796,10 +784,10 @@ export default function BusinessPromotions() {
       {justPublished && (
         <div className="sec-card" style={{ padding: 12, marginBottom: 12, border: '1px solid #facc15' }}>
           <p style={{ fontSize: 13, marginBottom: 10 }}>
-            Want more reach? Boost this promotion for R150 and get priority placement for 7 days.
+            Want more reach? Boost this promotion — R150 per day — and get priority placement in the home feed.
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="sec-btn sec-btn-primary" style={{ flex: 1 }} onClick={() => startBoost(justPublished)}>Boost Now</button>
+            <button className="sec-btn sec-btn-primary" style={{ flex: 1 }} onClick={() => goBoostCheckout(justPublished)}>Choose boost</button>
             <button className="sec-btn sec-btn-secondary" style={{ flex: 1 }} onClick={() => setJustPublished(null)}>Maybe Later</button>
           </div>
           <div style={{ marginTop: 10 }}>
@@ -821,7 +809,7 @@ export default function BusinessPromotions() {
         loadingList={loadingList}
         onPatch={patchPromotion}
         onDelete={deletePromotion}
-        onBoost={startBoost}
+        onBoost={goBoostCheckout}
         onEditOpen={(p) => setEditingPromotion(p)}
       />
     </div>

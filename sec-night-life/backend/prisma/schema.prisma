@@ -607,6 +607,8 @@ model Event {
   bannerUrl         String?     @map("banner_url")
   ticketTiers       Json?       @map("ticket_tiers")
   startTime         String?     @map("start_time")
+  /// When the event is considered ended (QR, feeds, listings). Backfilled for legacy rows.
+  endsAt            DateTime?   @map("ends_at")
   hasEntranceFee    Boolean     @default(false) @map("has_entrance_fee")
   entranceFeeAmount Float?      @map("entrance_fee_amount")
   hostingConfig     Json?       @map("hosting_config")
@@ -630,6 +632,7 @@ model Event {
 
   @@index([venueId])
   @@index([date])
+  @@index([endsAt])
   @@index([status])
   @@index([city])
   @@map("events")

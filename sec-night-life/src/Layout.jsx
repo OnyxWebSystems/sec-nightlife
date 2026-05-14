@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from './utils';
+import { prefetchPage } from './pages.config';
 import * as authService from '@/services/authService';
 import { useAuth } from '@/lib/AuthContext';
 import { dataService } from '@/services/dataService';
@@ -170,6 +171,24 @@ export default function Layout({ children, currentPageName }) {
     window.dispatchEvent(new CustomEvent('sec_active_mode_changed', { detail: { mode } }));
   };
 
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    const pages = ['Notifications', 'Friends', 'Profile', 'Messages', 'HostDashboard', 'Events', 'Home'];
+    const run = () => {
+      pages.forEach((p) => prefetchPage(p));
+    };
+    if (typeof requestIdleCallback !== 'undefined') {
+      const id = requestIdleCallback(run, { timeout: 5000 });
+      return () => cancelIdleCallback(id);
+    }
+    const tid = window.setTimeout(run, 2000);
+    return () => clearTimeout(tid);
+  }, [user?.id]);
+
+  const prefetchNav = (page) => {
+    if (page) prefetchPage(page);
+  };
+
   const hideNav =
     ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName) ||
     (currentPageName === 'Home' && !user);
@@ -283,7 +302,7 @@ export default function Layout({ children, currentPageName }) {
         }}
       >
         <div style={{ padding: '22px 20px 20px', borderBottom: '1px solid var(--sec-border)' }}>
-          <Link to={createPageUrl('Home')} style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', color: 'inherit' }}>
+          <Link to={createPageUrl('Home')} style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', color: 'inherit' }} onMouseEnter={() => prefetchNav('Home')} onFocus={() => prefetchNav('Home')}>
             <SecLogo size={48} variant="full" />
           </Link>
         </div>
@@ -321,6 +340,8 @@ export default function Layout({ children, currentPageName }) {
                 key={item.page + item.name + (item.query || '')}
                 to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
                 className="sec-nav-item"
+                onMouseEnter={() => prefetchNav(item.page)}
+                onFocus={() => prefetchNav(item.page)}
                 style={{ position: 'relative', ...(isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}) }}
               >
                 <item.icon {...iconProps} />
@@ -341,6 +362,8 @@ export default function Layout({ children, currentPageName }) {
               key={item.page + item.name}
               to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
               className="sec-nav-item"
+              onMouseEnter={() => prefetchNav(item.page)}
+              onFocus={() => prefetchNav(item.page)}
               style={{ position: 'relative', ...(isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}) }}
             >
               <item.icon {...iconProps} />
@@ -356,7 +379,7 @@ export default function Layout({ children, currentPageName }) {
 
         <div style={{ padding: 10, borderTop: '1px solid var(--sec-border)' }}>
           {userProfile ? (
-            <Link to={createPageUrl('Profile')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, borderRadius: 8, textDecoration: 'none', color: 'inherit', transition: 'background-color 0.15s' }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--sec-bg-card)'; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
+            <Link to={createPageUrl('Profile')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, borderRadius: 8, textDecoration: 'none', color: 'inherit', transition: 'background-color 0.15s' }} onMouseEnter={(e) => { prefetchNav('Profile'); e.currentTarget.style.backgroundColor = 'var(--sec-bg-card)'; }} onFocus={() => prefetchNav('Profile')} onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
               <div style={{ width: 34, height: 34, borderRadius: '50%', backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {userProfile.avatar_url ? <img src={userProfile.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)' }}>{(userProfile.username || user?.full_name || 'U')[0].toUpperCase()}</span>}
               </div>
@@ -502,6 +525,7 @@ export default function Layout({ children, currentPageName }) {
                 <button
                   key={item.page}
                   onClick={() => navigate(createPageUrl(item.page))}
+                  onPointerDown={() => prefetchNav(item.page)}
                   onDoubleClick={openModeSwitcher}
                   onTouchStart={() => {
                     if (availableModes.length <= 1) return;
@@ -542,6 +566,8 @@ export default function Layout({ children, currentPageName }) {
                 <Link
                   key={item.page + (item.query || '') + item.name}
                   to={to}
+                  onMouseEnter={() => prefetchNav(item.page)}
+                  onFocus={() => prefetchNav(item.page)}
                   style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
                     padding: '12px 8px', flex: 1, minWidth: 0, textDecoration: 'none',

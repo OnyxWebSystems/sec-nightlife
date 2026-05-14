@@ -6,6 +6,7 @@ import { applyEventVenueIsolation, canAccessVenue, isStaff } from '../lib/access
 import { ensureGroupChatForEvent } from '../lib/groupChatHelpers.js';
 import { logger } from '../lib/logger.js';
 import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingConfig.js';
+import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
 
 const router = Router();
 
@@ -145,10 +146,12 @@ const eventFields = {
   location_province: optionalNonEmptyString(120),
   status: z.enum(['draft', 'published']).default('draft'),
   is_featured: z.boolean().optional(),
-  cover_image_url: z.string().url().optional().nullable(),
+  cover_image_url: z
+    .preprocess((v) => (v === '' || v === undefined ? null : v), z.string().max(4000).nullable().optional()),
   banner_url: z.string().url().optional().nullable(),
   ticket_tiers: z.any().optional(),
   start_time: timeHHMM,
+  ends_at: z.preprocess((v) => (v === '' || v === undefined ? undefined : v), z.string().optional()),
   has_entrance_fee: z.boolean().optional(),
   entrance_fee_amount: z.number().min(0).optional().nullable(),
   hosting_config: hostingConfigSchema.optional(),
@@ -174,6 +177,7 @@ function mapEventRow(e) {
     cover_image_url: e.coverImageUrl,
     ticket_tiers: e.ticketTiers,
     start_time: e.startTime,
+    ends_at: e.endsAt ? e.endsAt.toISOString() : null,
     has_entrance_fee: e.hasEntranceFee,
     entrance_fee_amount: e.entranceFeeAmount,
     hosting_config: normalizeHostingConfig(e.hostingConfig),
@@ -382,6 +386,7 @@ function mapEventDetail(event, stats = null) {
     banner_url: event.bannerUrl,
     ticket_tiers: event.ticketTiers,
     start_time: event.startTime,
+    ends_at: event.endsAt ? event.endsAt.toISOString() : null,
     has_entrance_fee: event.hasEntranceFee,
     entrance_fee_amount: event.entranceFeeAmount,
     hosting_config: normalizeHostingConfig(event.hostingConfig),
@@ -395,8 +400,16 @@ function mapEventDetail(event, stats = null) {
   };
 }
 
+function mergePublishedNotEnded(where, now) {
+  if (where.status === 'published') {
+    return { ...where, endsAt: { gte: now } };
+  }
+  return where;
+}
+
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
+    const now = new Date();
     const where = { deletedAt: null };
     if (req.query.status) where.status = req.query.status;
     if (req.query.venue_id) where.venueId = req.query.venue_id;
@@ -410,8 +423,9 @@ router.get('/', optionalAuth, async (req, res, next) => {
     const sortDesc = req.query.sort === '-date';
     const followedSet = await followedVenueIdSet(req.userId);
     const fetchCap = req.userId && followedSet.size > 0 ? Math.min(take * 15, 500) : take;
+    const whereMerged = mergePublishedNotEnded(where, now);
     const events = await prisma.event.findMany({
-      where,
+      where: whereMerged,
       orderBy: { date: sortDesc ? 'desc' : 'asc' },
       take: fetchCap,
     });
@@ -473,6 +487,7 @@ router.get('/:id/hosted-tables-summary', optionalAuth, async (req, res, next) =>
 
 router.get('/filter', optionalAuth, async (req, res, next) => {
   try {
+    const now = new Date();
     const where = { deletedAt: null };
     if (req.query.id) where.id = req.query.id;
     if (req.query.venue_id) where.venueId = req.query.venue_id;
@@ -487,8 +502,9 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     const take = Math.min(parseInt(req.query.limit) || 100, 100);
     const followedSet = await followedVenueIdSet(req.userId);
     const fetchCap = req.userId && followedSet.size > 0 ? Math.min(take * 15, 500) : take;
+    const whereMerged = mergePublishedNotEnded(where, now);
     const events = await prisma.event.findMany({
-      where,
+      where: whereMerged,
       orderBy: { date: sortDesc ? 'desc' : 'asc' },
       take: fetchCap,
     });
@@ -510,7 +526,7 @@ router.get('/featured-details', optionalAuth, async (req, res, next) => {
     const ids = [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 12);
     if (ids.length === 0) return res.json([]);
     const events = await prisma.event.findMany({
-      where: { id: { in: ids }, deletedAt: null, status: 'published' },
+      where: { id: { in: ids }, deletedAt: null, status: 'published', endsAt: { gte: new Date() } },
       include: { venue: true },
     });
     const byId = new Map(events.map((e) => [e.id, e]));
@@ -535,6 +551,12 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       include: { venue: true },
     });
     if (!event) return res.status(404).json({ error: 'Event not found' });
+    const endAt = eventEndsAtFromEvent(event);
+    const now = new Date();
+    const isOwner = req.userId && event.venue.ownerUserId === req.userId;
+    if (event.status === 'published' && endAt && endAt < now && !isOwner && !isStaff(req.userRole)) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
     if (event.status === 'draft' && req.userId) {
       if (event.venue.ownerUserId !== req.userId && !isStaff(req.userRole)) {
         return res.status(403).json({ error: 'Forbidden' });
@@ -560,6 +582,24 @@ router.post('/', authenticateToken, async (req, res, next) => {
     if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Not authorized' });
     const resolvedLocationCity = d.location_city || d.city || venue.city;
     if (!resolvedLocationCity) return res.status(400).json({ error: 'Invalid input' });
+
+    const rowClock = { date: new Date(d.date), startTime: d.start_time ?? null, endsAt: null, ends_at: d.ends_at };
+    const startsAt = eventStartsAtFromEvent(rowClock);
+    const endsAtResolved = d.ends_at ? new Date(d.ends_at) : eventEndsAtFromEvent(rowClock);
+
+    if (d.status === 'published') {
+      const cover = d.cover_image_url;
+      if (cover == null || String(cover).trim() === '') {
+        return res.status(400).json({ error: 'Cover image is required to publish.' });
+      }
+      if (!d.ends_at) {
+        return res.status(400).json({ error: 'Event end date and time is required to publish.' });
+      }
+      if (startsAt && endsAtResolved && endsAtResolved.getTime() < startsAt.getTime()) {
+        return res.status(400).json({ error: 'Event end must be after start.' });
+      }
+    }
+
     const event = await prisma.event.create({
       data: {
         venueId: d.venue_id,
@@ -577,6 +617,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         bannerUrl: d.banner_url,
         ticketTiers: d.ticket_tiers,
         startTime: d.start_time ?? null,
+        endsAt: endsAtResolved,
         hasEntranceFee: hasFee,
         entranceFeeAmount: hasFee ? d.entrance_fee_amount : null,
         hostingConfig: normalizeHostingConfig(d.hosting_config ?? null),
@@ -634,6 +675,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (d.banner_url !== undefined) updates.bannerUrl = d.banner_url;
     if (d.ticket_tiers != null) updates.ticketTiers = d.ticket_tiers;
     if (d.start_time !== undefined) updates.startTime = d.start_time;
+    if (d.ends_at !== undefined) updates.endsAt = d.ends_at ? new Date(d.ends_at) : null;
     if (d.has_entrance_fee !== undefined || d.entrance_fee_amount !== undefined) {
       const nextHasFee = d.has_entrance_fee !== undefined ? d.has_entrance_fee : event.hasEntranceFee;
       let nextAmount =
@@ -652,6 +694,25 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       const tierSlotsCheck = await assertTierSlotsNotBelowCurrentHostedTables(event.id, mergedHosting);
       if (!tierSlotsCheck.ok) return res.status(400).json({ error: tierSlotsCheck.error });
       updates.hostingConfig = mergedHosting;
+    }
+
+    const mergedDate = updates.date ?? event.date;
+    const mergedStart = updates.startTime !== undefined ? updates.startTime : event.startTime;
+    const mergedEnds = updates.endsAt !== undefined ? updates.endsAt : event.endsAt;
+    const mergedCover = updates.coverImageUrl !== undefined ? updates.coverImageUrl : event.coverImageUrl;
+    const mergedStatus = updates.status !== undefined ? updates.status : event.status;
+    if (mergedStatus === 'published') {
+      if (!mergedCover || String(mergedCover).trim() === '') {
+        return res.status(400).json({ error: 'Cover image is required to publish.' });
+      }
+      if (!mergedEnds) {
+        return res.status(400).json({ error: 'Event end date and time is required to publish.' });
+      }
+      const st = eventStartsAtFromEvent({ date: mergedDate, startTime: mergedStart });
+      const en = mergedEnds instanceof Date ? mergedEnds : new Date(mergedEnds);
+      if (st && en && en.getTime() < st.getTime()) {
+        return res.status(400).json({ error: 'Event end must be after start.' });
+      }
     }
 
     const updated = await prisma.event.update({ where: { id: event.id }, data: updates });

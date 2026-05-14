@@ -24,7 +24,7 @@ function seededRandom(seed) {
 function shuffleCopy(arr, seedStr) {
   const rand = seededRandom(hashString(seedStr));
   const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
+  for (let i = a.length - 1; i > 0; i -= 1) {
     const j = Math.floor(rand() * (i + 1));
     const t = a[i];
     a[i] = a[j];
@@ -33,9 +33,33 @@ function shuffleCopy(arr, seedStr) {
   return a;
 }
 
+function promotionItemFromRow(p) {
+  return {
+    kind: 'promotion',
+    data: {
+      id: p.id,
+      promotionType: p.type,
+      title: p.title,
+      body: p.description,
+      imageUrl: p.imageUrl,
+      targetCity: p.targetCity,
+      boosted: p.boosted,
+      startsAt: p.startAt,
+      endsAt: p.endAt,
+      venueId: p.venue.id,
+      venueName: p.venue.name,
+      venueCity: p.venue.city,
+      venueType: p.venue.venueType,
+      eventId: p.event?.id || null,
+      eventName: p.event?.title || null,
+      eventDate: p.event?.date || null,
+    },
+  };
+}
+
 /**
  * Cursor-paginated mixed feed (promotions, events, venues) for Home.
- * Ordering is seeded per session + city so the stream rotates like a social feed.
+ * Boosted promotions are kept ahead of organic ones; events use `endsAt` (not calendar date only).
  */
 router.get('/feed', optionalAuth, async (req, res, next) => {
   try {
@@ -63,7 +87,6 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     }
 
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     const [promotionRows, eventRows, venueRows, followedRows] = await Promise.all([
       prisma.promotion.findMany({
@@ -86,11 +109,11 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
         orderBy: [{ boosted: 'desc' }, { createdAt: 'desc' }],
         include: {
           venue: { select: { id: true, name: true, city: true, venueType: true } },
-          event: { select: { id: true, title: true, date: true } },
+          event: { select: { id: true, title: true, date: true, endsAt: true } },
         },
       }),
       prisma.event.findMany({
-        where: { deletedAt: null, status: 'published', date: { gte: startOfToday } },
+        where: { deletedAt: null, status: 'published', endsAt: { gte: now } },
         orderBy: { date: 'asc' },
         take: 40,
       }),
@@ -106,30 +129,13 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
 
     const followedSet = new Set(followedRows.map((r) => r.venueId));
 
-    const promItems = shuffleCopy(
-      promotionRows.map((p) => ({
-        kind: 'promotion',
-        data: {
-          id: p.id,
-          promotionType: p.type,
-          title: p.title,
-          body: p.description,
-          imageUrl: p.imageUrl,
-          targetCity: p.targetCity,
-          boosted: p.boosted,
-          startsAt: p.startAt,
-          endsAt: p.endAt,
-          venueId: p.venue.id,
-          venueName: p.venue.name,
-          venueCity: p.venue.city,
-          venueType: p.venue.venueType,
-          eventId: p.event?.id || null,
-          eventName: p.event?.title || null,
-          eventDate: p.event?.date || null,
-        },
-      })),
-      `${sessionId}|prom|${city || 'all'}`,
-    );
+    const allProm = promotionRows.map(promotionItemFromRow);
+    const boosted = allProm.filter((x) => x.data.boosted);
+    const organic = allProm.filter((x) => !x.data.boosted);
+    const promItems = [
+      ...shuffleCopy(boosted, `${sessionId}|promB|${city || 'all'}`),
+      ...shuffleCopy(organic, `${sessionId}|promO|${city || 'all'}`),
+    ];
 
     const eventItems = shuffleCopy(
       eventRows.map((e) => ({

@@ -15,6 +15,15 @@ import {
   Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { uploadFile } from '@/api/client';
+
+function isoToDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function emptyHostingSection() {
   return { max_tables: '', tiers: [], host_table_fee_zar: '' };
@@ -52,6 +61,7 @@ const EMPTY_EVENT = {
   title: '', description: '', date: '', city: '', location_address: '', location_city: '', location_suburb: '', location_province: '', status: 'draft',
   cover_image_url: '', ticket_tiers: [],
   start_time: '',
+  ends_at: '',
   has_entrance_fee: false,
   entrance_fee_amount: '',
   hosting_config: emptyHostingForm(),
@@ -68,6 +78,7 @@ export default function BusinessEvents() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [deleteId, setDeleteId] = useState(null);
+  const [coverUploading, setCoverUploading] = useState(false);
   useEffect(() => {
     (async () => {
       try { setUser(await authService.getCurrentUser()); }
@@ -141,6 +152,7 @@ export default function BusinessEvents() {
       cover_image_url: evt.cover_image_url || '',
       ticket_tiers: evt.ticket_tiers || [],
       start_time: evt.start_time || '',
+      ends_at: isoToDatetimeLocal(evt.ends_at),
       has_entrance_fee: !!evt.has_entrance_fee,
       entrance_fee_amount: evt.entrance_fee_amount != null && evt.entrance_fee_amount !== ''
         ? String(evt.entrance_fee_amount)
@@ -187,6 +199,10 @@ export default function BusinessEvents() {
     if (form.ticket_tiers?.length) payload.ticket_tiers = form.ticket_tiers;
     if (form.start_time) payload.start_time = form.start_time;
     else if (editingEvent) payload.start_time = null;
+    if (form.ends_at) {
+      const end = new Date(form.ends_at);
+      if (!Number.isNaN(end.getTime())) payload.ends_at = end.toISOString();
+    }
 
     const hostingPayload = {
       general: { max_tables: null, tiers: [], host_table_fee_zar: null },
@@ -529,12 +545,23 @@ export default function BusinessEvents() {
               />
               <p className="text-xs text-gray-500 mt-1">Optional. Leave empty if the time is not set yet.</p>
             </div>
+            <div>
+              <Label className="text-gray-400 text-sm">End date &amp; time</Label>
+              <Input
+                type="datetime-local"
+                value={form.ends_at}
+                onChange={(e) => setForm((p) => ({ ...p, ends_at: e.target.value }))}
+                className="mt-1.5 h-11 rounded-xl max-w-[280px]"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+              />
+              <p className="text-xs text-gray-500 mt-1">Required when publishing. Feeds and tickets use this as the event end.</p>
+            </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="entrance-fee"
                   checked={form.has_entrance_fee}
-                  onCheckedChange={(v) => setForm(p => ({ ...p, has_entrance_fee: v === true }))}
+                  onCheckedChange={(v) => setForm((p) => ({ ...p, has_entrance_fee: v === true }))}
                 />
                 <Label htmlFor="entrance-fee" className="text-gray-300 text-sm cursor-pointer">
                   Entrance fee at the door
@@ -793,14 +820,38 @@ export default function BusinessEvents() {
               />
             </div>
             <div>
-              <Label className="text-gray-400 text-sm">Cover Image URL</Label>
+              <Label className="text-gray-400 text-sm">Cover image</Label>
+              {form.cover_image_url ? (
+                <img
+                  src={form.cover_image_url}
+                  alt=""
+                  className="mt-2 max-h-36 rounded-lg border object-contain"
+                  style={{ borderColor: 'var(--sec-border)' }}
+                />
+              ) : null}
               <Input
-                value={form.cover_image_url}
-                onChange={e => setForm(p => ({ ...p, cover_image_url: e.target.value }))}
-                placeholder="https://..."
-                className="mt-1.5 h-11 rounded-xl"
+                type="file"
+                accept="image/*"
+                disabled={coverUploading}
+                className="mt-1.5 rounded-xl cursor-pointer"
                 style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  setCoverUploading(true);
+                  try {
+                    const r = await uploadFile(f);
+                    if (r?.file_url) setForm((p) => ({ ...p, cover_image_url: r.file_url }));
+                    else toast.error('Upload did not return a URL');
+                  } catch (err) {
+                    toast.error(err?.message || 'Upload failed');
+                  } finally {
+                    setCoverUploading(false);
+                    e.target.value = '';
+                  }
+                }}
               />
+              <p className="text-xs text-gray-500 mt-1">Upload a file (required to publish).</p>
             </div>
             <div>
               <Label className="text-gray-400 text-sm">Status</Label>

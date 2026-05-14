@@ -1,4 +1,5 @@
 import React, { Suspense } from 'react'
+import RoutePageFallback from '@/components/RoutePageFallback'
 import { Toaster } from "@/components/ui/sonner"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
@@ -16,12 +17,6 @@ const MainPage = mainPageKey ? Pages[mainPageKey] : null;
 const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   <Layout currentPageName={currentPageName}>{children}</Layout>
   : <>{children}</>;
-
-const routeFallback = (
-  <div className="fixed inset-0 flex items-center justify-center" style={{ backgroundColor: 'var(--sec-bg-base, #000)' }}>
-    <div className="w-8 h-8 border-4 border-slate-600 border-t-slate-200 rounded-full animate-spin" />
-  </div>
-);
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -45,29 +40,33 @@ const AuthenticatedApp = () => {
     }
   }
 
-  // Render the main app
   return (
-    <Suspense fallback={routeFallback}>
-      <Routes>
-        <Route path="/" element={
+    <Routes>
+      <Route
+        path="/"
+        element={
           <LayoutWrapper currentPageName={mainPageKey}>
-            {MainPage ? <MainPage /> : null}
+            <Suspense fallback={<RoutePageFallback />}>{MainPage ? <MainPage /> : null}</Suspense>
           </LayoutWrapper>
-        } />
-        {Object.entries(Pages).filter(([path]) => path !== 'FeedbackInsights').map(([path, Page]) => (
+        }
+      />
+      {Object.entries(Pages)
+        .filter(([path]) => path !== 'FeedbackInsights')
+        .map(([path, Page]) => (
           <Route
             key={path}
             path={`/${path}`}
             element={
               <LayoutWrapper currentPageName={path}>
-                <Page />
+                <Suspense fallback={<RoutePageFallback />}>
+                  <Page />
+                </Suspense>
               </LayoutWrapper>
             }
           />
         ))}
-        <Route path="*" element={<PageNotFound />} />
-      </Routes>
-    </Suspense>
+      <Route path="*" element={<PageNotFound />} />
+    </Routes>
   );
 };
 

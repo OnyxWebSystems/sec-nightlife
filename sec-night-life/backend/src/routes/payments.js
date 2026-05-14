@@ -25,6 +25,7 @@ import {
   visibleUntilForVenueTableMember,
   eventStartsAtFromEvent,
   eventStartsAtFromHostedTable,
+  eventEndsAtFromEvent,
   holderDisplayNameFromUser,
   formatSpecsFromTable,
   formatSpecsFromVenueTable,
@@ -113,7 +114,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
   const isBoost = metadata.type === 'BOOST';
   const promoId = metadata.promotedPostId || metadata.promotion_id;
   if (promoId) {
-    const boostExpiry = new Date(Date.now() + (7 * 24 * 60 * 60 * 1000));
+    const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
+    const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '7'), 10) || 7));
+    const boostExpiry = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
     await prisma.promotion.updateMany({
       where: { id: promoId, deletedAt: null },
       data: isBoost
@@ -152,7 +155,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         sendEmail({
           to: venue.owner.email,
           subject: `Boost activated — ${promo.title}`,
-          text: `Your promotion "${promo.title}" is now boosted for 7 days. Boost expires on ${promo.boostExpiresAt?.toISOString() || 'N/A'}.`,
+          text: `Your promotion "${promo.title}" is now boosted for ${boostDays} day(s). Boost expires on ${promo.boostExpiresAt?.toISOString() || 'N/A'}.`,
         }).catch(() => {});
       }
     }
@@ -307,6 +310,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         ? visibleUntilForVenueTableMember(vt, vt.event)
         : visibleUntilAfterEventDate(new Date());
       const eventStartsAt = vt.event ? eventStartsAtFromEvent(vt.event) : null;
+      const eventEndsAt = vt.event ? eventEndsAtFromEvent(vt.event) : null;
       await issueTicketAndNotify(prisma, {
         userId: String(userId),
         email: vu?.email || email,
@@ -321,6 +325,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         holderDisplayName: holderDisplayNameFromUser(vu),
         tableSpecsSummary: formatSpecsFromVenueTable(vt),
         eventStartsAt,
+        eventEndsAt,
       });
       const { secAmount: sAmt, recipientAmount: vAmt } = splitSecPlatform(Number(amount || 0));
       const venueCode = await resolveRecipientCodeForVenue(vt.venueId);
@@ -381,6 +386,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           const eventStartsAt = hosted.event
             ? eventStartsAtFromEvent(hosted.event)
             : eventStartsAtFromHostedTable(hosted);
+          const eventEndsAt = hosted.event ? eventEndsAtFromEvent(hosted.event) : null;
           const payer = await prisma.user.findUnique({
             where: { id: String(userId) },
             select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
@@ -399,6 +405,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
             holderDisplayName: holderDisplayNameFromUser(payer),
             tableSpecsSummary: formatSpecsFromHostedTable(hosted),
             eventStartsAt,
+            eventEndsAt,
           });
           await createInAppNotification({
             userId: String(userId),
@@ -502,6 +509,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
               });
               const vis = visibleUntilAfterEventDate(event.date);
               const eventStartsAt = eventStartsAtFromEvent(event);
+              const eventEndsAt = eventEndsAtFromEvent(event);
               const payer = await prisma.user.findUnique({
                 where: { id: String(userId) },
                 select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
@@ -520,6 +528,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 holderDisplayName: holderDisplayNameFromUser(payer),
                 tableSpecsSummary: formatSpecsFromTable(created),
                 eventStartsAt,
+                eventEndsAt,
               });
             }
           }
@@ -669,6 +678,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
               venueId: true,
               date: true,
               startTime: true,
+              endsAt: true,
               hasEntranceFee: true,
               entranceFeeAmount: true,
               venue: { select: { ownerUserId: true, name: true } },
@@ -747,6 +757,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
             const vis = visibleUntilAfterHostedTable(htFinal);
             const eventStartsAt =
               (htEvent && eventStartsAtFromEvent(htEvent)) || eventStartsAtFromHostedTable(htFinal);
+            const eventEndsAt = htEvent ? eventEndsAtFromEvent(htEvent) : null;
             await issueTicketAndNotify(prisma, {
               userId: String(userId),
               email: payer?.email || email,
@@ -760,6 +771,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
               holderDisplayName: holderDisplayNameFromUser(payer),
               tableSpecsSummary: formatSpecsFromHostedTable(htFinal),
               eventStartsAt,
+              eventEndsAt,
             });
             if (htEvent?.venueId && htEvent?.id) {
               await recordEventVenueTableBooking({
@@ -899,8 +911,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
         paystackRecipientCode: hostPayCode,
       });
       const evRow = await prisma.event.findFirst({ where: { id: table.eventId, deletedAt: null } });
-      const visT = evRow ? visibleUntilAfterEventDate(evRow.date) : new Date(Date.now() + 48 * 60 * 60 * 1000);
+      const visT = evRow ? eventEndsAtFromEvent(evRow) || visibleUntilAfterEventDate(evRow.date) : new Date(Date.now() + 48 * 60 * 60 * 1000);
       const eventStartsAt = evRow ? eventStartsAtFromEvent(evRow) : null;
+      const eventEndsAt = evRow ? eventEndsAtFromEvent(evRow) : null;
       const payerU = await prisma.user.findUnique({
         where: { id: String(userId) },
         select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
@@ -919,6 +932,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         holderDisplayName: holderDisplayNameFromUser(payerU),
         tableSpecsSummary: formatSpecsFromTable(table),
         eventStartsAt,
+        eventEndsAt,
       });
     }
   }
@@ -983,8 +997,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
           where: { id: String(userId) },
           select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
         });
-        const visEv = visibleUntilAfterEventDate(event.date);
+        const visEv = eventEndsAtFromEvent(event) || visibleUntilAfterEventDate(event.date);
         const eventStartsAt = eventStartsAtFromEvent(event);
+        const eventEndsAt = eventEndsAtFromEvent(event);
         await issueTicketAndNotify(prisma, {
           userId: String(userId),
           email: payerEv?.email || email,
@@ -998,6 +1013,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           holderDisplayName: holderDisplayNameFromUser(payerEv),
           tableSpecsSummary: `${ticketTier} ×${qty}`,
           eventStartsAt,
+          eventEndsAt,
         });
       }
     }

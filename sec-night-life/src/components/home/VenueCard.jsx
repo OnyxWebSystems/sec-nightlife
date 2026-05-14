@@ -31,7 +31,7 @@ export default function VenueCard({ venue }) {
             onError={() => setImgError(true)}
             className="venue-card__image-media"
             style={{
-              width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center',
+              width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center',
               transition: 'transform 0.35s ease', display: 'block',
             }}
             loading="lazy"
@@ -66,11 +66,12 @@ export default function VenueCard({ venue }) {
           {venue.logo_url && (
             <div style={{
               position: 'absolute', bottom: 8, left: 8,
-              width: 26, height: 26, borderRadius: 6,
-              overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)',
-              backgroundColor: 'var(--sec-bg-base)',
+              width: 32, height: 32, borderRadius: '50%',
+              overflow: 'hidden',
+              backgroundColor: 'transparent',
+              boxShadow: '0 1px 8px rgba(0,0,0,0.45)',
             }}>
-              <img src={venue.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={venue.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
             </div>
           )}
         </div>

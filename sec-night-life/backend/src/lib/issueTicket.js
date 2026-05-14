@@ -33,6 +33,7 @@ export async function issueTicketAndNotify(db, params) {
     holderDisplayName: holderParam = null,
     tableSpecsSummary = null,
     eventStartsAt: eventStartsAtParam = null,
+    eventEndsAt: eventEndsAtParam = null,
   } = params;
 
   const existing = await db.ticket.findUnique({
@@ -56,9 +57,18 @@ export async function issueTicketAndNotify(db, params) {
         : new Date(eventStartsAtParam)
       : null;
 
-  const effectiveVisibleUntil = eventStartsAt
-    ? visibleUntilFromEventStartsAt(eventStartsAt)
-    : visibleUntil;
+  const eventEndsAt =
+    eventEndsAtParam != null
+      ? eventEndsAtParam instanceof Date
+        ? eventEndsAtParam
+        : new Date(eventEndsAtParam)
+      : null;
+
+  const effectiveVisibleUntil = eventEndsAt
+    ? eventEndsAt
+    : eventStartsAt
+      ? visibleUntilFromEventStartsAt(eventStartsAt)
+      : visibleUntil;
 
   const qrToken = generateQrToken();
 

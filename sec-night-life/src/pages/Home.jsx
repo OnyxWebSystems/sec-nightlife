@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { dataService } from '@/services/dataService';
@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { format, isToday, isTomorrow, isValid, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
-import { ChevronRight, Search, SlidersHorizontal, BadgeCheck, Trophy, Bell, Users } from 'lucide-react';
+import { ChevronRight, Search, SlidersHorizontal, BadgeCheck, Trophy, Bell, Users, RefreshCw } from 'lucide-react';
 
 import FeaturedEventCard from '@/components/home/FeaturedEventCard';
 import VenueCard from '@/components/home/VenueCard';
@@ -194,6 +194,55 @@ export default function Home() {
   const [selectedCity, setSelectedCity] = useState('all');
   const [selectedVenueType, setSelectedVenueType] = useState('all');
   const [sessionId] = useState(() => getOrCreateSessionId());
+  const pullCooldownRef = useRef(0);
+
+  const refreshHomeData = useCallback(
+    async (showToast = true) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['home-feed'] }),
+        queryClient.invalidateQueries({ queryKey: ['featured-events'] }),
+        queryClient.invalidateQueries({ queryKey: ['featured-events-details'] }),
+        queryClient.invalidateQueries({ queryKey: ['host-tables-available'] }),
+        queryClient.invalidateQueries({ queryKey: ['venue-tables-available'] }),
+        queryClient.invalidateQueries({ queryKey: ['host-parties-public-home'] }),
+        queryClient.invalidateQueries({ queryKey: ['all-venues'] }),
+      ]);
+      if (showToast) toast.success('Feed refreshed');
+    },
+    [queryClient],
+  );
+
+  useEffect(() => {
+    let armed = false;
+    let startY = 0;
+    const onTouchStart = (e) => {
+      if (window.scrollY > 8) return;
+      armed = true;
+      startY = e.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (e) => {
+      if (!armed) return;
+      const y = e.touches[0]?.clientY ?? 0;
+      if (y - startY > 72) {
+        armed = false;
+        const t = Date.now();
+        if (t - pullCooldownRef.current < 2500) return;
+        pullCooldownRef.current = t;
+        void refreshHomeData(false);
+      }
+    };
+    const onTouchEnd = () => {
+      armed = false;
+    };
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: true });
+    document.addEventListener('touchend', onTouchEnd);
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [refreshHomeData]);
 
   /** City for mixed home feed: explicit filter, else profile city, else nationwide. */
   const homeFeedCity = useMemo(() => {
@@ -445,6 +494,15 @@ export default function Home() {
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              className="sec-nav-icon"
+              aria-label="Refresh feed"
+              title="Refresh"
+              onClick={() => void refreshHomeData(true)}
+            >
+              <RefreshCw size={18} strokeWidth={1.5} />
+            </button>
             <Link to={createPageUrl('Leaderboard')} className="sec-nav-icon" style={{ color: 'var(--sec-accent)' }}>
               <Trophy size={18} strokeWidth={1.5} />
             </Link>
