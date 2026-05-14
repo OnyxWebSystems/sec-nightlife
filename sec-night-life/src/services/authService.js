@@ -3,9 +3,9 @@
  */
 import { apiGet, apiPost, setTokens, clearTokens } from '@/api/client';
 
-export async function getCurrentUser() {
+export async function getAuthSession() {
   const data = await apiGet('/api/auth/me');
-  return {
+  const user = {
     id: data.id,
     email: data.email,
     full_name: data.full_name,
@@ -15,6 +15,12 @@ export async function getCurrentUser() {
     identity_verified: Boolean(data.identity_verified),
     can_admin_dashboard: Boolean(data.can_admin_dashboard),
   };
+  return { user, userProfile: data.user_profile ?? null };
+}
+
+export async function getCurrentUser() {
+  const { user } = await getAuthSession();
+  return user;
 }
 
 export function redirectToLogin(returnUrl) {

@@ -23,7 +23,6 @@ const MODES = [
 export default function Layout({ children, currentPageName }) {
   const navigate = useNavigate();
   const { user, userProfile } = useAuth();
-  const [notifications, setNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
   const [hostUnread, setHostUnread] = useState(0);
@@ -63,9 +62,8 @@ export default function Layout({ children, currentPageName }) {
 
   const fetchNotificationCounts = useCallback(async () => {
     if (!user?.id) return;
-    const [unreadRes, notifListRes, msgRes, hostRes] = await Promise.allSettled([
+    const [unreadRes, msgRes, hostRes] = await Promise.allSettled([
       apiGet('/api/notifications/unread-count'),
-      apiGet('/api/notifications?limit=100'),
       apiGet('/api/messages/unread-total'),
       apiGet('/api/host/notifications/unread-count'),
     ]);
@@ -74,14 +72,6 @@ export default function Layout({ children, currentPageName }) {
       setNotificationCount(typeof u?.count === 'number' ? u.count : 0);
     } else {
       setNotificationCount(0);
-    }
-    if (notifListRes.status === 'fulfilled') {
-      const rows = notifListRes.value;
-      const notifs = (Array.isArray(rows) ? rows : []).map((n) => ({
-        ...n,
-        is_read: n.read === true || n.is_read === true,
-      }));
-      setNotifications(notifs);
     }
     if (msgRes.status === 'fulfilled') {
       const m = msgRes.value;
@@ -104,7 +94,7 @@ export default function Layout({ children, currentPageName }) {
       fetchNotificationCounts();
     };
     tick();
-    const timer = window.setInterval(tick, 45000);
+    const timer = window.setInterval(tick, 90000);
     const onVis = () => {
       if (document.visibilityState === 'visible') tick();
     };
@@ -123,7 +113,6 @@ export default function Layout({ children, currentPageName }) {
 
   useEffect(() => {
     if (!user?.id) {
-      setNotifications([]);
       setNotificationCount(0);
       setMessageUnread(0);
       setHostUnread(0);

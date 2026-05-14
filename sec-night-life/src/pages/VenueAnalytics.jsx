@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
 import { dataService } from '@/services/dataService';
@@ -86,11 +86,12 @@ export default function VenueAnalytics() {
     }
   }, [events, selectedEventId]);
 
+  const periodDays = Math.min(366, Math.max(1, parseInt(dateRange, 10) || 30));
+
   // Calculate metrics (revenue + tickets from server-side Payment / Transaction aggregation)
   const calculateMetrics = () => {
     const gross = Number(analytics?.grossRevenueZar || 0);
-    const net = Number(analytics?.netRevenueZar || gross * 0.85);
-    const activeGross = gross;
+    const net = Number(analytics?.netRevenueZar ?? (gross > 0 ? gross * 0.85 : 0));
     const activeRevenue = revenueMode === 'net' ? net : gross;
 
     const ticketSales = Number(analytics?.ticketSalesCount || 0);
@@ -121,8 +122,7 @@ export default function VenueAnalytics() {
     const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
 
     const eventRevenueCount = revenueScope === 'per_event' ? 1 : Math.max(1, events.length);
-    const avgRevenuePerEventRaw = eventRevenueCount > 0 ? activeGross / eventRevenueCount : 0;
-    const avgRevenuePerEvent = revenueMode === 'net' ? avgRevenuePerEventRaw * 0.85 : avgRevenuePerEventRaw;
+    const avgRevenuePerEvent = eventRevenueCount > 0 ? activeRevenue / eventRevenueCount : 0;
 
     return {
       totalRevenue: activeRevenue,
@@ -139,14 +139,30 @@ export default function VenueAnalytics() {
 
   const metrics = selectedVenue ? calculateMetrics() : null;
 
-  const getSalesTrend = () => {
-    const last7Days = Array.from({ length: 7 }, (_, i) => subDays(new Date(), 6 - i));
-    const byDay = Object.fromEntries((analytics?.revenueByDay || []).map((d) => [d.date, d.gross]));
-    return last7Days.map((day) => ({
-      date: format(day, 'MMM dd'),
-      sales: Number(byDay[format(day, 'yyyy-MM-dd')] || 0),
-    }));
-  };
+  const salesTrend = useMemo(() => {
+    const days = periodDays;
+    const daysChrono = Array.from({ length: days }, (_, i) => subDays(new Date(), days - 1 - i));
+    const byDayGross = Object.fromEntries((analytics?.revenueByDay || []).map((d) => [d.date, Number(d.gross) || 0]));
+    const grossTotal = Number(analytics?.grossRevenueZar || 0);
+    const netTotal = Number(analytics?.netRevenueZar ?? (grossTotal > 0 ? grossTotal * 0.85 : 0));
+    return daysChrono.map((day) => {
+      const key = format(day, 'yyyy-MM-dd');
+      const dayGross = Number(byDayGross[key] || 0);
+      const amount =
+        revenueMode === 'net'
+          ? grossTotal > 0
+            ? (dayGross / grossTotal) * netTotal
+            : 0
+          : dayGross;
+      return {
+        key,
+        date: format(day, days <= 14 ? 'MMM dd' : 'd MMM'),
+        sales: amount,
+      };
+    });
+  }, [analytics?.revenueByDay, analytics?.grossRevenueZar, analytics?.netRevenueZar, periodDays, revenueMode]);
+
+  const trendMax = useMemo(() => Math.max(...salesTrend.map((d) => d.sales), 1), [salesTrend]);
 
   return (
     <div className="min-h-screen bg-[#0A0A0B] p-6">
@@ -159,7 +175,7 @@ export default function VenueAnalytics() {
           </div>
           <div className="flex items-center gap-3">
             <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-32 bg-[#141416] border-[#262629]">
+              <SelectTrigger className="w-40 bg-[#141416] border-[#262629]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-[#141416] border-[#262629] text-white">
@@ -200,7 +216,7 @@ export default function VenueAnalytics() {
                     </SelectTrigger>
                     <SelectContent className="bg-[#141416] border-[#262629] text-white">
                       <SelectItem value="gross">Gross Revenue</SelectItem>
-                      <SelectItem value="net">Net Revenue (after 15%)</SelectItem>
+                      <SelectItem value="net">Net revenue (matches total; share of fees by day)</SelectItem>
                     </SelectContent>
                   </Select>
                 </CardContent>
@@ -307,34 +323,46 @@ export default function VenueAnalytics() {
               </Card>
             </div>
 
-            {/* Sales Trend */}
+            {/* Sales Trend — days match header selector; amounts match gross vs net mode */}
             <Card className="glass-card border-[#262629]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
-                  Revenue trend (last 7 days)
+                  Revenue trend (last {periodDays} days) — {revenueMode === 'net' ? 'Net' : 'Gross'}
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-64 flex items-end gap-2">
-                  {getSalesTrend().map((day, idx) => {
-                    const maxSales = Math.max(...getSalesTrend().map(d => d.sales), 1);
-                    const height = (day.sales / maxSales) * 100;
-                    return (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                        <div className="w-full bg-[#141416] rounded-t-lg relative" style={{ height: `${height}%`, minHeight: day.sales > 0 ? '20px' : '4px' }}>
-                          <div className="absolute inset-0 rounded-t-lg" style={{ background: 'var(--sec-gradient-silver)' }} />
-                          {day.sales > 0 && (
-                            <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs text-gray-400">
-                              R{day.sales}
-                            </span>
-                          )}
+                <div className="h-64 overflow-x-auto pb-1">
+                  <div
+                    className="flex h-full items-end gap-1"
+                    style={{ minWidth: `${Math.max(280, periodDays * (periodDays <= 14 ? 28 : 10))}px` }}
+                  >
+                    {salesTrend.map((day) => {
+                      const height = (day.sales / trendMax) * 100;
+                      return (
+                        <div key={day.key} className="flex min-w-0 flex-1 flex-col items-center gap-2" style={{ flex: '1 1 0' }}>
+                          <div
+                            className="relative w-full max-w-[36px] mx-auto rounded-t-lg bg-[#141416]"
+                            style={{ height: `${height}%`, minHeight: day.sales > 0 ? '12px' : '3px' }}
+                          >
+                            <div className="absolute inset-0 rounded-t-lg" style={{ background: 'var(--sec-gradient-silver)' }} />
+                            {day.sales > 0 && periodDays <= 14 && (
+                              <span className="absolute -top-6 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[10px] text-gray-400">
+                                R{Math.round(day.sales).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                          <span className="max-w-full truncate text-[10px] text-gray-500 sm:text-xs" title={`${day.key}: R${Math.round(day.sales).toLocaleString()}`}>
+                            {day.date}
+                          </span>
                         </div>
-                        <span className="text-xs text-gray-500">{day.date}</span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
+                {periodDays > 14 && (
+                  <p className="mt-2 text-xs text-gray-500">Scroll horizontally to see all days. Hover a label for the exact amount.</p>
+                )}
               </CardContent>
             </Card>
 

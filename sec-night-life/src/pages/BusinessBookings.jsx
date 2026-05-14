@@ -31,6 +31,8 @@ export default function BusinessBookings() {
   const [user, setUser] = useState(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  /** active = today & future (default); past = ended by calendar day; all = every event */
+  const [eventTimeScope, setEventTimeScope] = useState('active');
   const [selectedEventId, setSelectedEventId] = useState('all');
   const [detailTable, setDetailTable] = useState(null);
 
@@ -42,13 +44,14 @@ export default function BusinessBookings() {
   }, []);
 
   const { data: bookingsData, isLoading } = useQuery({
-    queryKey: ['biz-event-table-bookings', user?.id, selectedEventId],
-    queryFn: () =>
-      apiGet(
-        selectedEventId === 'all'
-          ? '/api/business/event-table-bookings'
-          : `/api/business/event-table-bookings?event_id=${encodeURIComponent(selectedEventId)}`,
-      ),
+    queryKey: ['biz-event-table-bookings', user?.id, selectedEventId, eventTimeScope],
+    queryFn: () => {
+      const params = new URLSearchParams({ event_scope: eventTimeScope });
+      if (selectedEventId !== 'all') {
+        params.set('event_id', selectedEventId);
+      }
+      return apiGet(`/api/business/event-table-bookings?${params.toString()}`);
+    },
     enabled: !!user,
   });
   const tables = bookingsData?.items || [];
@@ -74,6 +77,10 @@ export default function BusinessBookings() {
     }
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [bookingsData?.eventSummaries, tables]);
+
+  useEffect(() => {
+    setSelectedEventId('all');
+  }, [eventTimeScope]);
 
   useEffect(() => {
     if (selectedEventId === 'all') return;
@@ -116,6 +123,22 @@ export default function BusinessBookings() {
         <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
           {stats.bookingRows} booking line{stats.bookingRows === 1 ? '' : 's'} in view · SEC hosted tables
         </p>
+        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8, maxWidth: 560 }}>
+          Showing{' '}
+          {eventTimeScope === 'active' && 'today and upcoming events only. Switch to “Past events” to review finished nights.'}
+          {eventTimeScope === 'past' && 'past events only (before today, UTC). Switch back to “Active” for current operations.'}
+          {eventTimeScope === 'all' && 'all events (active and past). Use Active or Past for a cleaner default view.'}
+        </p>
+        {bookingsData?.notice === 'past_event_use_past_scope' && (
+          <p style={{ fontSize: 12, color: 'var(--sec-warning)', marginTop: 6 }}>
+            This event has ended. Choose <strong>Past events</strong> above to see its bookings.
+          </p>
+        )}
+        {bookingsData?.notice === 'upcoming_event_use_active_scope' && (
+          <p style={{ fontSize: 12, color: 'var(--sec-warning)', marginTop: 6 }}>
+            This event is still upcoming or today. Choose <strong>Active</strong> or <strong>All events</strong> to see it.
+          </p>
+        )}
       </div>
 
       {/* Stats Strip */}
@@ -147,6 +170,16 @@ export default function BusinessBookings() {
             style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
           />
         </div>
+        <Select value={eventTimeScope} onValueChange={setEventTimeScope}>
+          <SelectTrigger className="w-[200px] h-10 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }} className="text-white">
+            <SelectItem value="active">Active events (default)</SelectItem>
+            <SelectItem value="past">Past events</SelectItem>
+            <SelectItem value="all">All events</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[130px] h-10 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
             <SelectValue />
@@ -184,7 +217,13 @@ export default function BusinessBookings() {
         }}>
           <BookOpen size={28} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 10px' }} />
           <p style={{ fontSize: 14, color: 'var(--sec-text-muted)' }}>
-            {search ? 'No matching bookings' : selectedEventId === 'all' ? 'No table bookings yet' : 'No bookings for this event'}
+            {search
+              ? 'No matching bookings'
+              : eventTimeScope === 'active'
+                ? 'No bookings for active events. Past nights are hidden here — open “Past events” to review history.'
+                : selectedEventId === 'all'
+                  ? 'No table bookings in this view'
+                  : 'No bookings for this event'}
           </p>
         </div>
       ) : (

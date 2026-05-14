@@ -21,6 +21,34 @@ function rollBookingStats(rows) {
   };
 }
 
+function emptyEventTableBookingsSummary() {
+  return {
+    configuredTableSlots: 0,
+    hostedTablesOpen: 0,
+    hostedTablesFull: 0,
+    totalGoingHeadcount: 0,
+    pendingJoinRequests: 0,
+    statsByRole: {
+      all: { bookingRowCount: 0, totalPaidZar: 0 },
+      HOST: { bookingRowCount: 0, totalPaidZar: 0 },
+      GUEST: { bookingRowCount: 0, totalPaidZar: 0 },
+    },
+  };
+}
+
+/** Calendar day start UTC — event.date is compared the same way as listing “today’s” events. */
+function startOfUtcToday() {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+function eventDateIsPast(eventDate, startToday) {
+  const t = new Date(eventDate);
+  t.setUTCHours(0, 0, 0, 0);
+  return t < startToday;
+}
+
 router.get('/event-table-bookings', authenticateToken, async (req, res, next) => {
   try {
     const ownedVenues = await prisma.venue.findMany({
@@ -31,18 +59,7 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       return res.json({
         items: [],
         eventSummaries: [],
-        summary: {
-          configuredTableSlots: 0,
-          hostedTablesOpen: 0,
-          hostedTablesFull: 0,
-          totalGoingHeadcount: 0,
-          pendingJoinRequests: 0,
-          statsByRole: {
-            all: { bookingRowCount: 0, totalPaidZar: 0 },
-            HOST: { bookingRowCount: 0, totalPaidZar: 0 },
-            GUEST: { bookingRowCount: 0, totalPaidZar: 0 },
-          },
-        },
+        summary: emptyEventTableBookingsSummary(),
       });
     }
     const venueIds = ownedVenues.map((v) => v.id);
@@ -50,19 +67,74 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       ? req.query.event_id.trim()
       : null;
 
-    const allVenueEvents = await prisma.event.findMany({
-      where: { venueId: { in: venueIds }, deletedAt: null },
-      select: { id: true, title: true, date: true, hostingConfig: true },
-    });
-    const eventsInScope = eventIdFilter ? allVenueEvents.filter((e) => e.id === eventIdFilter) : allVenueEvents;
-    const eventSummaries = allVenueEvents
-      .map((e) => ({
-        id: e.id,
-        title: e.title,
-        date: e.date,
-      }))
-      .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    const scopeRaw = String(req.query.event_scope || 'active').toLowerCase();
+    const eventScope = ['active', 'past', 'all'].includes(scopeRaw) ? scopeRaw : 'active';
+    const startToday = startOfUtcToday();
+
+    const dateWhere =
+      eventScope === 'active' ? { gte: startToday } : eventScope === 'past' ? { lt: startToday } : undefined;
+
+    let eventsInScope = [];
+    let eventSummaries = [];
+
+    if (eventIdFilter) {
+      const ev = await prisma.event.findFirst({
+        where: { id: eventIdFilter, venueId: { in: venueIds }, deletedAt: null },
+        select: { id: true, title: true, date: true, hostingConfig: true },
+      });
+      if (!ev) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+      const isPast = eventDateIsPast(ev.date, startToday);
+      if (eventScope === 'active' && isPast) {
+        return res.json({
+          items: [],
+          eventSummaries: [],
+          summary: emptyEventTableBookingsSummary(),
+          eventScope,
+          notice: 'past_event_use_past_scope',
+        });
+      }
+      if (eventScope === 'past' && !isPast) {
+        return res.json({
+          items: [],
+          eventSummaries: [],
+          summary: emptyEventTableBookingsSummary(),
+          eventScope,
+          notice: 'upcoming_event_use_active_scope',
+        });
+      }
+      eventsInScope = [ev];
+      eventSummaries = [{ id: ev.id, title: ev.title, date: ev.date }];
+    } else {
+      const allVenueEvents = await prisma.event.findMany({
+        where: {
+          venueId: { in: venueIds },
+          deletedAt: null,
+          ...(dateWhere ? { date: dateWhere } : {}),
+        },
+        select: { id: true, title: true, date: true, hostingConfig: true },
+      });
+      eventsInScope = allVenueEvents;
+      eventSummaries = allVenueEvents
+        .map((e) => ({
+          id: e.id,
+          title: e.title,
+          date: e.date,
+        }))
+        .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    }
+
     const eventIds = eventsInScope.map((e) => e.id);
+
+    if (eventIds.length === 0) {
+      return res.json({
+        items: [],
+        eventSummaries,
+        summary: emptyEventTableBookingsSummary(),
+        eventScope,
+      });
+    }
 
     let configuredTableSlots = 0;
     for (const ev of eventsInScope) {
@@ -72,13 +144,10 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       configuredTableSlots += (Number.isFinite(g) && g > 0 ? g : 0) + (Number.isFinite(v) && v > 0 ? v : 0);
     }
 
-    const hostedInScope =
-      eventIds.length === 0
-        ? []
-        : await prisma.hostedTable.findMany({
-            where: { eventId: { in: eventIds }, tableType: 'IN_APP_EVENT' },
-            select: { id: true, status: true },
-          });
+    const hostedInScope = await prisma.hostedTable.findMany({
+      where: { eventId: { in: eventIds }, tableType: 'IN_APP_EVENT' },
+      select: { id: true, status: true },
+    });
     const hostedTablesOpen = hostedInScope.filter((h) => h.status === 'ACTIVE').length;
     const hostedTablesFull = hostedInScope.filter((h) => h.status === 'FULL').length;
     const hostedIds = hostedInScope.map((h) => h.id);
@@ -103,7 +172,7 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
     const rows = await prisma.eventVenueTableBooking.findMany({
       where: {
         venueId: { in: venueIds },
-        ...(eventIdFilter ? { eventId: eventIdFilter } : {}),
+        ...(eventIdFilter ? { eventId: eventIdFilter } : { eventId: { in: eventIds } }),
       },
       include: {
         venue: { select: { id: true, name: true } },
@@ -153,7 +222,7 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       },
     };
 
-    res.json({ items: mapped, eventSummaries, summary });
+    res.json({ items: mapped, eventSummaries, summary, eventScope });
   } catch (e) {
     next(e);
   }

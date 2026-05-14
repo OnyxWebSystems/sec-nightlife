@@ -42,12 +42,12 @@ export default function Tables() {
   const { data: hostedResp, isLoading } = useQuery({
     queryKey: ['tables-hosted-available'],
     queryFn: () => apiGet('/api/host/tables/available?limit=100&page=1'),
-    refetchInterval: 15000,
+    staleTime: 45_000,
   });
   const { data: venueResp } = useQuery({
     queryKey: ['tables-venue-available'],
     queryFn: () => apiGet('/api/venue-tables/available?limit=100&page=1'),
-    refetchInterval: 15000,
+    staleTime: 45_000,
   });
   const hostedTables = (hostedResp?.items || []).map((t) => ({
     ...t,

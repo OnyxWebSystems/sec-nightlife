@@ -104,6 +104,7 @@ export default function ChatRoom() {
     queryFn: () => dataService.Message.filter({ chat_id: chat.id }, 'created_date', 500),
     enabled: !!chat?.id,
     refetchInterval: 8000,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {

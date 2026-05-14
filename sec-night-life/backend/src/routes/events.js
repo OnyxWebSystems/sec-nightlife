@@ -502,6 +502,32 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
   }
 });
 
+/** One round-trip for Home featured carousel (replaces N × GET /events/:id). */
+router.get('/featured-details', optionalAuth, async (req, res, next) => {
+  try {
+    const raw = String(req.query.ids || '').trim();
+    if (!raw) return res.json([]);
+    const ids = [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 12);
+    if (ids.length === 0) return res.json([]);
+    const events = await prisma.event.findMany({
+      where: { id: { in: ids }, deletedAt: null, status: 'published' },
+      include: { venue: true },
+    });
+    const byId = new Map(events.map((e) => [e.id, e]));
+    const out = await Promise.all(
+      ids.map(async (id) => {
+        const event = byId.get(id);
+        if (!event) return null;
+        const stats = await computeEventStats(event.id, event.hostingConfig);
+        return mapEventDetail(event, stats);
+      }),
+    );
+    res.json(out.filter(Boolean));
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', optionalAuth, async (req, res, next) => {
   try {
     const event = await prisma.event.findFirst({

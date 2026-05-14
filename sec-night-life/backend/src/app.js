@@ -42,6 +42,7 @@ import leaderboardRoutes from './routes/leaderboard.js';
 import promoterRoutes from './routes/promoters.js';
 import ticketRoutes from './routes/tickets.js';
 import businessBookingsRoutes from './routes/businessBookings.js';
+import homeFeedRoutes from './routes/homeFeed.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { authenticateToken, optionalAuth } from './middleware/auth.js';
@@ -185,6 +186,7 @@ app.use('/api/leaderboard', generalLimiter, leaderboardRoutes);
 app.use('/api/promoters', generalLimiter, promoterRoutes);
 app.use('/api/tickets', generalLimiter, ticketRoutes);
 app.use('/api/business', generalLimiter, businessBookingsRoutes);
+app.use('/api/home', generalLimiter, homeFeedRoutes);
 
 app.get('/', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

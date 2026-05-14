@@ -76,6 +76,43 @@ function userPayload(user, profileExtras = {}) {
   };
 }
 
+/** Same shape as GET /api/users/filter for the signed-in user (AuthContext). */
+function deriveAgeVerifiedForApi(profile) {
+  if (!profile) return false;
+  const st = profile.verificationStatus;
+  if (st === 'rejected') return false;
+  if (isIdentityVerifiedStatus(st)) return true;
+  return Boolean(profile.ageVerified);
+}
+
+function formatUserProfileForMe(user, p) {
+  if (!p) return null;
+  return {
+    id: p.id,
+    user_id: user.id,
+    created_by: user.email,
+    username: p.username,
+    full_name: user.fullName || p.username,
+    bio: p.bio,
+    city: p.city,
+    avatar_url: p.avatarUrl,
+    favorite_drink: p.favoriteDrink,
+    gender: p.gender ?? null,
+    date_of_birth: p.dateOfBirth,
+    id_document_url: p.idDocumentUrl,
+    age_verified: deriveAgeVerifiedForApi(p),
+    verification_status: p.verificationStatus ?? 'pending',
+    payment_setup_complete: p.paymentSetupComplete ?? false,
+    is_verified_promoter: p.isVerifiedPromoter ?? false,
+    interests: p.interests ?? [],
+    music_preferences: p.musicPreferences ?? [],
+    friends: p.friends ?? [],
+    followed_venues: p.followedVenues ?? [],
+    interested_events: p.interestedEvents ?? [],
+    onboarding_complete: p.onboardingComplete ?? false,
+  };
+}
+
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
@@ -788,11 +825,21 @@ router.get('/me', async (req, res, next) => {
     const vStatus = await readVerificationStatusCompat(user.id);
     const canAdminDashboard = await canAccessAdminDashboard(user);
     await ensureIdentityReminderNotification(user.id, vStatus);
+
+    let userProfile = null;
+    try {
+      const p = await prisma.userProfile.findUnique({ where: { userId: user.id } });
+      userProfile = formatUserProfileForMe(user, p);
+    } catch {
+      userProfile = null;
+    }
+
     res.json(
       userPayload(user, {
         verification_status: vStatus,
         identity_verified: isIdentityVerifiedStatus(vStatus),
         can_admin_dashboard: canAdminDashboard,
+        user_profile: userProfile,
       }),
     );
   } catch {

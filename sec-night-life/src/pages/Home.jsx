@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { format, isToday, isTomorrow, isValid, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
 import { ChevronRight, Search, SlidersHorizontal, BadgeCheck, Trophy, Bell, Users } from 'lucide-react';
@@ -30,11 +30,6 @@ function getOrCreateSessionId() {
   }
 }
 
-/** Fixed width for horizontal snap row; uses parent width to avoid horizontal page scroll. */
-const PROMO_CARD_OUTER_WIDTH = 'min(320px, calc(100% - 16px))';
-const PROMOTION_BATCH_SIZE = 8;
-const PROMOTION_ROTATE_MS = 2 * 60 * 1000;
-const DESKTOP_BREAKPOINT_PX = 1024;
 
 function getPromotionLabel(promotion) {
   if (promotion?.boosted) return 'Sponsored';
@@ -162,6 +157,34 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
   );
 });
 
+const PromoWithImpression = React.memo(function PromoWithImpression({ promotion, sessionId, onOpen }) {
+  const wrapRef = useRef(null);
+  const fired = useRef(false);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || fired.current) return undefined;
+    const ob = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !fired.current) {
+            fired.current = true;
+            void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'VIEW', sessionId }, { skipAuth: false }).catch(() => {});
+            ob.disconnect();
+          }
+        }
+      },
+      { threshold: 0.35, rootMargin: '48px' },
+    );
+    ob.observe(el);
+    return () => ob.disconnect();
+  }, [promotion.id, sessionId]);
+  return (
+    <div ref={wrapRef} style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+      <HomePromotionCard promotion={promotion} onOpen={onOpen} />
+    </div>
+  );
+});
+
 export default function Home() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -170,68 +193,15 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCity, setSelectedCity] = useState('all');
   const [selectedVenueType, setSelectedVenueType] = useState('all');
-  const [promotionLoading, setPromotionLoading] = useState(false);
-  const [promotions, setPromotions] = useState([]);
   const [sessionId] = useState(() => getOrCreateSessionId());
-  const [isDesktopPromotionsView, setIsDesktopPromotionsView] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.innerWidth >= DESKTOP_BREAKPOINT_PX;
-  });
 
-  /**
-   * Promotions feed city: only when the user picks a city in Home filters.
-   * When "All Cities" is selected we send scope=all so the API does not apply profile-based
-   * city filtering (which hid promos that target another city or only the venue's city).
-   */
-  const promotionsExplicitCity = useMemo(() => {
+  /** City for mixed home feed: explicit filter, else profile city, else nationwide. */
+  const homeFeedCity = useMemo(() => {
     if (selectedCity && selectedCity !== 'all') return String(selectedCity).trim();
+    if (userProfile?.city) return String(userProfile.city).trim();
     return '';
-  }, [selectedCity]);
-
-  const loadPromotions = useCallback(async () => {
-    setPromotionLoading(true);
-    try {
-      const params = new URLSearchParams({ page: '1', limit: String(PROMOTION_BATCH_SIZE) });
-      if (promotionsExplicitCity) {
-        params.set('city', promotionsExplicitCity);
-      } else {
-        params.set('scope', 'all');
-      }
-      params.set('sessionId', sessionId);
-      const data = await apiGet(`/api/promotions/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
-      const incoming = data?.results || [];
-      setPromotions(incoming);
-      // Avoid N concurrent VIEW requests per page (hurts performance on slow networks).
-      incoming.slice(0, 8).forEach((promo) => {
-        void apiPost(`/api/promotions/${promo.id}/track`, { type: 'VIEW', sessionId }, { skipAuth: false }).catch(() => {});
-      });
-    } catch {
-      setPromotions([]);
-    } finally {
-      setPromotionLoading(false);
-    }
-  }, [promotionsExplicitCity, sessionId]);
-
-  useEffect(() => {
-    if (isLoadingAuth) return;
-    void loadPromotions();
-  }, [isLoadingAuth, promotionsExplicitCity, loadPromotions]);
-
-  useEffect(() => {
-    if (isLoadingAuth) return undefined;
-    const timer = window.setInterval(() => {
-      void loadPromotions();
-    }, PROMOTION_ROTATE_MS);
-    return () => window.clearInterval(timer);
-  }, [isLoadingAuth, loadPromotions]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const onResize = () => setIsDesktopPromotionsView(window.innerWidth >= DESKTOP_BREAKPOINT_PX);
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+  }, [selectedCity, userProfile?.city]);
+  const homeFeedScopeAll = !homeFeedCity;
 
   const handlePromotionClick = async (promotion) => {
     void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});
@@ -248,6 +218,7 @@ export default function Home() {
     try {
       const r = await apiPost(`/api/host/tables/${tableId}/join`, {});
       queryClient.invalidateQueries(['host-tables-available']);
+      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
       if (r?.pending) {
         toast.success('Request sent. The host will approve your join.');
         return;
@@ -262,6 +233,7 @@ export default function Home() {
           onSuccess: async (payload) => {
             await verifyPaystackReference(payload?.reference || r.reference);
             queryClient.invalidateQueries(['host-tables-available']);
+            queryClient.invalidateQueries({ queryKey: ['home-feed'] });
             toast.success('Payment successful — your ticket is ready.');
           },
           onCancel: () => {
@@ -281,13 +253,40 @@ export default function Home() {
   const joinHouseParty = async (partyId) => {
     try {
       await apiPost(`/api/host/parties/${partyId}/join`, {});
-      queryClient.invalidateQueries(['host-parties-public-home']);
+      queryClient.invalidateQueries({ queryKey: ['host-parties-public-home'] });
+      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
     } catch (e) {
       window.alert(e?.message || 'Could not join party');
     }
   };
 
   const listStale = 120_000;
+
+  const {
+    data: feedPages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: feedLoading,
+  } = useInfiniteQuery({
+    queryKey: ['home-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedCity],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({
+        cursor: String(pageParam ?? 0),
+        limit: '12',
+        sessionId,
+      });
+      if (homeFeedScopeAll) params.set('scope', 'all');
+      else params.set('city', homeFeedCity);
+      return apiGet(`/api/home/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
+    },
+    getNextPageParam: (lastPage) => (lastPage?.nextCursor != null ? parseInt(lastPage.nextCursor, 10) : undefined),
+    enabled: !isLoadingAuth && !!user,
+    staleTime: 60_000,
+  });
+
+  const feedRows = useMemo(() => (feedPages?.pages || []).flatMap((p) => p.items || []), [feedPages]);
 
   const { data: events = [] } = useQuery({
     queryKey: ['featured-events'],
@@ -320,8 +319,12 @@ export default function Home() {
   const hostParties = hostPartiesData?.items || [];
 
   const { data: venues = [] } = useQuery({
-    queryKey: ['all-venues'],
-    queryFn: () => dataService.Venue.list(),
+    queryKey: ['all-venues', selectedCity],
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: '72' });
+      if (selectedCity && selectedCity !== 'all') params.set('city', selectedCity);
+      return apiGet(`/api/venues?${params.toString()}`);
+    },
     staleTime: listStale,
     enabled: !isLoadingAuth,
   });
@@ -367,16 +370,15 @@ export default function Home() {
   );
   const upcomingEvents = prioritizedEvents.slice(0, 6);
 
+  const featuredEventIds = useMemo(() => featuredEvents.map((e) => e.id).join(','), [featuredEvents]);
   const { data: featuredEventDetails } = useQuery({
-    queryKey: ['featured-events-stats', featuredEvents.map((e) => e.id).join('|')],
-    queryFn: () => Promise.all(featuredEvents.map((e) => apiGet(`/api/events/${e.id}`))),
+    queryKey: ['featured-events-details', featuredEventIds],
+    queryFn: () => apiGet(`/api/events/featured-details?ids=${encodeURIComponent(featuredEventIds)}`),
     staleTime: listStale,
-    enabled: !isLoadingAuth && featuredEvents.length > 0,
+    enabled: !isLoadingAuth && featuredEventIds.length > 0,
   });
   const featuredCards =
-    featuredEventDetails?.length === featuredEvents.length && featuredEvents.length > 0
-      ? featuredEventDetails
-      : featuredEvents;
+    featuredEventDetails?.length > 0 ? featuredEventDetails : featuredEvents;
 
   if (isLoadingAuth) {
     return (
@@ -657,111 +659,87 @@ export default function Home() {
           )}
         </div>
 
-        {/* ── Promotions (empty state until feed returns items) ── */}
+        {/* ── For you: mixed feed (cursor pagination) ── */}
         <section style={{ marginBottom: 30 }}>
           <div className="sec-section-header">
             <div>
-              <span className="sec-label">Sponsored & Offers</span>
+              <span className="sec-label">For you</span>
               <h2 style={{ fontSize: 19, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '4px 0 0', letterSpacing: '-0.02em' }}>
-                Promotions
+                Discover
               </h2>
             </div>
+            <Link to={createPageUrl('Events')} className="sec-see-all">
+              Explore <ChevronRight size={14} strokeWidth={2} />
+            </Link>
           </div>
 
-          {promotionLoading && promotions.length === 0 && (
-            <>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 14,
-                  overflowX: 'auto',
-                  paddingBottom: 4,
-                }}
-                className="scrollbar-hide -mx-5 px-5 lg:hidden"
-              >
-                {[1, 2, 3].map((x) => (
-                  <div
-                    key={x}
-                    className="sec-card"
-                    style={{
-                      flexShrink: 0,
-                      width: PROMO_CARD_OUTER_WIDTH,
-                      minHeight: 320,
-                      opacity: 0.55,
-                      scrollSnapAlign: 'start',
-                    }}
-                  />
-                ))}
-              </div>
-              <div className="hidden lg:grid lg:grid-cols-2 xl:grid-cols-3 gap-3 mt-1">
-                {[1, 2, 3].map((x) => (
-                  <div key={`desk-skeleton-${x}`} className="sec-card" style={{ minHeight: 320, opacity: 0.55 }} />
-                ))}
-              </div>
-            </>
+          {feedLoading && feedRows.length === 0 && (
+            <div className="grid gap-3">
+              {[1, 2, 3].map((x) => (
+                <div key={x} className="sec-card" style={{ minHeight: 140, opacity: 0.55 }} />
+              ))}
+            </div>
           )}
 
-          {!promotionLoading && promotions.length === 0 && (
+          {!feedLoading && feedRows.length === 0 && (
             <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-              No promotions available in your area right now.
+              Nothing in your feed yet. Try another city or check back soon.
             </p>
           )}
 
-          {promotions.length > 0 && (
-            <>
-              {!isDesktopPromotionsView ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'stretch',
-                    gap: 14,
-                    overflowX: 'auto',
-                    scrollSnapType: 'x proximity',
-                    WebkitOverflowScrolling: 'touch',
-                    marginTop: 4,
-                    paddingBottom: 8,
-                  }}
-                  className="scrollbar-hide -mx-5 px-5"
+          {feedRows.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {feedRows.map((row, i) => (
+                <motion.div
+                  key={`${row.kind}-${row.data?.id}-${i}`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(i * 0.03, 0.2) }}
                 >
-                  {promotions.map((p, i) => (
-                    <motion.div
-                      key={p.id}
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: Math.min(i * 0.05, 0.3) }}
-                      style={{
-                        flexShrink: 0,
-                        width: PROMO_CARD_OUTER_WIDTH,
-                        scrollSnapAlign: 'start',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignSelf: 'stretch',
-                      }}
+                  {row.kind === 'promotion' && (
+                    <PromoWithImpression promotion={row.data} sessionId={sessionId} onOpen={handlePromotionClick} />
+                  )}
+                  {row.kind === 'event' && (
+                    <Link
+                      to={createPageUrl(`EventDetails?id=${row.data.id}`)}
+                      className="sec-card"
+                      style={{ display: 'flex', gap: 12, padding: 14, textDecoration: 'none', color: 'inherit', alignItems: 'center' }}
                     >
-                      <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
-                    </motion.div>
-                  ))}
-                </div>
-              ) : (
-                <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-3 mt-1">
-                  {promotions.map((p, i) => (
-                    <motion.div
-                      key={`desktop-${p.id}`}
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: Math.min(i * 0.04, 0.24) }}
-                    >
-                      <HomePromotionCard promotion={p} onOpen={handlePromotionClick} />
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </>
+                      <div style={{ width: 88, height: 88, borderRadius: 12, overflow: 'hidden', flexShrink: 0, background: 'var(--sec-bg-hover)' }}>
+                        <img src={getEventImage(row.data.cover_image_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span className="sec-label">Event</span>
+                        <div style={{ fontWeight: 600 }}>{row.data.title}</div>
+                        <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>{row.data.city}</div>
+                      </div>
+                      <ChevronRight style={{ flexShrink: 0 }} size={18} strokeWidth={1.5} />
+                    </Link>
+                  )}
+                  {row.kind === 'venue' && (() => {
+                    const { followed: _fol, ...venueRest } = row.data;
+                    return <VenueCard venue={venueRest} />;
+                  })()}
+                </motion.div>
+              ))}
+            </div>
           )}
 
-          {promotions.length > 0 && (
-            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>
-              Promotions refresh every few minutes. Boosted promotions appear more often, without duplicates in the same batch.
+          {hasNextPage ? (
+            <button
+              type="button"
+              className="sec-btn sec-btn-secondary sec-btn-full"
+              style={{ marginTop: 16 }}
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+            >
+              {isFetchingNextPage ? 'Loading…' : 'Load more'}
+            </button>
+          ) : null}
+
+          {feedRows.length > 0 && (
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 10 }}>
+              Order changes based on your area and session. Pull to refresh by leaving Home and coming back.
             </p>
           )}
         </section>

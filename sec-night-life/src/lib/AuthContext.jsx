@@ -1,6 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import * as authService from '@/services/authService';
-import { dataService } from '@/services/dataService';
 
 const AuthContext = createContext();
 
@@ -22,7 +21,7 @@ export const AuthProvider = ({ children }) => {
     }
     try {
       setAuthError(null);
-      const currentUser = await authService.getCurrentUser();
+      const { user: currentUser, userProfile: profile } = await authService.getAuthSession();
       setUser({
         id: currentUser.id,
         email: currentUser.email,
@@ -34,12 +33,7 @@ export const AuthProvider = ({ children }) => {
         can_admin_dashboard: currentUser.can_admin_dashboard,
       });
       setIsAuthenticated(true);
-      try {
-        const profiles = await dataService.User.filter({ created_by: currentUser.email });
-        setUserProfile(profiles.length > 0 ? profiles[0] : null);
-      } catch {
-        setUserProfile(null);
-      }
+      setUserProfile(profile);
     } catch (err) {
       setUser(null);
       setUserProfile(null);
