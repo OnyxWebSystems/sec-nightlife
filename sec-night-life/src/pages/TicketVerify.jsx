@@ -12,14 +12,6 @@ import { CheckCircle2, XCircle, Loader2, Copy, MapPin, Building2, Users, Calenda
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
 
 function formatWhen(iso) {
   if (!iso) return null;
@@ -40,8 +32,6 @@ export default function TicketVerify() {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const { isAuthenticated } = useAuth();
-  const [pinDialogOpen, setPinDialogOpen] = useState(false);
-  const [pinValue, setPinValue] = useState('');
   const [admitting, setAdmitting] = useState(false);
   const [onlineNonce, setOnlineNonce] = useState(0);
 
@@ -142,14 +132,8 @@ export default function TicketVerify() {
     }
     setAdmitting(true);
     try {
-      const body = { qr_token: token };
-      if (payload?.door_pin_required) {
-        body.pin = pinValue.trim() || null;
-      }
-      await apiPost('/api/tickets/admit', body);
+      await apiPost('/api/tickets/admit', { qr_token: token });
       toast.success('Entry recorded');
-      setPinDialogOpen(false);
-      setPinValue('');
       const res = await fetchVerify();
       if (res) {
         setPayload(res);
@@ -159,15 +143,6 @@ export default function TicketVerify() {
       toast.error(e?.message || 'Could not record entry');
     } finally {
       setAdmitting(false);
-    }
-  };
-
-  const onRecordEntryClick = () => {
-    if (payload?.door_pin_required) {
-      setPinValue('');
-      setPinDialogOpen(true);
-    } else {
-      submitAdmit();
     }
   };
 
@@ -411,7 +386,7 @@ export default function TicketVerify() {
                 <Button
                   type="button"
                   className="w-full sm:w-auto gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
-                  onClick={onRecordEntryClick}
+                  onClick={submitAdmit}
                   disabled={admitting || isLikelyOffline() || !!payload._offline_cached}
                 >
                   {admitting ? (
@@ -483,38 +458,6 @@ export default function TicketVerify() {
       >
         Back to SEC
       </Link>
-
-      <Dialog open={pinDialogOpen} onOpenChange={setPinDialogOpen}>
-        <DialogContent className="sm:max-w-md border-[#262629] bg-[#0f0f12] text-[#fafafa]">
-          <DialogHeader>
-            <DialogTitle>Door PIN</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-400">
-            This event requires a door PIN to record entry. Enter the PIN configured by the venue.
-          </p>
-          <Input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="4–8 digits"
-            className="bg-black/40 border-white/10"
-            value={pinValue}
-            onChange={(e) => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 8))}
-          />
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="ghost" onClick={() => setPinDialogOpen(false)} disabled={admitting}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              className="bg-emerald-600 hover:bg-emerald-500"
-              onClick={submitAdmit}
-              disabled={admitting || pinValue.length < 4}
-            >
-              {admitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Record entry'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

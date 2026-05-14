@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ChevronLeft, Share2, Heart, Calendar, Clock, MapPin,
-  Users, Ticket, BadgeCheck, Music, Star, Plus, ChevronRight, Navigation, KeyRound,
+  Users, Ticket, BadgeCheck, Music, Star, Plus, ChevronRight, Navigation,
 } from 'lucide-react';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 
@@ -83,6 +83,13 @@ export default function EventDetails() {
     queryFn: () => dataService.Table.filter({ event_id: eventId, status: 'all' }),
     enabled: !!eventId,
   });
+
+  const { data: hostedSummary } = useQuery({
+    queryKey: ['event-hosted-tables-summary', eventId],
+    queryFn: () => apiGet(`/api/events/${encodeURIComponent(eventId)}/hosted-tables-summary`),
+    enabled: !!eventId,
+  });
+  const hostedItems = hostedSummary?.items ?? [];
 
   const toggleInterestMutation = useMutation({
     mutationFn: async () => {
@@ -172,9 +179,9 @@ export default function EventDetails() {
 
   const mapQuery = event.venue_address || venue?.address || venueLine;
 
-  const staffRoles = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
-  const canManageDoorPin =
-    Boolean(user && venue && (venue.owner_user_id === user.id || staffRoles.includes(user.role)));
+  const hostedOpenCount = hostedItems.filter(
+    (h) => h.status === 'ACTIVE' && Number(h.spots_remaining ?? 0) > 0,
+  ).length;
 
   return (
     <div className="pb-24 lg:pb-8" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
@@ -353,56 +360,6 @@ export default function EventDetails() {
           </div>
         </div>
 
-        {canManageDoorPin && (
-          <div
-            className="sec-card"
-            style={{
-              padding: 16,
-              marginBottom: 20,
-              border: '1px solid rgba(34,197,94,0.28)',
-              backgroundColor: 'rgba(16,185,129,0.04)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--sec-bg-elevated)',
-                  border: '1px solid var(--sec-border)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <KeyRound size={16} strokeWidth={1.5} style={{ color: 'var(--sec-accent)' }} />
-              </div>
-              <div>
-                <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Door staff check-in</h2>
-                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2, lineHeight: 1.45 }}>
-                  Optional PIN used when staff tap Record entry on ticket verify links for this event.
-                </p>
-              </div>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--sec-text-primary)', marginBottom: 12, lineHeight: 1.5 }}>
-              Door PIN is currently{' '}
-              <strong style={{ color: event.door_pin_configured ? 'var(--sec-accent)' : 'var(--sec-text-muted)' }}>
-                {event.door_pin_configured ? 'on' : 'off'}
-              </strong>
-              . Staff {event.door_pin_configured ? 'must enter the venue PIN' : 'do not need a PIN'} before entry is
-              recorded in SEC.
-            </p>
-            <Link
-              to={createPageUrl('BusinessEvents')}
-              style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-accent)', textDecoration: 'none' }}
-            >
-              Manage PIN in Events Manager →
-            </Link>
-          </div>
-        )}
-
         {event.stats && (
           <div className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Tables & attendance</h2>
@@ -574,7 +531,7 @@ export default function EventDetails() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Users size={15} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
-              Tables ({tables.length})
+              Tables ({tables.length + hostedItems.length})
             </h2>
             <Link
               to={`${createPageUrl('HostDashboard')}?create=table&event=${encodeURIComponent(eventId)}`}
@@ -584,6 +541,55 @@ export default function EventDetails() {
               Create
             </Link>
           </div>
+
+          {hostedItems.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
+                Hosted tables (SEC)
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {hostedItems.map((ht) => {
+                  const catLabel = String(ht.hosting_category || '').toUpperCase() === 'VIP' ? 'VIP' : 'General';
+                  const spots = Number(ht.spots_remaining ?? 0);
+                  const full = ht.status === 'FULL' || spots <= 0;
+                  return (
+                    <Link
+                      key={ht.id}
+                      to={createPageUrl(`TableDetails?id=${encodeURIComponent(ht.id)}&source=hosted`)}
+                      className="sec-card"
+                      style={{
+                        padding: '12px 14px',
+                        textDecoration: 'none',
+                        display: 'block',
+                        border: '1px solid var(--sec-border)',
+                        opacity: full ? 0.85 : 1,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-text-primary)' }}>{ht.table_name}</p>
+                          <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                            Host @{ht.host?.username || 'host'} · {catLabel}
+                            {ht.is_public === false ? ' · Private (request to join)' : ''}
+                          </p>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: full ? 'var(--sec-text-muted)' : 'var(--sec-accent)',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {full ? 'Full' : `${spots} spots left`}
+                        </span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {tables.length > 0 ? (
             <>
@@ -624,7 +630,7 @@ export default function EventDetails() {
                 Select a table to view details and reserve your spot
               </p>
             </>
-          ) : (
+          ) : hostedItems.length === 0 ? (
             <div className="sec-card" style={{ textAlign: 'center', padding: '32px 24px' }}>
               <div style={{
                 width: 52, height: 52, borderRadius: '50%',
@@ -644,7 +650,7 @@ export default function EventDetails() {
                 Create Your Table
               </Link>
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* ── Location / directions ── */}
@@ -677,11 +683,11 @@ export default function EventDetails() {
       {/* ── Sticky bottom bar — price left / CTA right ── */}
       <div className="sec-bottom-bar sec-bottom-bar--responsive">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 960, margin: '0 auto' }}>
-          {tables.length > 0 ? (
+          {tables.length > 0 || hostedItems.length > 0 ? (
             <>
               <div className="sec-bottom-bar__price">
                 <div className="sec-bottom-bar__price-label">Open tables</div>
-                <div className="sec-bottom-bar__price-value">{openJoinableTables.length}</div>
+                <div className="sec-bottom-bar__price-value">{openJoinableTables.length + hostedOpenCount}</div>
               </div>
               <div className="sec-bottom-bar__cta">
                 <button

@@ -272,6 +272,14 @@ export default function Layout({ children, currentPageName }) {
     return currentPageName === page;
   };
 
+  if (currentPageName === 'TicketVerify') {
+    return (
+      <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
 

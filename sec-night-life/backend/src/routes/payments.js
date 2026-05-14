@@ -33,6 +33,7 @@ import {
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
 import { ensureHostedTableLiveAfterListingPayment } from '../lib/hostedTableAfterListingPaid.js';
+import { addUserToHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
 
 const router = Router();
 
@@ -693,6 +694,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 status: 'GOING',
                 paystackReference: reference,
                 joinFeePaid: joinZar,
+                hostReviewedAt: new Date(),
               },
             });
             const nextSpots = htRow.spotsRemaining - 1;
@@ -773,13 +775,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
               });
             }
             const payerName = payer?.fullName || payer?.username || 'A guest';
+            const joinChatId = await addUserToHostedTableGroupChat(htFinal.id, String(userId));
             await createInAppNotification({
               userId: String(userId),
-              type: 'TABLE_JOINED',
+              type: 'JOIN_REQUEST_ACCEPTED',
               title: 'Table join confirmed',
-              body: `Your payment for "${htFinal.tableName}" succeeded. Your ticket is ready — show your QR at the door.`,
-              referenceId: htFinal.id,
-              referenceType: 'HOSTED_TABLE',
+              body: `Your payment for "${htFinal.tableName}" succeeded. Open the table chat to coordinate — your ticket QR is ready at the door.`,
+              referenceId: joinChatId || htFinal.id,
+              referenceType: joinChatId ? 'HOSTED_TABLE_GROUP_CHAT' : 'HOSTED_TABLE',
             });
             if (htEvent?.venue?.ownerUserId) {
               await createNotification({
@@ -1110,7 +1113,7 @@ async function applyChargeFailedEffects(reference, payload) {
     const memberId = metaFromCharge.hosted_table_member_id || metaFromCharge.hostedTableMemberId;
     if (memberId) {
       const mem = await prisma.hostedTableMember.findUnique({ where: { id: String(memberId) } });
-      if (mem?.status === 'PENDING' && !mem.paystackReference) {
+      if (mem?.status === 'PENDING' && !mem.paystackReference && !mem.hostReviewedAt) {
         await prisma.hostedTableMember.delete({ where: { id: mem.id } }).catch(() => {});
       }
     }

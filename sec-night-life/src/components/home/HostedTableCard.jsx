@@ -27,9 +27,12 @@ export default function HostedTableCard({ table, onJoin, compact = false }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <span className="sec-badge sec-badge-muted">{sourceBadge}</span>
           {isVip ? <span className="sec-badge sec-badge-gold">VIP</span> : <span className="sec-badge sec-badge-success">General</span>}
+          {table?.isPublic === false ? (
+            <span className="sec-badge sec-badge-muted">Private</span>
+          ) : null}
         </div>
       </div>
 
@@ -56,7 +59,7 @@ export default function HostedTableCard({ table, onJoin, compact = false }) {
 
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button type="button" className="sec-btn sec-btn-secondary" style={{ flex: 1 }} onClick={() => onJoin?.(table)}>
-          Join
+          {table?.isPublic === false ? 'Request to join' : 'Join'}
         </button>
         <Link
           to={createPageUrl(`TableDetails?id=${table.id}&source=hosted`)}

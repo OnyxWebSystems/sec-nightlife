@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import bcrypt from 'bcrypt';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { applyEventVenueIsolation, canAccessVenue, isStaff } from '../lib/access.js';
@@ -178,7 +177,6 @@ function mapEventRow(e) {
     has_entrance_fee: e.hasEntranceFee,
     entrance_fee_amount: e.entranceFeeAmount,
     hosting_config: normalizeHostingConfig(e.hostingConfig),
-    door_pin_configured: !!e.doorCheckPinHash,
   };
 }
 
@@ -298,9 +296,25 @@ async function assertTierSlotsNotBelowCurrentHostedTables(eventId, hostingRaw) {
   return { ok: true };
 }
 
+function mapHostedTableToStatRow(ht) {
+  const gq = Math.max(1, Number(ht.guestQuantity) || 1);
+  const spots = Number(ht.spotsRemaining);
+  const spotsRem = Number.isFinite(spots) ? spots : gq;
+  const currentGuests = Math.max(0, gq - spotsRem);
+  const isFull = ht.status === 'FULL' || spotsRem <= 0;
+  const cat = ht.hostingCategory === 'VIP' ? 'vip' : 'general';
+  return {
+    status: isFull ? 'full' : 'active',
+    maxGuests: gq,
+    currentGuests,
+    isPublic: ht.isPublic,
+    tableCategory: cat,
+  };
+}
+
 async function computeEventStats(eventId, hostingRaw) {
   const hosting = normalizeHostingConfig(hostingRaw);
-  const [goingCount, tableRows] = await Promise.all([
+  const [goingCount, tableRows, hostedSecRows] = await Promise.all([
     prisma.eventAttendance.count({ where: { eventId, confirmed: true } }),
     prisma.table.findMany({
       where: { eventId, deletedAt: null },
@@ -312,17 +326,37 @@ async function computeEventStats(eventId, hostingRaw) {
         tableCategory: true,
       },
     }),
+    prisma.hostedTable.findMany({
+      where: {
+        eventId,
+        tableType: 'IN_APP_EVENT',
+        status: { in: ['ACTIVE', 'FULL'] },
+      },
+      select: {
+        status: true,
+        guestQuantity: true,
+        spotsRemaining: true,
+        isPublic: true,
+        hostingCategory: true,
+      },
+    }),
   ]);
 
-  const generalRows = tableRows.filter((t) => t.tableCategory === 'general');
-  const vipRows = tableRows.filter((t) => t.tableCategory === 'vip');
+  const hostedMapped = hostedSecRows.map(mapHostedTableToStatRow);
+  const legacyGeneral = tableRows.filter((t) => t.tableCategory === 'general');
+  const legacyVip = tableRows.filter((t) => t.tableCategory === 'vip');
+  const hostedGeneral = hostedMapped.filter((t) => t.tableCategory === 'general');
+  const hostedVip = hostedMapped.filter((t) => t.tableCategory === 'vip');
+
+  const generalRows = [...legacyGeneral, ...hostedGeneral];
+  const vipRows = [...legacyVip, ...hostedVip];
 
   const generalStats = computeCategoryTableStats(generalRows, hosting.general.max_tables);
   const vipStats = computeCategoryTableStats(vipRows, hosting.vip.max_tables);
 
   return {
     going_count: goingCount,
-    hosted_tables: tableRows.length,
+    hosted_tables: tableRows.length + hostedSecRows.length,
     general: generalStats,
     vip: vipStats,
   };
@@ -358,7 +392,6 @@ function mapEventDetail(event, stats = null) {
     venue_province: v?.province ?? null,
     ...(stats ? { stats } : {}),
     total_attending: stats?.going_count ?? 0,
-    door_pin_configured: !!event.doorCheckPinHash,
   };
 }
 
@@ -387,6 +420,52 @@ router.get('/', optionalAuth, async (req, res, next) => {
         ? sortEventsByFollowThenDate(events, followedSet, sortDesc).slice(0, take)
         : events;
     res.json(ordered.map(mapEventRow));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Public summary of SEC hosted tables for an event (event details page). */
+router.get('/:id/hosted-tables-summary', optionalAuth, async (req, res, next) => {
+  try {
+    const event = await prisma.event.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    const rows = await prisma.hostedTable.findMany({
+      where: {
+        eventId: req.params.id,
+        tableType: 'IN_APP_EVENT',
+        status: { in: ['ACTIVE', 'FULL'] },
+      },
+      include: {
+        host: {
+          select: {
+            username: true,
+            fullName: true,
+            userProfile: { select: { username: true, avatarUrl: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({
+      items: rows.map((t) => ({
+        id: t.id,
+        table_name: t.tableName,
+        is_public: t.isPublic,
+        guest_quantity: t.guestQuantity,
+        spots_remaining: t.spotsRemaining,
+        status: t.status,
+        hosting_category: t.hostingCategory,
+        host: {
+          username: t.host?.userProfile?.username || t.host?.username,
+          full_name: t.host?.fullName,
+          avatar_url: t.host?.userProfile?.avatarUrl || null,
+        },
+      })),
+    });
   } catch (err) {
     next(err);
   }
@@ -481,34 +560,6 @@ router.post('/', authenticateToken, async (req, res, next) => {
       logger.error('Group chat creation after event failed', { eventId: event.id, message: e?.message });
     });
     res.status(201).json({ id: event.id, title: event.title, venue_id: event.venueId });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.put('/:id/door-check-pin', authenticateToken, async (req, res, next) => {
-  try {
-    const event = await prisma.event.findFirst({
-      where: { id: req.params.id, deletedAt: null },
-      include: { venue: true },
-    });
-    if (!event || (event.venue.ownerUserId !== req.userId && !isStaff(req.userRole))) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    const raw = req.body?.pin;
-    const parsed = z.union([z.string().regex(/^\d{4,8}$/), z.null()]).safeParse(
-      raw === '' || raw === undefined ? null : raw,
-    );
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'PIN must be 4–8 digits, or null to clear' });
-    }
-    const pin = parsed.data;
-    const doorCheckPinHash = pin == null ? null : await bcrypt.hash(pin, 10);
-    await prisma.event.update({
-      where: { id: event.id },
-      data: { doorCheckPinHash },
-    });
-    res.json({ door_pin_configured: doorCheckPinHash != null });
   } catch (err) {
     next(err);
   }

@@ -42,12 +42,27 @@ export default function BusinessBookings() {
   }, []);
 
   const { data: bookingsData, isLoading } = useQuery({
-    queryKey: ['biz-event-table-bookings', user?.id],
-    queryFn: () => apiGet('/api/business/event-table-bookings'),
+    queryKey: ['biz-event-table-bookings', user?.id, selectedEventId],
+    queryFn: () =>
+      apiGet(
+        selectedEventId === 'all'
+          ? '/api/business/event-table-bookings'
+          : `/api/business/event-table-bookings?event_id=${encodeURIComponent(selectedEventId)}`,
+      ),
     enabled: !!user,
   });
   const tables = bookingsData?.items || [];
+  const summary = bookingsData?.summary;
   const eventOptions = useMemo(() => {
+    const fromApi = bookingsData?.eventSummaries;
+    if (Array.isArray(fromApi) && fromApi.length) {
+      return fromApi.map((e) => {
+        const eventTitle = e?.title?.trim();
+        const eventDate = e?.date;
+        const label = eventTitle || (eventDate ? `Untitled event (${eventDate})` : 'Untitled event');
+        return { id: e.id, label };
+      });
+    }
     const map = new Map();
     for (const table of tables) {
       const eventId = table?.event?.id;
@@ -58,7 +73,7 @@ export default function BusinessBookings() {
       map.set(eventId, { id: eventId, label });
     }
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [tables]);
+  }, [bookingsData?.eventSummaries, tables]);
 
   useEffect(() => {
     if (selectedEventId === 'all') return;
@@ -67,11 +82,7 @@ export default function BusinessBookings() {
     }
   }, [eventOptions, selectedEventId]);
 
-  const eventScopedTables = selectedEventId === 'all'
-    ? tables
-    : tables.filter((table) => table?.event?.id === selectedEventId);
-
-  const filtered = eventScopedTables
+  const filtered = tables
     .filter(t => statusFilter === 'all' || t.role === statusFilter)
     .filter(t => {
       if (!search) return true;
@@ -83,13 +94,17 @@ export default function BusinessBookings() {
       );
     });
 
+  const roleKey = statusFilter === 'all' ? 'all' : statusFilter;
+  const roleStats = summary?.statsByRole?.[roleKey] || { bookingRowCount: 0, totalPaidZar: 0 };
+
   const stats = {
-    total: eventScopedTables.length,
-    open: eventScopedTables.filter(t => (t.hostedTable?.status || '').toLowerCase() === 'active').length,
-    full: eventScopedTables.filter(t => (t.hostedTable?.status || '').toLowerCase() === 'full').length,
-    totalGuests: eventScopedTables.filter((t) => t.role === 'GUEST').length,
-    totalRevenue: eventScopedTables.reduce((s, t) => s + Number(t.amountTotal || 0), 0),
-    pendingRequests: 0,
+    total: summary?.configuredTableSlots ?? 0,
+    open: summary?.hostedTablesOpen ?? 0,
+    full: summary?.hostedTablesFull ?? 0,
+    totalGuests: summary?.totalGoingHeadcount ?? 0,
+    totalRevenue: roleStats.totalPaidZar ?? 0,
+    pendingRequests: summary?.pendingJoinRequests ?? 0,
+    bookingRows: roleStats.bookingRowCount ?? 0,
   };
 
   if (!user) return null;
@@ -99,7 +114,7 @@ export default function BusinessBookings() {
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Table Bookings</h1>
         <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
-          {eventScopedTables.length} SEC hosted-table booking records
+          {stats.bookingRows} booking line{stats.bookingRows === 1 ? '' : 's'} in view · SEC hosted tables
         </p>
       </div>
 
@@ -110,7 +125,8 @@ export default function BusinessBookings() {
           { label: 'Open', value: stats.open },
           { label: 'Full', value: stats.full },
           { label: 'Total Guests', value: stats.totalGuests },
-          { label: 'Pending Requests', value: stats.pendingRequests },
+          { label: 'Join requests', value: stats.pendingRequests },
+          { label: 'Paid (filter)', value: `R${Number(stats.totalRevenue || 0).toFixed(0)}` },
         ].map(s => (
           <div key={s.label} className="sec-card" style={{ padding: '14px 16px' }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-accent)' }}>{s.value}</div>
@@ -196,7 +212,7 @@ export default function BusinessBookings() {
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2 }}>
                       {t.hostedTable?.tableName || 'Hosted table'} · {t.role}
-                      {t.amountTotal ? ` · Paid R${Number(t.amountTotal).toFixed(0)}` : ''}
+                      {Number(t.lineTotalZar || 0) > 0 ? ` · Paid R${Number(t.lineTotalZar).toFixed(0)}` : ''}
                     </div>
                   </div>
                   <StatusBadge status={(t.hostedTable?.status || '').toLowerCase()} />
@@ -235,7 +251,15 @@ export default function BusinessBookings() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Total paid</span>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>R {detailTable.amountTotal || 0}</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                  R {Number(detailTable.lineTotalZar ?? detailTable.amountTotal ?? 0).toFixed(0)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--sec-text-muted)' }}>
+                <span>Entrance + join / component</span>
+                <span>
+                  R{Number(detailTable.entranceZar || 0).toFixed(0)} + R{Number(detailTable.componentZar || 0).toFixed(0)}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Reference</span>

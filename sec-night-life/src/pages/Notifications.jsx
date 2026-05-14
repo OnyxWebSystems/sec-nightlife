@@ -210,7 +210,13 @@ export default function Notifications() {
     else if (t === 'FRIEND_ACCEPTED') navigate(`${createPageUrl('Friends')}?tab=all`);
     else if (t === 'DIRECT_MESSAGE' && n.referenceId) navigate(`${createPageUrl('Messages')}?dm=${n.referenceId}`);
     else if ((t === 'GROUP_MESSAGE' || t === 'JOIN_REQUEST_ACCEPTED') && n.referenceId) {
-      navigate(`${createPageUrl('Messages')}?group=${n.referenceId}`);
+      if (n.referenceType === 'HOSTED_TABLE_GROUP_CHAT') {
+        navigate(
+          `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}&gk=HOSTED_TABLE`,
+        );
+      } else {
+        navigate(`${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}`);
+      }
     } else if (t === 'IDENTITY_VERIFICATION_REMINDER') {
       navigate(createPageUrl('EditProfile'));
     }     else if (t === 'TABLE_INVITE' && n.referenceId) {

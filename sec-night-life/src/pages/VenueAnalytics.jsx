@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as authService from '@/services/authService';
+import { apiGet } from '@/api/client';
 import { dataService } from '@/services/dataService';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import {
   Clock,
   PieChart
 } from 'lucide-react';
-import { format, subDays, parseISO } from 'date-fns';
+import { format, subDays } from 'date-fns';
 
 export default function VenueAnalytics() {
   const [user, setUser] = useState(null);
@@ -39,7 +40,23 @@ export default function VenueAnalytics() {
   const { data: venues = [] } = useQuery({
     queryKey: ['my-venues'],
     queryFn: () => dataService.Venue.mine(),
-    enabled: !!user
+    enabled: !!user,
+  });
+
+  const { data: analytics } = useQuery({
+    queryKey: ['venue-analytics', selectedVenue, dateRange, revenueScope, selectedEventId],
+    queryFn: () => {
+      const days = parseInt(dateRange, 10) || 30;
+      const params = new URLSearchParams({
+        venue_id: selectedVenue,
+        days: String(days),
+      });
+      if (revenueScope === 'per_event' && selectedEventId) {
+        params.set('event_id', selectedEventId);
+      }
+      return apiGet(`/api/business/venue-analytics?${params.toString()}`);
+    },
+    enabled: !!user && !!selectedVenue,
   });
 
   const { data: events = [] } = useQuery({
@@ -48,16 +65,10 @@ export default function VenueAnalytics() {
     enabled: !!selectedVenue
   });
 
-  const { data: transactions = [] } = useQuery({
-    queryKey: ['venue-transactions', selectedVenue],
-    queryFn: () => dataService.Transaction.filter({ venue_id: selectedVenue }),
-    enabled: !!selectedVenue
-  });
-
   const { data: reviews = [] } = useQuery({
     queryKey: ['venue-reviews', selectedVenue],
     queryFn: () => dataService.Review.filter({ venue_id: selectedVenue }),
-    enabled: !!selectedVenue
+    enabled: !!selectedVenue,
   });
 
   useEffect(() => {
@@ -75,57 +86,42 @@ export default function VenueAnalytics() {
     }
   }, [events, selectedEventId]);
 
-  // Calculate metrics
+  // Calculate metrics (revenue + tickets from server-side Payment / Transaction aggregation)
   const calculateMetrics = () => {
-    const cutoffDate = subDays(new Date(), parseInt(dateRange));
-    
-    const completedEventTransactions = transactions.filter((transaction) => {
-      if (transaction.status !== 'completed' || !transaction.event_id || !transaction.created_date) {
-        return false;
-      }
-      return parseISO(transaction.created_date) >= cutoffDate;
-    });
+    const gross = Number(analytics?.grossRevenueZar || 0);
+    const net = Number(analytics?.netRevenueZar || gross * 0.85);
+    const activeGross = gross;
+    const activeRevenue = revenueMode === 'net' ? net : gross;
 
-    const revenueByEvent = completedEventTransactions.reduce((acc, transaction) => {
-      const eventGross = Number(transaction.amount) || 0;
-      acc[transaction.event_id] = (acc[transaction.event_id] || 0) + eventGross;
-      return acc;
-    }, {});
+    const ticketSales = Number(analytics?.ticketSalesCount || 0);
+    const avgRating =
+      reviews.length > 0 ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length : 0;
 
-    const totalGrossRevenue = completedEventTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
-    const selectedEventGrossRevenue = selectedEventId ? (revenueByEvent[selectedEventId] || 0) : 0;
-    const eventRevenueCount = Object.keys(revenueByEvent).length;
-    const activeGrossRevenue = revenueScope === 'per_event' ? selectedEventGrossRevenue : totalGrossRevenue;
-    const activeNetRevenue = activeGrossRevenue * 0.85;
-    const activeRevenue = revenueMode === 'net' ? activeNetRevenue : activeGrossRevenue;
-
-    const ticketSales = completedEventTransactions.filter(t => t.type === 'ticket').length;
-    const avgRating = reviews.length > 0 
-      ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length 
-      : 0;
-
-    // Popular event types
     const eventTypeCounts = events.reduce((acc, event) => {
-      const type = event.title.toLowerCase().includes('concert') ? 'Concert' :
-                   event.title.toLowerCase().includes('party') ? 'Party' :
-                   event.title.toLowerCase().includes('festival') ? 'Festival' : 'Other';
+      const title = (event.title || '').toLowerCase();
+      const type = title.includes('concert')
+        ? 'Concert'
+        : title.includes('party')
+          ? 'Party'
+          : title.includes('festival')
+            ? 'Festival'
+            : 'Other';
       acc[type] = (acc[type] || 0) + 1;
       return acc;
     }, {});
 
-    // Peak times analysis
     const hourCounts = events.reduce((acc, event) => {
       if (event.start_time) {
-        const hour = parseInt(event.start_time.split(':')[0]);
-        acc[hour] = (acc[hour] || 0) + 1;
+        const hour = parseInt(String(event.start_time).split(':')[0], 10);
+        if (!Number.isNaN(hour)) acc[hour] = (acc[hour] || 0) + 1;
       }
       return acc;
     }, {});
 
     const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
 
-    const avgRevenueDivisor = revenueScope === 'per_event' ? 1 : eventRevenueCount;
-    const avgRevenuePerEventRaw = avgRevenueDivisor > 0 ? (activeGrossRevenue / avgRevenueDivisor) : 0;
+    const eventRevenueCount = revenueScope === 'per_event' ? 1 : Math.max(1, events.length);
+    const avgRevenuePerEventRaw = eventRevenueCount > 0 ? activeGross / eventRevenueCount : 0;
     const avgRevenuePerEvent = revenueMode === 'net' ? avgRevenuePerEventRaw * 0.85 : avgRevenuePerEventRaw;
 
     return {
@@ -133,31 +129,23 @@ export default function VenueAnalytics() {
       ticketSales,
       avgRating,
       totalEvents: events.length,
-      upcomingEvents: events.filter(e => new Date(e.date) >= new Date()).length,
+      upcomingEvents: events.filter((e) => new Date(e.date) >= new Date()).length,
       eventTypeCounts,
       peakHour: peakHour ? `${peakHour[0]}:00` : 'N/A',
       avgRevenuePerEvent,
-      eventRevenueCount
+      eventRevenueCount,
     };
   };
 
   const metrics = selectedVenue ? calculateMetrics() : null;
 
-  // Sales trend data (last 7 days)
   const getSalesTrend = () => {
     const last7Days = Array.from({ length: 7 }, (_, i) => subDays(new Date(), 6 - i));
-    return last7Days.map(day => {
-      const dayTransactions = transactions.filter(t => {
-        const tDate = parseISO(t.created_date);
-        return format(tDate, 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd') && 
-               t.status === 'completed' && 
-               t.type === 'ticket';
-      });
-      return {
-        date: format(day, 'MMM dd'),
-        sales: dayTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-      };
-    });
+    const byDay = Object.fromEntries((analytics?.revenueByDay || []).map((d) => [d.date, d.gross]));
+    return last7Days.map((day) => ({
+      date: format(day, 'MMM dd'),
+      sales: Number(byDay[format(day, 'yyyy-MM-dd')] || 0),
+    }));
   };
 
   return (
@@ -283,7 +271,7 @@ export default function VenueAnalytics() {
                     <div>
                       <p className="text-gray-500 text-sm">Ticket Sales</p>
                       <p className="text-3xl font-bold text-white mt-1">{metrics.ticketSales}</p>
-                      <p className="text-xs text-gray-500 mt-1">Completed purchases</p>
+                      <p className="text-xs text-gray-500 mt-1">Tickets issued in period</p>
                     </div>
                     <Users className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
                   </div>
@@ -324,7 +312,7 @@ export default function VenueAnalytics() {
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
-                  Ticket Sales Trend
+                  Revenue trend (last 7 days)
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -405,10 +393,11 @@ export default function VenueAnalytics() {
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[#141416]">
-                    <p className="text-sm text-gray-400 mb-1">Avg. Tickets per Sale</p>
+                    <p className="text-sm text-gray-400 mb-1">Hosted table payments (period)</p>
                     <p className="text-xl font-bold text-white">
-                      {metrics.ticketSales > 0 ? Math.round(transactions.filter(t => t.type === 'ticket').length / metrics.ticketSales * 10) / 10 : 0}
+                      R{Math.round(Number(analytics?.hostedTablePaymentZar || 0)).toLocaleString()}
                     </p>
+                    <p className="text-xs text-gray-500 mt-1">From successful Paystack rows tagged for your venue</p>
                   </div>
                 </CardContent>
               </Card>

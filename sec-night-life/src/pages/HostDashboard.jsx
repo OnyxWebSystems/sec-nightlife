@@ -734,9 +734,9 @@ export default function HostDashboard() {
                       <span className="text-[10px] px-2 py-0.5 rounded-full border border-[var(--sec-border)]">
                         {t.isPublic ? 'Public' : 'Private'}
                       </span>
-                      {t.pendingJoinCount > 0 && (
+                      {(t.pendingInviteCount ?? 0) > 0 && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200">
-                          {t.pendingJoinCount} pending
+                          {t.pendingInviteCount} invite{t.pendingInviteCount === 1 ? '' : 's'} pending
                         </span>
                       )}
                     </div>
@@ -864,6 +864,7 @@ export default function HostDashboard() {
                                       toast.success('Invite sent');
                                       setInviteOpenTableId(null);
                                       setInviteSearch('');
+                                      queryClient.invalidateQueries({ queryKey: ['host-tables'] });
                                     } catch (err) {
                                       toast.error(err?.message || 'Could not send invite');
                                     }
@@ -912,8 +913,8 @@ export default function HostDashboard() {
                                 {pr.user?.bio && (
                                   <div className="text-[10px] text-[var(--sec-text-muted)] line-clamp-2 mt-1">{pr.user.bio}</div>
                                 )}
-                                {pr.user?.email && (
-                                  <div className="text-[10px] text-[var(--sec-text-muted)] truncate mt-0.5">{pr.user.email}</div>
+                                {pr.decisionLabel && (
+                                  <div className="text-[10px] text-amber-200/90 mt-1">{pr.decisionLabel}</div>
                                 )}
                                 {(pr.user?.date_of_birth || pr.user?.verification_status) && (
                                   <div className="text-[10px] text-[var(--sec-text-muted)] mt-0.5">
@@ -933,42 +934,66 @@ export default function HostDashboard() {
                               </div>
                             </div>
                             <div className="flex gap-1 shrink-0">
-                              <button
-                                type="button"
-                                className="text-xs px-2 py-1.5 rounded-lg bg-[var(--sec-success-muted)] text-black"
-                                onClick={async () => {
-                                  try {
-                                    await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
-                                      action: 'approve',
-                                    });
-                                    toast.success('Approved');
-                                    queryClient.invalidateQueries(['host-tables']);
-                                    refetchPending();
-                                  } catch (e) {
-                                    toast.error(e?.message || 'Could not approve');
-                                  }
-                                }}
-                              >
-                                Approve
-                              </button>
-                              <button
-                                type="button"
-                                className="text-xs px-2 py-1.5 rounded-lg border border-[var(--sec-border)]"
-                                onClick={async () => {
-                                  try {
-                                    await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
-                                      action: 'reject',
-                                    });
-                                    toast.success('Declined');
-                                    queryClient.invalidateQueries(['host-tables']);
-                                    refetchPending();
-                                  } catch (e) {
-                                    toast.error(e?.message || 'Could not decline');
-                                  }
-                                }}
-                              >
-                                Decline
-                              </button>
+                              {pr.reviewStatus === 'pending' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="text-xs px-2 py-1.5 rounded-lg bg-[var(--sec-success-muted)] text-black"
+                                    onClick={async () => {
+                                      try {
+                                        await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                          action: 'approve',
+                                        });
+                                        toast.success('Approved');
+                                        queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                                        refetchPending();
+                                      } catch (e) {
+                                        toast.error(e?.message || 'Could not approve');
+                                      }
+                                    }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-xs px-2 py-1.5 rounded-lg border border-[var(--sec-border)]"
+                                    onClick={async () => {
+                                      try {
+                                        await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                          action: 'reject',
+                                        });
+                                        toast.success('Declined');
+                                        queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                                        refetchPending();
+                                      } catch (e) {
+                                        toast.error(e?.message || 'Could not decline');
+                                      }
+                                    }}
+                                  >
+                                    Decline
+                                  </button>
+                                </>
+                              )}
+                              {pr.reviewStatus === 'awaiting_payment' && (
+                                <button
+                                  type="button"
+                                  className="text-xs px-2 py-1.5 rounded-lg border border-[var(--sec-border)]"
+                                  onClick={async () => {
+                                    try {
+                                      await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                        action: 'reject',
+                                      });
+                                      toast.success('Cancelled');
+                                      queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                                      refetchPending();
+                                    } catch (e) {
+                                      toast.error(e?.message || 'Could not cancel');
+                                    }
+                                  }}
+                                >
+                                  Cancel approval
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))

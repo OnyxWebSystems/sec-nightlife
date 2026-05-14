@@ -1,18 +1,15 @@
-import bcrypt from 'bcrypt';
 import { prisma } from './prisma.js';
 import { isStaff } from './access.js';
 import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { ticketExpiresAtFromRow } from './ticketHelpers.js';
 
-/**
- * Resolve event row used for optional door PIN (first linked event on ticket).
- */
-export async function resolveEventForDoorPin(tx, ticket) {
+async function resolveLinkedEventId(tx, ticket) {
   if (ticket.eventId) {
-    return tx.event.findFirst({
+    const e = await tx.event.findFirst({
       where: { id: ticket.eventId, deletedAt: null },
-      select: { id: true, doorCheckPinHash: true },
+      select: { id: true },
     });
+    return e?.id || null;
   }
   if (ticket.hostedTableId) {
     const ht = await tx.hostedTable.findUnique({
@@ -20,10 +17,11 @@ export async function resolveEventForDoorPin(tx, ticket) {
       select: { eventId: true },
     });
     if (ht?.eventId) {
-      return tx.event.findFirst({
+      const e = await tx.event.findFirst({
         where: { id: ht.eventId, deletedAt: null },
-        select: { id: true, doorCheckPinHash: true },
+        select: { id: true },
       });
+      return e?.id || null;
     }
   }
   if (ticket.tableId) {
@@ -32,10 +30,11 @@ export async function resolveEventForDoorPin(tx, ticket) {
       select: { eventId: true },
     });
     if (tb?.eventId) {
-      return tx.event.findFirst({
+      const e = await tx.event.findFirst({
         where: { id: tb.eventId, deletedAt: null },
-        select: { id: true, doorCheckPinHash: true },
+        select: { id: true },
       });
+      return e?.id || null;
     }
   }
   if (ticket.venueTableId) {
@@ -44,10 +43,11 @@ export async function resolveEventForDoorPin(tx, ticket) {
       select: { eventId: true },
     });
     if (vt?.eventId) {
-      return tx.event.findFirst({
+      const e = await tx.event.findFirst({
         where: { id: vt.eventId, deletedAt: null },
-        select: { id: true, doorCheckPinHash: true },
+        select: { id: true },
       });
+      return e?.id || null;
     }
   }
   return null;
@@ -92,20 +92,10 @@ export async function assertAdmitPermission(tx, staffUserId, staffRole, ticket, 
   return { ok: false, reason: 'You are not allowed to admit this ticket (venue owner, table host, party host, or staff only).' };
 }
 
-export async function verifyDoorPinIfRequired(ev, plainPin) {
-  if (!ev?.doorCheckPinHash) return { ok: true };
-  if (plainPin == null || String(plainPin).trim() === '') {
-    return { ok: false, reason: 'This event requires a door PIN to record entry.' };
-  }
-  const match = await bcrypt.compare(String(plainPin).trim(), ev.doorCheckPinHash);
-  if (!match) return { ok: false, reason: 'Invalid door PIN' };
-  return { ok: true };
-}
-
 /**
  * @param {import('@prisma/client').Prisma.TransactionClient | typeof prisma} tx
  */
-export async function admitTicketTx(tx, { ticketId, staffUserId, staffRole, plainPin }) {
+export async function admitTicketTx(tx, { ticketId, staffUserId, staffRole }) {
   const t = await tx.ticket.findUnique({ where: { id: ticketId } });
   if (!t) return { ok: false, status: 404, error: 'Ticket not found' };
 
@@ -126,11 +116,8 @@ export async function admitTicketTx(tx, { ticketId, staffUserId, staffRole, plai
   const perm = await assertAdmitPermission(tx, staffUserId, staffRole, t, door);
   if (!perm.ok) return { ok: false, status: 403, error: perm.reason };
 
-  const ev = await resolveEventForDoorPin(tx, t);
-  const pinRes = await verifyDoorPinIfRequired(ev, plainPin);
-  if (!pinRes.ok) return { ok: false, status: 403, error: pinRes.reason };
-
-  const eventIdForAttendance = t.eventId || ev?.id || null;
+  const linkedEventId = await resolveLinkedEventId(tx, t);
+  const eventIdForAttendance = t.eventId || linkedEventId;
 
   await tx.ticket.update({
     where: { id: t.id },

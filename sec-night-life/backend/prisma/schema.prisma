@@ -1497,6 +1497,7 @@ model HostedTableMember {
   userId            String         @map("user_id")
   status            AttendeeStatus
   joinedAt          DateTime       @default(now()) @map("joined_at")
+  hostReviewedAt    DateTime?      @map("host_reviewed_at")
   paystackReference String?        @map("paystack_reference")
   joinFeePaid      Float?         @map("join_fee_paid")
 

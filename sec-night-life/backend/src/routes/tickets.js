@@ -6,11 +6,7 @@ import { ticketExpiresAtFromRow } from '../lib/ticketHelpers.js';
 import { buildTicketDoorContext } from '../lib/ticketDoorContext.js';
 import { buildTicketVerifyUrlWithHints, ticketVerifyPublicOrigin } from '../lib/ticketVerifyUrl.js';
 import { evaluatePrintedHints, hostInstructionsForKind } from '../lib/ticketVerifyHints.js';
-import {
-  assertAdmitPermission,
-  resolveEventForDoorPin,
-  admitTicketTx,
-} from '../lib/ticketAdmit.js';
+import { assertAdmitPermission, admitTicketTx } from '../lib/ticketAdmit.js';
 
 const router = Router();
 
@@ -109,7 +105,6 @@ router.post('/admit', authenticateToken, async (req, res, next) => {
     const body = z
       .object({
         qr_token: z.string().min(10),
-        pin: z.union([z.string(), z.null()]).optional(),
       })
       .parse(req.body ?? {});
     const ticket = await prisma.ticket.findUnique({ where: { qrToken: body.qr_token } });
@@ -119,7 +114,6 @@ router.post('/admit', authenticateToken, async (req, res, next) => {
         ticketId: ticket.id,
         staffUserId: req.userId,
         staffRole: req.userRole,
-        plainPin: body.pin,
       }),
     );
     if (!out.ok) {
@@ -177,7 +171,6 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
 
     const viewer_authenticated = !!req.userId;
     let can_admit_here = false;
-    let door_pin_required = false;
     let admit_denied_for_viewer = false;
     let admit_denied_reason = null;
     if (req.userId && expiresAt > now && !t.admittedAt) {
@@ -187,8 +180,6 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
         admit_denied_for_viewer = true;
         admit_denied_reason = perm.reason || null;
       }
-      const evPin = await resolveEventForDoorPin(prisma, t);
-      door_pin_required = !!evPin?.doorCheckPinHash;
     }
 
     const doorFields = {
@@ -202,7 +193,6 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
       host_instructions,
       viewer_authenticated,
       can_admit_here,
-      door_pin_required,
       admit_denied_for_viewer,
       admit_denied_reason,
       already_admitted: !!t.admittedAt,
