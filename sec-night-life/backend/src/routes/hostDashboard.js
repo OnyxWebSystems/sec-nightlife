@@ -22,6 +22,14 @@ import {
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from '../lib/hostedTableSecFees.js';
 import { addUserToHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
+import {
+  resolveVenueMenuSelections,
+  resolveTierIncludedItems,
+  includedItemsTotalZar,
+  mergeMemberMenuItems,
+} from '../lib/menuHelpers.js';
+import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
+import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
 
 const router = Router();
 const EXTERNAL_HOSTED_LISTING_ZAR = 200;
@@ -290,6 +298,18 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       where: { id: req.params.tableId },
       include: {
         host: { select: publicHostSelect },
+        members: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                fullName: true,
+                userProfile: { select: { avatarUrl: true } },
+              },
+            },
+          },
+        },
         event: {
           select: {
             id: true,
@@ -299,8 +319,11 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
             city: true,
             hasEntranceFee: true,
             entranceFeeAmount: true,
+            venueId: true,
+            hostingConfig: true,
             venue: {
               select: {
+                id: true,
                 name: true,
                 address: true,
                 suburb: true,
@@ -342,6 +365,24 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     const minSpendPerPerson =
       tierMin != null && tierMin > 0 ? Math.ceil(tierMin / gq) : null;
     const totalPayOnlineZar = entranceZar + joinZar;
+    const venueId = t.event?.venueId || t.event?.venue?.id;
+    let venueMenu = [];
+    if (venueId) {
+      venueMenu = await prisma.venueMenuItem.findMany({
+        where: { venueId, isAvailable: true },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      });
+    }
+    const tierIncludedRaw = t.tierIncludedItems;
+    const tierIncludedItems = Array.isArray(tierIncludedRaw?.items) ? tierIncludedRaw.items : [];
+    const tierName = tierIncludedRaw?.tier_name || null;
+    const myMembership = uid
+      ? t.members.find((m) => m.userId === uid)
+      : null;
+    const menuProgress =
+      tierMin != null && tierMin > 0
+        ? Math.min(100, (Number(t.menuSpendTotal || 0) / tierMin) * 100)
+        : null;
     res.json({
       kind: 'hosted',
       id: t.id,
@@ -373,6 +414,40 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       hasJoiningFee: t.hasJoiningFee,
       joiningFee: t.joiningFee,
       tier_min_spend_zar: tierMin,
+      hosting_category: t.hostingCategory,
+      hosting_tier_name: tierName,
+      tier_included_items: tierIncludedItems,
+      menu_spend_total: Number(t.menuSpendTotal || 0),
+      menu_progress_percent: menuProgress,
+      venue_id: venueId,
+      venue_menu: venueMenu.map((m) => ({
+        id: m.id,
+        name: m.name,
+        category: m.category,
+        price: m.price,
+        image_url: m.imageUrl,
+      })),
+      members: t.members.map((m) => ({
+        userId: m.userId,
+        status: m.status,
+        selectedMenuItems: m.selectedMenuItems,
+        menuSpendPaid: m.menuSpendPaid,
+        user: m.user
+          ? {
+              id: m.user.id,
+              username: m.user.username,
+              full_name: m.user.fullName,
+              avatar_url: m.user.userProfile?.avatarUrl,
+            }
+          : null,
+      })),
+      my_membership: myMembership
+        ? {
+            status: myMembership.status,
+            selectedMenuItems: myMembership.selectedMenuItems,
+            menuSpendPaid: myMembership.menuSpendPaid,
+          }
+        : null,
       checkout: {
         entrance_zar: entranceZar,
         joining_fee_zar: joinZar,
@@ -380,6 +455,55 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
         min_spend_per_person_zar: minSpendPerPerson,
         total_pay_online_zar: totalPayOnlineZar,
       },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, async (req, res, next) => {
+  try {
+    if (!assertHostEligibleRole(req, res)) return;
+    const parsed = menuOrderSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const tableId = req.params.tableId;
+    const ht = await prisma.hostedTable.findFirst({
+      where: { id: tableId },
+      include: {
+        event: { select: { id: true, venueId: true, title: true } },
+        members: true,
+      },
+    });
+    if (!ht) return res.status(404).json({ error: 'Table not found' });
+    if (!ht.event?.venueId) return res.status(400).json({ error: 'Menu orders require a venue event.' });
+    const mem = ht.members.find((m) => m.userId === req.userId);
+    if (!mem || mem.status !== 'GOING') {
+      return res.status(403).json({ error: 'You must be an active member of this table before adding menu items.' });
+    }
+    const menuResolved = await resolveVenueMenuSelections(parsed.data.selectedMenuItems, ht.event.venueId);
+    if (menuResolved.totalZar <= 0) {
+      return res.status(400).json({ error: 'Select at least one menu item.' });
+    }
+    const pay = await initializePaystackPayment({
+      userId: req.userId,
+      amountZar: menuResolved.totalZar,
+      metadata: {
+        type: 'HOSTED_TABLE_MENU',
+        hosted_table_id: ht.id,
+        hosted_table_member_id: mem.id,
+        event_id: ht.event.id,
+        venue_id: ht.event.venueId,
+        menu_zar: menuResolved.totalZar,
+        selected_menu_items: menuResolved.items,
+        user_id: req.userId,
+      },
+    });
+    res.json({
+      pendingPayment: true,
+      amount_zar: menuResolved.totalZar,
+      reference: pay.reference,
+      access_code: pay.access_code,
+      items: menuResolved.items,
     });
   } catch (e) {
     next(e);
@@ -878,6 +1002,15 @@ const createTableSchema = z.object({
   hostingCategory: z.enum(['GENERAL', 'VIP']).optional(),
   hostingTierIndex: z.number().int().min(0).optional().nullable(),
   isPublic: z.boolean().default(true),
+  selectedMenuItems: z
+    .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) }))
+    .optional(),
+});
+
+const menuOrderSchema = z.object({
+  selectedMenuItems: z
+    .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) }))
+    .min(1),
 });
 
 router.post('/tables', authenticateToken, requireVerified, async (req, res, next) => {
@@ -982,7 +1115,29 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       const entranceZar = getEventEntranceZar(ev);
       const minSpendZar =
         tierMeta.minSpend != null && Number.isFinite(Number(tierMeta.minSpend)) ? Math.max(0, Number(tierMeta.minSpend)) : 0;
-      const totalHostPay = entranceZar + hostFee + minSpendZar;
+      const tierRow =
+        tierMeta.tierIndex != null && Array.isArray(tiers) ? tiers[tierMeta.tierIndex] : null;
+      const tierName = tierRow?.tier_name ? String(tierRow.tier_name) : null;
+      const tierIncluded = ev.venueId
+        ? await resolveTierIncludedItems(ev.hostingConfig, hostingCategory, tierMeta.tierIndex, ev.venueId)
+        : [];
+      const tierIncludedSnapshot = {
+        tier_name: tierName,
+        items: tierIncluded,
+      };
+      let menuResolved = { items: [], totalZar: 0 };
+      if (d.selectedMenuItems?.length && ev.venueId) {
+        menuResolved = await resolveVenueMenuSelections(d.selectedMenuItems, ev.venueId);
+      }
+      const includedTotal = includedItemsTotalZar(tierIncluded);
+      const cartTotal = Number((menuResolved.totalZar + includedTotal).toFixed(2));
+      if (minSpendZar > 0 && cartTotal + 0.01 < minSpendZar) {
+        return res.status(400).json({
+          error: `Your menu selection must reach at least R${minSpendZar} (currently R${cartTotal.toFixed(0)}).`,
+        });
+      }
+      const menuCartZar = menuResolved.totalZar;
+      const totalHostPay = entranceZar + hostFee + menuCartZar;
 
       const needsListingPayment = totalHostPay > 0;
       const t = await prisma.$transaction(async (tx) =>
@@ -1011,12 +1166,23 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             hostingTierIndex: tierMeta.tierIndex,
             tierMaxGuests: tierMeta.maxGuests,
             tierMinSpend: tierMeta.minSpend,
+            menuSpendTotal: cartTotal,
+            tierIncludedItems: tierIncludedSnapshot,
             isPublic: d.isPublic,
             status: needsListingPayment ? 'DRAFT' : 'ACTIVE',
             ...(needsListingPayment
               ? {}
               : {
-                  members: { create: [{ userId: req.userId, status: 'GOING' }] },
+                  members: {
+                    create: [
+                      {
+                        userId: req.userId,
+                        status: 'GOING',
+                        selectedMenuItems: menuResolved.items.length ? menuResolved.items : undefined,
+                        menuSpendPaid: menuCartZar,
+                      },
+                    ],
+                  },
                   groupChat: {
                     create: {
                       name: d.tableName,
@@ -1048,8 +1214,13 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             venue_id: ev.venueId,
             entrance_zar: entranceZar,
             host_fee_zar: hostFee,
+            menu_zar: menuCartZar,
             min_spend_zar: minSpendZar,
             amount_total_zar: totalHostPay,
+            selected_menu_items: menuResolved.items,
+            tier_included_items: tierIncludedSnapshot,
+            hosting_tier_name: tierName,
+            hosting_category: hostingCategory,
             table_create: {
               event_id: ev.id,
               venue_id: ev.venueId,

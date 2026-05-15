@@ -127,6 +127,45 @@ router.get('/my-chats', authenticateToken, async (req, res, next) => {
   }
 });
 
+router.delete('/:groupChatId/members/me', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.userId;
+    const gc = await prisma.groupChat.findFirst({
+      where: { id: req.params.groupChatId },
+      include: { members: true },
+    });
+    if (!gc) return res.status(404).json({ error: 'Not found' });
+    if (!gc.members.some((x) => x.userId === me)) return res.status(403).json({ error: 'Forbidden' });
+    await prisma.groupChatMember.deleteMany({
+      where: { groupChatId: gc.id, userId: me },
+    });
+    res.json({ left: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/hosted-table/:hostedTableGroupChatId/members/me', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.userId;
+    const gc = await prisma.hostedTableGroupChat.findFirst({
+      where: { id: req.params.hostedTableGroupChatId },
+      include: { hostedTable: { select: { hostUserId: true } }, members: true },
+    });
+    if (!gc) return res.status(404).json({ error: 'Not found' });
+    if (!gc.members.some((x) => x.userId === me)) return res.status(403).json({ error: 'Forbidden' });
+    if (gc.hostedTable?.hostUserId === me) {
+      return res.status(400).json({ error: 'Table hosts cannot leave their own group chat. Delete the table chat instead.' });
+    }
+    await prisma.hostedTableGroupChatMember.deleteMany({
+      where: { hostedTableGroupChatId: gc.id, userId: me },
+    });
+    res.json({ left: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/hosted-table/:hostedTableGroupChatId', authenticateToken, async (req, res, next) => {
   try {
     const me = req.userId;

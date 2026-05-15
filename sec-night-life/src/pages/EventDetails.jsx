@@ -426,7 +426,20 @@ export default function EventDetails() {
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--sec-text-muted)', lineHeight: 1.6 }}>
                 {tiers.map((t, i) => (
                   <li key={i}>
-                    Up to {t.max_guests} guests · min spend R{Number(t.min_spend).toLocaleString()}
+                    <strong>{t.tier_name || t.name || `Tier ${i + 1}`}</strong>
+                    {' — '}up to {t.max_guests} guests · min spend R{Number(t.min_spend).toLocaleString()}
+                    {Array.isArray(t.included_items) && t.included_items.length > 0 && (
+                      <span>
+                        {' · includes '}
+                        {t.included_items.map((inc, j) => (
+                          <span key={j}>
+                            {j > 0 ? ', ' : ''}
+                            {inc.quantity > 1 ? `${inc.quantity}× ` : ''}
+                            {inc.name || 'item'}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -14,6 +14,7 @@ import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { Input } from '@/components/ui/input';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 
 function eventStartTimeForInput(ev) {
   if (!ev) return undefined;
@@ -108,6 +109,7 @@ export default function HostDashboard() {
   const [eventSearch, setEventSearch] = useState('');
   const [inviteOpenTableId, setInviteOpenTableId] = useState(null);
   const [inviteSearch, setInviteSearch] = useState('');
+  const [tableMenuSelected, setTableMenuSelected] = useState({});
 
   useEffect(() => {
     authService.getCurrentUser().then(async (u) => {
@@ -208,6 +210,14 @@ export default function HostDashboard() {
     }
     return fromList ?? null;
   }, [publicEvents, tableForm.eventId, selectedEventDetail]);
+  const selectedVenueId = selectedEvent?.venue_id || selectedEvent?.venueId || selectedEvent?.venue?.id;
+
+  const { data: venueMenuItems = [] } = useQuery({
+    queryKey: ['venue-menu-public', selectedVenueId],
+    queryFn: () => apiGet(`/api/business/venues/${selectedVenueId}/menu-items/public`),
+    enabled: Boolean(selectedVenueId && showTableModal),
+  });
+
   const selectedHostingTier = useMemo(() => {
     const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
     const categoryKey = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
@@ -216,6 +226,24 @@ export default function HostDashboard() {
     if (!tiers[idx]) return null;
     return { ...tiers[idx], index: idx };
   }, [selectedEvent, tableForm.hostingCategory, tableForm.hostingTierIndex]);
+
+  const tierIncludedDisplay = useMemo(() => {
+    const raw = selectedHostingTier?.included_items;
+    if (!Array.isArray(raw) || !venueMenuItems.length) return [];
+    const map = new Map(venueMenuItems.map((m) => [m.id, m]));
+    return raw.map((inc) => {
+      const id = inc.menu_item_id || inc.menuItemId;
+      const row = id ? map.get(id) : null;
+      const qty = Math.max(1, Number(inc.quantity) || 1);
+      return {
+        name: row?.name || inc.name || 'Included',
+        quantity: qty,
+        price: row ? Number(row.price) : Number(inc.price || 0),
+        image_url: row?.image_url || null,
+      };
+    });
+  }, [selectedHostingTier, venueMenuItems]);
+
   const hostingTierOptions = useMemo(() => {
     const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
     const key = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
@@ -258,9 +286,10 @@ export default function HostDashboard() {
     const msRaw = selectedHostingTier?.min_spend ?? selectedHostingTier?.minSpend;
     const minSpend =
       msRaw != null && msRaw !== '' && Number.isFinite(Number(msRaw)) ? Math.max(0, Number(msRaw)) : 0;
-    const total = entrance + hostFee + minSpend;
-    return { entrance, hostFee, minSpend, total };
-  }, [tableForm.tableType, tableForm.hostingCategory, selectedEvent, selectedHostingTier]);
+    const menuCart = menuSelectionTotal(venueMenuItems, tableMenuSelected, tierIncludedDisplay);
+    const total = entrance + hostFee + menuCart;
+    return { entrance, hostFee, minSpend, menuCart, total };
+  }, [tableForm.tableType, tableForm.hostingCategory, selectedEvent, selectedHostingTier, tableMenuSelected, venueMenuItems, tierIncludedDisplay]);
 
   useEffect(() => {
     if (tableForm.tableType !== 'IN_APP_EVENT') return;
@@ -384,6 +413,14 @@ export default function HostDashboard() {
           setSaving(false);
           return;
         }
+        const minSpendReq = inAppListingBreakdown?.minSpend ?? 0;
+        const menuCart = inAppListingBreakdown?.menuCart ?? 0;
+        if (minSpendReq > 0 && menuCart + 0.01 < minSpendReq) {
+          toast.error(`Select menu items totaling at least R${minSpendReq} for this tier.`);
+          setSaving(false);
+          return;
+        }
+        const menuPayload = menuSelectionToPayload(venueMenuItems, tableMenuSelected);
         const created = await apiPost('/api/host/tables', {
           tableType: 'IN_APP_EVENT',
           tableName: tableForm.tableName,
@@ -402,6 +439,7 @@ export default function HostDashboard() {
           drinkPreferences: tableForm.drinkPreferences || null,
           desiredCompany: tableForm.desiredCompany || null,
           isPublic: tableForm.isPublic,
+          ...(menuPayload.length ? { selectedMenuItems: menuPayload.map((m) => ({ menuItemId: m.menuItemId, quantity: m.quantity })) } : {}),
         });
         if (created?.payment?.reference && created?.payment?.access_code) {
           launchPaystackInline({
@@ -1465,6 +1503,17 @@ export default function HostDashboard() {
                   onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
                 />
               )}
+              {tableForm.tableType === 'IN_APP_EVENT' && selectedEvent && venueMenuItems.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-2">Build your table order (minimum spend)</p>
+                  <MenuPicker
+                    items={venueMenuItems}
+                    selected={tableMenuSelected}
+                    onChange={(id, qty) => setTableMenuSelected((s) => ({ ...s, [id]: qty }))}
+                    includedItems={tierIncludedDisplay}
+                  />
+                </div>
+              )}
               {tableForm.tableType === 'IN_APP_EVENT' && inAppListingBreakdown && inAppListingBreakdown.total > 0 && (
                 <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2 text-sm bg-[var(--sec-bg-elevated)]">
                   <p className="text-xs font-medium text-[var(--sec-text-muted)] uppercase tracking-wide">Your listing payment</p>
@@ -1477,9 +1526,15 @@ export default function HostDashboard() {
                     <span>R{inAppListingBreakdown.hostFee.toFixed(0)}</span>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <span className="text-[var(--sec-text-muted)]">Min spend (tier)</span>
-                    <span>R{inAppListingBreakdown.minSpend.toFixed(0)}</span>
+                    <span className="text-[var(--sec-text-muted)]">Menu selection</span>
+                    <span>R{inAppListingBreakdown.menuCart.toFixed(0)}</span>
                   </div>
+                  {inAppListingBreakdown.minSpend > 0 && (
+                    <p className="text-[11px] text-[var(--sec-text-muted)]">
+                      Tier minimum: R{inAppListingBreakdown.minSpend.toFixed(0)}
+                      {inAppListingBreakdown.menuCart >= inAppListingBreakdown.minSpend ? ' (met)' : ' (add more items)'}
+                    </p>
+                  )}
                   <div className="flex justify-between gap-2 pt-2 border-t border-[var(--sec-border)] font-semibold">
                     <span>Total due now</span>
                     <span>R{inAppListingBreakdown.total.toFixed(0)}</span>

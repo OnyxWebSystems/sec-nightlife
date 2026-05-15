@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { createPageUrl } from '@/utils';
+import ImageCropDialog from '@/components/profile/ImageCropDialog';
+import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 
 const SA_CITIES = ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein', 'Port Elizabeth', 'East London', 'Polokwane', 'Nelspruit', 'Rustenburg'];
 const TYPES = [
@@ -150,6 +152,18 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const imageCrop = useImageCropUpload({
+    onCropped: async (file) => {
+      try {
+        const result = await uploadPromotionImageFile(file);
+        if (!result) return;
+        setForm((prev) => ({ ...prev, imageUrl: result.imageUrl, imagePublicId: result.imagePublicId }));
+      } catch (e) {
+        toast.error(e?.message || 'Upload failed');
+      }
+    },
+  });
+
   const durationText = useMemo(() => {
     if (!form.startsAt || !form.endsAt) return '';
     const start = new Date(form.startsAt);
@@ -157,16 +171,6 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
     const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
     return `This promotion runs for ${days} day${days === 1 ? '' : 's'}`;
   }, [form.startsAt, form.endsAt]);
-
-  async function uploadImage(file) {
-    try {
-      const result = await uploadPromotionImageFile(file);
-      if (!result) return;
-      setForm((prev) => ({ ...prev, imageUrl: result.imageUrl, imagePublicId: result.imagePublicId }));
-    } catch (e) {
-      toast.error(e?.message || 'Upload failed');
-    }
-  }
 
   async function handlePublish() {
     setFormError('');
@@ -300,7 +304,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
 
       <div style={{ marginTop: 10 }}>
         <Label>Image Upload (optional)</Label>
-        <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={(e) => uploadImage(e.target.files?.[0])} style={{ marginTop: 6 }} />
+        <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={imageCrop.handleInputChange} style={{ marginTop: 6 }} />
         {form.imageUrl && (
           <div style={{ marginTop: 8 }}>
             <img src={form.imageUrl} alt="Promotion" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover' }} />
@@ -308,6 +312,15 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
           </div>
         )}
       </div>
+      <ImageCropDialog
+        open={imageCrop.cropOpen}
+        onOpenChange={imageCrop.onCropOpenChange}
+        imageSrc={imageCrop.cropSrc}
+        aspect={16 / 9}
+        title="Crop promotion image"
+        onCropped={imageCrop.handleCropped}
+        outputFileName="promotion.jpg"
+      />
 
       <div style={{ marginTop: 10 }}>
         <Label>Target City</Label>
@@ -366,15 +379,17 @@ const PromotionEditModal = React.memo(function PromotionEditModal({ open, promot
     return `This promotion runs for ${days} day${days === 1 ? '' : 's'}`;
   }, [form?.startsAt, form?.endsAt]);
 
-  async function uploadImage(file) {
-    try {
-      const result = await uploadPromotionImageFile(file);
-      if (!result) return;
-      setForm((prev) => (prev ? { ...prev, imageUrl: result.imageUrl, imagePublicId: result.imagePublicId } : prev));
-    } catch (e) {
-      toast.error(e?.message || 'Upload failed');
-    }
-  }
+  const editImageCrop = useImageCropUpload({
+    onCropped: async (file) => {
+      try {
+        const result = await uploadPromotionImageFile(file);
+        if (!result) return;
+        setForm((prev) => (prev ? { ...prev, imageUrl: result.imageUrl, imagePublicId: result.imagePublicId } : prev));
+      } catch (e) {
+        toast.error(e?.message || 'Upload failed');
+      }
+    },
+  });
 
   async function handleSave() {
     if (!form || !promotion) return;
@@ -517,7 +532,7 @@ const PromotionEditModal = React.memo(function PromotionEditModal({ open, promot
 
         <div style={{ marginTop: 10 }}>
           <Label>Image Upload (optional)</Label>
-          <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={(e) => uploadImage(e.target.files?.[0])} style={{ marginTop: 6 }} />
+          <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={editImageCrop.handleInputChange} style={{ marginTop: 6 }} />
           {form.imageUrl && (
             <div style={{ marginTop: 8 }}>
               <img src={form.imageUrl} alt="Promotion" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover' }} />
@@ -527,6 +542,15 @@ const PromotionEditModal = React.memo(function PromotionEditModal({ open, promot
             </div>
           )}
         </div>
+        <ImageCropDialog
+          open={editImageCrop.cropOpen}
+          onOpenChange={editImageCrop.onCropOpenChange}
+          imageSrc={editImageCrop.cropSrc}
+          aspect={16 / 9}
+          title="Crop promotion image"
+          onCropped={editImageCrop.handleCropped}
+          outputFileName="promotion.jpg"
+        />
 
         <div style={{ marginTop: 10 }}>
           <Label>Target City</Label>

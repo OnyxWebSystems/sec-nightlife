@@ -13,8 +13,13 @@ import {
   MapPin,
   Shield,
   CreditCard,
-  X
+  X,
+  UtensilsCrossed,
+  Plus,
+  Trash2,
 } from 'lucide-react';
+import ImageCropDialog from '@/components/profile/ImageCropDialog';
+import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -41,12 +46,6 @@ const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton', 
   'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Polokwane'
 ];
-const GENDER_OPTIONS = [
-  { value: 'male', label: 'Male' },
-  { value: 'female', label: 'Female' },
-  { value: 'other', label: 'Other' },
-];
-
 const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function venueOnboardingDraftKey(userId) {
@@ -69,7 +68,6 @@ const INITIAL_FORM_DATA = {
   instagram: '',
   capacity: '',
   age_limit: 18,
-  gender: '',
   logo_url: '',
   cover_image_url: '',
   cipc_document_url: '',
@@ -129,7 +127,6 @@ function mapVenueDetailToForm(v) {
     instagram: v.instagram ?? '',
     capacity: v.capacity != null ? String(v.capacity) : '',
     age_limit: v.age_limit != null ? v.age_limit : 18,
-    gender: v.gender ?? '',
     logo_url: v.logo_url ?? '',
     cover_image_url: v.cover_image_url ?? ''
   };
@@ -185,6 +182,43 @@ function uploadFieldLabel(field) {
   return 'Document';
 }
 
+async function uploadVenueFile(field, file, cloudinaryConfig, setters) {
+  const { setUploadProgress, setFormData, setError } = setters;
+  setUploadProgress((prev) => ({ ...prev, [field]: 'uploading' }));
+  setError('');
+  toast.info(`${uploadFieldLabel(field)} upload started...`);
+  try {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      throw new Error(`File is too large. Maximum size is ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB.`);
+    }
+    const resourceType = assertAllowedUpload(field, file);
+    let url = null;
+    if (cloudinaryConfig.cloudName && cloudinaryConfig.uploadPreset) {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('upload_preset', cloudinaryConfig.uploadPreset);
+      form.append('public_id', `${Date.now()}-venue`.replace(/[^a-zA-Z0-9/_-]/g, '-'));
+      form.append('resource_type', resourceType);
+      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, { method: 'POST', body: form });
+      const uploadData = await uploadRes.json();
+      if (uploadRes.ok && uploadData?.secure_url) url = uploadData.secure_url;
+    }
+    if (!url) {
+      const data = await uploadFile(file);
+      url = data?.file_url;
+      if (!url) throw new Error('Upload returned no URL.');
+    }
+    setFormData((prev) => ({ ...prev, [field]: url }));
+    setUploadProgress((prev) => ({ ...prev, [field]: 'done' }));
+    toast.success(`${uploadFieldLabel(field)} uploaded successfully.`);
+  } catch (error) {
+    setUploadProgress((prev) => ({ ...prev, [field]: 'error' }));
+    const message = error?.message || 'Failed to upload.';
+    setError(message);
+    toast.error(message);
+  }
+}
+
 function normalizeOptionalEmail(value) {
   const v = (value || '').trim();
   if (!v) return null;
@@ -215,13 +249,39 @@ export default function VenueOnboarding() {
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState({});
   const [selectedPlan, setSelectedPlan] = useState('basic');
-  const draftSaveTimerRef = useRef(null);
+  const [menuDraftItems, setMenuDraftItems] = useState([]);
+  const [menuDraft, setMenuDraft] = useState({ name: '', price: '', category: 'Drinks', image_url: '' });
+  const [cropField, setCropField] = useState(null);
+  const [menuUploading, setMenuUploading] = useState(false);
 
   const cloudinaryConfig = {
     cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
     uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
   };
-  
+
+  const logoCrop = useImageCropUpload({
+    onCropped: async (file) => {
+      await uploadVenueFile('logo_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
+    },
+  });
+  const coverCrop = useImageCropUpload({
+    onCropped: async (file) => {
+      await uploadVenueFile('cover_image_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
+    },
+  });
+  const menuItemCrop = useImageCropUpload({
+    onCropped: async (file) => {
+      setMenuUploading(true);
+      try {
+        const data = await uploadFile(file);
+        if (data?.file_url) setMenuDraft((d) => ({ ...d, image_url: data.file_url }));
+      } finally {
+        setMenuUploading(false);
+      }
+    },
+  });
+  const draftSaveTimerRef = useRef(null);
+
   const [formData, setFormData] = useState(() => ({ ...INITIAL_FORM_DATA }));
 
   useEffect(() => {
@@ -277,7 +337,7 @@ export default function VenueOnboarding() {
           /* use list row only */
         }
         setFormData(mapVenueDetailToForm(detail));
-        if (draft && typeof draft.step === 'number' && draft.step >= 1 && draft.step <= 4) {
+        if (draft && typeof draft.step === 'number' && draft.step >= 1 && draft.step <= 5) {
           setStep(draft.step);
         }
         if (draft?.selectedPlan === 'basic' || draft?.selectedPlan === 'premium') {
@@ -285,7 +345,7 @@ export default function VenueOnboarding() {
         }
       } else if (draft?.formData && typeof draft.formData === 'object') {
         setFormData({ ...INITIAL_FORM_DATA, ...draft.formData });
-        if (typeof draft.step === 'number' && draft.step >= 1 && draft.step <= 4) {
+        if (typeof draft.step === 'number' && draft.step >= 1 && draft.step <= 5) {
           setStep(draft.step);
         }
         if (draft.selectedPlan === 'basic' || draft.selectedPlan === 'premium') {
@@ -385,7 +445,6 @@ export default function VenueOnboarding() {
     await apiPatch('/api/users/profile', {
       payment_setup_complete: paymentCompleted,
       onboarding_complete: true,
-      ...(formData.gender ? { gender: formData.gender } : {}),
     });
   };
 
@@ -418,6 +477,22 @@ export default function VenueOnboarding() {
       if (formData.cover_image_url) venueData.cover_image_url = formData.cover_image_url;
 
       const createdVenue = await upsertVenue(venueData);
+
+      if (createdVenue?.id && menuDraftItems.length > 0) {
+        try {
+          await apiPost(`/api/business/venues/${createdVenue.id}/menu-items`, {
+            items: menuDraftItems.map((item, idx) => ({
+              name: item.name,
+              price: Number(item.price),
+              category: item.category || 'Other',
+              image_url: item.image_url || null,
+              sort_order: idx,
+            })),
+          });
+        } catch (menuErr) {
+          toast.error(menuErr?.data?.error || menuErr.message || 'Venue saved but menu items could not be saved.');
+        }
+      }
 
       const complianceUploads = [
         { documentType: 'BUSINESS_REGISTRATION', fileUrl: formData.cipc_document_url, fileName: 'cipc-registration.pdf' },
@@ -476,8 +551,9 @@ export default function VenueOnboarding() {
   const steps = [
     { number: 1, title: 'Info', icon: Building },
     { number: 2, title: 'Details', icon: MapPin },
-    { number: 3, title: 'Compliance', icon: Shield },
-    { number: 4, title: 'Payout', icon: CreditCard },
+    { number: 3, title: 'Menu', icon: UtensilsCrossed },
+    { number: 4, title: 'Compliance', icon: Shield },
+    { number: 5, title: 'Payout', icon: CreditCard },
   ];
 
   const canProceed = () => {
@@ -485,6 +561,7 @@ export default function VenueOnboarding() {
     if (step === 2) return true;
     if (step === 3) return true;
     if (step === 4) return true;
+    if (step === 5) return true;
     return true;
   };
 
@@ -618,7 +695,7 @@ export default function VenueOnboarding() {
                         <Upload className="w-6 h-6 text-gray-600" />
                       )}
                     </div>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('logo_url', e)} />
+                    <input type="file" accept="image/*" className="hidden" onChange={logoCrop.handleInputChange} />
                   </label>
                   <p className="text-xs mt-1" style={{ color: uploadProgress.logo_url === 'error' ? '#ef4444' : 'var(--sec-text-muted)' }}>
                     {uploadProgress.logo_url === 'uploading'
@@ -642,7 +719,7 @@ export default function VenueOnboarding() {
                         <Upload className="w-6 h-6 text-gray-600" />
                       )}
                     </div>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('cover_image_url', e)} />
+                    <input type="file" accept="image/*" className="hidden" onChange={coverCrop.handleInputChange} />
                   </label>
                   <p className="text-xs mt-1" style={{ color: uploadProgress.cover_image_url === 'error' ? '#ef4444' : 'var(--sec-text-muted)' }}>
                     {uploadProgress.cover_image_url === 'uploading'
@@ -833,29 +910,47 @@ export default function VenueOnboarding() {
                     </Select>
                   </div>
                 </div>
-
-                <div>
-                  <Label className="text-gray-400 text-sm">Gender (optional)</Label>
-                  <Select value={formData.gender} onValueChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}>
-                    <SelectTrigger className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl">
-                      <SelectValue placeholder="Select gender" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
-                      {GENDER_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value} className="text-white">
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+</div>
             </motion.div>
           )}
 
           {step === 3 && (
+            <motion.div key="step-menu" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+              <div className="text-center mb-6">
+                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Venue menu</h1>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Optional — edit anytime in Dashboard → Menu</p>
+              </div>
+              <div className="space-y-3 rounded-2xl p-4" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+                <input className="w-full h-11 px-3 rounded-xl bg-[#141416] border border-[#262629] text-white" placeholder="Item name" value={menuDraft.name} onChange={(e) => setMenuDraft((d) => ({ ...d, name: e.target.value }))} />
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="h-11 px-3 rounded-xl bg-[#141416] border border-[#262629] text-white" placeholder="Price" type="number" value={menuDraft.price} onChange={(e) => setMenuDraft((d) => ({ ...d, price: e.target.value }))} />
+                  <select className="h-11 px-3 rounded-xl bg-[#141416] border border-[#262629] text-white" value={menuDraft.category} onChange={(e) => setMenuDraft((d) => ({ ...d, category: e.target.value }))}>
+                    {['Drinks', 'Food', 'Hubbly', 'Other'].map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <input type="file" accept="image/*" onChange={menuItemCrop.handleInputChange} disabled={menuUploading} />
+                {menuDraft.image_url && <img src={menuDraft.image_url} alt="" className="w-16 h-16 rounded-lg object-cover" />}
+                <Button type="button" onClick={() => {
+                  const name = menuDraft.name.trim();
+                  const price = parseFloat(menuDraft.price);
+                  if (!name || !Number.isFinite(price)) return toast.error('Name and price required');
+                  setMenuDraftItems((items) => [...items, { ...menuDraft, name, price }]);
+                  setMenuDraft({ name: '', price: '', category: 'Drinks', image_url: '' });
+                }} className="w-full" style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}><Plus className="w-4 h-4 mr-2" /> Add item</Button>
+              </div>
+              {menuDraftItems.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+                  {item.image_url && <img src={item.image_url} alt="" className="w-12 h-12 rounded object-cover" />}
+                  <div className="flex-1 text-sm"><strong>{item.name}</strong> · R{Number(item.price).toFixed(0)}</div>
+                  <button type="button" onClick={() => setMenuDraftItems((items) => items.filter((_, i) => i !== idx))}><Trash2 size={16} /></button>
+                </div>
+              ))}
+            </motion.div>
+          )}
+
+          {step === 4 && (
             <motion.div
-              key="step3"
+              key="step4-compliance"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
@@ -918,9 +1013,9 @@ export default function VenueOnboarding() {
             </motion.div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
            <motion.div
-             key="step4"
+             key="step5-payout"
              initial={{ opacity: 0, x: 20 }}
              animate={{ opacity: 1, x: 0 }}
              exit={{ opacity: 0, x: -20 }}
@@ -984,14 +1079,14 @@ export default function VenueOnboarding() {
           >
             <ChevronLeft className="w-5 h-5" />
           </Button>
-          {step < 4 ? (
+          {step < 5 ? (
             <Button
               onClick={() => setStep(step + 1)}
               disabled={!canProceed()}
               className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
               style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
-              {step === 3 && !hasComplianceDocs() ? 'Skip for now' : 'Continue'}
+              {step === 4 && !hasComplianceDocs() ? 'Skip for now' : 'Continue'}
               <ChevronRight className="w-5 h-5 ml-2" />
             </Button>
           ) : (
@@ -1017,6 +1112,35 @@ export default function VenueOnboarding() {
           )}
         </div>
       </div>
+      <ImageCropDialog
+        open={logoCrop.cropOpen}
+        onOpenChange={logoCrop.onCropOpenChange}
+        imageSrc={logoCrop.cropSrc}
+        aspect={1}
+        cropShape="round"
+        title="Crop logo"
+        onCropped={logoCrop.handleCropped}
+        outputFileName="venue-logo.jpg"
+      />
+      <ImageCropDialog
+        open={coverCrop.cropOpen}
+        onOpenChange={coverCrop.onCropOpenChange}
+        imageSrc={coverCrop.cropSrc}
+        aspect={16 / 9}
+        title="Crop cover image"
+        onCropped={coverCrop.handleCropped}
+        outputFileName="venue-cover.jpg"
+      />
+      <ImageCropDialog
+        open={menuItemCrop.cropOpen}
+        onOpenChange={menuItemCrop.onCropOpenChange}
+        imageSrc={menuItemCrop.cropSrc}
+        aspect={1}
+        title="Crop menu item image"
+        onCropped={menuItemCrop.handleCropped}
+        outputFileName="menu-item.jpg"
+      />
+
     </div>
   );
 }

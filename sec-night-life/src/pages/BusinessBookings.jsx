@@ -288,6 +288,26 @@ export default function BusinessBookings() {
                 <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Role</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{detailTable.role}</span>
               </div>
+              {(detailTable.hostingTierName || detailTable.hostingCategory) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Table tier</span>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>
+                    {[detailTable.hostingCategory, detailTable.hostingTierName].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+              )}
+              {Array.isArray(detailTable.selectedMenuItems) && detailTable.selectedMenuItems.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Menu order</p>
+                  <ul style={{ fontSize: 12, color: 'var(--sec-text-muted)', paddingLeft: 16, margin: 0 }}>
+                    {detailTable.selectedMenuItems.map((line, i) => (
+                      <li key={i}>
+                        {line.quantity}× {line.name} @ R{Number(line.unitPrice || 0).toFixed(0)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Total paid</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>

@@ -177,7 +177,21 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       include: {
         venue: { select: { id: true, name: true } },
         event: { select: { id: true, title: true, date: true, city: true } },
-        hostedTable: { select: { id: true, tableName: true, status: true, hostUserId: true } },
+        hostedTable: {
+          select: {
+            id: true,
+            tableName: true,
+            status: true,
+            hostUserId: true,
+            hostingCategory: true,
+            hostingTierIndex: true,
+            tierMinSpend: true,
+            menuSpendTotal: true,
+            tierIncludedItems: true,
+            guestQuantity: true,
+            spotsRemaining: true,
+          },
+        },
         user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
       },
       orderBy: { createdAt: 'desc' },
@@ -200,6 +214,10 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
         id: r.user.id,
         username: r.user.userProfile?.username || r.user.username || r.user.fullName || 'User',
       },
+      selectedMenuItems: r.selectedMenuItems,
+      hostingTierName: r.hostingTierName,
+      hostingCategory: r.hostingCategory,
+      menuTotalZar: r.menuTotalZar,
     }));
 
     const rawForStats = rows.map((r) => ({

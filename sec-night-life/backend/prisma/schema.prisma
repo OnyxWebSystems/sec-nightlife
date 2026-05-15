@@ -471,6 +471,7 @@ model Venue {
   complianceDocuments ComplianceDocument[]
   follows             VenueFollow[]
   venueTables         VenueTable[]
+  menuItems           VenueMenuItem[]
   payoutLedgers       PayoutLedger[] @relation("PayoutRecipientVenue")
   eventVenueTableBookings EventVenueTableBooking[]
 
@@ -478,6 +479,24 @@ model Venue {
   @@index([city])
   @@index([complianceStatus])
   @@map("venues")
+}
+
+model VenueMenuItem {
+  id          String   @id @default(cuid())
+  venueId     String   @map("venue_id")
+  name        String
+  category    String   @default("Other")
+  price       Float
+  imageUrl    String?  @map("image_url")
+  isAvailable Boolean  @default(true) @map("is_available")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@index([venueId])
+  @@map("venue_menu_items")
 }
 
 model VenueFollow {
@@ -1326,6 +1345,8 @@ model HostedTable {
   hostingTierIndex       Int?                @map("hosting_tier_index")
   tierMaxGuests          Int?                @map("tier_max_guests")
   tierMinSpend           Float?              @map("tier_min_spend")
+  menuSpendTotal         Float               @default(0) @map("menu_spend_total")
+  tierIncludedItems      Json?               @map("tier_included_items")
   hostFeePaystackRef     String?             @unique @map("host_fee_paystack_ref")
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
@@ -1355,6 +1376,10 @@ model EventVenueTableBooking {
   amountTotal       Float?   @map("amount_total")
   entranceZar       Float?   @map("entrance_zar")
   componentZar      Float?   @map("component_zar")
+  selectedMenuItems Json?    @map("selected_menu_items")
+  hostingTierName   String?  @map("hosting_tier_name")
+  hostingCategory   String?  @map("hosting_category")
+  menuTotalZar      Float?   @map("menu_total_zar")
   createdAt         DateTime @default(now()) @map("created_at")
 
   venue       Venue       @relation(fields: [venueId], references: [id], onDelete: Cascade)
@@ -1464,9 +1489,11 @@ model VenueTableMember {
 model VenueTableMenuItem {
   id           String  @id @default(cuid())
   venueTableId String  @map("venue_table_id")
+  venueMenuItemId String? @map("venue_menu_item_id")
   name         String
   category     String
   price        Float
+  imageUrl     String? @map("image_url")
   isAvailable  Boolean @default(true) @map("is_available")
 
   venueTable VenueTable @relation(fields: [venueTableId], references: [id], onDelete: Cascade)
@@ -1503,6 +1530,8 @@ model HostedTableMember {
   hostReviewedAt    DateTime?      @map("host_reviewed_at")
   paystackReference String?        @map("paystack_reference")
   joinFeePaid      Float?         @map("join_fee_paid")
+  selectedMenuItems Json?         @map("selected_menu_items")
+  menuSpendPaid     Float          @default(0) @map("menu_spend_paid")
 
   hostedTable HostedTable @relation(fields: [hostedTableId], references: [id], onDelete: Cascade)
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -551,7 +551,7 @@
   }
 
 .venue-card__image-media {
-  object-fit: contain !important;
+  object-fit: cover !important;
   object-position: center;
 }
 

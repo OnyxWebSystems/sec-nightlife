@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -79,6 +80,7 @@ export default function TableDetails() {
   const source = urlParams.get('source');
   const isVenueSource = source === 'venue';
   const [selectedMenuItems, setSelectedMenuItems] = useState({});
+  const [hostedMenuSelected, setHostedMenuSelected] = useState({});
 
   useEffect(() => { loadUser(); }, []);
 
@@ -384,6 +386,42 @@ export default function TableDetails() {
     const entranceZ = Number(checkout.entrance_zar ?? 0);
     const joinZ = Number(checkout.joining_fee_zar ?? 0);
     const totalOnline = Number(checkout.total_pay_online_zar ?? entranceZ + joinZ);
+    const isGoingMember = hostedTable.my_membership?.status === 'GOING';
+    const tierIncluded = hostedTable.tier_included_items || [];
+    const venueMenu = hostedTable.venue_menu || [];
+
+    const payHostedMenu = async () => {
+      const payload = menuSelectionToPayload(venueMenu, hostedMenuSelected);
+      if (!payload.length) {
+        toast.error('Select at least one item');
+        return;
+      }
+      try {
+        setIsProcessingPayment(true);
+        const r = await apiPost(`/api/host/tables/${tableId}/menu-order`, {
+          selectedMenuItems: payload.map((p) => ({ menuItemId: p.menuItemId, quantity: p.quantity })),
+        });
+        if (r?.pendingPayment && r?.reference && r?.access_code) {
+          launchPaystackInline({
+            email: user?.email,
+            amount: Number(r.amount_zar ?? 0),
+            reference: r.reference,
+            accessCode: r.access_code,
+            onSuccess: async (payloadRef) => {
+              await verifyPaystackReference(payloadRef?.reference || r.reference);
+              queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
+              setHostedMenuSelected({});
+              toast.success('Menu order paid — added to your table.');
+            },
+          });
+        }
+      } catch (e) {
+        toast.error(e?.data?.error || e.message || 'Menu order failed');
+      } finally {
+        setIsProcessingPayment(false);
+      }
+    };
+
     const joinHosted = async () => {
       if (!userProfile) {
         authService.redirectToLogin(window.location.href);
@@ -474,7 +512,71 @@ export default function TableDetails() {
               View event details
             </Link>
           )}
-          {totalOnline > 0 && (
+          {(hostedTable.hosting_tier_name || hostedTable.hosting_category) && (
+            <div className="sec-card" style={{ padding: 14, marginTop: 14 }}>
+              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Table tier</p>
+              <p style={{ fontWeight: 600 }}>
+                {[hostedTable.hosting_category, hostedTable.hosting_tier_name].filter(Boolean).join(' · ')}
+              </p>
+              {hostedTable.menu_spend_total > 0 && (
+                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>
+                  Table menu total: R{Number(hostedTable.menu_spend_total).toFixed(0)}
+                  {hostedTable.menu_progress_percent != null
+                    ? ` (${Number(hostedTable.menu_progress_percent).toFixed(0)}% of min spend)`
+                    : ''}
+                </p>
+              )}
+            </div>
+          )}
+          {tierIncluded.length > 0 && (
+            <div className="sec-card" style={{ padding: 14, marginTop: 14 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Included with this table</p>
+              {tierIncluded.map((inc, i) => (
+                <p key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+                  {inc.quantity}× {inc.name}
+                </p>
+              ))}
+            </div>
+          )}
+          {Array.isArray(hostedTable.members) && hostedTable.members.length > 0 && (
+            <div className="sec-card" style={{ padding: 14, marginTop: 14 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Table orders</p>
+              {hostedTable.members.map((m) => (
+                <div key={m.userId} style={{ marginBottom: 8, fontSize: 12 }}>
+                  <span style={{ fontWeight: 600 }}>{m.user?.full_name || m.user?.username || 'Guest'}</span>
+                  {Array.isArray(m.selectedMenuItems) && m.selectedMenuItems.length > 0 ? (
+                    <ul style={{ margin: '4px 0 0 14px', color: 'var(--sec-text-muted)' }}>
+                      {m.selectedMenuItems.map((line, i) => (
+                        <li key={i}>{line.quantity}× {line.name}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span style={{ color: 'var(--sec-text-muted)' }}> — no menu items yet</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {isGoingMember && venueMenu.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Add to your table</p>
+              <MenuPicker
+                items={venueMenu}
+                selected={hostedMenuSelected}
+                onChange={(id, qty) => setHostedMenuSelected((s) => ({ ...s, [id]: qty }))}
+              />
+              <button
+                type="button"
+                className="sec-btn sec-btn-primary sec-btn-full"
+                style={{ marginTop: 12, height: 44 }}
+                disabled={isProcessingPayment}
+                onClick={payHostedMenu}
+              >
+                Pay for selected items
+              </button>
+            </div>
+          )}
+          {!isGoingMember && totalOnline > 0 && (
             <div className="sec-card" style={{ padding: 14, marginTop: 14 }}>
               <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8 }}>
                 Pay online to join (next guest)
@@ -510,15 +612,17 @@ export default function TableDetails() {
               </div>
             </div>
           )}
-          <button
-            type="button"
-            className="sec-btn sec-btn-primary sec-btn-full"
-            style={{ marginTop: 12, height: 48 }}
-            disabled={isProcessingPayment}
-            onClick={joinHosted}
-          >
-            {isProcessingPayment ? 'Working…' : totalOnline > 0 ? 'Pay & join' : 'Request to join'}
-          </button>
+          {!isGoingMember && (
+            <button
+              type="button"
+              className="sec-btn sec-btn-primary sec-btn-full"
+              style={{ marginTop: 12, height: 48 }}
+              disabled={isProcessingPayment}
+              onClick={joinHosted}
+            >
+              {isProcessingPayment ? 'Working…' : totalOnline > 0 ? 'Pay & join' : 'Request to join'}
+            </button>
+          )}
         </div>
       </div>
     );

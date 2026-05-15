@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, Send, Users, Trash2 } from 'lucide-react';
+import { ChevronLeft, Send, Users, Trash2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
@@ -88,6 +88,20 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
     }
   };
 
+  const leaveGroup = async () => {
+    if (!window.confirm('Leave this group? You can be re-added if invited again.')) return;
+    setDeleting(true);
+    try {
+      await apiDelete(`${apiBase}/members/me`);
+      toast.success('You left the group');
+      onBack();
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not leave group');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const scrollBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     setShowNew(false);
@@ -128,7 +142,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {chatKind === 'HOSTED_TABLE' && detail?.isHost && (
+          {chatKind === 'HOSTED_TABLE' && detail?.isHost ? (
             <Button
               variant="outline"
               size="sm"
@@ -137,6 +151,17 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
               onClick={deleteHostedChat}
             >
               <Trash2 className="w-4 h-4" />
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-[44px]"
+              disabled={deleting}
+              onClick={leaveGroup}
+            >
+              <LogOut className="w-4 h-4 mr-1" />
+              Leave
             </Button>
           )}
           <Sheet>

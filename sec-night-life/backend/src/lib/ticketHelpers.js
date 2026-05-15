@@ -140,10 +140,49 @@ export function formatSpecsFromVenueTable(vt) {
   return parts.join(' · ');
 }
 
-export function formatSpecsFromHostedTable(ht) {
+export function formatSpecsFromHostedTable(ht, members) {
   if (!ht) return null;
   const parts = [];
+  if (ht.hostingCategory) {
+    const tierName =
+      ht.tierIncludedItems && typeof ht.tierIncludedItems === 'object' && ht.tierIncludedItems.tier_name
+        ? ht.tierIncludedItems.tier_name
+        : null;
+    parts.push(tierName || ht.hostingCategory);
+  }
   if (ht.guestQuantity != null) parts.push(`up to ${ht.guestQuantity} guests`);
+  if (ht.tierMinSpend != null && Number(ht.tierMinSpend) > 0) {
+    parts.push(`min spend R${Number(ht.tierMinSpend)}`);
+  }
+  if (ht.menuSpendTotal != null && Number(ht.menuSpendTotal) > 0) {
+    parts.push(`table menu R${Number(ht.menuSpendTotal)}`);
+  }
   if (ht.hasJoiningFee && ht.joiningFee) parts.push(`join R${Number(ht.joiningFee)}`);
+  const hostMem = Array.isArray(members)
+    ? members.find((m) => m.userId === ht.hostUserId)
+    : null;
+  const hostLines = hostMem?.selectedMenuItems;
+  if (Array.isArray(hostLines) && hostLines.length) {
+    const brief = hostLines
+      .slice(0, 3)
+      .map((l) => `${l.quantity}× ${l.name}`)
+      .join(', ');
+    parts.push(brief);
+  }
   return parts.length ? parts.join(' · ') : null;
+}
+
+/** Refresh ticket QR summary text after menu changes. */
+export async function refreshHostedTableTickets(prisma, hostedTableId) {
+  const ht = await prisma.hostedTable.findUnique({
+    where: { id: String(hostedTableId) },
+    include: { members: true },
+  });
+  if (!ht) return;
+  const summary = formatSpecsFromHostedTable(ht, ht.members);
+  if (!summary) return;
+  await prisma.ticket.updateMany({
+    where: { hostedTableId: ht.id },
+    data: { tableSpecsSummary: summary },
+  });
 }

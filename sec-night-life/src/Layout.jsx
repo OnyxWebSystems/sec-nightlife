@@ -232,6 +232,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Venue', icon: Building2, page: 'VenueProfile' },
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
         { name: 'Bookings', icon: BookOpen, page: 'BusinessBookings' },
+        { name: 'Menu', icon: BookOpen, page: 'BusinessMenu' },
       ],
       secondary: [
         { name: 'Post Job', icon: Briefcase, page: 'CreateJob' },

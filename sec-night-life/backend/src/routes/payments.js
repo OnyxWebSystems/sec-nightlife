@@ -30,7 +30,9 @@ import {
   formatSpecsFromTable,
   formatSpecsFromVenueTable,
   formatSpecsFromHostedTable,
+  refreshHostedTableTickets,
 } from '../lib/ticketHelpers.js';
+import { mergeMemberMenuItems } from '../lib/menuHelpers.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
 import { ensureHostedTableLiveAfterListingPayment } from '../lib/hostedTableAfterListingPaid.js';
@@ -225,6 +227,80 @@ async function applyReferenceSideEffects(reference, paystackData) {
     }
   }
 
+  if (metadata.type === 'HOSTED_TABLE_MENU' && userId) {
+    const htid = metadata.hosted_table_id || metadata.hostedTableId;
+    const memberId = metadata.hosted_table_member_id || metadata.hostedTableMemberId;
+    const menuZar = Number(metadata.menu_zar || amount || 0);
+    if (htid && memberId && menuZar > 0) {
+      const mem = await prisma.hostedTableMember.findFirst({
+        where: { id: String(memberId), hostedTableId: String(htid), userId: String(userId) },
+        include: { hostedTable: { include: { event: true } } },
+      });
+      const alreadyMenu = await prisma.payoutLedger.findFirst({
+        where: { paymentReference: reference },
+      });
+      if (mem && mem.status === 'GOING' && !alreadyMenu) {
+        const added = metadata.selected_menu_items || metadata.selectedMenuItems || [];
+        const merged = mergeMemberMenuItems(mem.selectedMenuItems, added);
+        await prisma.$transaction(async (tx) => {
+          await tx.hostedTableMember.update({
+            where: { id: mem.id },
+            data: {
+              selectedMenuItems: merged,
+              menuSpendPaid: { increment: menuZar },
+            },
+          });
+          await tx.hostedTable.update({
+            where: { id: mem.hostedTableId },
+            data: { menuSpendTotal: { increment: menuZar } },
+          });
+        });
+        const secAmount = Number((menuZar * 0.15).toFixed(2));
+        const venueAmount = Number((menuZar * 0.85).toFixed(2));
+        const venueId = mem.hostedTable?.event?.venueId;
+        if (venueId) {
+          const venueCode = await resolveRecipientCodeForVenue(venueId);
+          await recordPayoutAndMaybeTransfer({
+            paymentReference: reference,
+            grossZar: menuZar,
+            secAmount,
+            recipientAmount: venueAmount,
+            recipientType: 'VENUE',
+            recipientVenueId: venueId,
+            recipientUserId: null,
+            paystackRecipientCode: venueCode,
+          });
+        }
+        if (venueId && mem.hostedTable?.eventId) {
+          const role = mem.userId === mem.hostedTable.hostUserId ? 'HOST' : 'GUEST';
+          await recordEventVenueTableBooking({
+            venueId,
+            eventId: mem.hostedTable.eventId,
+            hostedTableId: mem.hostedTableId,
+            userId: String(userId),
+            role,
+            paystackReference: reference,
+            amountTotal: menuZar,
+            componentZar: menuZar,
+            selectedMenuItems: merged,
+            hostingTierName: mem.hostedTable.tierIncludedItems?.tier_name || null,
+            hostingCategory: mem.hostedTable.hostingCategory,
+            menuTotalZar: menuZar,
+          });
+        }
+        await refreshHostedTableTickets(prisma, mem.hostedTableId);
+        await createInAppNotification({
+          userId: String(userId),
+          type: 'TABLE_JOINED',
+          title: 'Menu order confirmed',
+          body: `Your items for "${mem.hostedTable.tableName}" were added to the table.`,
+          referenceId: mem.hostedTableId,
+          referenceType: 'HOSTED_TABLE',
+        });
+      }
+    }
+  }
+
   const venueTableId = metadata.venueTableId || metadata.venue_table_id;
   const venueTableMemberId = metadata.venueTableMemberId || metadata.venue_table_member_id;
   if (metadata.type === 'VENUE_TABLE_JOIN' && venueTableId && venueTableMemberId && userId) {
@@ -352,14 +428,41 @@ async function applyReferenceSideEffects(reference, paystackData) {
       if (hosted && hosted.status === 'DRAFT' && !hosted.hostFeePaystackRef) {
         const entranceZar = Number(metadata.entrance_zar || 0);
         const hostFeeZar = Number(metadata.host_fee_zar || 0);
-        const minSpendZar = Number(metadata.min_spend_zar ?? metadata.minSpendZar ?? 0) || 0;
-        const expected = entranceZar + hostFeeZar + minSpendZar;
+        const menuZar = Number(metadata.menu_zar ?? metadata.min_spend_zar ?? metadata.minSpendZar ?? 0) || 0;
+        const minSpendZar = Number(metadata.min_spend_zar ?? 0) || 0;
+        const expected = entranceZar + hostFeeZar + menuZar;
+        const selectedMenuItems = metadata.selected_menu_items || metadata.selectedMenuItems || null;
+        const tierIncludedItems = metadata.tier_included_items || metadata.tierIncludedItems || null;
         if (expected > 0 && Math.abs(Number(amount || 0) - expected) < 0.01) {
+          const includedTotal = Array.isArray(tierIncludedItems?.items)
+            ? tierIncludedItems.items.reduce(
+                (s, i) => s + Number(i.price || 0) * Number(i.quantity || 0),
+                0
+              )
+            : 0;
+          const menuSpendTotal = Number((menuZar + includedTotal).toFixed(2));
           await prisma.hostedTable.update({
             where: { id: hosted.id },
-            data: { status: 'ACTIVE', hostFeePaystackRef: reference },
+            data: {
+              status: 'ACTIVE',
+              hostFeePaystackRef: reference,
+              menuSpendTotal,
+              ...(tierIncludedItems ? { tierIncludedItems } : {}),
+            },
           });
           await ensureHostedTableLiveAfterListingPayment(hosted.id);
+          const hostMem = await prisma.hostedTableMember.findFirst({
+            where: { hostedTableId: hosted.id, userId: String(userId) },
+          });
+          if (hostMem) {
+            await prisma.hostedTableMember.update({
+              where: { id: hostMem.id },
+              data: {
+                selectedMenuItems: selectedMenuItems || hostMem.selectedMenuItems,
+                menuSpendPaid: menuZar,
+              },
+            });
+          }
           logFriendActivity({
             userId: String(userId),
             activityType: 'HOSTED_TABLE',
@@ -425,9 +528,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
               paystackReference: reference,
               amountTotal: totalZar,
               entranceZar: entranceZar || 0,
-              componentZar: (hostFeeZar || 0) + (minSpendZar || 0),
+              componentZar: (hostFeeZar || 0) + (menuZar || 0),
+              selectedMenuItems: selectedMenuItems || undefined,
+              hostingTierName: metadata.hosting_tier_name || tierIncludedItems?.tier_name || null,
+              hostingCategory: metadata.hosting_category || hosted.hostingCategory || null,
+              menuTotalZar: menuZar || null,
             });
           }
+          await refreshHostedTableTickets(prisma, hosted.id);
           if (hosted.event?.venue?.ownerUserId) {
             await createNotification({
               userId: hosted.event.venue.ownerUserId,

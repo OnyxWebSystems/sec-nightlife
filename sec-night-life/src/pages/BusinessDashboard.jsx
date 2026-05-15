@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import {
   Calendar, BookOpen, Megaphone, BarChart3,
   Star, Users, ArrowRight, Building2, Plus,
-  ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload
+  ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload, UtensilsCrossed
 } from 'lucide-react';
 
 /** Matches backend REQUIRED_DOC_TYPES (excludes optional OTHER). */
@@ -494,6 +494,7 @@ export default function BusinessDashboard() {
           <QuickAction icon={BookOpen} label="Manage Bookings" page="BusinessBookings" />
           <QuickAction icon={BarChart3} label="View Analytics" page="VenueAnalytics" />
           <QuickAction icon={Megaphone} label="Promotions" page="BusinessPromotions" />
+          <QuickAction icon={UtensilsCrossed} label="Venue Menu" page="BusinessMenu" />
           <QuickAction icon={Briefcase} label="Post a Job" page="CreateJob" />
         </div>
       </div>

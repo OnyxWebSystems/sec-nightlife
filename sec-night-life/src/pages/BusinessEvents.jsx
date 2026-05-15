@@ -15,7 +15,9 @@ import {
   Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { uploadFile } from '@/api/client';
+import { apiGet, uploadFile } from '@/api/client';
+import ImageCropDialog from '@/components/profile/ImageCropDialog';
+import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 
 function isoToDatetimeLocal(iso) {
   if (!iso) return '';
@@ -44,6 +46,12 @@ function hostingFromApi(hc) {
           max_guests: String(t.max_guests ?? ''),
           min_spend: String(t.min_spend ?? ''),
           tier_table_slots: String(t.tier_table_slots ?? ''),
+          included_items: Array.isArray(t?.included_items)
+            ? t.included_items.map((inc) => ({
+                menu_item_id: String(inc.menu_item_id || inc.menuItemId || ''),
+                quantity: String(inc.quantity ?? '1'),
+              }))
+            : [],
         }))
       : [],
   });
@@ -79,6 +87,21 @@ export default function BusinessEvents() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [deleteId, setDeleteId] = useState(null);
   const [coverUploading, setCoverUploading] = useState(false);
+
+  const coverCrop = useImageCropUpload({
+    onCropped: async (file) => {
+      setCoverUploading(true);
+      try {
+        const r = await uploadFile(file);
+        if (r?.file_url) setForm((p) => ({ ...p, cover_image_url: r.file_url }));
+        else toast.error('Upload did not return a URL');
+      } catch (err) {
+        toast.error(err?.message || 'Upload failed');
+      } finally {
+        setCoverUploading(false);
+      }
+    },
+  });
   useEffect(() => {
     (async () => {
       try { setUser(await authService.getCurrentUser()); }
@@ -98,7 +121,13 @@ export default function BusinessEvents() {
     queryFn: () => dataService.Venue.mine(),
     enabled: !!user,
   });
+
   const venue = venues[0];
+  const { data: venueMenuItems = [] } = useQuery({
+    queryKey: ['venue-menu', venue?.id],
+    queryFn: () => apiGet(`/api/business/venues/${venue.id}/menu-items`),
+    enabled: !!venue?.id,
+  });
 
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['biz-events', venue?.id],
@@ -267,7 +296,15 @@ export default function BusinessEvents() {
           toast.error(`Each ${cat === 'vip' ? 'VIP' : 'General'} tier needs a name`);
           return;
         }
-        parsedTiers.push({ tier_name: tierName, max_guests: mg, min_spend: ms, tier_table_slots: slots });
+        const included = (t.included_items || [])
+          .map((inc) => ({
+            menu_item_id: String(inc.menu_item_id || '').trim(),
+            quantity: Math.max(1, parseInt(String(inc.quantity || '1'), 10) || 1),
+          }))
+          .filter((inc) => inc.menu_item_id);
+        const tierPayload = { tier_name: tierName, max_guests: mg, min_spend: ms, tier_table_slots: slots };
+        if (included.length) tierPayload.included_items = included;
+        parsedTiers.push(tierPayload);
         totalTierSlots += slots;
       }
       if (parsedTiers.length > 0 && hostingPayload[cat].max_tables == null) {
@@ -657,7 +694,7 @@ export default function BusinessEvents() {
                                 ...p.hosting_config[cat],
                                 tiers: [
                                   ...(p.hosting_config[cat].tiers || []),
-                                  { tier_name: '', max_guests: '', min_spend: '', tier_table_slots: '' },
+                                  { tier_name: '', max_guests: '', min_spend: '', tier_table_slots: '', included_items: [] },
                                 ],
                               },
                             },
@@ -781,6 +818,76 @@ export default function BusinessEvents() {
                               style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
                             />
                           </div>
+                          {venueMenuItems.length > 0 && (
+                            <div className="w-full mt-2">
+                              <Label className="text-xs text-gray-500">Included with tier (optional)</Label>
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {venueMenuItems.map((m) => {
+                                  const included = tier.included_items || [];
+                                  const existing = included.find((x) => x.menu_item_id === m.id);
+                                  const qty = existing ? parseInt(String(existing.quantity), 10) || 0 : 0;
+                                  return (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      className="text-xs px-2 py-1 rounded-lg border"
+                                      style={{
+                                        borderColor: qty > 0 ? 'var(--sec-accent)' : 'var(--sec-border)',
+                                        backgroundColor: qty > 0 ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
+                                        color: 'var(--sec-text-primary)',
+                                      }}
+                                      onClick={() => {
+                                        const next = [...(form.hosting_config[cat].tiers || [])];
+                                        let items = [...(next[idx].included_items || [])];
+                                        if (qty > 0) items = items.filter((x) => x.menu_item_id !== m.id);
+                                        else items.push({ menu_item_id: m.id, quantity: '1' });
+                                        next[idx] = { ...next[idx], included_items: items };
+                                        setForm((p) => ({
+                                          ...p,
+                                          hosting_config: {
+                                            ...p.hosting_config,
+                                            [cat]: { ...p.hosting_config[cat], tiers: next },
+                                          },
+                                        }));
+                                      }}
+                                    >
+                                      {m.name}{qty > 0 ? ` ×${qty}` : ''}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {(tier.included_items || []).map((inc) => {
+                                const row = venueMenuItems.find((m) => m.id === inc.menu_item_id);
+                                if (!row) return null;
+                                return (
+                                  <div key={inc.menu_item_id} className="flex items-center gap-2 mt-1 text-xs">
+                                    <span>{row.name}</span>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      max={99}
+                                      className="h-8 w-16"
+                                      value={inc.quantity}
+                                      onChange={(e) => {
+                                        const next = [...(form.hosting_config[cat].tiers || [])];
+                                        const items = (next[idx].included_items || []).map((x) =>
+                                          x.menu_item_id === inc.menu_item_id ? { ...x, quantity: e.target.value } : x
+                                        );
+                                        next[idx] = { ...next[idx], included_items: items };
+                                        setForm((p) => ({
+                                          ...p,
+                                          hosting_config: {
+                                            ...p.hosting_config,
+                                            [cat]: { ...p.hosting_config[cat], tiers: next },
+                                          },
+                                        }));
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                           <Button
                             type="button"
                             variant="ghost"
@@ -835,21 +942,7 @@ export default function BusinessEvents() {
                 disabled={coverUploading}
                 className="mt-1.5 rounded-xl cursor-pointer"
                 style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  setCoverUploading(true);
-                  try {
-                    const r = await uploadFile(f);
-                    if (r?.file_url) setForm((p) => ({ ...p, cover_image_url: r.file_url }));
-                    else toast.error('Upload did not return a URL');
-                  } catch (err) {
-                    toast.error(err?.message || 'Upload failed');
-                  } finally {
-                    setCoverUploading(false);
-                    e.target.value = '';
-                  }
-                }}
+                onChange={coverCrop.handleInputChange}
               />
               <p className="text-xs text-gray-500 mt-1">Upload a file (required to publish).</p>
             </div>
@@ -907,6 +1000,15 @@ export default function BusinessEvents() {
           </div>
         </DialogContent>
       </Dialog>
+      <ImageCropDialog
+        open={coverCrop.cropOpen}
+        onOpenChange={coverCrop.onCropOpenChange}
+        imageSrc={coverCrop.cropSrc}
+        aspect={16 / 9}
+        title="Crop event cover"
+        onCropped={coverCrop.handleCropped}
+        outputFileName="event-cover.jpg"
+      />
     </div>
   );
 }

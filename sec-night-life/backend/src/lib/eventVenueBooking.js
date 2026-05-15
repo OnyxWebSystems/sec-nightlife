@@ -13,12 +13,28 @@ export async function recordEventVenueTableBooking({
   amountTotal = null,
   entranceZar = null,
   componentZar = null,
+  selectedMenuItems = null,
+  hostingTierName = null,
+  hostingCategory = null,
+  menuTotalZar = null,
 }) {
   if (!venueId || !eventId || !hostedTableId || !userId || !role) return null;
   const dup = await prisma.eventVenueTableBooking.findFirst({
     where: { hostedTableId, userId, role },
   });
-  if (dup) return dup;
+  const data = {
+    paystackReference,
+    amountTotal,
+    entranceZar,
+    componentZar,
+    ...(selectedMenuItems != null ? { selectedMenuItems } : {}),
+    ...(hostingTierName != null ? { hostingTierName } : {}),
+    ...(hostingCategory != null ? { hostingCategory } : {}),
+    ...(menuTotalZar != null ? { menuTotalZar } : {}),
+  };
+  if (dup) {
+    return prisma.eventVenueTableBooking.update({ where: { id: dup.id }, data });
+  }
   return prisma.eventVenueTableBooking.create({
     data: {
       venueId,
@@ -26,10 +42,7 @@ export async function recordEventVenueTableBooking({
       hostedTableId,
       userId,
       role,
-      paystackReference,
-      amountTotal,
-      entranceZar,
-      componentZar,
+      ...data,
     },
   });
 }
