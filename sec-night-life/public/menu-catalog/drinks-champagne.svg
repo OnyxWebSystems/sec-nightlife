@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="12" fill="#1a1a1e"/>
+  <path d="M52 28h16l-2 58H54L52 28z" fill="#f5e6a8"/>
+  <circle cx="60" cy="22" r="6" fill="#f5e6a8" opacity="0.6"/>
+  <text x="60" y="108" text-anchor="middle" fill="#888" font-size="7" font-family="system-ui,sans-serif">Champagne</text>
+</svg>

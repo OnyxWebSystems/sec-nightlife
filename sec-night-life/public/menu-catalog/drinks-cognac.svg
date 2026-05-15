@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="12" fill="#1a1a1e"/>
+  <path d="M48 28h24v8H48zm-4 12h32l-6 52H50L44 40z" fill="#c9a227" opacity="0.9"/>
+  <text x="60" y="108" text-anchor="middle" fill="#888" font-size="9" font-family="system-ui,sans-serif">Cognac</text>
+</svg>

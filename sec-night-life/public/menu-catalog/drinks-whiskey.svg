@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="12" fill="#1a1a1e"/>
+  <path d="M44 32h32l-4 48H48L44 32z" fill="#a67c52"/>
+  <text x="60" y="108" text-anchor="middle" fill="#888" font-size="8" font-family="system-ui,sans-serif">Whiskey</text>
+</svg>

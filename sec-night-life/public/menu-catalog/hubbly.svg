@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="12" fill="#1a1a1e"/>
+  <rect x="54" y="70" width="12" height="24" fill="#78909c"/>
+  <ellipse cx="60" cy="52" rx="22" ry="14" fill="#4fc3f7" opacity="0.5"/>
+  <path d="M60 38v-12M52 30h16" stroke="#78909c" stroke-width="3"/>
+  <text x="60" y="108" text-anchor="middle" fill="#888" font-size="9" font-family="system-ui,sans-serif">Hubbly</text>
+</svg>

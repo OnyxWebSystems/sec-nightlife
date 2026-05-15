@@ -481,20 +481,45 @@ model Venue {
   @@map("venues")
 }
 
+model MenuCatalogItem {
+  id              String   @id
+  name            String
+  topCategory     String   @map("top_category")
+  subCategory     String?  @map("sub_category")
+  defaultPriceZar Float    @map("default_price_zar")
+  imageUrl        String?  @map("image_url")
+  searchText      String?  @map("search_text")
+  brand           String?
+  sortOrder       Int      @default(0) @map("sort_order")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  venueMenuItems VenueMenuItem[]
+
+  @@index([topCategory, subCategory])
+  @@index([isActive])
+  @@map("menu_catalog_items")
+}
+
 model VenueMenuItem {
-  id          String   @id @default(cuid())
-  venueId     String   @map("venue_id")
-  name        String
-  category    String   @default("Other")
-  price       Float
-  imageUrl    String?  @map("image_url")
-  isAvailable Boolean  @default(true) @map("is_available")
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(cuid())
+  venueId       String   @map("venue_id")
+  catalogItemId String?  @map("catalog_item_id")
+  name          String
+  category      String   @default("Other")
+  subCategory   String?  @map("sub_category")
+  price         Float
+  imageUrl      String?  @map("image_url")
+  isAvailable   Boolean  @default(true) @map("is_available")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  venue         Venue            @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  catalogItem   MenuCatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
 
+  @@unique([venueId, catalogItemId])
   @@index([venueId])
   @@map("venue_menu_items")
 }

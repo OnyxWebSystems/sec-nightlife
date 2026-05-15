@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="12" fill="#1a1a1e"/>
+  <rect x="44" y="36" width="32" height="48" rx="4" fill="#ffb74d" opacity="0.9"/>
+  <rect x="44" y="30" width="32" height="8" fill="#fff" opacity="0.3"/>
+  <text x="60" y="108" text-anchor="middle" fill="#888" font-size="8" font-family="system-ui,sans-serif">Beer</text>
+</svg>

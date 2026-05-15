@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="12" fill="#1a1a1e"/>
+  <path d="M48 30h24v6H48zm-2 8h28l-8 46H46L46 38z" fill="#8e24aa" opacity="0.85"/>
+  <text x="60" y="108" text-anchor="middle" fill="#888" font-size="7" font-family="system-ui,sans-serif">Liqueur</text>
+</svg>

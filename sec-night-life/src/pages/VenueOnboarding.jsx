@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
+import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -250,9 +251,6 @@ export default function VenueOnboarding() {
   const [uploadProgress, setUploadProgress] = useState({});
   const [selectedPlan, setSelectedPlan] = useState('basic');
   const [menuDraftItems, setMenuDraftItems] = useState([]);
-  const [menuDraft, setMenuDraft] = useState({ name: '', price: '', category: 'Drinks', image_url: '' });
-  const [cropField, setCropField] = useState(null);
-  const [menuUploading, setMenuUploading] = useState(false);
 
   const cloudinaryConfig = {
     cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
@@ -269,18 +267,20 @@ export default function VenueOnboarding() {
       await uploadVenueFile('cover_image_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
     },
   });
-  const menuItemCrop = useImageCropUpload({
-    onCropped: async (file) => {
-      setMenuUploading(true);
-      try {
-        const data = await uploadFile(file);
-        if (data?.file_url) setMenuDraft((d) => ({ ...d, image_url: data.file_url }));
-      } finally {
-        setMenuUploading(false);
-      }
-    },
-  });
   const draftSaveTimerRef = useRef(null);
+
+  const addedCatalogIds = useMemo(
+    () => new Set(menuDraftItems.map((i) => i.catalog_item_id).filter(Boolean)),
+    [menuDraftItems]
+  );
+
+  const handleAddMenuDraft = (item) => {
+    if (item.catalog_item_id && addedCatalogIds.has(item.catalog_item_id)) {
+      toast.info('Already in your menu draft');
+      return;
+    }
+    setMenuDraftItems((items) => [...items, item]);
+  };
 
   const [formData, setFormData] = useState(() => ({ ...INITIAL_FORM_DATA }));
 
@@ -480,15 +480,27 @@ export default function VenueOnboarding() {
 
       if (createdVenue?.id && menuDraftItems.length > 0) {
         try {
-          await apiPost(`/api/business/venues/${createdVenue.id}/menu-items`, {
-            items: menuDraftItems.map((item, idx) => ({
-              name: item.name,
-              price: Number(item.price),
-              category: item.category || 'Other',
-              image_url: item.image_url || null,
-              sort_order: idx,
-            })),
-          });
+          const catalogRows = menuDraftItems.filter((i) => i.catalog_item_id);
+          const customRows = menuDraftItems.filter((i) => !i.catalog_item_id);
+          if (catalogRows.length > 0) {
+            await apiPost(`/api/business/venues/${createdVenue.id}/menu-items/from-catalog`, {
+              items: catalogRows.map((item) => ({
+                catalog_item_id: item.catalog_item_id,
+                price: Number(item.price),
+              })),
+            });
+          }
+          if (customRows.length > 0) {
+            await apiPost(`/api/business/venues/${createdVenue.id}/menu-items`, {
+              items: customRows.map((item, idx) => ({
+                name: item.name,
+                price: Number(item.price),
+                category: item.category || 'Other',
+                image_url: item.image_url || null,
+                sort_order: idx,
+              })),
+            });
+          }
         } catch (menuErr) {
           toast.error(menuErr?.data?.error || menuErr.message || 'Venue saved but menu items could not be saved.');
         }
@@ -918,33 +930,41 @@ export default function VenueOnboarding() {
             <motion.div key="step-menu" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
               <div className="text-center mb-6">
                 <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Venue menu</h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Optional — edit anytime in Dashboard → Menu</p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Search our catalog or add custom items — optional, edit anytime in Dashboard</p>
               </div>
-              <div className="space-y-3 rounded-2xl p-4" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
-                <input className="w-full h-11 px-3 rounded-xl bg-[#141416] border border-[#262629] text-white" placeholder="Item name" value={menuDraft.name} onChange={(e) => setMenuDraft((d) => ({ ...d, name: e.target.value }))} />
-                <div className="grid grid-cols-2 gap-2">
-                  <input className="h-11 px-3 rounded-xl bg-[#141416] border border-[#262629] text-white" placeholder="Price" type="number" value={menuDraft.price} onChange={(e) => setMenuDraft((d) => ({ ...d, price: e.target.value }))} />
-                  <select className="h-11 px-3 rounded-xl bg-[#141416] border border-[#262629] text-white" value={menuDraft.category} onChange={(e) => setMenuDraft((d) => ({ ...d, category: e.target.value }))}>
-                    {['Drinks', 'Food', 'Hubbly', 'Other'].map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+              <MenuCatalogBrowser
+                mode="draft"
+                addedCatalogIds={addedCatalogIds}
+                onAddToDraft={handleAddMenuDraft}
+              />
+              {menuDraftItems.length > 0 && (
+                <div className="space-y-2">
+                  <h2 className="text-sm font-semibold" style={{ color: 'var(--sec-text-primary)' }}>Your menu ({menuDraftItems.length})</h2>
+                  {menuDraftItems.map((item, idx) => (
+                    <div key={item.catalog_item_id ? item.catalog_item_id : `custom-${idx}`} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+                      {item.image_url && <img src={item.image_url} alt="" className="w-12 h-12 rounded object-cover" />}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{item.name}</div>
+                        <input
+                          type="number"
+                          min={1}
+                          className="mt-1 w-24 h-8 px-2 rounded text-xs bg-[#141416] border border-[#262629] text-white"
+                          value={item.price}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            setMenuDraftItems((items) =>
+                              items.map((row, i) => (i === idx ? { ...row, price: Number.isFinite(v) ? v : row.price } : row))
+                            );
+                          }}
+                        />
+                      </div>
+                      <button type="button" onClick={() => setMenuDraftItems((items) => items.filter((_, i) => i !== idx))} aria-label="Remove">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                <input type="file" accept="image/*" onChange={menuItemCrop.handleInputChange} disabled={menuUploading} />
-                {menuDraft.image_url && <img src={menuDraft.image_url} alt="" className="w-16 h-16 rounded-lg object-cover" />}
-                <Button type="button" onClick={() => {
-                  const name = menuDraft.name.trim();
-                  const price = parseFloat(menuDraft.price);
-                  if (!name || !Number.isFinite(price)) return toast.error('Name and price required');
-                  setMenuDraftItems((items) => [...items, { ...menuDraft, name, price }]);
-                  setMenuDraft({ name: '', price: '', category: 'Drinks', image_url: '' });
-                }} className="w-full" style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}><Plus className="w-4 h-4 mr-2" /> Add item</Button>
-              </div>
-              {menuDraftItems.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
-                  {item.image_url && <img src={item.image_url} alt="" className="w-12 h-12 rounded object-cover" />}
-                  <div className="flex-1 text-sm"><strong>{item.name}</strong> · R{Number(item.price).toFixed(0)}</div>
-                  <button type="button" onClick={() => setMenuDraftItems((items) => items.filter((_, i) => i !== idx))}><Trash2 size={16} /></button>
-                </div>
-              ))}
+              )}
             </motion.div>
           )}
 
@@ -1131,16 +1151,6 @@ export default function VenueOnboarding() {
         onCropped={coverCrop.handleCropped}
         outputFileName="venue-cover.jpg"
       />
-      <ImageCropDialog
-        open={menuItemCrop.cropOpen}
-        onOpenChange={menuItemCrop.onCropOpenChange}
-        imageSrc={menuItemCrop.cropSrc}
-        aspect={1}
-        title="Crop menu item image"
-        onCropped={menuItemCrop.handleCropped}
-        outputFileName="menu-item.jpg"
-      />
-
     </div>
   );
 }

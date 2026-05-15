@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="12" fill="#1a1a1e"/>
+  <path d="M46 34h28l-6 50H52L46 34z" fill="#8d6e63"/>
+  <text x="60" y="108" text-anchor="middle" fill="#888" font-size="9" font-family="system-ui,sans-serif">Rum</text>
+</svg>
