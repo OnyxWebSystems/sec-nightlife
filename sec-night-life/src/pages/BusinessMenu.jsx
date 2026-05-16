@@ -19,7 +19,6 @@ export default function BusinessMenu() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
-  const [venueId, setVenueId] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [priceEdit, setPriceEdit] = useState('');
   const [photoTargetId, setPhotoTargetId] = useState(null);
@@ -30,15 +29,21 @@ export default function BusinessMenu() {
       try {
         const u = await authService.getCurrentUser();
         setUser(u);
-        const venues = await dataService.Venue.mine();
-        if (venues?.[0]?.id) setVenueId(venues[0].id);
       } catch {
         authService.redirectToLogin();
       }
     })();
   }, []);
 
-  const { data: items = [], isLoading } = useQuery({
+  const { data: venues = [], isLoading: venuesLoading } = useQuery({
+    queryKey: ['biz-venues', user?.id],
+    queryFn: () => dataService.Venue.mine(),
+    enabled: !!user?.id,
+  });
+
+  const venueId = venues[0]?.id;
+
+  const { data: items = [], isLoading: itemsLoading } = useQuery({
     queryKey: ['venue-menu', venueId],
     queryFn: () => apiGet(`/api/business/venues/${venueId}/menu-items`),
     enabled: !!venueId,
@@ -118,10 +123,19 @@ export default function BusinessMenu() {
 
   if (!user) return null;
 
+  if (venuesLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+        <Loader2 className="animate-spin" />
+      </div>
+    );
+  }
+
   if (!venueId) {
     return (
       <div style={{ padding: 24, maxWidth: 560, margin: '0 auto' }}>
-        <p style={{ color: 'var(--sec-text-muted)' }}>Complete venue onboarding first.</p>
+        <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Menu Maker</h1>
+        <p style={{ color: 'var(--sec-text-muted)' }}>Register your venue first to build a menu.</p>
         <button type="button" className="sec-btn sec-btn-primary mt-3" onClick={() => navigate(createPageUrl('VenueOnboarding'))}>
           Set up venue
         </button>
@@ -131,9 +145,9 @@ export default function BusinessMenu() {
 
   return (
     <div style={{ padding: '24px 20px', maxWidth: 900, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Venue menu</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Menu Maker</h1>
       <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
-        You control what guests see. Upload your own photos of what you actually serve.
+        Manage what guests see. Add items with your own photos, prices, and categories.
       </p>
 
       {needsPhotoCount > 0 && (
@@ -150,7 +164,7 @@ export default function BusinessMenu() {
       )}
 
       <div className="sec-card" style={{ padding: 16, marginBottom: 24 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Menu Maker</h2>
+        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Add items</h2>
         <MenuCatalogBrowser
           mode="live"
           venueId={venueId}
@@ -160,7 +174,7 @@ export default function BusinessMenu() {
       </div>
 
       <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Your menu</h2>
-      {isLoading ? (
+      {itemsLoading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
           <Loader2 className="animate-spin" />
         </div>

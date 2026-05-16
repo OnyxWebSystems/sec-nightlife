@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -25,10 +25,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import GoogleMapDisplay from '@/components/GoogleMapDisplay';
 import SecLogo from '@/components/ui/SecLogo';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
+import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
 
 const VENUE_TYPES = [
   { value: 'nightclub', label: 'Nightclub' },
@@ -180,6 +182,7 @@ function uploadFieldLabel(field) {
   return 'Document';
 }
 
+/** @returns {Promise<string|null>} uploaded file URL on success */
 async function uploadVenueFile(field, file, cloudinaryConfig, setters) {
   const { setUploadProgress, setFormData, setError } = setters;
   setUploadProgress((prev) => ({ ...prev, [field]: 'uploading' }));
@@ -209,11 +212,13 @@ async function uploadVenueFile(field, file, cloudinaryConfig, setters) {
     setFormData((prev) => ({ ...prev, [field]: url }));
     setUploadProgress((prev) => ({ ...prev, [field]: 'done' }));
     toast.success(`${uploadFieldLabel(field)} uploaded successfully.`);
+    return url;
   } catch (error) {
     setUploadProgress((prev) => ({ ...prev, [field]: 'error' }));
     const message = error?.message || 'Failed to upload.';
     setError(message);
     toast.error(message);
+    return null;
   }
 }
 
@@ -247,28 +252,118 @@ export default function VenueOnboarding() {
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState({});
   const [selectedPlan, setSelectedPlan] = useState('basic');
+  const [venueId, setVenueId] = useState(null);
+  const [menuDraftItems, setMenuDraftItems] = useState([]);
+  const [ensuringVenueForMenu, setEnsuringVenueForMenu] = useState(false);
+  const [brandingPreviewKey, setBrandingPreviewKey] = useState(0);
   const cloudinaryConfig = {
     cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
     uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
   };
 
+  const persistBrandingField = useCallback(
+    async (field, url) => {
+      if (!url) return;
+      let id = venueId;
+      if (!id) {
+        try {
+          const mines = await dataService.Venue.mine();
+          id = mines?.[0]?.id ?? null;
+          if (id) setVenueId(id);
+        } catch {
+          return;
+        }
+      }
+      if (!id) return;
+      try {
+        await dataService.Venue.update(id, { [field]: url });
+      } catch (e) {
+        toast.error(e?.message || 'Saved locally — will sync when you finish onboarding.');
+      }
+    },
+    [venueId]
+  );
+
   const logoCrop = useImageCropUpload({
     onCropped: async (file) => {
-      await uploadVenueFile('logo_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
+      const url = await uploadVenueFile('logo_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
+      if (url) {
+        setBrandingPreviewKey((k) => k + 1);
+        await persistBrandingField('logo_url', url);
+      }
     },
   });
   const coverCrop = useImageCropUpload({
     onCropped: async (file) => {
-      await uploadVenueFile('cover_image_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
+      const url = await uploadVenueFile('cover_image_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
+      if (url) {
+        setBrandingPreviewKey((k) => k + 1);
+        await persistBrandingField('cover_image_url', url);
+      }
     },
   });
   const draftSaveTimerRef = useRef(null);
+
+  const addedCatalogIds = useMemo(
+    () => new Set(menuDraftItems.map((i) => i.catalog_item_id).filter(Boolean)),
+    [menuDraftItems]
+  );
+
+  const handleAddMenuDraft = (item) => {
+    if (item.catalog_item_id && addedCatalogIds.has(item.catalog_item_id)) {
+      toast.info('Already in your menu');
+      return;
+    }
+    setMenuDraftItems((items) => [...items, item]);
+  };
+
+  const { data: liveMenuItems = [] } = useQuery({
+    queryKey: ['venue-menu-onboarding', venueId],
+    queryFn: () => apiGet(`/api/business/venues/${venueId}/menu-items`),
+    enabled: !!venueId && step === 3,
+  });
+
+  const liveMenuCatalogIds = useMemo(
+    () => new Set(liveMenuItems.map((i) => i.catalog_item_id).filter(Boolean)),
+    [liveMenuItems]
+  );
 
   const [formData, setFormData] = useState(() => ({ ...INITIAL_FORM_DATA }));
 
   useEffect(() => {
     checkAuth();
   }, []);
+
+  useEffect(() => {
+    if (step !== 3 || venueId || !bootstrapped) return;
+    if (!formData.name?.trim() || !formData.venue_type || !formData.city?.trim()) return;
+
+    let cancelled = false;
+    (async () => {
+      setEnsuringVenueForMenu(true);
+      try {
+        const payload = {
+          name: formData.name.trim(),
+          venue_type: formData.venue_type,
+          city: formData.city.trim(),
+          capacity: parseInt(formData.capacity, 10) || 0,
+          age_limit: parseInt(formData.age_limit, 10) || 18,
+        };
+        if (formData.logo_url) payload.logo_url = formData.logo_url;
+        if (formData.cover_image_url) payload.cover_image_url = formData.cover_image_url;
+        const v = await upsertVenue(payload);
+        if (!cancelled && v?.id) setVenueId(v.id);
+      } catch (e) {
+        if (!cancelled) toast.error(e?.message || 'Complete venue info before adding menu items.');
+      } finally {
+        if (!cancelled) setEnsuringVenueForMenu(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, venueId, bootstrapped, formData.name, formData.venue_type, formData.city]);
 
   useEffect(() => {
     if (!bootstrapped || !user?.id) return;
@@ -312,6 +407,7 @@ export default function VenueOnboarding() {
       }
 
       if (mines.length > 0) {
+        setVenueId(mines[0].id);
         let detail = mines[0];
         try {
           detail = await apiGet(`/api/venues/${mines[0].id}`);
@@ -459,6 +555,40 @@ export default function VenueOnboarding() {
       if (formData.cover_image_url) venueData.cover_image_url = formData.cover_image_url;
 
       const createdVenue = await upsertVenue(venueData);
+      const resolvedVenueId = createdVenue?.id || venueId;
+
+      if (resolvedVenueId && menuDraftItems.length > 0) {
+        try {
+          const catalogRows = menuDraftItems.filter((i) => i.catalog_item_id);
+          const customRows = menuDraftItems.filter((i) => !i.catalog_item_id);
+          const withPhoto = (rows) => rows.filter((i) => i.image_url && String(i.image_url).startsWith('http'));
+          const catalogWithPhoto = withPhoto(catalogRows);
+          const customWithPhoto = withPhoto(customRows);
+          if (catalogWithPhoto.length > 0) {
+            await apiPost(`/api/business/venues/${resolvedVenueId}/menu-items/from-catalog`, {
+              items: catalogWithPhoto.map((item) => ({
+                catalog_item_id: item.catalog_item_id,
+                price: Number(item.price),
+                image_url: item.image_url,
+              })),
+            });
+          }
+          if (customWithPhoto.length > 0) {
+            await apiPost(`/api/business/venues/${resolvedVenueId}/menu-items`, {
+              items: customWithPhoto.map((item, idx) => ({
+                name: item.name,
+                price: Number(item.price),
+                category: item.category || 'Other',
+                sub_category: item.sub_category || null,
+                image_url: item.image_url,
+                sort_order: idx,
+              })),
+            });
+          }
+        } catch (menuErr) {
+          toast.error(menuErr?.data?.error || menuErr.message || 'Venue saved but menu items could not be saved.');
+        }
+      }
 
       const complianceUploads = [
         { documentType: 'BUSINESS_REGISTRATION', fileUrl: formData.cipc_document_url, fileName: 'cipc-registration.pdf' },
@@ -517,7 +647,7 @@ export default function VenueOnboarding() {
   const steps = [
     { number: 1, title: 'Info', icon: Building },
     { number: 2, title: 'Details', icon: MapPin },
-    { number: 3, title: 'Your menu', icon: UtensilsCrossed },
+    { number: 3, title: 'Menu Maker', icon: UtensilsCrossed },
     { number: 4, title: 'Compliance', icon: Shield },
     { number: 5, title: 'Payout', icon: CreditCard },
   ];
@@ -656,7 +786,7 @@ export default function VenueOnboarding() {
                   <label className="cursor-pointer mt-2 block">
                     <div className="h-24 rounded-xl bg-[#141416] border border-[#262629] flex items-center justify-center overflow-hidden">
                       {formData.logo_url ? (
-                        <img src={formData.logo_url} alt="" className="w-full h-full object-cover" />
+                        <img key={`logo-${brandingPreviewKey}-${formData.logo_url}`} src={formData.logo_url} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <Upload className="w-6 h-6 text-gray-600" />
                       )}
@@ -680,7 +810,7 @@ export default function VenueOnboarding() {
                   <label className="cursor-pointer mt-2 block">
                     <div className="h-24 rounded-xl bg-[#141416] border border-[#262629] flex items-center justify-center overflow-hidden">
                       {formData.cover_image_url ? (
-                        <img src={formData.cover_image_url} alt="" className="w-full h-full object-cover" />
+                        <img key={`cover-${brandingPreviewKey}-${formData.cover_image_url}`} src={formData.cover_image_url} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <Upload className="w-6 h-6 text-gray-600" />
                       )}
@@ -889,29 +1019,52 @@ export default function VenueOnboarding() {
                 >
                   <UtensilsCrossed className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
                 </div>
-                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Build your menu in the Dashboard</h1>
+                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Menu Maker</h1>
                 <p className="text-sm max-w-sm mx-auto" style={{ color: 'var(--sec-text-muted)' }}>
-                  After onboarding, open <strong style={{ color: 'var(--sec-text-secondary)' }}>Venue Menu</strong> in your Dashboard to add drinks, food, and more.
+                  Add what you sell with your own photos and prices. You can update your menu anytime from the Dashboard.
                 </p>
               </div>
-              <div
-                className="rounded-xl border p-5 space-y-3 text-sm"
-                style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
-              >
-                <p style={{ color: 'var(--sec-text-secondary)' }}>
-                  <strong style={{ color: 'var(--sec-text-primary)' }}>Your photos only.</strong> SEC does not supply or display product images. Every menu item needs a photo you upload before guests can see it.
+              {ensuringVenueForMenu && !venueId ? (
+                <p className="text-sm text-center" style={{ color: 'var(--sec-text-muted)' }}>Preparing your venue menu…</p>
+              ) : null}
+              {!formData.name?.trim() || !formData.venue_type || !formData.city?.trim() ? (
+                <p className="text-sm rounded-xl p-4" style={{ color: 'var(--sec-text-muted)', backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+                  Complete the Info step (venue name, type, and city) before adding menu items.
                 </p>
-                <p style={{ color: 'var(--sec-text-muted)' }}>
-                  Use Menu Maker in the Dashboard to pick common item names and set your prices, or add custom items. You can skip this step and set up your menu anytime.
-                </p>
-                <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
-                  See our{' '}
-                  <Link to={createPageUrl('VenueComplianceCharter')} className="underline" style={{ color: 'var(--sec-accent)' }}>
-                    Venue Compliance Charter
-                  </Link>{' '}
-                  for menu listing responsibilities.
-                </p>
-              </div>
+              ) : (
+                <MenuCatalogBrowser
+                  mode={venueId ? 'live' : 'draft'}
+                  venueId={venueId || undefined}
+                  addedCatalogIds={venueId ? liveMenuCatalogIds : addedCatalogIds}
+                  onAddToDraft={venueId ? undefined : handleAddMenuDraft}
+                  onVenueMenuUpdated={() => toast.success('Menu updated')}
+                />
+              )}
+              {!venueId && menuDraftItems.length > 0 && (
+                <div className="space-y-2">
+                  <h2 className="text-sm font-semibold" style={{ color: 'var(--sec-text-primary)' }}>
+                    Your menu ({menuDraftItems.length}) — saved when you finish onboarding
+                  </h2>
+                  {menuDraftItems.map((item, idx) => (
+                    <div
+                      key={item.catalog_item_id ? item.catalog_item_id : `custom-${idx}`}
+                      className="flex items-center gap-3 p-3 rounded-xl"
+                      style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
+                    >
+                      {item.image_url ? (
+                        <img src={item.image_url} alt="" className="w-12 h-12 rounded object-cover shrink-0" />
+                      ) : null}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{item.name}</div>
+                        <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
+                          {item.category}
+                          {item.sub_category ? ` · ${item.sub_category}` : ''} · R{Number(item.price).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -1093,7 +1246,9 @@ export default function VenueOnboarding() {
         open={coverCrop.cropOpen}
         onOpenChange={coverCrop.onCropOpenChange}
         imageSrc={coverCrop.cropSrc}
-        aspect={16 / 9}
+        aspect={4 / 3}
+        maxCropHeight="min(70vh, 480px)"
+        contentClassName="max-w-lg"
         title="Crop cover image"
         onCropped={coverCrop.handleCropped}
         outputFileName="venue-cover.jpg"

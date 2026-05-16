@@ -494,7 +494,7 @@ export default function BusinessDashboard() {
           <QuickAction icon={BookOpen} label="Manage Bookings" page="BusinessBookings" />
           <QuickAction icon={BarChart3} label="View Analytics" page="VenueAnalytics" />
           <QuickAction icon={Megaphone} label="Promotions" page="BusinessPromotions" />
-          <QuickAction icon={UtensilsCrossed} label="Venue Menu" page="BusinessMenu" />
+          <QuickAction icon={UtensilsCrossed} label="Menu Maker" page="BusinessMenu" />
           <QuickAction icon={Briefcase} label="Post a Job" page="CreateJob" />
         </div>
       </div>

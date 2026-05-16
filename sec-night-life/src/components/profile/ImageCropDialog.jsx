@@ -57,6 +57,8 @@ export function getCroppedImg(imageSrc, pixelCrop) {
  * @param {'round' | 'rect'} [props.cropShape]
  * @param {string} [props.title]
  * @param {string} [props.outputFileName]
+ * @param {string} [props.maxCropHeight] CSS length for crop viewport height (default min(70vh, 360px))
+ * @param {string} [props.contentClassName] Extra classes on DialogContent
  */
 export default function ImageCropDialog({
   open,
@@ -67,6 +69,8 @@ export default function ImageCropDialog({
   cropShape = 'rect',
   title = 'Adjust image',
   outputFileName = 'image.jpg',
+  maxCropHeight = 'min(70vh, 360px)',
+  contentClassName = '',
 }) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -100,14 +104,14 @@ export default function ImageCropDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] max-w-md">
+      <DialogContent className={`bg-[var(--sec-bg-card)] border-[var(--sec-border)] max-w-md ${contentClassName}`.trim()}>
         <DialogHeader>
           <DialogTitle style={{ color: 'var(--sec-text-primary)' }}>{title}</DialogTitle>
         </DialogHeader>
         {imageSrc ? (
           <div
             className="relative w-full rounded-lg overflow-hidden bg-black"
-            style={{ aspectRatio: String(aspect), maxHeight: 'min(70vh, 360px)' }}
+            style={{ aspectRatio: String(aspect), maxHeight: maxCropHeight, width: '100%' }}
           >
             <Cropper
               image={imageSrc}

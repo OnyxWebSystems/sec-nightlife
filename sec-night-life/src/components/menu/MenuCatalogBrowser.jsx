@@ -82,7 +82,7 @@ export default function MenuCatalogBrowser({
   const [customOpen, setCustomOpen] = useState(false);
   const [pendingItem, setPendingItem] = useState(null);
   const [priceInput, setPriceInput] = useState('');
-  const [custom, setCustom] = useState({ name: '', price: '', category: 'Drinks', image_url: '' });
+  const [custom, setCustom] = useState({ name: '', price: '', category: 'Drinks', sub_category: '', image_url: '' });
   const [uploading, setUploading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [pendingPhotoUrl, setPendingPhotoUrl] = useState('');
@@ -196,9 +196,10 @@ export default function MenuCatalogBrowser({
         name,
         price,
         category: custom.category,
+        sub_category: custom.sub_category?.trim() || null,
         image_url: custom.image_url || null,
       });
-      setCustom({ name: '', price: '', category: topCategory, image_url: '' });
+      setCustom({ name: '', price: '', category: topCategory, sub_category: '', image_url: '' });
       toast.success('Custom item added to draft');
       return;
     }
@@ -210,10 +211,11 @@ export default function MenuCatalogBrowser({
           name,
           price,
           category: custom.category,
+          sub_category: custom.sub_category?.trim() || null,
           image_url: custom.image_url || null,
         }],
       });
-      setCustom({ name: '', price: '', category: topCategory, image_url: '' });
+      setCustom({ name: '', price: '', category: topCategory, sub_category: '', image_url: '' });
       onVenueMenuUpdated?.();
       toast.success('Custom item added');
     } catch (e) {
@@ -392,6 +394,13 @@ export default function MenuCatalogBrowser({
                 ))}
               </select>
             </div>
+            <input
+              className="w-full h-10 px-3 rounded-lg text-sm border"
+              placeholder="Category label (e.g. Cocktails, Starters)"
+              value={custom.sub_category}
+              onChange={(e) => setCustom((c) => ({ ...c, sub_category: e.target.value }))}
+              style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
+            />
             <label className="text-xs block" style={{ color: 'var(--sec-text-muted)' }}>
               Your photo (required)
             </label>
