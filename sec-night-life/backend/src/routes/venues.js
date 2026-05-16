@@ -277,6 +277,7 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       review_average: s?.review_average ?? 0,
       review_count: s?.review_count ?? 0,
       follower_count: venue._count.follows,
+      accepts_day_bookings: venue.acceptsDayBookings,
     });
   } catch (err) {
     next(err);

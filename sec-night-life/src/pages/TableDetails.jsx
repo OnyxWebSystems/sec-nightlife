@@ -121,16 +121,35 @@ export default function TableDetails() {
     enabled: !!tableId && isVenueSource,
   });
 
-  const [venueSettlementMode, setVenueSettlementMode] = useState('PAY_ON_ARRIVAL');
+  const [venueSettlementMode, setVenueSettlementMode] = useState('PREPAY_LUMP');
+  const [customRequestOpen, setCustomRequestOpen] = useState(false);
+  const [customForm, setCustomForm] = useState({ guestCount: '4', notes: '', preferredTime: '' });
+
+  useEffect(() => {
+    if (!isVenueSource || !venueTable?.includedItems?.length) return;
+    setSelectedMenuItems((prev) => {
+      const next = { ...prev };
+      for (const inc of venueTable.includedItems) {
+        const id = inc.menu_item_id || inc.menuItemId;
+        if (id && !next[id]) next[id] = String(inc.quantity || 1);
+      }
+      return next;
+    });
+  }, [isVenueSource, venueTable?.id, venueTable?.includedItems]);
 
   const joinVenueTable = async () => {
+    const membership = venueTable?.myMembership;
+    if (membership?.status === 'PENDING_VENUE_REVIEW') {
+      toast.error('Awaiting venue approval before checkout');
+      return;
+    }
+    if (membership?.status === 'DECLINED') {
+      toast.error('Your request was declined');
+      return;
+    }
     const selected = Object.entries(selectedMenuItems)
       .filter(([, qty]) => Number(qty) > 0)
       .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) }));
-    if (!selected.length) {
-      toast.error('Select at least one menu item');
-      return;
-    }
     setIsProcessingPayment(true);
     try {
       const pay = await apiPost(`/api/venue-tables/${tableId}/join`, {
@@ -326,38 +345,58 @@ export default function TableDetails() {
     if (!venueTable) {
       return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Venue table not found</div>;
     }
+    const includedSeed = {};
+    for (const inc of venueTable.includedItems || []) {
+      const id = inc.menu_item_id || inc.menuItemId;
+      if (id) includedSeed[id] = Math.max(includedSeed[id] || 0, Number(inc.quantity) || 1);
+    }
+
     const grouped = (venueTable.menuItems || []).reduce((acc, item) => {
       const key = item.category || 'Other';
       acc[key] = acc[key] || [];
       acc[key].push(item);
       return acc;
     }, {});
-    const contribution = Object.entries(selectedMenuItems).reduce((sum, [id, qty]) => {
-      const item = (venueTable.menuItems || []).find((m) => m.id === id);
-      return sum + (item ? item.price * Number(qty || 0) : 0);
-    }, 0);
-    const settlement = venueSettlementMode || venueTable.minSpendSettlement || 'PAY_ON_ARRIVAL';
-    const checkoutLines = [];
+    const settlement = venueSettlementMode || venueTable.minSpendSettlement || 'PREPAY_LUMP';
     const bookingFee = Number(venueTable.bookingFeeZar || 0);
     const minSpend = Number(venueTable.minimumSpend || 0);
-    if (bookingFee > 0) checkoutLines.push({ code: 'booking_fee', label: 'Booking fee', amount_zar: bookingFee });
-    if (settlement === 'PREPAY_LUMP' && minSpend > 0) {
-      checkoutLines.push({ code: 'minimum_spend', label: 'Minimum spend', amount_zar: minSpend });
-    } else if (settlement === 'PREPAY_MENU' && contribution > 0) {
-      checkoutLines.push({ code: 'menu', label: 'Menu', amount_zar: contribution });
-    } else if (settlement === 'PAY_ON_ARRIVAL' && contribution > 0) {
-      checkoutLines.push({ code: 'menu', label: 'Menu pre-order', amount_zar: contribution });
+    const entrance =
+      venueTable.event?.hasEntranceFee && Number(venueTable.event.entranceFeeAmount) > 0
+        ? Number(venueTable.event.entranceFeeAmount)
+        : 0;
+    let extraMenu = 0;
+    for (const [id, qtyRaw] of Object.entries(selectedMenuItems)) {
+      const qty = Number(qtyRaw) || 0;
+      const item = (venueTable.menuItems || []).find((m) => m.id === id);
+      if (!item) continue;
+      const bundled = Number(includedSeed[id] || 0);
+      extraMenu += item.price * Math.max(0, qty - bundled);
     }
-    const sub = checkoutLines.reduce((s, l) => s + l.amount_zar, 0);
+    const checkoutLines = [];
+    if (bookingFee > 0) checkoutLines.push({ code: 'booking_fee', label: 'Booking fee', amount_zar: bookingFee });
+    if (entrance > 0) checkoutLines.push({ code: 'entrance', label: 'Entrance', amount_zar: entrance });
+    if (minSpend > 0 && settlement === 'PREPAY_LUMP') {
+      checkoutLines.push({ code: 'minimum_spend', label: 'Minimum spend', amount_zar: minSpend });
+    }
+    if (extraMenu > 0) checkoutLines.push({ code: 'menu', label: 'Extra menu', amount_zar: extraMenu });
+    for (const inc of venueTable.includedItems || []) {
+      const id = inc.menu_item_id || inc.menuItemId;
+      const row = (venueTable.menuItems || []).find((m) => m.id === id);
+      checkoutLines.push({
+        code: `inc_${id}`,
+        label: `${row?.name || 'Included'} (included)`,
+        amount_zar: 0,
+      });
+    }
+    const sub = checkoutLines.filter((l) => l.amount_zar > 0).reduce((s, l) => s + l.amount_zar, 0);
     const platformFee = sub > 0 ? Math.round(sub * 0.15 * 100) / 100 : 0;
-    if (platformFee > 0) checkoutLines.push({ code: 'platform_fee', label: 'SEC service fee', amount_zar: platformFee });
+    if (platformFee > 0) checkoutLines.push({ code: 'platform_fee', label: 'SEC service fee (15%)', amount_zar: platformFee });
     const checkoutTotal = checkoutLines.reduce((s, l) => s + l.amount_zar, 0);
+    const membership = venueTable.myMembership;
+    const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
     const canPay =
-      settlement === 'PREPAY_LUMP'
-        ? checkoutTotal > 0
-        : settlement === 'PREPAY_MENU'
-          ? contribution >= minSpend && checkoutTotal > 0
-          : checkoutTotal > 0;
+      checkoutTotal > 0 &&
+      (!needsApproval || membership?.status === 'APPROVED' || membership?.status === 'LEFT');
     return (
       <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: 20, paddingBottom: 90 }}>
         <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
@@ -393,29 +432,81 @@ export default function TableDetails() {
           showSettlementOptions
           onSettlementChange={setVenueSettlementMode}
         />
-        {venueTable.allowsCustomRequests ? (
+        {membership?.status === 'PENDING_VENUE_REVIEW' ? (
+          <p className="text-sm text-amber-400 mt-3 text-center">Request pending venue approval</p>
+        ) : null}
+        {(venueTable.allowsCustomRequests || venueTable.isCustomListing) && membership?.status !== 'APPROVED' ? (
           <button
             type="button"
             className="sec-btn sec-btn-ghost sec-btn-full mt-3"
             style={{ height: 44 }}
-            onClick={async () => {
-              try {
-                await apiPost(`/api/venue-tables/${tableId}/request`, {
-                  isCustom: true,
-                  userSpecs: { notes: 'Custom table request', guestCount: 4 },
-                });
-                toast.success('Request sent — venue will review');
-              } catch (e) {
-                toast.error(e?.data?.error || e.message);
-              }
-            }}
+            onClick={() => setCustomRequestOpen(true)}
           >
             Request custom table (venue reviews first)
           </button>
         ) : null}
+        <Dialog open={customRequestOpen} onOpenChange={setCustomRequestOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Custom table request</DialogTitle>
+              <DialogDescription>The venue will review before you can pay.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <label className="text-sm block">
+                Guest count
+                <input
+                  type="number"
+                  min={1}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border"
+                  value={customForm.guestCount}
+                  onChange={(e) => setCustomForm((f) => ({ ...f, guestCount: e.target.value }))}
+                />
+              </label>
+              <label className="text-sm block">
+                Preferred time
+                <input
+                  className="w-full mt-1 px-3 py-2 rounded-lg border"
+                  value={customForm.preferredTime}
+                  onChange={(e) => setCustomForm((f) => ({ ...f, preferredTime: e.target.value }))}
+                />
+              </label>
+              <label className="text-sm block">
+                Notes
+                <Textarea
+                  rows={3}
+                  value={customForm.notes}
+                  onChange={(e) => setCustomForm((f) => ({ ...f, notes: e.target.value }))}
+                />
+              </label>
+              <button
+                type="button"
+                className="sec-btn sec-btn-primary w-full"
+                onClick={async () => {
+                  try {
+                    await apiPost(`/api/venue-tables/${tableId}/request`, {
+                      isCustom: true,
+                      userSpecs: {
+                        guestCount: parseInt(customForm.guestCount, 10) || 4,
+                        notes: customForm.notes,
+                        preferredTime: customForm.preferredTime,
+                      },
+                    });
+                    toast.success('Request sent — venue will review');
+                    setCustomRequestOpen(false);
+                    queryClient.invalidateQueries(['venue-table', tableId]);
+                  } catch (e) {
+                    toast.error(e?.data?.error || e.message);
+                  }
+                }}
+              >
+                Submit request
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
         <div className="sec-bottom-bar">
           <button onClick={joinVenueTable} disabled={isProcessingPayment || !canPay} className="sec-btn sec-btn-primary sec-btn-full" style={{ height: 48 }}>
-            {isProcessingPayment ? 'Processing…' : `Pay R${checkoutTotal.toFixed(0)} to book`}
+            {isProcessingPayment ? 'Processing…' : checkoutTotal > 0 ? `Pay R${checkoutTotal.toFixed(0)} to book` : 'Complete booking'}
           </button>
           <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 8 }}>No refunds: once you pay, your booking is confirmed per venue policy.</p>
           <div style={{ marginTop: 8 }}>

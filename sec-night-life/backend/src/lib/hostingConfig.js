@@ -4,7 +4,7 @@
  */
 
 function emptyLegacyCat() {
-  return { max_tables: null, tiers: [], host_table_fee_zar: null };
+  return { max_tables: null, tiers: [], host_table_fee_zar: null, allows_custom_requests: false };
 }
 
 function normalizeLegacySlot(slot) {
@@ -13,10 +13,22 @@ function normalizeLegacySlot(slot) {
   if ('max_tables' in slot && slot.max_tables !== undefined) {
     out.max_tables = slot.max_tables === null ? null : Number(slot.max_tables);
   }
-  if (Array.isArray(slot.tiers)) out.tiers = slot.tiers;
+  if (Array.isArray(slot.tiers)) {
+    out.tiers = slot.tiers.map((t) => ({
+      ...t,
+      booking_fee_zar:
+        t.booking_fee_zar != null && t.booking_fee_zar !== ''
+          ? Number(t.booking_fee_zar) || 0
+          : 0,
+      included_items: Array.isArray(t.included_items) ? t.included_items : [],
+    }));
+  }
   if (slot.host_table_fee_zar != null && slot.host_table_fee_zar !== '') {
     const n = Number(slot.host_table_fee_zar);
     out.host_table_fee_zar = Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if ('allows_custom_requests' in slot) {
+    out.allows_custom_requests = Boolean(slot.allows_custom_requests);
   }
   return out;
 }
@@ -121,6 +133,9 @@ export function mergeHostingConfigPatch(existing, patch) {
         const n = Number(p.host_table_fee_zar);
         cur[k].host_table_fee_zar = Number.isFinite(n) && n > 0 ? n : null;
       }
+    }
+    if ('allows_custom_requests' in p) {
+      cur[k].allows_custom_requests = Boolean(p.allows_custom_requests);
     }
   }
   return cur;

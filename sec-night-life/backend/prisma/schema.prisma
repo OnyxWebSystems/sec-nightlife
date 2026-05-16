@@ -1502,6 +1502,8 @@ model VenueTable {
   isCustomListing   Boolean          @default(false) @map("is_custom_listing")
   allowsCustomRequests Boolean       @default(false) @map("allows_custom_requests")
   tierLabel         String?          @map("tier_label")
+  hostingTierKey    String?          @map("hosting_tier_key")
+  includedItems     Json?            @map("included_items")
   status            VenueTableStatus @default(AVAILABLE)
   isActive          Boolean          @default(true) @map("is_active")
   createdAt         DateTime         @default(now()) @map("created_at")

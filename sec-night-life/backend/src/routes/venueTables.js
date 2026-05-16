@@ -3,7 +3,8 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
-import { buildTableCheckoutMetadata, line, sumCheckoutLines } from '../lib/checkoutLines.js';
+import { buildTableCheckoutMetadata } from '../lib/checkoutLines.js';
+import { computeVenueCheckout, computeChargeableMenuTotal } from '../lib/venueCheckout.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 
 const router = Router();
@@ -191,14 +192,33 @@ router.get('/available', optionalAuth, async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    const venueId = typeof req.query.venueId === 'string' ? req.query.venueId : undefined;
+    const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : undefined;
+    const dayOnly = req.query.dayOnly === 'true' || req.query.dayOnly === '1';
+    if (dayOnly && venueId) {
+      const v = await prisma.venue.findFirst({ where: { id: venueId, deletedAt: null } });
+      if (!v?.acceptsDayBookings) {
+        return res.json({ items: [], page: 1, limit: 20, total: 0 });
+      }
+    }
+    const where = {
+      isActive: true,
+      status: { in: ['AVAILABLE', 'PARTIALLY_FILLED'] },
+      ...(venueId ? { venueId } : {}),
+      ...(eventId ? { eventId } : {}),
+      ...(dayOnly ? { eventId: null } : {}),
+    };
+    if (venueId && !eventId && !dayOnly) {
+      const venue = await prisma.venue.findFirst({ where: { id: venueId, deletedAt: null } });
+      if (venue && !venue.acceptsDayBookings) {
+        where.eventId = { not: null };
+      }
+    }
     const rows = await prisma.venueTable.findMany({
-      where: {
-        isActive: true,
-        status: { in: ['AVAILABLE', 'PARTIALLY_FILLED'] },
-      },
+      where,
       include: {
-        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true } },
-        event: { select: { id: true, title: true, date: true } },
+        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true, acceptsDayBookings: true } },
+        event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
         menuItems: { where: { isAvailable: true } },
       },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
@@ -220,13 +240,65 @@ router.get('/available', optionalAuth, async (req, res, next) => {
   }
 });
 
+async function hydrateTableMenu(table) {
+  if (table.menuItems?.length) return table.menuItems;
+  const catalog = await prisma.venueMenuItem.findMany({
+    where: { venueId: table.venueId, isAvailable: true },
+    orderBy: { category: 'asc' },
+  });
+  return catalog.map((m) => ({
+    id: m.id,
+    venueTableId: table.id,
+    venueMenuItemId: m.id,
+    name: m.name,
+    category: m.category,
+    price: m.price,
+    imageUrl: m.imageUrl,
+    isAvailable: m.isAvailable,
+  }));
+}
+
+router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) => {
+  try {
+    const payload = z
+      .object({
+        selectedMenuItems: z
+          .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(0) }))
+          .optional(),
+        settlementMode: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
+      })
+      .parse(req.body || {});
+    const table = await prisma.venueTable.findUnique({
+      where: { id: req.params.tableId },
+      include: {
+        event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
+        menuItems: { where: { isAvailable: true } },
+      },
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    const menuItems = await hydrateTableMenu(table);
+    const selMap = {};
+    for (const s of payload.selectedMenuItems || []) selMap[s.menuItemId] = s.quantity;
+    const menuTotal = computeChargeableMenuTotal(menuItems, selMap, table.includedItems);
+    const checkout = computeVenueCheckout(
+      { ...table, event: table.event },
+      { menuTotal, settlementMode: payload.settlementMode, menuItems },
+    );
+    if (checkout.error) return res.status(400).json({ error: checkout.error });
+    res.json(checkout);
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    next(e);
+  }
+});
+
 router.get('/:tableId', optionalAuth, async (req, res, next) => {
   try {
     const table = await prisma.venueTable.findUnique({
       where: { id: req.params.tableId },
       include: {
         venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true } },
-        event: { select: { id: true, title: true, date: true } },
+        event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
         menuItems: true,
         members: {
           where: { status: 'CONFIRMED' },
@@ -235,8 +307,17 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
       },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
+    const menuItems = await hydrateTableMenu(table);
+    let myMembership = null;
+    if (req.userId) {
+      myMembership = await prisma.venueTableMember.findUnique({
+        where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+      });
+    }
     res.json({
       ...table,
+      menuItems,
+      myMembership,
       spotsRemaining: Math.max(0, table.guestCapacity - table.currentOccupancy),
       progressPercentage: table.minimumSpend > 0 ? Number(((table.amountContributed / table.minimumSpend) * 100).toFixed(1)) : 0,
       members: table.members.map((m) => ({ id: m.id, userId: m.userId, avatarUrl: m.user.userProfile?.avatarUrl || null, username: m.user.userProfile?.username || m.user.fullName || 'member' })),
@@ -245,29 +326,6 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
     next(e);
   }
 });
-
-function computeVenueCheckout(table, { menuTotal, settlementMode }) {
-  const mode = settlementMode || table.minSpendSettlement || 'PAY_ON_ARRIVAL';
-  const bookingFee = Number(table.bookingFeeZar || 0);
-  const minSpend = Number(table.minimumSpend || 0);
-  const lines = [];
-  if (bookingFee > 0) lines.push(line('booking_fee', 'Booking fee', bookingFee));
-  if (mode === 'PREPAY_LUMP' && minSpend > 0) {
-    lines.push(line('minimum_spend', 'Minimum spend', minSpend));
-  } else if (mode === 'PREPAY_MENU') {
-    const menu = Number(menuTotal || 0);
-    if (menu > 0) lines.push(line('menu', 'Menu', menu));
-    if (menu < minSpend) {
-      return { error: `Select menu items worth at least R${minSpend.toFixed(0)} (currently R${menu.toFixed(0)}).` };
-    }
-  } else if (mode === 'PAY_ON_ARRIVAL' && menuTotal > 0) {
-    lines.push(line('menu', 'Menu pre-order', menuTotal));
-  }
-  const subtotal = sumCheckoutLines(lines);
-  const platformFee = Number((subtotal * 0.15).toFixed(2));
-  if (platformFee > 0) lines.push(line('platform_fee', 'SEC service fee', platformFee));
-  return { lines, mode, subtotal, platformFee, total: sumCheckoutLines(lines) };
-}
 
 router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
   try {
@@ -381,7 +439,11 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       .parse(req.body || {});
     const table = await prisma.venueTable.findUnique({
       where: { id: req.params.tableId },
-      include: { venue: true, menuItems: true },
+      include: {
+        venue: true,
+        menuItems: true,
+        event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
+      },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
     if (!['AVAILABLE', 'PARTIALLY_FILLED'].includes(table.status) || !table.isActive) {
@@ -411,19 +473,24 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       }
     }
 
+    const menuItems = await hydrateTableMenu(table);
     const menuSelections = payload.selectedMenuItems || [];
-    const menuMap = new Map(table.menuItems.map((i) => [i.id, i]));
-    let menuTotal = 0;
+    const menuMap = new Map(menuItems.map((i) => [i.id, i]));
+    const selMap = {};
     for (const sel of menuSelections) {
       const item = menuMap.get(sel.menuItemId);
-      if (!item || item.venueTableId !== table.id || !item.isAvailable) {
+      if (!item || !item.isAvailable) {
         return res.status(400).json({ error: 'Invalid menu item selection' });
       }
-      menuTotal += item.price * sel.quantity;
+      selMap[sel.menuItemId] = sel.quantity;
     }
+    const menuTotal = computeChargeableMenuTotal(menuItems, selMap, table.includedItems);
 
-    const settlementMode = payload.settlementMode || table.minSpendSettlement || 'PAY_ON_ARRIVAL';
-    const checkout = computeVenueCheckout(table, { menuTotal, settlementMode });
+    const settlementMode = payload.settlementMode || table.minSpendSettlement || 'PREPAY_LUMP';
+    const checkout = computeVenueCheckout(
+      { ...table, event: table.event },
+      { menuTotal, settlementMode, menuItems },
+    );
     if (checkout.error) return res.status(400).json({ error: checkout.error });
     if (checkout.total <= 0) return res.status(400).json({ error: 'Nothing to pay for this booking' });
 

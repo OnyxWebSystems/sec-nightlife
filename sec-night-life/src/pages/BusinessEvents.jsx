@@ -28,7 +28,7 @@ function isoToDatetimeLocal(iso) {
 }
 
 function emptyHostingSection() {
-  return { max_tables: '', tiers: [], host_table_fee_zar: '' };
+  return { max_tables: '', tiers: [], host_table_fee_zar: '', allows_custom_requests: false };
 }
 
 function emptyHostingForm() {
@@ -40,11 +40,13 @@ function hostingFromApi(hc) {
   const mapSection = (s) => ({
     max_tables: s?.max_tables != null && s.max_tables !== '' ? String(s.max_tables) : '',
     host_table_fee_zar: s?.host_table_fee_zar != null && s.host_table_fee_zar !== '' ? String(s.host_table_fee_zar) : '',
+    allows_custom_requests: Boolean(s?.allows_custom_requests),
     tiers: Array.isArray(s?.tiers) && s.tiers.length
       ? s.tiers.map((t) => ({
           tier_name: String(t.tier_name ?? t.name ?? ''),
           max_guests: String(t.max_guests ?? ''),
           min_spend: String(t.min_spend ?? ''),
+          booking_fee_zar: String(t.booking_fee_zar ?? ''),
           tier_table_slots: String(t.tier_table_slots ?? ''),
           included_items: Array.isArray(t?.included_items)
             ? t.included_items.map((inc) => ({
@@ -234,8 +236,8 @@ export default function BusinessEvents() {
     }
 
     const hostingPayload = {
-      general: { max_tables: null, tiers: [], host_table_fee_zar: null },
-      vip: { max_tables: null, tiers: [], host_table_fee_zar: null },
+      general: { max_tables: null, tiers: [], host_table_fee_zar: null, allows_custom_requests: false },
+      vip: { max_tables: null, tiers: [], host_table_fee_zar: null, allows_custom_requests: false },
     };
     for (const cat of ['general', 'vip']) {
       const sec = form.hosting_config?.[cat];
@@ -257,6 +259,7 @@ export default function BusinessEvents() {
         }
         hostingPayload[cat].host_table_fee_zar = hostFee;
       }
+      hostingPayload[cat].allows_custom_requests = Boolean(sec?.allows_custom_requests);
       const rawTiers = sec?.tiers || [];
       const hasPartialTier = rawTiers.some((t) => {
         const vals = [
@@ -302,7 +305,19 @@ export default function BusinessEvents() {
             quantity: Math.max(1, parseInt(String(inc.quantity || '1'), 10) || 1),
           }))
           .filter((inc) => inc.menu_item_id);
-        const tierPayload = { tier_name: tierName, max_guests: mg, min_spend: ms, tier_table_slots: slots };
+        const bfRaw = String(t.booking_fee_zar ?? '').trim();
+        const bookingFee = bfRaw ? parseFloat(bfRaw.replace(',', '.')) : 0;
+        if (bfRaw && (Number.isNaN(bookingFee) || bookingFee < 0)) {
+          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} booking fee on tier "${tierName}"`);
+          return;
+        }
+        const tierPayload = {
+          tier_name: tierName,
+          max_guests: mg,
+          min_spend: ms,
+          tier_table_slots: slots,
+          booking_fee_zar: bookingFee,
+        };
         if (included.length) tierPayload.included_items = included;
         parsedTiers.push(tierPayload);
         totalTierSlots += slots;
@@ -687,8 +702,26 @@ export default function BusinessEvents() {
                   style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-elevated)' }}
                 >
                   <h3 className="text-sm font-semibold" style={{ color: 'var(--sec-text-primary)' }}>
-                    {label} hosted tables
+                    {label} venue tables
                   </h3>
+                  <p className="text-xs text-gray-500">
+                    Guests pay booking fee + minimum spend + entrance at checkout. Included items are bundled; they may add more from your menu.
+                  </p>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={Boolean(sec.allows_custom_requests)}
+                      onCheckedChange={(v) =>
+                        setForm((p) => ({
+                          ...p,
+                          hosting_config: {
+                            ...p.hosting_config,
+                            [cat]: { ...p.hosting_config[cat], allows_custom_requests: Boolean(v) },
+                          },
+                        }))
+                      }
+                    />
+                    Allow guests to request a custom table (you approve before they pay)
+                  </label>
                   <div>
                     <Label className="text-gray-400 text-sm">Max hosted tables (optional)</Label>
                     <Input
@@ -713,26 +746,6 @@ export default function BusinessEvents() {
                     </p>
                   </div>
                   <div>
-                    <Label className="text-gray-400 text-sm">Host table fee (ZAR, optional)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={sec.host_table_fee_zar}
-                      onChange={(e) =>
-                        setForm((p) => ({
-                          ...p,
-                          hosting_config: {
-                            ...p.hosting_config,
-                            [cat]: { ...p.hosting_config[cat], host_table_fee_zar: e.target.value },
-                          },
-                        }))
-                      }
-                      placeholder="0 for no host fee"
-                      className="mt-1.5 h-11 rounded-xl max-w-[200px]"
-                      style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
-                    />
-                  </div>
-                  <div>
                     <div className="flex items-center justify-between mb-2">
                       <Label className="text-gray-400 text-sm">Table pricing tiers (optional)</Label>
                       <Button
@@ -750,7 +763,7 @@ export default function BusinessEvents() {
                                 ...p.hosting_config[cat],
                                 tiers: [
                                   ...(p.hosting_config[cat].tiers || []),
-                                  { tier_name: '', max_guests: '', min_spend: '', tier_table_slots: '', included_items: [] },
+                                  { tier_name: '', max_guests: '', min_spend: '', booking_fee_zar: '', tier_table_slots: '', included_items: [] },
                                 ],
                               },
                             },
@@ -827,6 +840,27 @@ export default function BusinessEvents() {
                               onChange={(e) => {
                                 const next = [...(form.hosting_config[cat].tiers || [])];
                                 next[idx] = { ...next[idx], min_spend: e.target.value };
+                                setForm((p) => ({
+                                  ...p,
+                                  hosting_config: {
+                                    ...p.hosting_config,
+                                    [cat]: { ...p.hosting_config[cat], tiers: next },
+                                  },
+                                }));
+                              }}
+                              className="mt-1 h-10 rounded-xl"
+                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[100px]">
+                            <Label className="text-xs text-gray-500">Booking fee (ZAR)</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={tier.booking_fee_zar || ''}
+                              onChange={(e) => {
+                                const next = [...(form.hosting_config[cat].tiers || [])];
+                                next[idx] = { ...next[idx], booking_fee_zar: e.target.value };
                                 setForm((p) => ({
                                   ...p,
                                   hosting_config: {

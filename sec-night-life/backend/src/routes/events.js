@@ -7,6 +7,7 @@ import { ensureGroupChatForEvent } from '../lib/groupChatHelpers.js';
 import { logger } from '../lib/logger.js';
 import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingConfig.js';
 import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
+import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
 
 const router = Router();
 
@@ -22,12 +23,19 @@ const optionalNonEmptyString = (max = 300) =>
     return t === '' ? undefined : t;
   }, z.string().min(1).max(max).optional());
 
+const includedItemSchema = z.object({
+  menu_item_id: z.string().min(1),
+  quantity: z.number().int().min(1).max(99),
+});
+
 const tablePricingTierSchema = z.object({
   tier_name: z.string().min(1).max(80).optional(),
   max_guests: z.number().int().min(1).max(500),
   min_spend: z.number().min(0),
+  booking_fee_zar: z.number().min(0).optional(),
   /** Per-tier hosted-table slots; required when tiers exist (enforced in hostingCategorySchema). */
   tier_table_slots: z.number().int().min(1).optional(),
+  included_items: z.array(includedItemSchema).optional(),
 });
 
 const hostingCategorySchema = z
@@ -35,6 +43,7 @@ const hostingCategorySchema = z
     max_tables: z.number().int().min(1).optional().nullable(),
     tiers: z.array(tablePricingTierSchema).optional().nullable(),
     host_table_fee_zar: z.number().min(0).optional().nullable(),
+    allows_custom_requests: z.boolean().optional(),
   })
   .superRefine((cat, ctx) => {
     const tiers = cat.tiers;
@@ -276,24 +285,48 @@ async function assertTierSlotsNotBelowCurrentHostedTables(eventId, hostingRaw) {
   for (const cat of ['general', 'vip']) {
     const tiers = Array.isArray(hosting?.[cat]?.tiers) ? hosting[cat].tiers : [];
     if (tiers.length === 0) continue;
-    const hostingCategory = cat === 'vip' ? 'VIP' : 'GENERAL';
     for (let idx = 0; idx < tiers.length; idx++) {
       const slots = Number(tiers[idx]?.tier_table_slots);
       if (!Number.isFinite(slots) || slots < 1) continue;
-      const used = await prisma.hostedTable.count({
+      const tierKey = `${cat}:${idx}`;
+      const used = await prisma.venueTable.count({
         where: {
           eventId,
-          tableType: 'IN_APP_EVENT',
-          hostingCategory,
-          hostingTierIndex: idx,
-          status: { in: ['DRAFT', 'ACTIVE', 'FULL'] },
+          hostingTierKey: { startsWith: `${tierKey}:` },
+          isActive: true,
+          currentOccupancy: { gt: 0 },
         },
       });
       if (used > slots) {
         return {
           ok: false,
-          error: `${cat === 'vip' ? 'VIP' : 'General'} tier ${idx + 1} has ${used} hosted table(s) already, which exceeds new allocation (${slots}).`,
+          error: `${cat === 'vip' ? 'VIP' : 'General'} tier ${idx + 1} has ${used} active booking(s), which exceeds new allocation (${slots}).`,
         };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+async function validateHostingMenuItems(venueId, hostingRaw) {
+  const hosting = normalizeHostingConfig(hostingRaw);
+  const menuIds = new Set(
+    (
+      await prisma.venueMenuItem.findMany({
+        where: { venueId, isAvailable: true },
+        select: { id: true },
+      })
+    ).map((m) => m.id),
+  );
+  for (const cat of ['general', 'vip']) {
+    const tiers = Array.isArray(hosting?.[cat]?.tiers) ? hosting[cat].tiers : [];
+    for (const t of tiers) {
+      const items = Array.isArray(t?.included_items) ? t.included_items : [];
+      for (const inc of items) {
+        const id = inc?.menu_item_id;
+        if (id && !menuIds.has(id)) {
+          return { ok: false, error: 'Included menu item must belong to your venue menu.' };
+        }
       }
     }
   }
@@ -600,6 +633,14 @@ router.post('/', authenticateToken, async (req, res, next) => {
       }
     }
 
+    const normalizedHosting = normalizeHostingConfig(d.hosting_config ?? null);
+    if (d.hosting_config) {
+      const hostCfgCheck = validateHostingTierSlotsConfig(normalizedHosting);
+      if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
+      const menuCheck = await validateHostingMenuItems(d.venue_id, normalizedHosting);
+      if (!menuCheck.ok) return res.status(400).json({ error: menuCheck.error });
+    }
+
     const event = await prisma.event.create({
       data: {
         venueId: d.venue_id,
@@ -620,9 +661,12 @@ router.post('/', authenticateToken, async (req, res, next) => {
         endsAt: endsAtResolved,
         hasEntranceFee: hasFee,
         entranceFeeAmount: hasFee ? d.entrance_fee_amount : null,
-        hostingConfig: normalizeHostingConfig(d.hosting_config ?? null),
+        hostingConfig: normalizedHosting,
       },
     });
+    if (d.status === 'published') {
+      await syncEventVenueTables(event.id);
+    }
     ensureGroupChatForEvent(event.id, event.title, req.userId).catch((e) => {
       logger.error('Group chat creation after event failed', { eventId: event.id, message: e?.message });
     });
@@ -691,6 +735,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       const mergedHosting = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);
       const hostCfgCheck = validateHostingTierSlotsConfig(mergedHosting);
       if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
+      const menuCheck = await validateHostingMenuItems(event.venueId, mergedHosting);
+      if (!menuCheck.ok) return res.status(400).json({ error: menuCheck.error });
       const tierSlotsCheck = await assertTierSlotsNotBelowCurrentHostedTables(event.id, mergedHosting);
       if (!tierSlotsCheck.ok) return res.status(400).json({ error: tierSlotsCheck.error });
       updates.hostingConfig = mergedHosting;
@@ -716,6 +762,12 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     }
 
     const updated = await prisma.event.update({ where: { id: event.id }, data: updates });
+    const shouldSync =
+      updated.status === 'published' &&
+      (updates.hostingConfig !== undefined || d.status === 'published');
+    if (shouldSync) {
+      await syncEventVenueTables(updated.id);
+    }
     res.json({ id: updated.id, status: updated.status });
   } catch (err) {
     next(err);

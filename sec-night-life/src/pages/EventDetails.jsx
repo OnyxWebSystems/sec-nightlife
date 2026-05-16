@@ -78,18 +78,13 @@ export default function EventDetails() {
     enabled: !!event?.venue_id,
   });
 
-  const { data: tables = [] } = useQuery({
-    queryKey: ['event-tables', eventId],
-    queryFn: () => dataService.Table.filter({ event_id: eventId, status: 'all' }),
+  const { data: venueTablesData } = useQuery({
+    queryKey: ['event-venue-tables', eventId],
+    queryFn: () => apiGet(`/api/venue-tables/available?eventId=${encodeURIComponent(eventId)}&limit=100`),
     enabled: !!eventId,
   });
-
-  const { data: hostedSummary } = useQuery({
-    queryKey: ['event-hosted-tables-summary', eventId],
-    queryFn: () => apiGet(`/api/events/${encodeURIComponent(eventId)}/hosted-tables-summary`),
-    enabled: !!eventId,
-  });
-  const hostedItems = hostedSummary?.items ?? [];
+  const venueTables = venueTablesData?.items ?? [];
+  const customTableListing = venueTables.find((t) => t.isCustomListing || t.allowsCustomRequests);
 
   const toggleInterestMutation = useMutation({
     mutationFn: async () => {
@@ -163,14 +158,12 @@ export default function EventDetails() {
     tier.price < min ? tier.price : min, event.ticket_tiers?.[0]?.price || 0
   );
 
-  const tableIsFull = (t) =>
-    t.status === 'full' || Number(t.current_guests ?? 0) >= Number(t.max_guests ?? 0);
-
-  const openJoinableTables = tables.filter((t) => !tableIsFull(t));
-  const fullTablesOnly = tables.filter((t) => tableIsFull(t));
-
-  const byCategory = (list, cat) =>
-    list.filter((t) => (t.table_category || 'general') === cat);
+  const openVenueTables = venueTables.filter((t) => Number(t.spotsRemaining ?? 0) > 0);
+  const fullVenueTables = venueTables.filter((t) => Number(t.spotsRemaining ?? 0) <= 0);
+  const allowsCustomTable =
+    Boolean(event.hosting_config?.general?.allows_custom_requests) ||
+    Boolean(event.hosting_config?.vip?.allows_custom_requests) ||
+    Boolean(customTableListing);
 
   const venueLine =
     [event.venue_address, event.venue_suburb, event.venue_city || venue?.city]
@@ -178,10 +171,6 @@ export default function EventDetails() {
       .join(', ') || event.city || venue?.city || 'TBA';
 
   const mapQuery = event.venue_address || venue?.address || venueLine;
-
-  const hostedOpenCount = hostedItems.filter(
-    (h) => h.status === 'ACTIVE' && Number(h.spots_remaining ?? 0) > 0,
-  ).length;
 
   return (
     <div className="pb-24 lg:pb-8" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
@@ -544,116 +533,52 @@ export default function EventDetails() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Users size={15} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
-              Tables ({tables.length + hostedItems.length})
+              Tables ({venueTables.length})
             </h2>
-            <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
-              Venue-listed tables only
-            </span>
+            <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Book with the venue on Sec</span>
           </div>
 
-          {hostedItems.length > 0 && (
-            <div style={{ marginBottom: 20 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
-                Hosted tables (SEC)
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {hostedItems.map((ht) => {
-                  const catLabel = String(ht.hosting_category || '').toUpperCase() === 'VIP' ? 'VIP' : 'General';
-                  const spots = Number(ht.spots_remaining ?? 0);
-                  const full = ht.status === 'FULL' || spots <= 0;
-                  return (
-                    <Link
-                      key={ht.id}
-                      to={createPageUrl(`TableDetails?id=${encodeURIComponent(ht.id)}&source=hosted`)}
-                      className="sec-card"
-                      style={{
-                        padding: '12px 14px',
-                        textDecoration: 'none',
-                        display: 'block',
-                        border: '1px solid var(--sec-border)',
-                        opacity: full ? 0.85 : 1,
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-                        <div style={{ minWidth: 0 }}>
-                          <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-text-primary)' }}>{ht.table_name}</p>
-                          <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-                            Host @{ht.host?.username || 'host'} · {catLabel}
-                            {ht.is_public === false ? ' · Private (request to join)' : ''}
-                          </p>
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: full ? 'var(--sec-text-muted)' : 'var(--sec-accent)',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {full ? 'Full' : `${spots} spots left`}
-                        </span>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {tables.length > 0 ? (
-            <>
-              {['general', 'vip'].map((cat) => {
-                const label = cat === 'vip' ? 'VIP' : 'General';
-                const avail = byCategory(openJoinableTables, cat);
-                const full = byCategory(fullTablesOnly, cat);
-                if (avail.length === 0 && full.length === 0) return null;
-                return (
-                  <div key={cat} style={{ marginBottom: 18 }}>
-                    <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
-                      {label} tables
-                    </h3>
-                    {avail.length > 0 && (
-                      <div style={{ marginBottom: 12 }}>
-                        <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 8, fontWeight: 500 }}>Available</p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {avail.map((table) => (
-                            <TrendingTableCard key={table.id} table={table} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {full.length > 0 && (
-                      <div>
-                        <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 8, fontWeight: 500 }}>Full</p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: 0.92 }}>
-                          {full.map((table) => (
-                            <TrendingTableCard key={table.id} table={table} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
+          {openVenueTables.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {openVenueTables.map((vt) => (
+                <Link
+                  key={vt.id}
+                  to={createPageUrl(`TableDetails?id=${encodeURIComponent(vt.id)}&source=venue`)}
+                  className="sec-card"
+                  style={{ padding: '14px 16px', textDecoration: 'none', display: 'block', border: '1px solid var(--sec-border)' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <div>
+                      <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-text-primary)' }}>{vt.tableName}</p>
+                      <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                        Min R{Number(vt.minimumSpend).toFixed(0)}
+                        {Number(vt.bookingFeeZar) > 0 ? ` · Booking R${Number(vt.bookingFeeZar).toFixed(0)}` : ''}
+                      </p>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--sec-accent)', fontWeight: 600 }}>{vt.spotsRemaining} left</span>
                   </div>
-                );
-              })}
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>
-                Select a table to view details and reserve your spot
-              </p>
-            </>
-          ) : hostedItems.length === 0 ? (
-            <div className="sec-card" style={{ textAlign: 'center', padding: '32px 24px' }}>
-              <div style={{
-                width: 52, height: 52, borderRadius: '50%',
-                backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                margin: '0 auto 12px',
-              }}>
-                <Users size={22} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
-              </div>
-              <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
-                The venue has not listed tables for this event yet.
-              </p>
+                </Link>
+              ))}
             </div>
           ) : null}
+
+          {allowsCustomTable && customTableListing ? (
+            <Link
+              to={createPageUrl(`TableDetails?id=${encodeURIComponent(customTableListing.id)}&source=venue&request=1`)}
+              className="sec-btn sec-btn-ghost sec-btn-full"
+              style={{ display: 'block', textAlign: 'center', marginBottom: 16, textDecoration: 'none' }}
+            >
+              Request a custom table
+            </Link>
+          ) : null}
+
+          {venueTables.length === 0 ? (
+            <div className="sec-card" style={{ textAlign: 'center', padding: '32px 24px' }}>
+              <p style={{ fontSize: 14, color: 'var(--sec-text-muted)' }}>The venue has not listed tables for this event yet.</p>
+            </div>
+          ) : (
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>Select a tier to book and pay on Sec</p>
+          )}
         </div>
 
         {/* ── Location / directions ── */}
@@ -686,11 +611,11 @@ export default function EventDetails() {
       {/* ── Sticky bottom bar — price left / CTA right ── */}
       <div className="sec-bottom-bar sec-bottom-bar--responsive">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 960, margin: '0 auto' }}>
-          {tables.length > 0 || hostedItems.length > 0 ? (
+          {venueTables.length > 0 ? (
             <>
               <div className="sec-bottom-bar__price">
                 <div className="sec-bottom-bar__price-label">Open tables</div>
-                <div className="sec-bottom-bar__price-value">{openJoinableTables.length + hostedOpenCount}</div>
+                <div className="sec-bottom-bar__price-value">{openVenueTables.length}</div>
               </div>
               <div className="sec-bottom-bar__cta">
                 <button

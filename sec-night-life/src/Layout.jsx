@@ -63,9 +63,11 @@ export default function Layout({ children, currentPageName }) {
 
   const fetchNotificationCounts = useCallback(async () => {
     if (!user?.id) return;
+    const msgUrl =
+      activeMode === 'business' ? '/api/business/inbox/unread-count' : '/api/messages/unread-total';
     const [unreadRes, msgRes, hostRes] = await Promise.allSettled([
       apiGet('/api/notifications/unread-count'),
-      apiGet('/api/messages/unread-total'),
+      apiGet(msgUrl),
       apiGet('/api/host/notifications/unread-count'),
     ]);
     if (unreadRes.status === 'fulfilled') {
@@ -76,7 +78,8 @@ export default function Layout({ children, currentPageName }) {
     }
     if (msgRes.status === 'fulfilled') {
       const m = msgRes.value;
-      setMessageUnread(typeof m?.total === 'number' ? m.total : 0);
+      const n = typeof m?.total === 'number' ? m.total : typeof m?.count === 'number' ? m.count : 0;
+      setMessageUnread(n);
     } else {
       setMessageUnread(0);
     }
@@ -86,7 +89,7 @@ export default function Layout({ children, currentPageName }) {
     } else {
       setHostUnread(0);
     }
-  }, [user?.id]);
+  }, [user?.id, activeMode]);
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -238,7 +241,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Post Job', icon: Briefcase, page: 'CreateJob' },
         { name: 'Jobs', icon: Briefcase, page: 'BusinessJobs' },
         { name: 'Promotions', icon: Megaphone, page: 'BusinessPromotions' },
-        { name: 'Messages', icon: MessageCircle, page: 'Messages' },
+        { name: 'Messages', icon: MessageCircle, page: 'BusinessMessages' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         ...complianceNavItem,
         { name: 'Settings', icon: Settings, page: 'Settings' },
@@ -251,7 +254,9 @@ export default function Layout({ children, currentPageName }) {
 
   const withMessageBadge = (items) =>
     items.map((item) => {
-      if (item.page === 'Messages' && messageUnread > 0) return { ...item, badge: messageUnread };
+      if ((item.page === 'Messages' || item.page === 'BusinessMessages') && messageUnread > 0) {
+        return { ...item, badge: messageUnread };
+      }
       if (item.page === 'HostDashboard' && hostUnread > 0) return { ...item, badge: hostUnread };
       return item;
     });
@@ -264,7 +269,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Home', icon: LayoutDashboard, page: 'BusinessDashboard' },
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
         { name: 'Create', icon: Plus, page: null, isCreate: true },
-        { name: 'Messages', icon: MessageCircle, page: 'Messages' },
+        { name: 'Messages', icon: MessageCircle, page: 'BusinessMessages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ]
     : [
