@@ -31,6 +31,11 @@ export default function CheckoutCart({
         <span>Total due now</span>
         <span style={{ color: 'var(--sec-accent)' }}>R{total.toFixed(2)}</span>
       </div>
+      {lines.some((l) => l.code === 'platform_fee') ? (
+        <p className="text-[10px] leading-relaxed pt-1" style={{ color: 'var(--sec-text-muted)' }}>
+          Venue charges (booking, entrance, menu) are split 85% to the venue and 15% to SEC. Joining fees on hosted tables go 85% to the host.
+        </p>
+      ) : null}
       {showSettlementOptions && onSettlementChange ? (
         <div className="space-y-2 pt-2">
           <p className="text-xs font-medium" style={{ color: 'var(--sec-text-muted)' }}>

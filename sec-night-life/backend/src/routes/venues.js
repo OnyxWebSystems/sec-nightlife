@@ -278,6 +278,8 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       review_count: s?.review_count ?? 0,
       follower_count: venue._count.follows,
       accepts_day_bookings: venue.acceptsDayBookings,
+      host_table_fee_zar: venue.hostTableFeeZar,
+      custom_table_booking_fee_zar: venue.customTableBookingFeeZar,
     });
   } catch (err) {
     next(err);
@@ -353,6 +355,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     const extra = z
       .object({
         accepts_day_bookings: z.boolean().optional(),
+        host_table_fee_zar: z.number().min(0).optional(),
+        custom_table_booking_fee_zar: z.number().min(0).optional(),
         external_booking_links: z.any().optional(),
         booking_policies: z.any().optional(),
       })
@@ -378,6 +382,10 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.logo_url !== undefined) updates.logoUrl = data.logo_url;
     if (data.cover_image_url !== undefined) updates.coverImageUrl = data.cover_image_url;
     if (extraData.accepts_day_bookings != null) updates.acceptsDayBookings = extraData.accepts_day_bookings;
+    if (extraData.host_table_fee_zar != null) updates.hostTableFeeZar = extraData.host_table_fee_zar;
+    if (extraData.custom_table_booking_fee_zar != null) {
+      updates.customTableBookingFeeZar = extraData.custom_table_booking_fee_zar;
+    }
     if (extraData.external_booking_links !== undefined) updates.externalBookingLinks = extraData.external_booking_links;
     if (extraData.booking_policies !== undefined) updates.bookingPolicies = extraData.booking_policies;
 

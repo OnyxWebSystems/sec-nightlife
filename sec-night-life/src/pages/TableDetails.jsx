@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -123,7 +123,25 @@ export default function TableDetails() {
 
   const [venueSettlementMode, setVenueSettlementMode] = useState('PREPAY_LUMP');
   const [customRequestOpen, setCustomRequestOpen] = useState(false);
-  const [customForm, setCustomForm] = useState({ guestCount: '4', notes: '', preferredTime: '' });
+  const [customForm, setCustomForm] = useState({ guestCount: '4', notes: '', preferredTime: '', proposedMinimumSpend: '' });
+
+  const venueMenuSelectionPayload = useMemo(
+    () =>
+      Object.entries(selectedMenuItems)
+        .filter(([, qty]) => Number(qty) > 0)
+        .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) })),
+    [selectedMenuItems],
+  );
+
+  const { data: venueCheckoutPreview } = useQuery({
+    queryKey: ['venue-checkout-preview', tableId, venueMenuSelectionPayload, venueSettlementMode],
+    queryFn: () =>
+      apiPost(`/api/venue-tables/${tableId}/checkout-preview`, {
+        selectedMenuItems: venueMenuSelectionPayload,
+        settlementMode: venueSettlementMode,
+      }),
+    enabled: isVenueSource && !!tableId && !!venueTable,
+  });
 
   useEffect(() => {
     if (!isVenueSource || !venueTable?.includedItems?.length) return;
@@ -358,40 +376,10 @@ export default function TableDetails() {
       return acc;
     }, {});
     const settlement = venueSettlementMode || venueTable.minSpendSettlement || 'PREPAY_LUMP';
-    const bookingFee = Number(venueTable.bookingFeeZar || 0);
-    const minSpend = Number(venueTable.minimumSpend || 0);
-    const entrance =
-      venueTable.event?.hasEntranceFee && Number(venueTable.event.entranceFeeAmount) > 0
-        ? Number(venueTable.event.entranceFeeAmount)
-        : 0;
-    let extraMenu = 0;
-    for (const [id, qtyRaw] of Object.entries(selectedMenuItems)) {
-      const qty = Number(qtyRaw) || 0;
-      const item = (venueTable.menuItems || []).find((m) => m.id === id);
-      if (!item) continue;
-      const bundled = Number(includedSeed[id] || 0);
-      extraMenu += item.price * Math.max(0, qty - bundled);
-    }
-    const checkoutLines = [];
-    if (bookingFee > 0) checkoutLines.push({ code: 'booking_fee', label: 'Booking fee', amount_zar: bookingFee });
-    if (entrance > 0) checkoutLines.push({ code: 'entrance', label: 'Entrance', amount_zar: entrance });
-    if (minSpend > 0 && settlement === 'PREPAY_LUMP') {
-      checkoutLines.push({ code: 'minimum_spend', label: 'Minimum spend', amount_zar: minSpend });
-    }
-    if (extraMenu > 0) checkoutLines.push({ code: 'menu', label: 'Extra menu', amount_zar: extraMenu });
-    for (const inc of venueTable.includedItems || []) {
-      const id = inc.menu_item_id || inc.menuItemId;
-      const row = (venueTable.menuItems || []).find((m) => m.id === id);
-      checkoutLines.push({
-        code: `inc_${id}`,
-        label: `${row?.name || 'Included'} (included)`,
-        amount_zar: 0,
-      });
-    }
-    const sub = checkoutLines.filter((l) => l.amount_zar > 0).reduce((s, l) => s + l.amount_zar, 0);
-    const platformFee = sub > 0 ? Math.round(sub * 0.15 * 100) / 100 : 0;
-    if (platformFee > 0) checkoutLines.push({ code: 'platform_fee', label: 'SEC service fee (15%)', amount_zar: platformFee });
-    const checkoutTotal = checkoutLines.reduce((s, l) => s + l.amount_zar, 0);
+    const checkoutLines = venueCheckoutPreview?.lines?.length
+      ? venueCheckoutPreview.lines
+      : [];
+    const checkoutTotal = venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
     const membership = venueTable.myMembership;
     const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
     const canPay =
@@ -471,6 +459,16 @@ export default function TableDetails() {
                 />
               </label>
               <label className="text-sm block">
+                Your minimum spend (ZAR)
+                <input
+                  type="number"
+                  min={0}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border"
+                  value={customForm.proposedMinimumSpend}
+                  onChange={(e) => setCustomForm((f) => ({ ...f, proposedMinimumSpend: e.target.value }))}
+                />
+              </label>
+              <label className="text-sm block">
                 Notes
                 <Textarea
                   rows={3}
@@ -483,12 +481,17 @@ export default function TableDetails() {
                 className="sec-btn sec-btn-primary w-full"
                 onClick={async () => {
                   try {
+                    const selected = Object.entries(selectedMenuItems)
+                      .filter(([, qty]) => Number(qty) > 0)
+                      .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) }));
                     await apiPost(`/api/venue-tables/${tableId}/request`, {
                       isCustom: true,
                       userSpecs: {
                         guestCount: parseInt(customForm.guestCount, 10) || 4,
+                        proposedMinimumSpend: parseFloat(customForm.proposedMinimumSpend) || undefined,
                         notes: customForm.notes,
                         preferredTime: customForm.preferredTime,
+                        selectedMenuItems: selected.length ? selected : undefined,
                       },
                     });
                     toast.success('Request sent — venue will review');
@@ -768,7 +771,25 @@ export default function TableDetails() {
               {isProcessingPayment ? 'Working…' : totalOnline > 0 ? 'Pay & join' : 'Request to join'}
             </button>
           )}
+          {(isGoingMember || hostedTable.is_host) && (
+            <button
+              type="button"
+              className="sec-btn sec-btn-secondary sec-btn-full"
+              style={{ marginTop: 10, height: 44 }}
+              onClick={() => setShowInviteDialog(true)}
+            >
+              <UserPlus size={16} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+              Invite friends
+            </button>
+          )}
         </div>
+        <InviteFriendsDialog
+          open={showInviteDialog}
+          onOpenChange={setShowInviteDialog}
+          table={{ id: tableId }}
+          event={hostedTable.event}
+          source="hosted"
+        />
       </div>
     );
   }

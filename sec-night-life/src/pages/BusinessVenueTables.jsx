@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
@@ -25,6 +25,7 @@ export default function BusinessVenueTables() {
     tiers: [{ tier_name: 'Standard', max_guests: '6', min_spend: '2000', booking_fee_zar: '200', included_items: [] }],
   });
   const [declineDraft, setDeclineDraft] = useState({});
+  const [venueFees, setVenueFees] = useState({ host_table_fee_zar: '', custom_table_booking_fee_zar: '' });
 
   const { data: venues = [] } = useQuery({
     queryKey: ['my-venues'],
@@ -67,6 +68,7 @@ export default function BusinessVenueTables() {
           guestCapacity: parseInt(tier.max_guests, 10) || 6,
           minimumSpend: parseFloat(tier.min_spend) || 0,
           bookingFeeZar: parseFloat(tier.booking_fee_zar) || 0,
+          hostTableFeeZar: parseFloat(tier.host_table_fee_zar) || 0,
           minSpendSettlement: 'PREPAY_LUMP',
           serviceDate: form.serviceDate ? new Date(form.serviceDate).toISOString() : null,
           startTime: form.startTime,
@@ -103,6 +105,19 @@ export default function BusinessVenueTables() {
     onError: (e) => toast.error(e?.data?.error || e.message),
   });
 
+  const saveVenueFees = useMutation({
+    mutationFn: () =>
+      apiPatch(`/api/venues/${venue.id}`, {
+        host_table_fee_zar: parseFloat(venueFees.host_table_fee_zar) || 0,
+        custom_table_booking_fee_zar: parseFloat(venueFees.custom_table_booking_fee_zar) || 0,
+      }),
+    onSuccess: () => {
+      toast.success('Fees saved');
+      qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
+    },
+    onError: (e) => toast.error(e?.data?.error || e.message),
+  });
+
   if (!venue) {
     return (
       <div className="sec-page flex flex-col items-center justify-center min-h-[50vh] px-6 text-center">
@@ -116,6 +131,15 @@ export default function BusinessVenueTables() {
 
   const pending = reservations?.items || [];
   const dayBookingsOn = Boolean(venueDetail?.accepts_day_bookings);
+
+  useEffect(() => {
+    if (venueDetail) {
+      setVenueFees({
+        host_table_fee_zar: String(venueDetail.host_table_fee_zar ?? ''),
+        custom_table_booking_fee_zar: String(venueDetail.custom_table_booking_fee_zar ?? ''),
+      });
+    }
+  }, [venueDetail?.id, venueDetail?.host_table_fee_zar, venueDetail?.custom_table_booking_fee_zar]);
 
   return (
     <div className="sec-page max-w-3xl mx-auto pb-28">
@@ -250,6 +274,37 @@ export default function BusinessVenueTables() {
               onCheckedChange={(v) => saveVenueFlags.mutate(v)}
               disabled={saveVenueFlags.isPending}
             />
+          </div>
+          <div className="mt-6 space-y-3 border-t border-[var(--sec-border)] pt-5">
+            <p className="text-sm font-medium">Default fees (custom table hosts)</p>
+            <div>
+              <Label className="text-xs">Host table fee (ZAR)</Label>
+              <Input
+                className="mt-1 h-9"
+                type="number"
+                min={0}
+                value={venueFees.host_table_fee_zar}
+                onChange={(e) => setVenueFees((f) => ({ ...f, host_table_fee_zar: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Custom table booking fee (ZAR)</Label>
+              <Input
+                className="mt-1 h-9"
+                type="number"
+                min={0}
+                value={venueFees.custom_table_booking_fee_zar}
+                onChange={(e) => setVenueFees((f) => ({ ...f, custom_table_booking_fee_zar: e.target.value }))}
+              />
+            </div>
+            <Button
+              type="button"
+              className="sec-btn-primary w-full"
+              disabled={saveVenueFees.isPending}
+              onClick={() => saveVenueFees.mutate()}
+            >
+              Save fees
+            </Button>
           </div>
         </TabsContent>
       </Tabs>

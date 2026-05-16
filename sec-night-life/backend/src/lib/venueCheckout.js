@@ -8,13 +8,23 @@ import { line, sumCheckoutLines } from './checkoutLines.js';
  * @param {string} opts.settlementMode
  * @param {Array} opts.menuItems - for included item labels
  */
-export function computeVenueCheckout(table, { menuTotal = 0, settlementMode, menuItems = [] }) {
+export function computeVenueCheckout(
+  table,
+  { menuTotal = 0, settlementMode, menuItems = [], venue = null, isCustomHost = false, overrideMinSpend = null } = {},
+) {
   const mode = settlementMode || table.minSpendSettlement || 'PREPAY_LUMP';
   const bookingFee = Number(table.bookingFeeZar || 0);
-  const minSpend = Number(table.minimumSpend || 0);
+  const minSpend = overrideMinSpend != null ? Number(overrideMinSpend) : Number(table.minimumSpend || 0);
   const lines = [];
 
-  if (bookingFee > 0) lines.push(line('booking_fee', 'Booking fee', bookingFee));
+  if (isCustomHost) {
+    const customFee = Number(venue?.customTableBookingFeeZar || 0);
+    if (customFee > 0) lines.push(line('custom_table_booking_fee', 'Custom table booking fee', customFee));
+    const hostFee = Number(table.hostTableFeeZar || venue?.hostTableFeeZar || 0);
+    if (hostFee > 0) lines.push(line('host_table_fee', 'Host table fee', hostFee));
+  } else if (bookingFee > 0) {
+    lines.push(line('booking_fee', 'Booking fee', bookingFee));
+  }
 
   const event = table.event;
   if (event?.hasEntranceFee && Number(event.entranceFeeAmount) > 0) {

@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-export default function InviteFriendsDialog({ open, onOpenChange, table, event }) {
+export default function InviteFriendsDialog({ open, onOpenChange, table, event, source = 'legacy' }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -63,6 +63,12 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event }
 
   const inviteMutation = useMutation({
     mutationFn: async () => {
+      if (source === 'hosted') {
+        for (const friendId of selectedFriends) {
+          await apiPost(`/api/host/tables/${table.id}/invite`, { inviteeUserId: friendId });
+        }
+        return;
+      }
       await apiPost(`/api/tables/${table.id}/invite`, {
         recipient_ids: selectedFriends,
       });

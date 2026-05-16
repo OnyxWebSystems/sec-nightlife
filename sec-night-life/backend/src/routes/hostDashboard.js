@@ -33,6 +33,15 @@ import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
 
 const router = Router();
 const EXTERNAL_HOSTED_LISTING_ZAR = 200;
+export const TABLE_BOOST_ZAR = 200;
+
+function isBoostActive(table) {
+  if (!table?.boosted) return false;
+  if (!table.boostExpiresAt) return true;
+  return table.boostExpiresAt instanceof Date
+    ? table.boostExpiresAt > new Date()
+    : new Date(table.boostExpiresAt) > new Date();
+}
 
 const inviteUserSearchLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -448,6 +457,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
             menuSpendPaid: myMembership.menuSpendPaid,
           }
         : null,
+      is_host: Boolean(uid && uid === t.hostUserId),
       checkout: {
         entrance_zar: entranceZar,
         joining_fee_zar: joinZar,
@@ -504,6 +514,100 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
       reference: pay.reference,
       access_code: pay.access_code,
       items: menuResolved.items,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Tables for one host at an event (EventHostTables hub). */
+router.get('/tables/host-at-event', optionalAuth, async (req, res, next) => {
+  try {
+    const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : '';
+    const hostUserId = typeof req.query.hostUserId === 'string' ? req.query.hostUserId : '';
+    if (!hostUserId) return res.status(400).json({ error: 'hostUserId required' });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const where = {
+      hostUserId,
+      status: 'ACTIVE',
+      spotsRemaining: { gt: 0 },
+      eventDate: { gte: today },
+      ...(eventId ? { eventId } : {}),
+    };
+    if (req.userId !== hostUserId) {
+      if (req.userId) {
+        const accessible = await prisma.hostedTableMember.findMany({
+          where: { userId: req.userId },
+          select: { hostedTableId: true },
+        });
+        const ids = accessible.map((m) => m.hostedTableId);
+        where.OR = [{ isPublic: true }, ...(ids.length ? [{ id: { in: ids } }] : [])];
+      } else {
+        where.isPublic = true;
+      }
+    }
+    const rows = await prisma.hostedTable.findMany({
+      where,
+      include: {
+        host: { select: publicHostSelect },
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            startTime: true,
+            city: true,
+            coverImageUrl: true,
+            hasEntranceFee: true,
+            entranceFeeAmount: true,
+          },
+        },
+        members: {
+          where: { status: 'GOING' },
+          select: { userId: true },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }],
+    });
+    rows.sort((a, b) => {
+      const aB = isBoostActive(a);
+      const bB = isBoostActive(b);
+      if (aB !== bB) return aB ? -1 : 1;
+      return 0;
+    });
+    const host = rows[0] ? await formatPublicHost(rows[0].host) : null;
+    res.json({
+      host,
+      event: rows[0]?.event
+        ? {
+            id: rows[0].event.id,
+            title: rows[0].event.title,
+            date: rows[0].event.date,
+            start_time: rows[0].event.startTime,
+            city: rows[0].event.city,
+            cover_image_url: rows[0].event.coverImageUrl,
+            has_entrance_fee: rows[0].event.hasEntranceFee,
+            entrance_fee_amount: rows[0].event.entranceFeeAmount,
+          }
+        : null,
+      tables: rows.map((t) => ({
+        id: t.id,
+        tableName: t.tableName,
+        tableDescription: t.tableDescription,
+        tableType: t.tableType,
+        hasJoiningFee: t.hasJoiningFee,
+        joiningFee: t.joiningFee,
+        photo: t.photo,
+        venueName: t.venueName,
+        guestQuantity: t.guestQuantity,
+        spotsRemaining: t.spotsRemaining,
+        isPublic: t.isPublic,
+        boosted: isBoostActive(t),
+        hostingCategory: t.hostingCategory,
+        memberCount: t.members.length,
+        eventId: t.eventId,
+      })),
     });
   } catch (e) {
     next(e);
@@ -581,7 +685,9 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
     }
     const scored = rows.map((t) => ({ t, friend: friendIds.has(t.hostUserId) }));
     scored.sort((a, b) => {
-      if (a.t.boosted !== b.t.boosted) return a.t.boosted ? -1 : 1;
+      const aBoost = isBoostActive(a.t);
+      const bBoost = isBoostActive(b.t);
+      if (aBoost !== bBoost) return aBoost ? -1 : 1;
       if (a.friend !== b.friend) return a.friend ? -1 : 1;
       const ad = a.t.eventDate instanceof Date ? a.t.eventDate.getTime() : 0;
       const bd = b.t.eventDate instanceof Date ? b.t.eventDate.getTime() : 0;
@@ -612,7 +718,7 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
         guestQuantity: t.guestQuantity,
         spotsRemaining: t.spotsRemaining,
         isPublic: t.isPublic,
-        boosted: t.boosted,
+        boosted: isBoostActive(t),
         eventId: t.eventId,
         hostingCategory: t.hostingCategory ?? null,
         hostingTierIndex: t.hostingTierIndex ?? null,
@@ -1311,7 +1417,7 @@ router.post('/tables/:tableId/boost', authenticateToken, requireVerified, async 
     if (t.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const pay = await initializePaystackPayment({
       userId: req.userId,
-      amountZar: 150,
+      amountZar: TABLE_BOOST_ZAR,
       metadata: { type: 'TABLE_BOOST', hostedTableId: t.id, user_id: req.userId },
     });
     res.json(pay);

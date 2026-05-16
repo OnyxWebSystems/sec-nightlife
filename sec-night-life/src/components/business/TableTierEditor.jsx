@@ -18,6 +18,7 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
         max_guests: '6',
         min_spend: '2000',
         booking_fee_zar: '0',
+        host_table_fee_zar: '0',
         tier_table_slots: showSlots ? '1' : undefined,
         included_items: [],
       },
@@ -72,10 +73,18 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
               />
             </div>
             <div>
-              <Label className="text-xs">Booking fee (ZAR)</Label>
+              <Label className="text-xs">Guest booking fee (ZAR)</Label>
               <Input
                 value={tier.booking_fee_zar ?? ''}
                 onChange={(e) => updateTier(idx, { booking_fee_zar: e.target.value })}
+                className="h-9 mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Host table fee (ZAR)</Label>
+              <Input
+                value={tier.host_table_fee_zar ?? ''}
+                onChange={(e) => updateTier(idx, { host_table_fee_zar: e.target.value })}
                 className="h-9 mt-1"
               />
             </div>

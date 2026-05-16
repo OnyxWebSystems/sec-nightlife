@@ -2,10 +2,12 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { logger } from '../lib/logger.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { buildTableCheckoutMetadata } from '../lib/checkoutLines.js';
 import { computeVenueCheckout, computeChargeableMenuTotal } from '../lib/venueCheckout.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { sendEmail } from '../lib/email.js';
 
 const router = Router();
 
@@ -54,6 +56,7 @@ const createTableSchema = z.object({
   guestCapacity: z.number().int().min(1).max(100),
   minimumSpend: z.number().min(0),
   bookingFeeZar: z.number().min(0).optional(),
+  hostTableFeeZar: z.number().min(0).optional(),
   minSpendSettlement: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
   serviceDate: z.coerce.date().optional().nullable(),
   startTime: z.string().optional().nullable(),
@@ -85,6 +88,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         guestCapacity: d.guestCapacity,
         minimumSpend: d.minimumSpend,
         bookingFeeZar: d.bookingFeeZar ?? 0,
+        hostTableFeeZar: d.hostTableFeeZar ?? 0,
         minSpendSettlement: d.minSpendSettlement ?? 'PAY_ON_ARRIVAL',
         serviceDate: d.serviceDate ?? null,
         startTime: d.startTime ?? null,
@@ -271,6 +275,7 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
     const table = await prisma.venueTable.findUnique({
       where: { id: req.params.tableId },
       include: {
+        venue: true,
         event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
         menuItems: { where: { isAvailable: true } },
       },
@@ -280,9 +285,24 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
     const selMap = {};
     for (const s of payload.selectedMenuItems || []) selMap[s.menuItemId] = s.quantity;
     const menuTotal = computeChargeableMenuTotal(menuItems, selMap, table.includedItems);
+    let myMembership = null;
+    if (req.userId) {
+      myMembership = await prisma.venueTableMember.findUnique({
+        where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+      });
+    }
+    const specs = myMembership?.userSpecs || {};
+    const isCustomHost = Boolean(table.isCustomListing || specs.guestCount);
     const checkout = computeVenueCheckout(
       { ...table, event: table.event },
-      { menuTotal, settlementMode: payload.settlementMode, menuItems },
+      {
+        menuTotal,
+        settlementMode: payload.settlementMode,
+        menuItems,
+        venue: table.venue,
+        isCustomHost,
+        overrideMinSpend: specs.proposedMinimumSpend,
+      },
     );
     if (checkout.error) return res.status(400).json({ error: checkout.error });
     res.json(checkout);
@@ -333,8 +353,12 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
       .object({
         userSpecs: z.object({
           guestCount: z.number().int().min(1).optional(),
+          proposedMinimumSpend: z.number().min(0).optional(),
           notes: z.string().max(2000).optional(),
           preferredTime: z.string().optional(),
+          selectedMenuItems: z
+            .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(0) }))
+            .optional(),
         }),
         isCustom: z.boolean().optional(),
       })
@@ -352,9 +376,15 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
         venueTableId: table.id,
         userId: req.userId,
         userSpecs: payload.userSpecs,
+        selectedMenuItems: payload.userSpecs.selectedMenuItems || undefined,
         status: 'PENDING_VENUE_REVIEW',
       },
-      update: { userSpecs: payload.userSpecs, status: 'PENDING_VENUE_REVIEW', declineReason: null },
+      update: {
+        userSpecs: payload.userSpecs,
+        selectedMenuItems: payload.userSpecs.selectedMenuItems || undefined,
+        status: 'PENDING_VENUE_REVIEW',
+        declineReason: null,
+      },
     });
     await createInAppNotification({
       userId: table.venue.ownerUserId,
@@ -382,10 +412,16 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
       .parse(req.body || {});
     const member = await prisma.venueTableMember.findFirst({
       where: { id: req.params.memberId, venueTableId: req.params.tableId },
-      include: { venueTable: { include: { venue: true } }, user: { select: { id: true } } },
+      include: {
+        venueTable: { include: { venue: true } },
+        user: { select: { id: true, email: true, fullName: true } },
+      },
     });
     if (!member) return res.status(404).json({ error: 'Request not found' });
     if (member.venueTable.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const guestEmail = member.user?.email;
+    const tableLabel = member.venueTable.tableName;
+    const payUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/TableDetails?id=${member.venueTableId}&source=venue`;
     if (payload.action === 'decline') {
       if (!payload.declineReason?.trim()) return res.status(400).json({ error: 'Decline reason is required' });
       await prisma.venueTableMember.update({
@@ -405,6 +441,18 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
         referenceId: member.venueTableId,
         referenceType: 'VENUE_TABLE',
       });
+      if (guestEmail) {
+        try {
+          await sendEmail({
+            to: guestEmail,
+            subject: `Table request declined — ${tableLabel}`,
+            text: `Your custom table request for ${tableLabel} was declined.\n\nReason: ${payload.declineReason.trim()}\n\nOpen SEC: ${payUrl}`,
+            html: `<p>Your custom table request for <strong>${tableLabel}</strong> was declined.</p><p><strong>Reason:</strong> ${payload.declineReason.trim()}</p><p><a href="${payUrl}">View in SEC</a></p>`,
+          });
+        } catch (err) {
+          logger?.warn?.('custom table decline email failed', { err: String(err?.message || err) });
+        }
+      }
       return res.json({ status: 'DECLINED' });
     }
     await prisma.venueTableMember.update({
@@ -415,10 +463,22 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
       userId: member.userId,
       type: 'TABLE_APPROVED',
       title: 'Table request approved',
-      body: `You can now complete payment for ${member.venueTable.tableName}.`,
+      body: `You can now complete payment for ${tableLabel}.`,
       referenceId: member.venueTableId,
       referenceType: 'VENUE_TABLE',
     });
+    if (guestEmail) {
+      try {
+        await sendEmail({
+          to: guestEmail,
+          subject: `Table request approved — ${tableLabel}`,
+          text: `Your custom table request for ${tableLabel} was approved. Complete checkout in the SEC app.\n\n${payUrl}`,
+          html: `<p>Your custom table request for <strong>${tableLabel}</strong> was approved.</p><p><a href="${payUrl}">Complete checkout in SEC</a></p>`,
+        });
+      } catch (err) {
+        logger?.warn?.('custom table approve email failed', { err: String(err?.message || err) });
+      }
+    }
     res.json({ status: 'APPROVED' });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
@@ -487,9 +547,18 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     const menuTotal = computeChargeableMenuTotal(menuItems, selMap, table.includedItems);
 
     const settlementMode = payload.settlementMode || table.minSpendSettlement || 'PREPAY_LUMP';
+    const specs = existing?.userSpecs || {};
+    const isCustomHost = Boolean(table.isCustomListing || specs.guestCount);
     const checkout = computeVenueCheckout(
       { ...table, event: table.event },
-      { menuTotal, settlementMode, menuItems },
+      {
+        menuTotal,
+        settlementMode,
+        menuItems,
+        venue: table.venue,
+        isCustomHost,
+        overrideMinSpend: specs.proposedMinimumSpend,
+      },
     );
     if (checkout.error) return res.status(400).json({ error: checkout.error });
     if (checkout.total <= 0) return res.status(400).json({ error: 'Nothing to pay for this booking' });

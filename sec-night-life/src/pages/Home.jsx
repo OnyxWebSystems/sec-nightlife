@@ -11,7 +11,7 @@ import { ChevronRight, Search, SlidersHorizontal, BadgeCheck, Trophy, Bell, User
 
 import FeaturedEventCard from '@/components/home/FeaturedEventCard';
 import VenueCard from '@/components/home/VenueCard';
-import HostedTableCard from '@/components/home/HostedTableCard';
+import TableOfferingCard from '@/components/home/TableOfferingCard';
 import QuickActions from '@/components/home/QuickActions';
 import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
@@ -202,8 +202,7 @@ export default function Home() {
         queryClient.invalidateQueries({ queryKey: ['home-feed'] }),
         queryClient.invalidateQueries({ queryKey: ['featured-events'] }),
         queryClient.invalidateQueries({ queryKey: ['featured-events-details'] }),
-        queryClient.invalidateQueries({ queryKey: ['host-tables-available'] }),
-        queryClient.invalidateQueries({ queryKey: ['venue-tables-available'] }),
+        queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] }),
         queryClient.invalidateQueries({ queryKey: ['host-parties-public-home'] }),
         queryClient.invalidateQueries({ queryKey: ['all-venues'] }),
       ]);
@@ -266,7 +265,7 @@ export default function Home() {
     }
     try {
       const r = await apiPost(`/api/host/tables/${tableId}/join`, {});
-      queryClient.invalidateQueries(['host-tables-available']);
+      queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
       queryClient.invalidateQueries({ queryKey: ['home-feed'] });
       if (r?.pending) {
         toast.success('Request sent. The host will approve your join.');
@@ -281,7 +280,7 @@ export default function Home() {
           accessCode: r.access_code,
           onSuccess: async (payload) => {
             await verifyPaystackReference(payload?.reference || r.reference);
-            queryClient.invalidateQueries(['host-tables-available']);
+            queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
             queryClient.invalidateQueries({ queryKey: ['home-feed'] });
             toast.success('Payment successful — your ticket is ready.');
           },
@@ -344,20 +343,13 @@ export default function Home() {
     enabled: !isLoadingAuth,
   });
 
-  const { data: hostTablesData, isLoading: tablesLoading } = useQuery({
-    queryKey: ['host-tables-available'],
-    queryFn: () => apiGet('/api/host/tables/available?limit=10&page=1'),
+  const { data: tableOfferingsData, isLoading: tablesLoading } = useQuery({
+    queryKey: ['home-table-offerings'],
+    queryFn: () => apiGet('/api/home/table-offerings?limit=24'),
     staleTime: listStale,
     enabled: !isLoadingAuth,
   });
-  const hostTables = hostTablesData?.items || [];
-  const { data: venueTablesData } = useQuery({
-    queryKey: ['venue-tables-available'],
-    queryFn: () => apiGet('/api/venue-tables/available?limit=10&page=1'),
-    staleTime: listStale,
-    enabled: !isLoadingAuth,
-  });
-  const venueTables = venueTablesData?.items || [];
+  const tableOfferings = tableOfferingsData?.items || [];
 
   const { data: hostPartiesData } = useQuery({
     queryKey: ['host-parties-public-home'],
@@ -612,36 +604,23 @@ export default function Home() {
               </Link>
             </div>
 
-            <div className="grid gap-2 xl:grid-cols-2">
-              {hostTables.slice(0, 8).map((table, i) => (
-                <motion.div key={table.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
-                  <HostedTableCard table={table} onJoin={(row) => joinHostedTable(row.id)} compact />
+            <motion.div
+              style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8 }}
+              className="scrollbar-hide -mx-5 px-5 lg:mx-0 lg:px-0"
+            >
+              {tableOfferings.map((offering, i) => (
+                <motion.div
+                  key={offering.id}
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <TableOfferingCard offering={offering} wide={!!offering.boosted} />
                 </motion.div>
               ))}
-              {venueTables.slice(0, 8).map((table, i) => (
-                <motion.div key={`venue-${table.id}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
-                  <div className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
-                    <div style={{ fontWeight: 600 }}>{table.tableName}</div>
-                    <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-                      Posted by {table.venue?.name || 'Venue'} · {table.spotsRemaining} spots left
-                    </div>
-                    <div style={{ fontSize: 12, marginTop: 6 }}>
-                      Min spend: R{Number(table.minimumSpend || 0).toFixed(0)} · Progress {Number(table.progressPercentage || 0).toFixed(1)}%
-                    </div>
-                    <button
-                      type="button"
-                      className="sec-btn sec-btn-secondary sec-btn-full"
-                      style={{ marginTop: 12 }}
-                      onClick={() => navigate(createPageUrl(`TableDetails?id=${table.id}&source=venue`))}
-                    >
-                      View & Join
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+            </motion.div>
 
-            {hostTables.length === 0 && venueTables.length === 0 && !tablesLoading && (
+            {tableOfferings.length === 0 && !tablesLoading && (
               <div className="sec-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%',

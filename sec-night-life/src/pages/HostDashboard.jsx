@@ -324,6 +324,28 @@ export default function HostDashboard() {
     }
   };
 
+  const boostTable = async (id) => {
+    try {
+      const pay = await apiPost(`/api/host/tables/${id}/boost`, {});
+      if (pay?.reference && pay?.access_code) {
+        await launchPaystackInline({
+          email: user?.email,
+          amount: 200,
+          reference: pay.reference,
+          accessCode: pay.access_code,
+          onSuccess: async (payload) => {
+            await verifyPaystackReference(payload?.reference || pay.reference);
+            queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+            queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+            toast.success('Table boosted for 7 days');
+          },
+        });
+      }
+    } catch (e) {
+      toast.error(e?.message || 'Payment failed to start');
+    }
+  };
+
   const copyHostedTableLink = async (tableId) => {
     const url = `${getPublicAppOrigin()}${createPageUrl(
       `TableDetails?id=${encodeURIComponent(tableId)}&source=hosted`,
@@ -448,7 +470,7 @@ export default function HostDashboard() {
                     {p.status === 'PUBLISHED' && (
                       <>
                         <button type="button" className="sec-btn sec-btn-secondary text-xs py-1.5" onClick={() => boostParty(p.id)}>
-                          Boost (R150)
+                          Boost (R200)
                         </button>
                         <button
                           type="button"
@@ -789,7 +811,17 @@ export default function HostDashboard() {
                       )}
                     </div>
                   )}
-                  {t.boosted && <div className="text-xs text-amber-400 mt-2">Boosted</div>}
+                  {t.boosted ? (
+                    <p className="text-xs text-amber-400 mt-2">Promoted on home</p>
+                  ) : t.status === 'ACTIVE' ? (
+                    <button
+                      type="button"
+                      className="sec-btn sec-btn-secondary text-xs mt-2 py-1.5"
+                      onClick={() => boostTable(t.id)}
+                    >
+                      Boost visibility (R200)
+                    </button>
+                  ) : null}
                 </div>
               );
             })}

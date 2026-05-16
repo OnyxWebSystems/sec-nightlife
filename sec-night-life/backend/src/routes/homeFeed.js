@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { buildTableOfferings } from '../lib/tableOfferings.js';
 
 const router = Router();
 
@@ -196,6 +197,17 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const nextCursor = cursor + slice.length < merged.length ? String(cursor + slice.length) : null;
 
     res.json({ items: slice, nextCursor, total: merged.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Grouped venue-event and per-host table cards for Home carousel. */
+router.get('/table-offerings', optionalAuth, async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 60);
+    const items = await buildTableOfferings({ userId: req.userId || null, limit });
+    res.json({ items });
   } catch (err) {
     next(err);
   }
