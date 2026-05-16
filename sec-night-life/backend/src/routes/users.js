@@ -21,6 +21,21 @@ const usernameCheckLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/** Venue owners must list at least one menu item before marking onboarding complete. */
+async function assertVenueMenuForOnboardingComplete(userId) {
+  const venue = await prisma.venue.findFirst({
+    where: { ownerUserId: userId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!venue) return;
+  const menuCount = await prisma.venueMenuItem.count({ where: { venueId: venue.id } });
+  if (menuCount < 1) {
+    const err = new Error('Add at least one menu item to your venue before completing onboarding.');
+    err.status = 400;
+    throw err;
+  }
+}
+
 async function syncUserUsername(userId, rawUsername) {
   const v = validateUsernameFormat(rawUsername);
   if (!v.ok) {
@@ -1054,6 +1069,14 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
     }
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
+    if (data.onboarding_complete === true && req.userRole === 'VENUE') {
+      try {
+        await assertVenueMenuForOnboardingComplete(req.userId);
+      } catch (e) {
+        if (e.status) return res.status(e.status).json({ error: e.message });
+        throw e;
+      }
+    }
     if (data.full_name !== undefined) {
       const fullName = data.full_name === null || data.full_name === '' ? null : data.full_name;
       await prisma.user.update({

@@ -522,6 +522,30 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
       spotsRemaining: { gt: 0 },
       eventDate: { gte: today },
     };
+    if (req.userId) {
+      const [memberRows, hostRows] = await Promise.all([
+        prisma.hostedTableMember.findMany({
+          where: { userId: req.userId },
+          select: { hostedTableId: true },
+        }),
+        prisma.hostedTable.findMany({
+          where: { hostUserId: req.userId },
+          select: { id: true },
+        }),
+      ]);
+      const accessibleIds = [
+        ...new Set([
+          ...memberRows.map((m) => m.hostedTableId),
+          ...hostRows.map((h) => h.id),
+        ]),
+      ];
+      where.OR = [
+        { isPublic: true },
+        ...(accessibleIds.length ? [{ id: { in: accessibleIds } }] : []),
+      ];
+    } else {
+      where.isPublic = true;
+    }
     const rows = await prisma.hostedTable.findMany({
       where,
       include: {
@@ -683,7 +707,7 @@ router.post('/parties', authenticateToken, requireVerified, async (req, res, nex
         entranceFeeAmount: d.hasEntranceFee ? d.entranceFeeAmount : null,
         entranceFeeNote: d.entranceFeeNote ?? null,
         freeEntryGroup: d.freeEntryGroup ?? null,
-        guestGenderPreference: normalizeGuestGenderPreference(d.guestGenderPreference),
+        guestGenderPreference: 'ANY',
         guestQuantity: d.guestQuantity,
         spotsRemaining: d.guestQuantity,
         status: 'DRAFT',
@@ -848,19 +872,6 @@ router.post('/parties/:partyId/join', authenticateToken, requireVerified, async 
     if (party.hostUserId === req.userId) return res.status(403).json({ error: 'You cannot join your own party' });
     if (party.status !== 'PUBLISHED') return res.status(400).json({ error: 'Party is not published' });
     if (party.startTime <= new Date()) return res.status(400).json({ error: 'Party has already started' });
-    const joinerProfile = await prisma.userProfile.findUnique({
-      where: { userId: req.userId },
-      select: { gender: true },
-    });
-    const genderCheck = genderMatchesPreference(joinerProfile?.gender, party.guestGenderPreference || 'ANY');
-    if (!genderCheck.ok) {
-      return res.status(403).json({
-        error:
-          genderCheck.code === 'GENDER_REQUIRED'
-            ? 'Set your gender in profile before joining this party.'
-            : 'This party is restricted to a different gender preference.',
-      });
-    }
     const existing = await prisma.housePartyAttendee.findUnique({
       where: { housePartyId_userId: { housePartyId: partyId, userId: req.userId } },
     });
@@ -1019,6 +1030,12 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
     const parsed = createTableSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
+    if (d.tableType === 'IN_APP_EVENT') {
+      return res.status(403).json({
+        error: 'SEC event tables are listed by the venue. Book from the event page instead.',
+        code: 'USER_HOSTING_DISABLED',
+      });
+    }
     if (d.hasJoiningFee && (d.joiningFee == null || d.joiningFee < 10)) {
       return res.status(400).json({ error: 'joiningFee is required and must be at least R10 when hasJoiningFee is true' });
     }
@@ -1601,7 +1618,12 @@ router.get('/tables/:tableId/pending-requests', authenticateToken, async (req, r
 router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async (req, res, next) => {
   try {
     if (!assertHostEligibleRole(req, res)) return;
-    const { action } = z.object({ action: z.enum(['approve', 'reject']) }).parse(req.body || {});
+    const { action, declineReason } = z
+      .object({
+        action: z.enum(['approve', 'reject']),
+        declineReason: z.string().trim().min(1).max(500).optional(),
+      })
+      .parse(req.body || {});
     const table = await prisma.hostedTable.findFirst({
       where: { id: req.params.tableId },
       select: {
@@ -1634,9 +1656,18 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
     const joinZarApprove =
       table.hasJoiningFee && Number(table.joiningFee || 0) > 0 ? Number(table.joiningFee) : 0;
     if (action === 'reject') {
+      const reason = declineReason?.trim() || 'Your request to join was declined.';
       await prisma.hostedTableMember.update({
         where: { id: member.id },
-        data: { status: 'CANCELLED', hostReviewedAt: new Date() },
+        data: { status: 'CANCELLED', hostReviewedAt: new Date(), declineReason: reason },
+      });
+      await createInAppNotification({
+        userId: targetUserId,
+        type: 'TABLE_DECLINED',
+        title: 'Table request declined',
+        body: reason,
+        referenceId: table.id,
+        referenceType: 'HOSTED_TABLE',
       });
       return res.json({ rejected: true });
     }

@@ -620,6 +620,62 @@ export default function BusinessEvents() {
                 </div>
               )}
             </div>
+            <div className="space-y-3 rounded-xl border p-4" style={{ borderColor: 'var(--sec-border)' }}>
+              <h3 className="text-sm font-semibold text-gray-200">Ticket tiers (you name them)</h3>
+              <p className="text-xs text-gray-500">General admission, VIP, VVIP, or any label your venue uses.</p>
+              {(form.ticket_tiers || []).map((tier, idx) => (
+                <div key={idx} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <Input
+                    placeholder="Tier name"
+                    value={tier.name || ''}
+                    onChange={(e) => {
+                      const next = [...form.ticket_tiers];
+                      next[idx] = { ...next[idx], name: e.target.value };
+                      setForm((p) => ({ ...p, ticket_tiers: next }));
+                    }}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Price ZAR"
+                    value={tier.price ?? ''}
+                    onChange={(e) => {
+                      const next = [...form.ticket_tiers];
+                      next[idx] = { ...next[idx], price: parseFloat(e.target.value) || 0 };
+                      setForm((p) => ({ ...p, ticket_tiers: next }));
+                    }}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Qty"
+                    value={tier.quantity ?? ''}
+                    onChange={(e) => {
+                      const next = [...form.ticket_tiers];
+                      next[idx] = { ...next[idx], quantity: parseInt(e.target.value, 10) || 0 };
+                      setForm((p) => ({ ...p, ticket_tiers: next }));
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setForm((p) => ({ ...p, ticket_tiers: p.ticket_tiers.filter((_, i) => i !== idx) }))}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setForm((p) => ({
+                    ...p,
+                    ticket_tiers: [...(p.ticket_tiers || []), { name: '', price: 0, quantity: 100, sold: 0 }],
+                  }))
+                }
+              >
+                Add ticket tier
+              </Button>
+            </div>
             {(['general', 'vip']).map((cat) => {
               const label = cat === 'vip' ? 'VIP' : 'General';
               const sec = form.hosting_config?.[cat] || emptyHostingSection();

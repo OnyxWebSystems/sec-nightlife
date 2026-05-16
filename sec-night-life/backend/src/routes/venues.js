@@ -349,6 +349,14 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid input' });
     }
     const data = parsed.data;
+    const extra = z
+      .object({
+        accepts_day_bookings: z.boolean().optional(),
+        external_booking_links: z.any().optional(),
+        booking_policies: z.any().optional(),
+      })
+      .safeParse(req.body);
+    const extraData = extra.success ? extra.data : {};
 
     const updates = {};
     if (data.name != null) updates.name = data.name;
@@ -368,6 +376,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.age_limit != null) updates.ageLimit = data.age_limit;
     if (data.logo_url !== undefined) updates.logoUrl = data.logo_url;
     if (data.cover_image_url !== undefined) updates.coverImageUrl = data.cover_image_url;
+    if (extraData.accepts_day_bookings != null) updates.acceptsDayBookings = extraData.accepts_day_bookings;
+    if (extraData.external_booking_links !== undefined) updates.externalBookingLinks = extraData.external_booking_links;
+    if (extraData.booking_policies !== undefined) updates.bookingPolicies = extraData.booking_policies;
 
     const updated = await prisma.venue.update({
       where: { id: venue.id },

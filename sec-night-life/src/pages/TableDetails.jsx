@@ -25,6 +25,7 @@ import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import CheckoutCart from '@/components/checkout/CheckoutCart';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -120,6 +121,8 @@ export default function TableDetails() {
     enabled: !!tableId && isVenueSource,
   });
 
+  const [venueSettlementMode, setVenueSettlementMode] = useState('PAY_ON_ARRIVAL');
+
   const joinVenueTable = async () => {
     const selected = Object.entries(selectedMenuItems)
       .filter(([, qty]) => Number(qty) > 0)
@@ -130,7 +133,10 @@ export default function TableDetails() {
     }
     setIsProcessingPayment(true);
     try {
-      const pay = await apiPost(`/api/venue-tables/${tableId}/join`, { selectedMenuItems: selected });
+      const pay = await apiPost(`/api/venue-tables/${tableId}/join`, {
+        selectedMenuItems: selected,
+        settlementMode: venueSettlementMode,
+      });
       if (pay?.reference && pay?.access_code) {
         await launchPaystackInline({
           email: user?.email,
@@ -330,6 +336,28 @@ export default function TableDetails() {
       const item = (venueTable.menuItems || []).find((m) => m.id === id);
       return sum + (item ? item.price * Number(qty || 0) : 0);
     }, 0);
+    const settlement = venueSettlementMode || venueTable.minSpendSettlement || 'PAY_ON_ARRIVAL';
+    const checkoutLines = [];
+    const bookingFee = Number(venueTable.bookingFeeZar || 0);
+    const minSpend = Number(venueTable.minimumSpend || 0);
+    if (bookingFee > 0) checkoutLines.push({ code: 'booking_fee', label: 'Booking fee', amount_zar: bookingFee });
+    if (settlement === 'PREPAY_LUMP' && minSpend > 0) {
+      checkoutLines.push({ code: 'minimum_spend', label: 'Minimum spend', amount_zar: minSpend });
+    } else if (settlement === 'PREPAY_MENU' && contribution > 0) {
+      checkoutLines.push({ code: 'menu', label: 'Menu', amount_zar: contribution });
+    } else if (settlement === 'PAY_ON_ARRIVAL' && contribution > 0) {
+      checkoutLines.push({ code: 'menu', label: 'Menu pre-order', amount_zar: contribution });
+    }
+    const sub = checkoutLines.reduce((s, l) => s + l.amount_zar, 0);
+    const platformFee = sub > 0 ? Math.round(sub * 0.15 * 100) / 100 : 0;
+    if (platformFee > 0) checkoutLines.push({ code: 'platform_fee', label: 'SEC service fee', amount_zar: platformFee });
+    const checkoutTotal = checkoutLines.reduce((s, l) => s + l.amount_zar, 0);
+    const canPay =
+      settlement === 'PREPAY_LUMP'
+        ? checkoutTotal > 0
+        : settlement === 'PREPAY_MENU'
+          ? contribution >= minSpend && checkoutTotal > 0
+          : checkoutTotal > 0;
     return (
       <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: 20, paddingBottom: 90 }}>
         <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
@@ -359,11 +387,37 @@ export default function TableDetails() {
             </div>
           ))}
         </div>
-        <div className="sec-bottom-bar">
-          <button onClick={joinVenueTable} disabled={isProcessingPayment || contribution <= 0} className="sec-btn sec-btn-primary sec-btn-full" style={{ height: 48 }}>
-            {isProcessingPayment ? 'Processing…' : `Pay R${contribution.toFixed(0)} to join`}
+        <CheckoutCart
+          lines={checkoutLines}
+          settlementMode={settlement}
+          showSettlementOptions
+          onSettlementChange={setVenueSettlementMode}
+        />
+        {venueTable.allowsCustomRequests ? (
+          <button
+            type="button"
+            className="sec-btn sec-btn-ghost sec-btn-full mt-3"
+            style={{ height: 44 }}
+            onClick={async () => {
+              try {
+                await apiPost(`/api/venue-tables/${tableId}/request`, {
+                  isCustom: true,
+                  userSpecs: { notes: 'Custom table request', guestCount: 4 },
+                });
+                toast.success('Request sent — venue will review');
+              } catch (e) {
+                toast.error(e?.data?.error || e.message);
+              }
+            }}
+          >
+            Request custom table (venue reviews first)
           </button>
-          <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 8 }}>No refunds: once you join and pay, contribution is retained.</p>
+        ) : null}
+        <div className="sec-bottom-bar">
+          <button onClick={joinVenueTable} disabled={isProcessingPayment || !canPay} className="sec-btn sec-btn-primary sec-btn-full" style={{ height: 48 }}>
+            {isProcessingPayment ? 'Processing…' : `Pay R${checkoutTotal.toFixed(0)} to book`}
+          </button>
+          <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 8 }}>No refunds: once you pay, your booking is confirmed per venue policy.</p>
           <div style={{ marginTop: 8 }}>
             <RefundPolicyNote />
           </div>

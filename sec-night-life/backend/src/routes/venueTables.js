@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
+import { buildTableCheckoutMetadata, line, sumCheckoutLines } from '../lib/checkoutLines.js';
+import { createInAppNotification } from '../lib/inAppNotifications.js';
 
 const router = Router();
 
@@ -49,7 +51,16 @@ const createTableSchema = z.object({
   tableName: z.string().trim().min(1).max(60),
   description: z.string().trim().max(500).optional().nullable(),
   guestCapacity: z.number().int().min(1).max(100),
-  minimumSpend: z.number().min(50),
+  minimumSpend: z.number().min(0),
+  bookingFeeZar: z.number().min(0).optional(),
+  minSpendSettlement: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
+  serviceDate: z.coerce.date().optional().nullable(),
+  startTime: z.string().optional().nullable(),
+  endTime: z.string().optional().nullable(),
+  partySize: z.number().int().min(1).optional().nullable(),
+  isCustomListing: z.boolean().optional(),
+  allowsCustomRequests: z.boolean().optional(),
+  tierLabel: z.string().optional().nullable(),
 });
 
 router.post('/', authenticateToken, async (req, res, next) => {
@@ -72,6 +83,15 @@ router.post('/', authenticateToken, async (req, res, next) => {
         description: d.description ?? null,
         guestCapacity: d.guestCapacity,
         minimumSpend: d.minimumSpend,
+        bookingFeeZar: d.bookingFeeZar ?? 0,
+        minSpendSettlement: d.minSpendSettlement ?? 'PAY_ON_ARRIVAL',
+        serviceDate: d.serviceDate ?? null,
+        startTime: d.startTime ?? null,
+        endTime: d.endTime ?? null,
+        partySize: d.partySize ?? null,
+        isCustomListing: d.isCustomListing ?? false,
+        allowsCustomRequests: d.allowsCustomRequests ?? false,
+        tierLabel: d.tierLabel ?? null,
         amountContributed: 0,
         currentOccupancy: 0,
         status: 'AVAILABLE',
@@ -226,51 +246,229 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
   }
 });
 
+function computeVenueCheckout(table, { menuTotal, settlementMode }) {
+  const mode = settlementMode || table.minSpendSettlement || 'PAY_ON_ARRIVAL';
+  const bookingFee = Number(table.bookingFeeZar || 0);
+  const minSpend = Number(table.minimumSpend || 0);
+  const lines = [];
+  if (bookingFee > 0) lines.push(line('booking_fee', 'Booking fee', bookingFee));
+  if (mode === 'PREPAY_LUMP' && minSpend > 0) {
+    lines.push(line('minimum_spend', 'Minimum spend', minSpend));
+  } else if (mode === 'PREPAY_MENU') {
+    const menu = Number(menuTotal || 0);
+    if (menu > 0) lines.push(line('menu', 'Menu', menu));
+    if (menu < minSpend) {
+      return { error: `Select menu items worth at least R${minSpend.toFixed(0)} (currently R${menu.toFixed(0)}).` };
+    }
+  } else if (mode === 'PAY_ON_ARRIVAL' && menuTotal > 0) {
+    lines.push(line('menu', 'Menu pre-order', menuTotal));
+  }
+  const subtotal = sumCheckoutLines(lines);
+  const platformFee = Number((subtotal * 0.15).toFixed(2));
+  if (platformFee > 0) lines.push(line('platform_fee', 'SEC service fee', platformFee));
+  return { lines, mode, subtotal, platformFee, total: sumCheckoutLines(lines) };
+}
+
+router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
+  try {
+    const payload = z
+      .object({
+        userSpecs: z.object({
+          guestCount: z.number().int().min(1).optional(),
+          notes: z.string().max(2000).optional(),
+          preferredTime: z.string().optional(),
+        }),
+        isCustom: z.boolean().optional(),
+      })
+      .parse(req.body || {});
+    const table = await prisma.venueTable.findUnique({ where: { id: req.params.tableId }, include: { venue: true } });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    if (!table.isActive) return res.status(400).json({ error: 'Table not available' });
+    if (table.venue.ownerUserId === req.userId) return res.status(403).json({ error: 'Cannot request your own venue table' });
+    if (payload.isCustom && !table.allowsCustomRequests && !table.isCustomListing) {
+      return res.status(400).json({ error: 'Custom requests are not enabled for this listing' });
+    }
+    const member = await prisma.venueTableMember.upsert({
+      where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+      create: {
+        venueTableId: table.id,
+        userId: req.userId,
+        userSpecs: payload.userSpecs,
+        status: 'PENDING_VENUE_REVIEW',
+      },
+      update: { userSpecs: payload.userSpecs, status: 'PENDING_VENUE_REVIEW', declineReason: null },
+    });
+    await createInAppNotification({
+      userId: table.venue.ownerUserId,
+      type: 'TABLE_REQUEST',
+      title: 'New table request',
+      body: `A guest requested ${table.tableName}. Review in Business Bookings.`,
+      referenceId: table.id,
+      referenceType: 'VENUE_TABLE',
+    });
+    res.status(201).json({ member, status: 'PENDING_VENUE_REVIEW' });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    next(e);
+  }
+});
+
+router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, res, next) => {
+  try {
+    if (!requireVenueOwner(req, res)) return;
+    const payload = z
+      .object({
+        action: z.enum(['approve', 'decline']),
+        declineReason: z.string().trim().min(1).max(500).optional(),
+      })
+      .parse(req.body || {});
+    const member = await prisma.venueTableMember.findFirst({
+      where: { id: req.params.memberId, venueTableId: req.params.tableId },
+      include: { venueTable: { include: { venue: true } }, user: { select: { id: true } } },
+    });
+    if (!member) return res.status(404).json({ error: 'Request not found' });
+    if (member.venueTable.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (payload.action === 'decline') {
+      if (!payload.declineReason?.trim()) return res.status(400).json({ error: 'Decline reason is required' });
+      await prisma.venueTableMember.update({
+        where: { id: member.id },
+        data: {
+          status: 'DECLINED',
+          declineReason: payload.declineReason.trim(),
+          reviewedAt: new Date(),
+          reviewedByUserId: req.userId,
+        },
+      });
+      await createInAppNotification({
+        userId: member.userId,
+        type: 'TABLE_DECLINED',
+        title: 'Table request declined',
+        body: payload.declineReason.trim(),
+        referenceId: member.venueTableId,
+        referenceType: 'VENUE_TABLE',
+      });
+      return res.json({ status: 'DECLINED' });
+    }
+    await prisma.venueTableMember.update({
+      where: { id: member.id },
+      data: { status: 'APPROVED', reviewedAt: new Date(), reviewedByUserId: req.userId },
+    });
+    await createInAppNotification({
+      userId: member.userId,
+      type: 'TABLE_APPROVED',
+      title: 'Table request approved',
+      body: `You can now complete payment for ${member.venueTable.tableName}.`,
+      referenceId: member.venueTableId,
+      referenceType: 'VENUE_TABLE',
+    });
+    res.json({ status: 'APPROVED' });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    next(e);
+  }
+});
+
 router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
   try {
     if (!['USER', 'VENUE'].includes(req.userRole)) return res.status(403).json({ error: 'Forbidden' });
-    const payload = z.object({
-      selectedMenuItems: z.array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) })).min(1),
-    }).parse(req.body || {});
+    const payload = z
+      .object({
+        selectedMenuItems: z
+          .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) }))
+          .optional(),
+        settlementMode: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
+      })
+      .parse(req.body || {});
     const table = await prisma.venueTable.findUnique({
       where: { id: req.params.tableId },
       include: { venue: true, menuItems: true },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
-    if (!['AVAILABLE', 'PARTIALLY_FILLED'].includes(table.status) || !table.isActive) return res.status(400).json({ error: 'Table not available' });
+    if (!['AVAILABLE', 'PARTIALLY_FILLED'].includes(table.status) || !table.isActive) {
+      return res.status(400).json({ error: 'Table not available' });
+    }
     if (table.currentOccupancy >= table.guestCapacity) return res.status(400).json({ error: 'Table is full' });
     if (table.venue.ownerUserId === req.userId) return res.status(403).json({ error: 'Venue owners cannot join their own table' });
-    const existing = await prisma.venueTableMember.findUnique({ where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } } });
-    if (existing && existing.status !== 'LEFT') return res.status(400).json({ error: 'Already joined' });
+    const existing = await prisma.venueTableMember.findUnique({
+      where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+    });
+    if (existing && ['CONFIRMED', 'PENDING_PAYMENT'].includes(existing.status)) {
+      return res.status(400).json({ error: 'Already joined' });
+    }
+    if (existing?.status === 'PENDING_VENUE_REVIEW') {
+      return res.status(400).json({ error: 'Awaiting venue approval before checkout' });
+    }
+    if (existing?.status === 'DECLINED') {
+      return res.status(400).json({ error: 'Request was declined by the venue' });
+    }
+    const needsVenueApproval = table.allowsCustomRequests || table.isCustomListing;
+    if (needsVenueApproval) {
+      if (!existing || existing.status === 'PENDING_VENUE_REVIEW') {
+        return res.status(400).json({ error: 'Submit a table request and wait for venue approval before checkout' });
+      }
+      if (existing.status !== 'APPROVED' && existing.status !== 'LEFT') {
+        return res.status(400).json({ error: 'Venue approval required before checkout' });
+      }
+    }
 
+    const menuSelections = payload.selectedMenuItems || [];
     const menuMap = new Map(table.menuItems.map((i) => [i.id, i]));
-    let total = 0;
-    for (const sel of payload.selectedMenuItems) {
+    let menuTotal = 0;
+    for (const sel of menuSelections) {
       const item = menuMap.get(sel.menuItemId);
       if (!item || item.venueTableId !== table.id || !item.isAvailable) {
         return res.status(400).json({ error: 'Invalid menu item selection' });
       }
-      total += item.price * sel.quantity;
+      menuTotal += item.price * sel.quantity;
     }
-    if (total <= 0) return res.status(400).json({ error: 'Invalid contribution total' });
+
+    const settlementMode = payload.settlementMode || table.minSpendSettlement || 'PAY_ON_ARRIVAL';
+    const checkout = computeVenueCheckout(table, { menuTotal, settlementMode });
+    if (checkout.error) return res.status(400).json({ error: checkout.error });
+    if (checkout.total <= 0) return res.status(400).json({ error: 'Nothing to pay for this booking' });
 
     const member = await prisma.venueTableMember.upsert({
       where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
-      create: { venueTableId: table.id, userId: req.userId, selectedMenuItems: payload.selectedMenuItems, status: 'PENDING_PAYMENT' },
-      update: { selectedMenuItems: payload.selectedMenuItems, status: 'PENDING_PAYMENT' },
-    });
-    const pay = await initializePaystackPayment({
-      userId: req.userId,
-      amountZar: total,
-      metadata: {
-        type: 'VENUE_TABLE_JOIN',
+      create: {
         venueTableId: table.id,
-        venueId: table.venueId,
-        venueTableMemberId: member.id,
-        selectedMenuItems: payload.selectedMenuItems,
+        userId: req.userId,
+        selectedMenuItems: menuSelections.length ? menuSelections : undefined,
+        settlementMode,
+        status: 'PENDING_PAYMENT',
+      },
+      update: {
+        selectedMenuItems: menuSelections.length ? menuSelections : undefined,
+        settlementMode,
+        status: 'PENDING_PAYMENT',
       },
     });
-    res.status(201).json({ ...pay, memberId: member.id, amount: total });
+
+    const metadata = buildTableCheckoutMetadata({
+      userId: req.userId,
+      venueTableId: table.id,
+      eventId: table.eventId,
+      settlementMode,
+      lines: checkout.lines,
+    });
+    metadata.venueTableMemberId = member.id;
+    metadata.venueId = table.venueId;
+    metadata.selectedMenuItems = menuSelections;
+    metadata.booking_fee_zar = Number(table.bookingFeeZar || 0);
+    metadata.minimum_spend_zar = Number(table.minimumSpend || 0);
+    metadata.menu_zar = menuTotal;
+    metadata.platform_fee_zar = checkout.platformFee;
+
+    const pay = await initializePaystackPayment({
+      userId: req.userId,
+      amountZar: checkout.total,
+      metadata,
+    });
+    res.status(201).json({
+      ...pay,
+      memberId: member.id,
+      amount: checkout.total,
+      checkout: { lines: checkout.lines, settlement_mode: settlementMode },
+    });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     next(e);

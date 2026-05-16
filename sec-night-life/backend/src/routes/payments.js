@@ -15,6 +15,7 @@ import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { sendEmail } from '../lib/email.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
+import { expectedTotalFromMetadata } from '../lib/checkoutLines.js';
 import { normalizeGuestGenderPreference } from '../lib/genderPreference.js';
 import { getEventEntranceZar } from '../lib/hostedTableSecFees.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
@@ -303,7 +304,12 @@ async function applyReferenceSideEffects(reference, paystackData) {
 
   const venueTableId = metadata.venueTableId || metadata.venue_table_id;
   const venueTableMemberId = metadata.venueTableMemberId || metadata.venue_table_member_id;
-  if (metadata.type === 'VENUE_TABLE_JOIN' && venueTableId && venueTableMemberId && userId) {
+  if (
+    (metadata.type === 'VENUE_TABLE_JOIN' || metadata.type === 'TABLE_CHECKOUT') &&
+    venueTableId &&
+    venueTableMemberId &&
+    userId
+  ) {
     await prisma.$transaction(async (tx) => {
       const member = await tx.venueTableMember.findFirst({
         where: { id: String(venueTableMemberId), venueTableId: String(venueTableId), userId: String(userId) },
@@ -1381,6 +1387,16 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
     const reference = crypto.randomBytes(16).toString('hex');
     const meta = d.metadata || {};
     const type = meta.type || (d.venue_id && meta.promotion_id ? 'promotion' : d.event_id ? 'event' : 'table') || 'other';
+
+    if (['table', 'VENUE_TABLE_JOIN', 'TABLE_CHECKOUT', 'HOSTED_TABLE_JOIN', 'TABLE_HOST_FEE'].includes(type)) {
+      const expected = expectedTotalFromMetadata(meta);
+      if (expected > 0 && Math.abs(Number(d.amount) - expected) >= 0.02) {
+        return res.status(400).json({
+          error: 'Payment amount does not match checkout total.',
+          expected_zar: expected,
+        });
+      }
+    }
 
     if (type === 'table' && !(await userHasIdentityVerified(req.userId))) {
       return res.status(403).json({

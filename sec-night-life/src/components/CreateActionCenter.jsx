@@ -96,8 +96,8 @@ export default function CreateActionCenter({ open, onOpenChange, userRoles = { p
           >
             <Armchair size={22} strokeWidth={1.5} />
             <div className="flex-1 min-w-0">
-              <div className="font-semibold">Host a Table</div>
-              <div className="text-xs opacity-80 mt-0.5">List a table at a club for people to join</div>
+              <div className="font-semibold">Private meet-up table</div>
+              <div className="text-xs opacity-80 mt-0.5">External meet-up only — book SEC event tables from the event page</div>
             </div>
           </button>
           <button

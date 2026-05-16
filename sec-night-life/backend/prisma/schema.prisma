@@ -254,8 +254,17 @@ enum VenueTableStatus {
 
 enum VenueTableMemberStatus {
   PENDING_PAYMENT
+  PENDING_VENUE_REVIEW
+  APPROVED
+  DECLINED
   CONFIRMED
   LEFT
+}
+
+enum MinSpendSettlement {
+  PREPAY_MENU
+  PREPAY_LUMP
+  PAY_ON_ARRIVAL
 }
 
 // ─── Users & Auth ─────────────────────────────────────────────────────────
@@ -326,6 +335,7 @@ model User {
   tickets                     Ticket[]
   payoutLedgersAsRecipient    PayoutLedger[]             @relation("PayoutRecipientUser")
   eventVenueTableBookings     EventVenueTableBooking[]
+  celebrationRequests         CelebrationRequest[]
   ticketsAdmittedAsStaff    Ticket[]                   @relation("TicketAdmittedBy")
 
   @@unique([email, role])
@@ -455,11 +465,15 @@ model Venue {
   ratingCount                 Int                   @default(0) @map("rating_count")
   performanceScore            Float                 @default(0) @map("performance_score")
   transparencyScore           Float                 @default(0) @map("transparency_score")
+  acceptsDayBookings          Boolean               @default(false) @map("accepts_day_bookings")
+  bookingPolicies             Json?                 @map("booking_policies")
+  externalBookingLinks        Json?                 @map("external_booking_links")
   createdAt                   DateTime              @default(now()) @map("created_at")
   updatedAt                   DateTime              @updatedAt @map("updated_at")
   deletedAt                   DateTime?             @map("deleted_at")
 
   owner               User                 @relation("VenueOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  celebrationRequests CelebrationRequest[]
   events              Event[]
   tables              Table[]
   jobs                Job[]
@@ -1405,6 +1419,11 @@ model EventVenueTableBooking {
   hostingTierName   String?  @map("hosting_tier_name")
   hostingCategory   String?  @map("hosting_category")
   menuTotalZar      Float?   @map("menu_total_zar")
+  bookingFeeZar     Float?   @map("booking_fee_zar")
+  minimumSpendZar   Float?   @map("minimum_spend_zar")
+  platformFeeZar    Float?   @map("platform_fee_zar")
+  settlementMode    String?  @map("settlement_mode")
+  declineReason     String?  @map("decline_reason") @db.Text
   createdAt         DateTime @default(now()) @map("created_at")
 
   venue       Venue       @relation(fields: [venueId], references: [id], onDelete: Cascade)
@@ -1473,7 +1492,16 @@ model VenueTable {
   guestCapacity     Int              @map("guest_capacity")
   currentOccupancy  Int              @default(0) @map("current_occupancy")
   minimumSpend      Float            @map("minimum_spend")
+  bookingFeeZar     Float            @default(0) @map("booking_fee_zar")
+  minSpendSettlement MinSpendSettlement @default(PAY_ON_ARRIVAL) @map("min_spend_settlement")
   amountContributed Float            @default(0) @map("amount_contributed")
+  serviceDate       DateTime?        @map("service_date")
+  startTime         String?          @map("start_time")
+  endTime           String?          @map("end_time")
+  partySize         Int?             @map("party_size")
+  isCustomListing   Boolean          @default(false) @map("is_custom_listing")
+  allowsCustomRequests Boolean       @default(false) @map("allows_custom_requests")
+  tierLabel         String?          @map("tier_label")
   status            VenueTableStatus @default(AVAILABLE)
   isActive          Boolean          @default(true) @map("is_active")
   createdAt         DateTime         @default(now()) @map("created_at")
@@ -1497,6 +1525,11 @@ model VenueTableMember {
   amountPaid        Float                  @default(0) @map("amount_paid")
   paystackReference String?                @map("paystack_reference")
   selectedMenuItems Json?                  @map("selected_menu_items")
+  userSpecs         Json?                  @map("user_specs")
+  declineReason     String?                @map("decline_reason") @db.Text
+  reviewedAt        DateTime?              @map("reviewed_at")
+  reviewedByUserId  String?                @map("reviewed_by_user_id")
+  settlementMode    MinSpendSettlement?    @map("settlement_mode")
   status            VenueTableMemberStatus @default(PENDING_PAYMENT)
   joinedAt          DateTime               @default(now()) @map("joined_at")
   paidAt            DateTime?              @map("paid_at")
@@ -1553,6 +1586,7 @@ model HostedTableMember {
   status            AttendeeStatus
   joinedAt          DateTime       @default(now()) @map("joined_at")
   hostReviewedAt    DateTime?      @map("host_reviewed_at")
+  declineReason     String?        @map("decline_reason") @db.Text
   paystackReference String?        @map("paystack_reference")
   joinFeePaid      Float?         @map("join_fee_paid")
   selectedMenuItems Json?         @map("selected_menu_items")
@@ -1764,6 +1798,30 @@ model VenuePopularity {
   @@index([venueId])
   @@index([popularityScore])
   @@map("venue_popularity")
+}
+
+/// Private celebrations / venue coordination requests (weddings, umemulo, etc.)
+model CelebrationRequest {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  venueId         String?  @map("venue_id")
+  eventType       String   @map("event_type")
+  title           String
+  description     String?  @db.Text
+  guestCount      Int?     @map("guest_count")
+  preferredDate   DateTime? @map("preferred_date")
+  status          String   @default("open")
+  venueNotes      String?  @map("venue_notes") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  venue Venue? @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([venueId])
+  @@index([status])
+  @@map("celebration_requests")
 }
 
 // ─── Future: Table Booking & Split Payments ──────────────────────────────

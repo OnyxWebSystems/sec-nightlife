@@ -483,22 +483,6 @@ router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified,
 
       const pending = Array.isArray(table.pendingRequests) ? table.pendingRequests : [];
       if (!pending.includes(targetUserId)) throw Object.assign(new Error('Request not found'), { status: 404 });
-      const targetProfile = await tx.userProfile.findUnique({
-        where: { userId: targetUserId },
-        select: { gender: true },
-      });
-      const genderCheck = genderMatchesPreference(targetProfile?.gender, table.guestGenderPreference || 'ANY');
-      if (!genderCheck.ok) {
-        throw Object.assign(
-          new Error(
-            genderCheck.code === 'GENDER_REQUIRED'
-              ? 'Guest must set profile gender before approval for this table.'
-              : 'Guest does not meet this table gender preference.'
-          ),
-          { status: 400 },
-        );
-      }
-
       if (table.currentGuests >= table.maxGuests) throw Object.assign(new Error('Table is at full capacity'), { status: 409 });
 
       const members = Array.isArray(table.members) ? table.members : [];
@@ -715,21 +699,6 @@ router.post('/:id/join', authenticateToken, requireVerified, requireIdentityVeri
       }
 
       const members = Array.isArray(table.members) ? table.members : [];
-      const profile = await tx.userProfile.findUnique({
-        where: { userId },
-        select: { gender: true },
-      });
-      const genderCheck = genderMatchesPreference(profile?.gender, table.guestGenderPreference || 'ANY');
-      if (!genderCheck.ok) {
-        throw Object.assign(
-          new Error(
-            genderCheck.code === 'GENDER_REQUIRED'
-              ? 'Set your profile gender before joining this table.'
-              : 'This table is restricted to a different gender preference.'
-          ),
-          { status: 403 },
-        );
-      }
 
       // SECURITY: no duplicate joins
       const alreadyMember = members.some(m =>

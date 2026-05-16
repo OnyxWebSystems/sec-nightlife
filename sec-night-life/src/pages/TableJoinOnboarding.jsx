@@ -330,13 +330,6 @@ export default function TableJoinOnboarding() {
             </p>
           </div>
 
-          {table?.gender_rules && (
-            <NoticeCard
-              icon={ShieldCheck}
-              title="Gender-Based Rules Apply"
-              subtitle="This table has specific minimum spend requirements"
-            />
-          )}
         </div>
       ),
     },

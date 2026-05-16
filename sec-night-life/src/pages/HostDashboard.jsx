@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { createPageUrl, getPublicAppOrigin } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -14,34 +14,6 @@ import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { Input } from '@/components/ui/input';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
-import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
-
-function eventStartTimeForInput(ev) {
-  if (!ev) return undefined;
-  const raw = ev.startTime ?? ev.start_time;
-  if (!raw) return undefined;
-  const s = String(raw).trim();
-  const m = s.match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return undefined;
-  return `${m[1].padStart(2, '0')}:${m[2]}`;
-}
-
-function eventStartTimeLabel(ev) {
-  const raw = ev?.startTime ?? ev?.start_time;
-  if (!raw) return null;
-  return String(raw).slice(0, 5);
-}
-
-function isTimeEarlierThan(a, b) {
-  if (!a || !b) return false;
-  const am = a.match(/^(\d{1,2}):(\d{2})$/);
-  const bm = b.match(/^(\d{1,2}):(\d{2})$/);
-  if (!am || !bm) return false;
-  const aMin = Number(am[1]) * 60 + Number(am[2]);
-  const bMin = Number(bm[1]) * 60 + Number(bm[2]);
-  return aMin < bMin;
-}
-
 const STATUS_BADGE = {
   DRAFT: { label: 'Draft', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
   PENDING_PAYMENT: { label: 'Pending payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
@@ -60,6 +32,7 @@ const TABLE_HOST_STATUS_BADGE = {
 
 export default function HostDashboard() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -83,7 +56,7 @@ export default function HostDashboard() {
     guestGenderPreference: 'ANY',
   });
   const [tableForm, setTableForm] = useState({
-    tableType: 'IN_APP_EVENT',
+    tableType: 'EXTERNAL_VENUE',
     tableName: '',
     tableDescription: '',
     eventType: 'CLUB_TABLE',
@@ -106,10 +79,8 @@ export default function HostDashboard() {
   });
   const [saving, setSaving] = useState(false);
   const [pendingTableId, setPendingTableId] = useState(null);
-  const [eventSearch, setEventSearch] = useState('');
   const [inviteOpenTableId, setInviteOpenTableId] = useState(null);
   const [inviteSearch, setInviteSearch] = useState('');
-  const [tableMenuSelected, setTableMenuSelected] = useState({});
 
   useEffect(() => {
     authService.getCurrentUser().then(async (u) => {
@@ -127,11 +98,12 @@ export default function HostDashboard() {
       setTab('parties');
     }
     if (c === 'table') {
+      if (preEventId) {
+        navigate(createPageUrl(`EventDetails?id=${preEventId}`));
+        return;
+      }
       setShowTableModal(true);
       setTab('tables');
-      if (preEventId) {
-        setTableForm((f) => ({ ...f, tableType: 'IN_APP_EVENT', eventId: preEventId }));
-      }
     }
     if (c === 'invite') {
       setTab('tables');
@@ -180,135 +152,7 @@ export default function HostDashboard() {
     enabled: !!user?.id,
   });
 
-  const { data: publicEvents = [] } = useQuery({
-    queryKey: ['events-published'],
-    queryFn: () => dataService.Event.filter({ status: 'published' }),
-    enabled: showTableModal && tableForm.tableType === 'IN_APP_EVENT',
-  });
-
-  const { data: selectedEventDetail, isFetching: selectedEventDetailLoading } = useQuery({
-    queryKey: ['event-detail-host', tableForm.eventId],
-    queryFn: () => apiGet(`/api/events/${tableForm.eventId}`),
-    enabled: Boolean(tableForm.eventId && showTableModal && tableForm.tableType === 'IN_APP_EVENT'),
-  });
-
-  const selectedEvent = useMemo(() => {
-    if (!tableForm.eventId) return null;
-    const fromList = publicEvents.find((e) => e.id === tableForm.eventId);
-    if (selectedEventDetail?.id === tableForm.eventId) {
-      const merged = { ...fromList, ...selectedEventDetail };
-      const mergedCfg = merged?.hosting_config || merged?.hostingConfig;
-      const listCfg = fromList?.hosting_config || fromList?.hostingConfig;
-      const mergedGeneral = Array.isArray(mergedCfg?.general?.tiers) ? mergedCfg.general.tiers.length : 0;
-      const mergedVip = Array.isArray(mergedCfg?.vip?.tiers) ? mergedCfg.vip.tiers.length : 0;
-      const listGeneral = Array.isArray(listCfg?.general?.tiers) ? listCfg.general.tiers.length : 0;
-      const listVip = Array.isArray(listCfg?.vip?.tiers) ? listCfg.vip.tiers.length : 0;
-      if (mergedGeneral + mergedVip === 0 && listGeneral + listVip > 0) {
-        return { ...merged, hosting_config: listCfg };
-      }
-      return merged;
-    }
-    return fromList ?? null;
-  }, [publicEvents, tableForm.eventId, selectedEventDetail]);
-  const selectedVenueId = selectedEvent?.venue_id || selectedEvent?.venueId || selectedEvent?.venue?.id;
-
-  const { data: venueMenuItems = [] } = useQuery({
-    queryKey: ['venue-menu-public', selectedVenueId],
-    queryFn: () => apiGet(`/api/business/venues/${selectedVenueId}/menu-items/public`),
-    enabled: Boolean(selectedVenueId && showTableModal),
-  });
-
-  const selectedHostingTier = useMemo(() => {
-    const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
-    const categoryKey = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
-    const tiers = Array.isArray(cfg?.[categoryKey]?.tiers) ? cfg[categoryKey].tiers : [];
-    const idx = Number(tableForm.hostingTierIndex || 0);
-    if (!tiers[idx]) return null;
-    return { ...tiers[idx], index: idx };
-  }, [selectedEvent, tableForm.hostingCategory, tableForm.hostingTierIndex]);
-
-  const tierIncludedDisplay = useMemo(() => {
-    const raw = selectedHostingTier?.included_items;
-    if (!Array.isArray(raw) || !venueMenuItems.length) return [];
-    const map = new Map(venueMenuItems.map((m) => [m.id, m]));
-    return raw.map((inc) => {
-      const id = inc.menu_item_id || inc.menuItemId;
-      const row = id ? map.get(id) : null;
-      const qty = Math.max(1, Number(inc.quantity) || 1);
-      return {
-        name: row?.name || inc.name || 'Included',
-        quantity: qty,
-        price: row ? Number(row.price) : Number(inc.price || 0),
-        image_url: row?.image_url || null,
-      };
-    });
-  }, [selectedHostingTier, venueMenuItems]);
-
-  const hostingTierOptions = useMemo(() => {
-    const cfg = selectedEvent?.hosting_config || selectedEvent?.hostingConfig;
-    const key = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
-    const tiers = Array.isArray(cfg?.[key]?.tiers) ? cfg[key].tiers : [];
-    return tiers.map((t, i) => ({
-      value: i,
-      name: (t?.tier_name || t?.name || `Tier ${i + 1}`).toString(),
-      maxGuests: t?.max_guests,
-      minSpend: t?.min_spend,
-      tableSlots: t?.tier_table_slots,
-    }));
-  }, [selectedEvent, tableForm.hostingCategory]);
-
-  const hasEventStartTime = Boolean(eventStartTimeForInput(selectedEvent));
-  const inAppHasTiersForCategory = hostingTierOptions.length > 0;
-  const canSubmitInAppTable =
-    Boolean(tableForm.eventId) &&
-    inAppHasTiersForCategory &&
-    hasEventStartTime &&
-    !selectedEventDetailLoading;
-
-  const tableGuestMax = useMemo(() => {
-    if (tableForm.tableType === 'EXTERNAL_VENUE') return 20;
-    const cap = selectedHostingTier?.max_guests != null ? Number(selectedHostingTier.max_guests) : null;
-    if (cap != null && Number.isFinite(cap)) return Math.min(500, cap);
-    return 500;
-  }, [tableForm.tableType, selectedHostingTier?.max_guests]);
-
-  /** Mirrors server listing total: door + host table fee + tier min spend (ZAR). */
-  const inAppListingBreakdown = useMemo(() => {
-    if (tableForm.tableType !== 'IN_APP_EVENT' || !selectedEvent) return null;
-    const ev = selectedEvent;
-    const hasEntrance = Boolean(ev.hasEntranceFee ?? ev.has_entrance_fee);
-    const entranceAmt = Number(ev.entranceFeeAmount ?? ev.entrance_fee_amount ?? 0);
-    const entrance = hasEntrance && Number.isFinite(entranceAmt) && entranceAmt > 0 ? entranceAmt : 0;
-    const cfg = ev.hosting_config || ev.hostingConfig || {};
-    const cat = tableForm.hostingCategory === 'VIP' ? 'vip' : 'general';
-    const hf = Number(cfg[cat]?.host_table_fee_zar ?? 0);
-    const hostFee = Number.isFinite(hf) && hf > 0 ? hf : 0;
-    const msRaw = selectedHostingTier?.min_spend ?? selectedHostingTier?.minSpend;
-    const minSpend =
-      msRaw != null && msRaw !== '' && Number.isFinite(Number(msRaw)) ? Math.max(0, Number(msRaw)) : 0;
-    const menuCart = menuSelectionTotal(venueMenuItems, tableMenuSelected, tierIncludedDisplay);
-    const total = entrance + hostFee + menuCart;
-    return { entrance, hostFee, minSpend, menuCart, total };
-  }, [tableForm.tableType, tableForm.hostingCategory, selectedEvent, selectedHostingTier, tableMenuSelected, venueMenuItems, tierIncludedDisplay]);
-
-  useEffect(() => {
-    if (tableForm.tableType !== 'IN_APP_EVENT') return;
-    const cap = selectedHostingTier?.max_guests != null ? Number(selectedHostingTier.max_guests) : null;
-    if (cap == null || !Number.isFinite(cap)) return;
-    if (tableForm.guestQuantity > cap) {
-      setTableForm((f) => ({ ...f, guestQuantity: cap }));
-    }
-  }, [tableForm.tableType, tableForm.guestQuantity, selectedHostingTier?.max_guests]);
-
-  const filteredPublicEvents = useMemo(() => {
-    const q = eventSearch.trim().toLowerCase();
-    if (!q) return publicEvents;
-    return publicEvents.filter(
-      (e) =>
-        (e.title || '').toLowerCase().includes(q) ||
-        (e.city || '').toLowerCase().includes(q),
-    );
-  }, [publicEvents, eventSearch]);
+  const tableGuestMax = 20;
 
   const { data: pendingRequests = [], refetch: refetchPending, isFetching: pendingLoading } = useQuery({
     queryKey: ['host-table-pending', pendingTableId],
@@ -372,110 +216,18 @@ export default function HostDashboard() {
   const submitTable = async () => {
     setSaving(true);
     try {
-      if (tableForm.tableType === 'IN_APP_EVENT') {
-        if (!tableForm.eventId) {
-          toast.error('Select an event');
-          setSaving(false);
-          return;
-        }
-        if (selectedEventDetailLoading) {
-          toast.error('Loading event details… try again in a moment.');
-          setSaving(false);
-          return;
-        }
-        if (!inAppHasTiersForCategory) {
-          toast.error(
-            'This event has no table pricing tiers for the selected category. Ask the venue to add tiers in event setup.',
-          );
-          setSaving(false);
-          return;
-        }
-        if (!hasEventStartTime) {
-          toast.error(
-            'This event has no start time. Ask the venue to set an event start time before you can host a table.',
-          );
-          setSaving(false);
-          return;
-        }
-        if (!selectedEvent?.date) {
-          toast.error('Event date missing — pick another event or try again.');
-          setSaving(false);
-          return;
-        }
-        const minT = eventStartTimeForInput(selectedEvent);
-        if (minT && tableForm.eventTime && tableForm.eventTime < minT) {
-          toast.error('Table time cannot be before the event start time');
-          setSaving(false);
-          return;
-        }
-        if (selectedHostingTier?.max_guests && Number(tableForm.guestQuantity) > Number(selectedHostingTier.max_guests)) {
-          toast.error(`Guest quantity cannot exceed selected tier max (${selectedHostingTier.max_guests}).`);
-          setSaving(false);
-          return;
-        }
-        const minSpendReq = inAppListingBreakdown?.minSpend ?? 0;
-        const menuCart = inAppListingBreakdown?.menuCart ?? 0;
-        if (minSpendReq > 0 && menuCart + 0.01 < minSpendReq) {
-          toast.error(`Select menu items totaling at least R${minSpendReq} for this tier.`);
-          setSaving(false);
-          return;
-        }
-        const menuPayload = menuSelectionToPayload(venueMenuItems, tableMenuSelected);
-        const created = await apiPost('/api/host/tables', {
-          tableType: 'IN_APP_EVENT',
-          tableName: tableForm.tableName,
-          tableDescription: tableForm.tableDescription || null,
-          eventType: tableForm.eventType,
-          eventId: tableForm.eventId,
-          eventDate: new Date(`${selectedEvent.date}T12:00:00`).toISOString(),
-          eventTime: tableForm.eventTime,
-          guestQuantity: tableForm.guestQuantity,
-          hostingCategory: tableForm.hostingCategory,
-          hostingTierIndex: Number(tableForm.hostingTierIndex || 0),
-          hasJoiningFee: tableForm.hasJoiningFee,
-          joiningFee: tableForm.hasJoiningFee ? Number(tableForm.joiningFee) : null,
-          photo: tableForm.photo || null,
-          photoPublicId: tableForm.photoPublicId || null,
-          drinkPreferences: tableForm.drinkPreferences || null,
-          desiredCompany: tableForm.desiredCompany || null,
-          isPublic: tableForm.isPublic,
-          ...(menuPayload.length ? { selectedMenuItems: menuPayload.map((m) => ({ menuItemId: m.menuItemId, quantity: m.quantity })) } : {}),
-        });
-        if (created?.payment?.reference && created?.payment?.access_code) {
-          launchPaystackInline({
-            email: user?.email,
-            amount: Number(created.payment.amount_zar ?? inAppListingBreakdown?.total ?? 0),
-            reference: created.payment.reference,
-            accessCode: created.payment.access_code,
-            onSuccess: async (payload) => {
-              await verifyPaystackReference(payload?.reference || created.payment.reference);
-              queryClient.invalidateQueries(['host-tables']);
-              toast.success('Payment received — your table is live.');
-              setShowTableModal(false);
-              setSearchParams({}, { replace: true });
-            },
-            onCancel: () => {
-              toast.message('Checkout closed', {
-                description: 'Your table stays in draft until payment succeeds. You can retry from your tables list.',
-              });
-              queryClient.invalidateQueries(['host-tables']);
-            },
-          });
-          return;
-        }
-      } else {
-        if (!tableForm.venueName || !tableForm.eventDate) {
-          toast.error('Venue name and date required');
-          setSaving(false);
-          return;
-        }
-        if (!tableForm.venueAddress?.trim()) {
-          toast.error('Enter the venue address so guests know where to meet');
-          setSaving(false);
-          return;
-        }
-        const created = await apiPost('/api/host/tables', {
-          tableType: 'EXTERNAL_VENUE',
+      if (!tableForm.venueName || !tableForm.eventDate) {
+        toast.error('Venue name and date required');
+        setSaving(false);
+        return;
+      }
+      if (!tableForm.venueAddress?.trim()) {
+        toast.error('Enter the venue address so guests know where to meet');
+        setSaving(false);
+        return;
+      }
+      const created = await apiPost('/api/host/tables', {
+        tableType: 'EXTERNAL_VENUE',
           tableName: tableForm.tableName,
           tableDescription: tableForm.tableDescription || null,
           eventType: tableForm.eventType,
@@ -514,7 +266,6 @@ export default function HostDashboard() {
           });
           return;
         }
-      }
       queryClient.invalidateQueries(['host-tables']);
       toast.success('Table listed');
       setShowTableModal(false);
@@ -1190,19 +941,9 @@ export default function HostDashboard() {
                   value={partyForm.freeEntryGroup}
                   onChange={(e) => setPartyForm((f) => ({ ...f, freeEntryGroup: e.target.value }))}
                 />
-                <label className="text-xs text-[var(--sec-text-muted)] block">
-                  Who can join this party?
-                  <select
-                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-sm"
-                    value={partyForm.guestGenderPreference}
-                    onChange={(e) => setPartyForm((f) => ({ ...f, guestGenderPreference: e.target.value }))}
-                  >
-                    <option value="ANY">Everyone</option>
-                    <option value="MALE_ONLY">Male only</option>
-                    <option value="FEMALE_ONLY">Female only</option>
-                    <option value="OTHER_ONLY">Other gender only</option>
-                  </select>
-                </label>
+                <p className="text-xs text-[var(--sec-text-muted)]">
+                  Parties are open to everyone. Use a private table listing if you want to approve who joins.
+                </p>
               </div>
             )}
             {partyStep === 4 && (
@@ -1243,137 +984,15 @@ export default function HostDashboard() {
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 p-4">
           <div className="bg-[var(--sec-bg-card)] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 max-h-[90vh] overflow-y-auto border border-[var(--sec-border)]">
             <div className="flex justify-between items-center mb-3">
-              <h3 className="font-semibold">Host a table</h3>
+              <h3 className="font-semibold">Private meet-up table</h3>
               <button type="button" className="text-sm opacity-70" onClick={() => { setShowTableModal(false); setSearchParams({}, { replace: true }); }}>
                 Close
               </button>
             </div>
             <div className="space-y-4 text-sm">
               <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
-                Choose whether your table is for an official SEC event or your own meet-up. Table name becomes the group chat name.
+                List a private meet-up at any venue. To book tables at official SEC events, use Book a table on the event page — venues control those listings.
               </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${tableForm.tableType === 'IN_APP_EVENT' ? 'border-[var(--sec-accent)] bg-[var(--sec-bg-elevated)]' : 'border-[var(--sec-border)]'}`}
-                  onClick={() => setTableForm((f) => ({ ...f, tableType: 'IN_APP_EVENT' }))}
-                >
-                  SEC app event
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${tableForm.tableType === 'EXTERNAL_VENUE' ? 'border-[var(--sec-accent)] bg-[var(--sec-bg-elevated)]' : 'border-[var(--sec-border)]'}`}
-                  onClick={() =>
-                    setTableForm((f) => ({
-                      ...f,
-                      tableType: 'EXTERNAL_VENUE',
-                      guestQuantity: Math.min(Number(f.guestQuantity) || 1, 20),
-                    }))
-                  }
-                >
-                  External meet-up
-                </button>
-              </div>
-              {tableForm.tableType === 'IN_APP_EVENT' ? (
-                <>
-                  <label className="block text-sm font-medium">
-                    Find event
-                    <input
-                      type="search"
-                      placeholder="Search by title or city…"
-                      className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                      value={eventSearch}
-                      onChange={(e) => setEventSearch(e.target.value)}
-                    />
-                  </label>
-                  <div className="rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] max-h-44 overflow-y-auto">
-                    {filteredPublicEvents.length === 0 ? (
-                      <p className="px-3 py-3 text-xs text-[var(--sec-text-muted)]">No matches</p>
-                    ) : (
-                      filteredPublicEvents.slice(0, 50).map((ev) => (
-                        <button
-                          key={ev.id}
-                          type="button"
-                          onClick={() => setTableForm((f) => ({ ...f, eventId: ev.id }))}
-                          className={`w-full text-left px-3 py-2.5 text-sm border-b border-[var(--sec-border)] last:border-0 transition-colors ${
-                            tableForm.eventId === ev.id ? 'bg-[var(--sec-bg-hover)]' : 'hover:bg-[var(--sec-bg-base)]'
-                          }`}
-                        >
-                          <div className="font-medium">{ev.title}</div>
-                          <div className="text-xs opacity-70">{ev.city}</div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                  {selectedEvent && (
-                    <div className="rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] px-3 py-2 text-xs space-y-1">
-                      <div className="font-medium text-[var(--sec-text-primary)]">Event location</div>
-                      <div className="opacity-90">
-                        {[selectedEvent.city, selectedEvent.venue?.name, selectedEvent.venue_name]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </div>
-                      {eventStartTimeLabel(selectedEvent) ? (
-                        <div className="opacity-70">Event starts {eventStartTimeLabel(selectedEvent)}</div>
-                      ) : (
-                        <div className="text-[var(--sec-error)] font-medium">
-                          No event start time — the venue must add one before you can list a table.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {selectedEventDetailLoading ? (
-                    <p className="text-xs text-[var(--sec-text-muted)] flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                      Loading latest event hosting settings…
-                    </p>
-                  ) : null}
-                  {!selectedEventDetailLoading && selectedEvent && !inAppHasTiersForCategory ? (
-                    <p className="text-xs text-[var(--sec-error)] rounded-lg border border-[var(--sec-border)] px-3 py-2 bg-[var(--sec-bg-elevated)]">
-                      No table pricing tiers for{' '}
-                      <strong>{tableForm.hostingCategory === 'VIP' ? 'VIP' : 'General'}</strong> on this event. Ask the venue
-                      owner to add tiers under event hosting setup.
-                    </p>
-                  ) : null}
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="block text-sm font-medium">
-                      Hosting category
-                      <select
-                        className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                        value={tableForm.hostingCategory}
-                        onChange={(e) => setTableForm((f) => ({ ...f, hostingCategory: e.target.value, hostingTierIndex: 0 }))}
-                      >
-                        <option value="GENERAL">General</option>
-                        <option value="VIP">VIP</option>
-                      </select>
-                    </label>
-                    <label className="block text-sm font-medium">
-                      Tier
-                      <select
-                        className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] disabled:opacity-60"
-                        disabled={hostingTierOptions.length === 0}
-                        value={
-                          hostingTierOptions.length === 0
-                            ? '0'
-                            : String(Math.min(tableForm.hostingTierIndex, hostingTierOptions.length - 1))
-                        }
-                        onChange={(e) => setTableForm((f) => ({ ...f, hostingTierIndex: Number(e.target.value || 0) }))}
-                      >
-                        {hostingTierOptions.length === 0 ? (
-                          <option value="0">No tiers configured</option>
-                        ) : (
-                          hostingTierOptions.map((t) => (
-                            <option key={t.value} value={t.value}>
-                              {t.name} · Max {t.maxGuests ?? '-'} · Min spend {t.minSpend ?? '-'} · Tables {t.tableSlots ?? '-'}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    </label>
-                  </div>
-                </>
-              ) : (
-                <>
                   <label className="block text-sm font-medium">
                     Venue name
                     <input
@@ -1406,8 +1025,6 @@ export default function HostDashboard() {
                       onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
                     />
                   </label>
-                </>
-              )}
               <input
                 placeholder="Table name (e.g. VIP Section)"
                 className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
@@ -1435,30 +1052,13 @@ export default function HostDashboard() {
                 maxLength={300}
               />
               <label className="block text-sm font-medium">
-                {tableForm.tableType === 'IN_APP_EVENT' ? 'When will you meet at the table?' : 'Meet time'}
+                Meet time
                 <input
                   type="time"
-                  min={tableForm.tableType === 'IN_APP_EVENT' ? eventStartTimeForInput(selectedEvent) : undefined}
-                  disabled={tableForm.tableType === 'IN_APP_EVENT' && selectedEvent && !hasEventStartTime}
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] disabled:opacity-60"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
                   value={tableForm.eventTime}
-                  onChange={(e) =>
-                    setTableForm((f) => {
-                      const nextTime = e.target.value;
-                      const minTime = f.tableType === 'IN_APP_EVENT' ? eventStartTimeForInput(selectedEvent) : undefined;
-                      if (minTime && isTimeEarlierThan(nextTime, minTime)) {
-                        return { ...f, eventTime: minTime };
-                      }
-                      return { ...f, eventTime: nextTime };
-                    })
-                  }
+                  onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
                 />
-                {tableForm.tableType === 'IN_APP_EVENT' && hasEventStartTime && (
-                  <span className="text-xs text-[var(--sec-text-muted)] mt-1 block">
-                    Earliest meet time is event start ({eventStartTimeLabel(selectedEvent)}). Earlier times are blocked when
-                    you submit.
-                  </span>
-                )}
               </label>
               <label className="block text-sm font-medium">
                 Spots at table
@@ -1477,14 +1077,7 @@ export default function HostDashboard() {
                   }
                 />
               </label>
-              {tableForm.tableType === 'IN_APP_EVENT' && selectedHostingTier?.max_guests ? (
-                <p className="text-xs text-[var(--sec-text-muted)]">
-                  Max guests for this tier: {selectedHostingTier.max_guests} — you cannot exceed this limit.
-                </p>
-              ) : null}
-              {tableForm.tableType === 'EXTERNAL_VENUE' ? (
-                <p className="text-xs text-[var(--sec-text-muted)]">External meet-ups allow at most 20 spots.</p>
-              ) : null}
+              <p className="text-xs text-[var(--sec-text-muted)]">Private meet-ups allow at most 20 spots.</p>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -1502,47 +1095,6 @@ export default function HostDashboard() {
                   value={tableForm.joiningFee}
                   onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
                 />
-              )}
-              {tableForm.tableType === 'IN_APP_EVENT' && selectedEvent && venueMenuItems.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium mb-2">Build your table order (minimum spend)</p>
-                  <MenuPicker
-                    items={venueMenuItems}
-                    selected={tableMenuSelected}
-                    onChange={(id, qty) => setTableMenuSelected((s) => ({ ...s, [id]: qty }))}
-                    includedItems={tierIncludedDisplay}
-                  />
-                </div>
-              )}
-              {tableForm.tableType === 'IN_APP_EVENT' && inAppListingBreakdown && inAppListingBreakdown.total > 0 && (
-                <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2 text-sm bg-[var(--sec-bg-elevated)]">
-                  <p className="text-xs font-medium text-[var(--sec-text-muted)] uppercase tracking-wide">Your listing payment</p>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-[var(--sec-text-muted)]">Door entrance</span>
-                    <span>R{inAppListingBreakdown.entrance.toFixed(0)}</span>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-[var(--sec-text-muted)]">Booking (host table fee)</span>
-                    <span>R{inAppListingBreakdown.hostFee.toFixed(0)}</span>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-[var(--sec-text-muted)]">Menu selection</span>
-                    <span>R{inAppListingBreakdown.menuCart.toFixed(0)}</span>
-                  </div>
-                  {inAppListingBreakdown.minSpend > 0 && (
-                    <p className="text-[11px] text-[var(--sec-text-muted)]">
-                      Tier minimum: R{inAppListingBreakdown.minSpend.toFixed(0)}
-                      {inAppListingBreakdown.menuCart >= inAppListingBreakdown.minSpend ? ' (met)' : ' (add more items)'}
-                    </p>
-                  )}
-                  <div className="flex justify-between gap-2 pt-2 border-t border-[var(--sec-border)] font-semibold">
-                    <span>Total due now</span>
-                    <span>R{inAppListingBreakdown.total.toFixed(0)}</span>
-                  </div>
-                  <p className="text-[11px] text-[var(--sec-text-muted)] pt-1">
-                    After Paystack succeeds, your table goes live. Payouts: 15% platform / 85% to the venue on this total.
-                  </p>
-                </div>
               )}
               <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2">
                 <label className="flex items-start gap-3 text-sm cursor-pointer">
@@ -1562,7 +1114,7 @@ export default function HostDashboard() {
               </div>
               <button
                 type="button"
-                disabled={saving || (tableForm.tableType === 'IN_APP_EVENT' && !canSubmitInAppTable)}
+                disabled={saving}
                 className="sec-btn sec-btn-primary w-full disabled:opacity-50"
                 onClick={submitTable}
               >

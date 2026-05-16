@@ -45,6 +45,7 @@ import businessBookingsRoutes from './routes/businessBookings.js';
 import businessMenuRoutes from './routes/businessMenu.js';
 import menuCatalogRoutes from './routes/menuCatalog.js';
 import homeFeedRoutes from './routes/homeFeed.js';
+import celebrationRoutes from './routes/celebrations.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { authenticateToken, optionalAuth } from './middleware/auth.js';
@@ -191,6 +192,7 @@ app.use('/api/business', generalLimiter, businessBookingsRoutes);
 app.use('/api/business', generalLimiter, businessMenuRoutes);
 app.use('/api/menu-catalog', generalLimiter, menuCatalogRoutes);
 app.use('/api/home', generalLimiter, homeFeedRoutes);
+app.use('/api/celebrations', generalLimiter, celebrationRoutes);
 
 app.get('/', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

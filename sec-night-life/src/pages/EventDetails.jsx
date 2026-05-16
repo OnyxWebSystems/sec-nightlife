@@ -546,13 +546,9 @@ export default function EventDetails() {
               <Users size={15} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
               Tables ({tables.length + hostedItems.length})
             </h2>
-            <Link
-              to={`${createPageUrl('HostDashboard')}?create=table&event=${encodeURIComponent(eventId)}`}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: 'var(--sec-text-secondary)', textDecoration: 'none' }}
-            >
-              <Plus size={14} strokeWidth={2} />
-              Create
-            </Link>
+            <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
+              Venue-listed tables only
+            </span>
           </div>
 
           {hostedItems.length > 0 && (
@@ -653,15 +649,9 @@ export default function EventDetails() {
               }}>
                 <Users size={22} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
               </div>
-              <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 16 }}>No tables available yet</p>
-              <Link
-                to={`${createPageUrl('HostDashboard')}?create=table&event=${encodeURIComponent(eventId)}`}
-                className="sec-btn sec-btn-secondary"
-                style={{ display: 'inline-flex', textDecoration: 'none' }}
-              >
-                <Plus size={14} strokeWidth={2} />
-                Create Your Table
-              </Link>
+              <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
+                The venue has not listed tables for this event yet.
+              </p>
             </div>
           ) : null}
         </div>

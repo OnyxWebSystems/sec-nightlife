@@ -328,6 +328,9 @@ export default function VenueOnboarding() {
     [liveMenuItems]
   );
 
+  const menuItemCount = venueId ? liveMenuItems.length : menuDraftItems.length;
+  const hasMinimumMenu = menuItemCount >= 1;
+
   const [formData, setFormData] = useState(() => ({ ...INITIAL_FORM_DATA }));
 
   useEffect(() => {
@@ -587,7 +590,21 @@ export default function VenueOnboarding() {
           }
         } catch (menuErr) {
           toast.error(menuErr?.data?.error || menuErr.message || 'Venue saved but menu items could not be saved.');
+          throw menuErr;
         }
+      }
+
+      if (resolvedVenueId) {
+        const savedMenu = await apiGet(`/api/business/venues/${resolvedVenueId}/menu-items`);
+        if (!Array.isArray(savedMenu) || savedMenu.length < 1) {
+          setError('Add at least one menu item before completing onboarding.');
+          setStep(3);
+          return;
+        }
+      } else if (!hasMinimumMenu) {
+        setError('Add at least one menu item before completing onboarding.');
+        setStep(3);
+        return;
       }
 
       const complianceUploads = [
@@ -655,7 +672,7 @@ export default function VenueOnboarding() {
   const canProceed = () => {
     if (step === 1) return formData.name && formData.venue_type && formData.city;
     if (step === 2) return true;
-    if (step === 3) return true;
+    if (step === 3) return hasMinimumMenu;
     if (step === 4) return true;
     if (step === 5) return true;
     return true;
@@ -1021,8 +1038,13 @@ export default function VenueOnboarding() {
                 </div>
                 <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Menu Maker</h1>
                 <p className="text-sm max-w-sm mx-auto" style={{ color: 'var(--sec-text-muted)' }}>
-                  Add what you sell with your own photos and prices. You can update your menu anytime from the Dashboard.
+                  Add at least one item with your own photos and prices. You can update your menu anytime from the Dashboard.
                 </p>
+                {!hasMinimumMenu && formData.name?.trim() && formData.venue_type && formData.city?.trim() ? (
+                  <p className="text-sm rounded-xl p-3 mt-3 max-w-sm mx-auto" style={{ color: '#f59e0b', backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+                    Add at least one menu item to continue.
+                  </p>
+                ) : null}
               </div>
               {ensuringVenueForMenu && !venueId ? (
                 <p className="text-sm text-center" style={{ color: 'var(--sec-text-muted)' }}>Preparing your venue menu…</p>
@@ -1206,7 +1228,7 @@ export default function VenueOnboarding() {
               className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
               style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
-              {step === 4 && !hasComplianceDocs() ? 'Skip for now' : 'Continue'}
+              {step === 3 && !hasMinimumMenu ? 'Add menu item' : step === 4 && !hasComplianceDocs() ? 'Skip for now' : 'Continue'}
               <ChevronRight className="w-5 h-5 ml-2" />
             </Button>
           ) : (

@@ -371,4 +371,65 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
   }
 });
 
+router.get('/venue-table-reservations', authenticateToken, async (req, res, next) => {
+  try {
+    const ownedVenues = await prisma.venue.findMany({
+      where: { ownerUserId: req.userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!ownedVenues.length) return res.json({ items: [] });
+    const venueIds = ownedVenues.map((v) => v.id);
+    const statusFilter = String(req.query.status || 'pending').toLowerCase();
+    const statuses =
+      statusFilter === 'all'
+        ? ['PENDING_VENUE_REVIEW', 'APPROVED', 'DECLINED', 'PENDING_PAYMENT', 'CONFIRMED']
+        : statusFilter === 'pending'
+          ? ['PENDING_VENUE_REVIEW']
+          : ['APPROVED', 'CONFIRMED', 'PENDING_PAYMENT'];
+    const members = await prisma.venueTableMember.findMany({
+      where: {
+        status: { in: statuses },
+        venueTable: { venueId: { in: venueIds } },
+      },
+      include: {
+        user: { select: { id: true, fullName: true, userProfile: { select: { username: true, avatarUrl: true } } } },
+        venueTable: {
+          include: {
+            event: { select: { id: true, title: true, date: true } },
+            venue: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { joinedAt: 'desc' },
+      take: 100,
+    });
+    res.json({
+      items: members.map((m) => ({
+        id: m.id,
+        status: m.status,
+        userSpecs: m.userSpecs,
+        declineReason: m.declineReason,
+        amountPaid: m.amountPaid,
+        joinedAt: m.joinedAt,
+        user: {
+          id: m.user.id,
+          username: m.user.userProfile?.username,
+          fullName: m.user.fullName,
+          avatarUrl: m.user.userProfile?.avatarUrl,
+        },
+        table: {
+          id: m.venueTable.id,
+          tableName: m.venueTable.tableName,
+          minimumSpend: m.venueTable.minimumSpend,
+          bookingFeeZar: m.venueTable.bookingFeeZar,
+          event: m.venueTable.event,
+          venue: m.venueTable.venue,
+        },
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;

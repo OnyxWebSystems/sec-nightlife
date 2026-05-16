@@ -325,6 +325,13 @@ export default function VenueProfile() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              to={createPageUrl('Tables')}
+              className="sec-btn sec-btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', padding: '8px 16px', textDecoration: 'none', fontSize: 14 }}
+            >
+              Book on Sec
+            </Link>
             <Button
               onClick={handleFollowClick}
               disabled={followMutation.isPending}
