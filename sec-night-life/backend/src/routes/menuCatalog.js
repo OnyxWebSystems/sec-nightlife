@@ -11,7 +11,6 @@ function formatCatalogItem(row) {
     top_category: row.topCategory,
     sub_category: row.subCategory,
     default_price_zar: row.defaultPriceZar,
-    image_url: row.imageUrl,
     brand: row.brand,
     sort_order: row.sortOrder,
   };

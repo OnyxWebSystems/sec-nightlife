@@ -90,7 +90,24 @@ export default function VenueComplianceCharter() {
         </p>
       </LegalPolicySection>
 
-      <LegalPolicySection title="6. Financial Responsibility and Refund Obligations">
+      <LegalPolicySection title="6. Menu Maker and Venue Menu Listings">
+        <p>
+          SEC may offer a &quot;Menu Maker&quot; tool listing common drinks, food, and other items to help venues build menus
+          faster. These listings are suggestions only: SEC does not sell, stock, supply, or endorse any product shown in
+          Menu Maker.
+        </p>
+        <p>
+          Venues are solely responsible for the accuracy of menu names, prices, photos, descriptions, and what is actually
+          served to guests. Venues must upload their own photos of items they offer. SEC is a technology and booking
+          platform only and is not a party to food or beverage service at venue premises.
+        </p>
+        <p>
+          Any claim arising from menu misrepresentation, product quality, allergic reactions, or service of alcohol or food
+          is between the guest and the venue, except where applicable law requires otherwise.
+        </p>
+      </LegalPolicySection>
+
+      <LegalPolicySection title="7. Financial Responsibility and Refund Obligations">
         <p>
           Venues acknowledge and agree that they bear full responsibility for all financial transactions related to their
           events, including refunds, cancellations, and disputes. SEC operates solely as a facilitator and does not
@@ -106,7 +123,7 @@ export default function VenueComplianceCharter() {
         </p>
       </LegalPolicySection>
 
-      <LegalPolicySection title="7. Non-Discrimination and Fair Access">
+      <LegalPolicySection title="8. Non-Discrimination and Fair Access">
         <p>
           Venues must operate in a manner that is consistent with South African anti-discrimination laws. While Venues
           retain the right to enforce entry policies such as dress codes and capacity limits, such policies must not
@@ -114,7 +131,7 @@ export default function VenueComplianceCharter() {
         </p>
       </LegalPolicySection>
 
-      <LegalPolicySection title="8. Enforcement and Platform Rights">
+      <LegalPolicySection title="9. Enforcement and Platform Rights">
         <p>
           SEC reserves the right to monitor Venue compliance and to take enforcement action where violations occur. This
           includes the right to suspend listings, restrict access, or permanently remove Venues from the Platform.

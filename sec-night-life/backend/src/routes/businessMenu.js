@@ -18,7 +18,16 @@ async function assertVenueOwner(venueId, userId) {
   return venue;
 }
 
+/** SEC catalog paths must never be shown as venue product photos. */
+function isVenueOwnedImageUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const t = url.trim();
+  if (!t || t.startsWith('/menu-catalog/')) return false;
+  return t.startsWith('https://') || t.startsWith('http://');
+}
+
 function formatMenuItem(row) {
+  const imageUrl = isVenueOwnedImageUrl(row.imageUrl) ? row.imageUrl : null;
   return {
     id: row.id,
     venue_id: row.venueId,
@@ -27,10 +36,17 @@ function formatMenuItem(row) {
     category: row.category,
     sub_category: row.subCategory,
     price: row.price,
-    image_url: row.imageUrl,
-    is_available: row.isAvailable,
+    image_url: imageUrl,
+    is_available: row.isAvailable && !!imageUrl,
     sort_order: row.sortOrder,
+    needs_photo: !imageUrl,
   };
+}
+
+function resolveAvailability(imageUrl, requestedAvailable) {
+  const owned = isVenueOwnedImageUrl(imageUrl);
+  if (requestedAvailable === false) return false;
+  return owned;
 }
 
 const menuItemSchema = z.object({
@@ -53,6 +69,7 @@ const fromCatalogSchema = z.object({
       z.object({
         catalog_item_id: z.string().min(1),
         price: z.number().positive().optional(),
+        image_url: z.string().url().optional().nullable(),
       })
     )
     .min(1),
@@ -88,8 +105,8 @@ router.post('/venues/:venueId/menu-items', authenticateToken, async (req, res, n
             category: (item.category || 'Other').trim(),
             subCategory: item.sub_category || null,
             price: item.price,
-            imageUrl: item.image_url || null,
-            isAvailable: item.is_available !== false,
+            imageUrl: isVenueOwnedImageUrl(item.image_url) ? item.image_url.trim() : null,
+            isAvailable: resolveAvailability(item.image_url, item.is_available),
             sortOrder: item.sort_order ?? idx,
           },
         })
@@ -140,6 +157,7 @@ router.post('/venues/:venueId/menu-items/from-catalog', authenticateToken, async
         err.status = 400;
         throw err;
       }
+      const venueImage = isVenueOwnedImageUrl(row.image_url) ? row.image_url.trim() : null;
       toCreate.push({
         venueId,
         catalogItemId: cat.id,
@@ -147,7 +165,8 @@ router.post('/venues/:venueId/menu-items/from-catalog', authenticateToken, async
         category: cat.topCategory,
         subCategory: cat.subCategory,
         price,
-        imageUrl: cat.imageUrl,
+        imageUrl: venueImage,
+        isAvailable: !!venueImage,
         sortOrder: sortBase++,
       });
     }
@@ -179,6 +198,31 @@ router.patch('/venues/:venueId/menu-items/:itemId', authenticateToken, async (re
     if (!existing) {
       return res.status(404).json({ error: 'Menu item not found' });
     }
+
+    const nextImage =
+      patch.image_url !== undefined
+        ? isVenueOwnedImageUrl(patch.image_url)
+          ? patch.image_url.trim()
+          : null
+        : existing.imageUrl;
+
+    if (patch.is_available === true && !isVenueOwnedImageUrl(nextImage)) {
+      return res.status(400).json({
+        error: 'Upload your own photo before making this item visible to guests.',
+      });
+    }
+
+    let nextAvailable = existing.isAvailable;
+    if (patch.is_available !== undefined) {
+      nextAvailable = resolveAvailability(nextImage, patch.is_available);
+    } else if (
+      patch.image_url !== undefined &&
+      isVenueOwnedImageUrl(nextImage) &&
+      !isVenueOwnedImageUrl(existing.imageUrl)
+    ) {
+      nextAvailable = true;
+    }
+
     const updated = await prisma.venueMenuItem.update({
       where: { id: itemId },
       data: {
@@ -186,8 +230,8 @@ router.patch('/venues/:venueId/menu-items/:itemId', authenticateToken, async (re
         ...(patch.category != null ? { category: patch.category.trim() } : {}),
         ...(patch.sub_category !== undefined ? { subCategory: patch.sub_category } : {}),
         ...(patch.price != null ? { price: patch.price } : {}),
-        ...(patch.image_url !== undefined ? { imageUrl: patch.image_url } : {}),
-        ...(patch.is_available !== undefined ? { isAvailable: patch.is_available } : {}),
+        ...(patch.image_url !== undefined ? { imageUrl: nextImage } : {}),
+        isAvailable: nextAvailable,
         ...(patch.sort_order !== undefined ? { sortOrder: patch.sort_order } : {}),
       },
     });
@@ -223,10 +267,14 @@ router.get('/venues/:venueId/menu-items/public', async (req, res, next) => {
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
     const rows = await prisma.venueMenuItem.findMany({
-      where: { venueId: venue.id, isAvailable: true },
+      where: {
+        venueId: venue.id,
+        isAvailable: true,
+        imageUrl: { not: null },
+      },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
-    res.json(rows.map(formatMenuItem));
+    res.json(rows.filter((r) => isVenueOwnedImageUrl(r.imageUrl)).map(formatMenuItem));
   } catch (e) {
     next(e);
   }

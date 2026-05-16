@@ -1,5 +1,7 @@
 /**
  * Generates data/menuCatalog.seed.json from club alcohol catalog + food/hubbly/other.
+ * Catalog product images under public/menu-catalog/products/ are for internal/ops reference only —
+ * they must NOT be shown to venues or guests (Menu Maker is text + category icons; venues upload photos).
  * Run: node scripts/build-menu-catalog-seed.mjs
  */
 import { writeFileSync, existsSync } from 'fs';

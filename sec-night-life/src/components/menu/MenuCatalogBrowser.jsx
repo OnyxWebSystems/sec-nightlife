@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { Search, Plus, ChevronDown, ChevronUp, Camera, UtensilsCrossed } from 'lucide-react';
+import { createPageUrl } from '@/utils';
 import { useMenuCatalogSearch, useMenuCatalogSubcategories } from '@/hooks/useMenuCatalog';
 import { apiPost, uploadFile } from '@/api/client';
 import { toast } from 'sonner';
@@ -7,6 +9,9 @@ import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 
 const TOP_TABS = ['Drinks', 'Food', 'Hubbly', 'Other'];
+
+const MENU_MAKER_DISCLAIMER =
+  'Common items listed by venues for onboarding efficiency only. SEC does not sell, stock, or supply any listed products. You are responsible for accurate names, prices, photos, and what you serve.';
 
 function useDebounced(value, ms = 300) {
   const [debounced, setDebounced] = useState(value);
@@ -17,7 +22,7 @@ function useDebounced(value, ms = 300) {
   return debounced;
 }
 
-function CatalogCard({ item, onAdd, disabled, added }) {
+function MenuMakerCard({ item, onAdd, added }) {
   return (
     <div
       className="rounded-xl border p-3 flex flex-col gap-2"
@@ -27,16 +32,9 @@ function CatalogCard({ item, onAdd, disabled, added }) {
         opacity: added ? 0.65 : 1,
       }}
     >
-      {item.image_url ? (
-        <img
-          src={item.image_url}
-          alt=""
-          className="w-full h-20 object-contain rounded-lg"
-          style={{ backgroundColor: 'var(--sec-bg-hover)' }}
-        />
-      ) : (
-        <div className="w-full h-20 rounded-lg" style={{ backgroundColor: 'var(--sec-bg-hover)' }} />
-      )}
+      <div className="w-full h-14 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--sec-bg-hover)' }}>
+        <UtensilsCrossed className="w-5 h-5 opacity-35" style={{ color: 'var(--sec-text-muted)' }} aria-hidden />
+      </div>
       <div className="min-h-0 flex-1">
         <p className="text-sm font-semibold truncate" style={{ color: 'var(--sec-text-primary)' }}>
           {item.name}
@@ -46,13 +44,13 @@ function CatalogCard({ item, onAdd, disabled, added }) {
             {item.sub_category}
           </p>
         )}
-        <p className="text-xs mt-1" style={{ color: 'var(--sec-accent)' }}>
-          R{Number(item.default_price_zar).toLocaleString()}
+        <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)' }}>
+          Suggested R{Number(item.default_price_zar).toLocaleString()}
         </p>
       </div>
       <button
         type="button"
-        disabled={disabled || added}
+        disabled={added}
         onClick={() => onAdd(item)}
         className="w-full h-9 rounded-lg text-xs font-semibold disabled:opacity-50"
         style={{ backgroundColor: added ? 'var(--sec-bg-hover)' : 'var(--sec-accent)', color: added ? 'var(--sec-text-muted)' : '#000' }}
@@ -86,6 +84,9 @@ export default function MenuCatalogBrowser({
   const [priceInput, setPriceInput] = useState('');
   const [custom, setCustom] = useState({ name: '', price: '', category: 'Drinks', image_url: '' });
   const [uploading, setUploading] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [pendingPhotoUrl, setPendingPhotoUrl] = useState('');
+  const photoTargetRef = useRef('custom');
 
   const debouncedSearch = useDebounced(search.trim());
 
@@ -115,7 +116,12 @@ export default function MenuCatalogBrowser({
       setUploading(true);
       try {
         const r = await uploadFile(file);
-        if (r?.file_url) setCustom((c) => ({ ...c, image_url: r.file_url }));
+        if (!r?.file_url) return;
+        if (photoTargetRef.current === 'pending') {
+          setPendingPhotoUrl(r.file_url);
+        } else {
+          setCustom((c) => ({ ...c, image_url: r.file_url }));
+        }
       } finally {
         setUploading(false);
       }
@@ -124,6 +130,7 @@ export default function MenuCatalogBrowser({
 
   const openAddSheet = (item) => {
     setPendingItem(item);
+    setPendingPhotoUrl('');
     setPriceInput(String(item.default_price_zar > 0 ? item.default_price_zar : ''));
   };
 
@@ -134,17 +141,24 @@ export default function MenuCatalogBrowser({
       toast.error('Enter a valid price');
       return;
     }
+    if (!pendingPhotoUrl) {
+      toast.error('Upload your own photo of this item');
+      return;
+    }
+
+    const payload = {
+      catalog_item_id: pendingItem.id,
+      name: pendingItem.name,
+      price,
+      category: pendingItem.top_category,
+      sub_category: pendingItem.sub_category,
+      image_url: pendingPhotoUrl,
+    };
 
     if (mode === 'draft' && onAddToDraft) {
-      onAddToDraft({
-        catalog_item_id: pendingItem.id,
-        name: pendingItem.name,
-        price,
-        category: pendingItem.top_category,
-        sub_category: pendingItem.sub_category,
-        image_url: pendingItem.image_url,
-      });
+      onAddToDraft(payload);
       setPendingItem(null);
+      setPendingPhotoUrl('');
       toast.success('Added to your menu draft');
       return;
     }
@@ -152,15 +166,17 @@ export default function MenuCatalogBrowser({
     if (!venueId) return;
     try {
       await apiPost(`/api/business/venues/${venueId}/menu-items/from-catalog`, {
-        items: [{ catalog_item_id: pendingItem.id, price }],
+        items: [{ catalog_item_id: pendingItem.id, price, image_url: pendingPhotoUrl }],
       });
       setPendingItem(null);
+      setPendingPhotoUrl('');
       onVenueMenuUpdated?.();
       toast.success('Added to menu');
     } catch (e) {
       if (e?.data?.skipped_catalog_ids?.length) {
         toast.info('Already on your menu');
         setPendingItem(null);
+        setPendingPhotoUrl('');
         onVenueMenuUpdated?.();
       } else {
         toast.error(e?.data?.error || e.message || 'Failed to add');
@@ -173,6 +189,7 @@ export default function MenuCatalogBrowser({
     const price = parseFloat(String(custom.price).replace(',', '.'));
     if (!name) return toast.error('Name is required');
     if (!Number.isFinite(price) || price <= 0) return toast.error('Enter a valid price');
+    if (!custom.image_url) return toast.error('Upload your own photo of this item');
 
     if (mode === 'draft' && onAddToDraft) {
       onAddToDraft({
@@ -210,11 +227,36 @@ export default function MenuCatalogBrowser({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl p-4" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+        <h2 className="text-base font-semibold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Menu Maker</h2>
+        <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--sec-text-muted)' }}>
+          {MENU_MAKER_DISCLAIMER}{' '}
+          <Link to={createPageUrl('VenueComplianceCharter')} className="underline" style={{ color: 'var(--sec-accent)' }}>
+            Venue Compliance Charter
+          </Link>
+        </p>
+        <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--sec-text-primary)' }}>
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={termsAccepted}
+            onChange={(e) => setTermsAccepted(e.target.checked)}
+          />
+          I understand SEC does not supply these products and I am responsible for my menu listings.
+        </label>
+      </div>
+
+      {!termsAccepted ? (
+        <p className="text-sm text-center py-6" style={{ color: 'var(--sec-text-muted)' }}>
+          Accept the notice above to use Menu Maker.
+        </p>
+      ) : (
+      <>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--sec-text-muted)' }} />
         <input
           type="search"
-          placeholder="Search menu catalog…"
+          placeholder="Search common items…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full h-11 pl-10 pr-3 rounded-xl border text-sm"
@@ -273,7 +315,7 @@ export default function MenuCatalogBrowser({
       )}
 
       {isLoading ? (
-        <p className="text-sm text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>Loading catalog…</p>
+        <p className="text-sm text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>Loading Menu Maker…</p>
       ) : items.length === 0 ? (
         <p className="text-sm text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>
           No items found. Add a custom item below.
@@ -287,7 +329,7 @@ export default function MenuCatalogBrowser({
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {sectionItems.map((item) => (
-                  <CatalogCard
+                  <MenuMakerCard
                     key={item.id}
                     item={item}
                     added={addedCatalogIds.has(item.id)}
@@ -301,7 +343,7 @@ export default function MenuCatalogBrowser({
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[420px] overflow-y-auto pr-1">
           {items.map((item) => (
-            <CatalogCard
+            <MenuMakerCard
               key={item.id}
               item={item}
               added={addedCatalogIds.has(item.id)}
@@ -350,7 +392,19 @@ export default function MenuCatalogBrowser({
                 ))}
               </select>
             </div>
-            <input type="file" accept="image/*" onChange={crop.handleInputChange} disabled={uploading} className="text-xs w-full" />
+            <label className="text-xs block" style={{ color: 'var(--sec-text-muted)' }}>
+              Your photo (required)
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                photoTargetRef.current = 'custom';
+                crop.handleInputChange(e);
+              }}
+              disabled={uploading || !termsAccepted}
+              className="text-xs w-full"
+            />
             {custom.image_url && (
               <img src={custom.image_url} alt="" className="w-14 h-14 rounded object-cover" />
             )}
@@ -365,6 +419,8 @@ export default function MenuCatalogBrowser({
           </div>
         )}
       </div>
+      </>
+      )}
 
       {pendingItem && (
         <div
@@ -384,16 +440,50 @@ export default function MenuCatalogBrowser({
             <input
               type="number"
               min={1}
-              className="w-full h-11 px-3 rounded-xl border mb-4"
+              className="w-full h-11 px-3 rounded-xl border mb-3"
               value={priceInput}
               onChange={(e) => setPriceInput(e.target.value)}
               style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
             />
+            <p className="text-xs mb-2" style={{ color: 'var(--sec-text-muted)' }}>
+              Upload your own photo (required — guests only see items with your photo)
+            </p>
+            <input
+              type="file"
+              accept="image/*"
+              className="text-xs w-full mb-2"
+              disabled={uploading}
+              onChange={(e) => {
+                photoTargetRef.current = 'pending';
+                crop.handleInputChange(e);
+              }}
+            />
+            {pendingPhotoUrl ? (
+              <img src={pendingPhotoUrl} alt="" className="w-16 h-16 rounded object-cover mb-3" />
+            ) : (
+              <div className="flex items-center gap-2 text-xs mb-3" style={{ color: 'var(--sec-text-muted)' }}>
+                <Camera size={14} /> No photo yet
+              </div>
+            )}
             <div className="flex gap-2">
-              <button type="button" className="flex-1 h-11 rounded-xl border" onClick={() => setPendingItem(null)} style={{ borderColor: 'var(--sec-border)' }}>
+              <button
+                type="button"
+                className="flex-1 h-11 rounded-xl border"
+                onClick={() => {
+                  setPendingItem(null);
+                  setPendingPhotoUrl('');
+                }}
+                style={{ borderColor: 'var(--sec-border)' }}
+              >
                 Cancel
               </button>
-              <button type="button" className="flex-1 h-11 rounded-xl font-semibold" onClick={confirmAdd} style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}>
+              <button
+                type="button"
+                className="flex-1 h-11 rounded-xl font-semibold disabled:opacity-50"
+                disabled={!pendingPhotoUrl}
+                onClick={confirmAdd}
+                style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
+              >
                 Add to menu
               </button>
             </div>

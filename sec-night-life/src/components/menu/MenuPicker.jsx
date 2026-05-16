@@ -168,6 +168,9 @@ export default function MenuPicker({
         <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Selection total</span>
         <span style={{ fontSize: 16, fontWeight: 700 }}>R{cartTotal.toFixed(0)}</span>
       </div>
+      <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 12, textAlign: 'center' }}>
+        Menu photos and descriptions are provided by the venue.
+      </p>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -15,12 +15,9 @@ import {
   CreditCard,
   X,
   UtensilsCrossed,
-  Plus,
-  Trash2,
 } from 'lucide-react';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
-import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -250,8 +247,6 @@ export default function VenueOnboarding() {
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState({});
   const [selectedPlan, setSelectedPlan] = useState('basic');
-  const [menuDraftItems, setMenuDraftItems] = useState([]);
-
   const cloudinaryConfig = {
     cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
     uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
@@ -268,19 +263,6 @@ export default function VenueOnboarding() {
     },
   });
   const draftSaveTimerRef = useRef(null);
-
-  const addedCatalogIds = useMemo(
-    () => new Set(menuDraftItems.map((i) => i.catalog_item_id).filter(Boolean)),
-    [menuDraftItems]
-  );
-
-  const handleAddMenuDraft = (item) => {
-    if (item.catalog_item_id && addedCatalogIds.has(item.catalog_item_id)) {
-      toast.info('Already in your menu draft');
-      return;
-    }
-    setMenuDraftItems((items) => [...items, item]);
-  };
 
   const [formData, setFormData] = useState(() => ({ ...INITIAL_FORM_DATA }));
 
@@ -478,34 +460,6 @@ export default function VenueOnboarding() {
 
       const createdVenue = await upsertVenue(venueData);
 
-      if (createdVenue?.id && menuDraftItems.length > 0) {
-        try {
-          const catalogRows = menuDraftItems.filter((i) => i.catalog_item_id);
-          const customRows = menuDraftItems.filter((i) => !i.catalog_item_id);
-          if (catalogRows.length > 0) {
-            await apiPost(`/api/business/venues/${createdVenue.id}/menu-items/from-catalog`, {
-              items: catalogRows.map((item) => ({
-                catalog_item_id: item.catalog_item_id,
-                price: Number(item.price),
-              })),
-            });
-          }
-          if (customRows.length > 0) {
-            await apiPost(`/api/business/venues/${createdVenue.id}/menu-items`, {
-              items: customRows.map((item, idx) => ({
-                name: item.name,
-                price: Number(item.price),
-                category: item.category || 'Other',
-                image_url: item.image_url || null,
-                sort_order: idx,
-              })),
-            });
-          }
-        } catch (menuErr) {
-          toast.error(menuErr?.data?.error || menuErr.message || 'Venue saved but menu items could not be saved.');
-        }
-      }
-
       const complianceUploads = [
         { documentType: 'BUSINESS_REGISTRATION', fileUrl: formData.cipc_document_url, fileName: 'cipc-registration.pdf' },
         { documentType: 'TAX_CLEARANCE', fileUrl: formData.sars_document_url, fileName: 'sars-documents.pdf' },
@@ -563,7 +517,7 @@ export default function VenueOnboarding() {
   const steps = [
     { number: 1, title: 'Info', icon: Building },
     { number: 2, title: 'Details', icon: MapPin },
-    { number: 3, title: 'Menu', icon: UtensilsCrossed },
+    { number: 3, title: 'Your menu', icon: UtensilsCrossed },
     { number: 4, title: 'Compliance', icon: Shield },
     { number: 5, title: 'Payout', icon: CreditCard },
   ];
@@ -928,43 +882,36 @@ export default function VenueOnboarding() {
 
           {step === 3 && (
             <motion.div key="step-menu" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-              <div className="text-center mb-6">
-                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Venue menu</h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Search our catalog or add custom items — optional, edit anytime in Dashboard</p>
-              </div>
-              <MenuCatalogBrowser
-                mode="draft"
-                addedCatalogIds={addedCatalogIds}
-                onAddToDraft={handleAddMenuDraft}
-              />
-              {menuDraftItems.length > 0 && (
-                <div className="space-y-2">
-                  <h2 className="text-sm font-semibold" style={{ color: 'var(--sec-text-primary)' }}>Your menu ({menuDraftItems.length})</h2>
-                  {menuDraftItems.map((item, idx) => (
-                    <div key={item.catalog_item_id ? item.catalog_item_id : `custom-${idx}`} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
-                      {item.image_url && <img src={item.image_url} alt="" className="w-12 h-12 rounded object-cover" />}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{item.name}</div>
-                        <input
-                          type="number"
-                          min={1}
-                          className="mt-1 w-24 h-8 px-2 rounded text-xs bg-[#141416] border border-[#262629] text-white"
-                          value={item.price}
-                          onChange={(e) => {
-                            const v = parseFloat(e.target.value);
-                            setMenuDraftItems((items) =>
-                              items.map((row, i) => (i === idx ? { ...row, price: Number.isFinite(v) ? v : row.price } : row))
-                            );
-                          }}
-                        />
-                      </div>
-                      <button type="button" onClick={() => setMenuDraftItems((items) => items.filter((_, i) => i !== idx))} aria-label="Remove">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))}
+              <div className="text-center mb-2">
+                <div
+                  className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+                  style={{ backgroundColor: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)' }}
+                >
+                  <UtensilsCrossed className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
                 </div>
-              )}
+                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Build your menu in the Dashboard</h1>
+                <p className="text-sm max-w-sm mx-auto" style={{ color: 'var(--sec-text-muted)' }}>
+                  After onboarding, open <strong style={{ color: 'var(--sec-text-secondary)' }}>Venue Menu</strong> in your Dashboard to add drinks, food, and more.
+                </p>
+              </div>
+              <div
+                className="rounded-xl border p-5 space-y-3 text-sm"
+                style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+              >
+                <p style={{ color: 'var(--sec-text-secondary)' }}>
+                  <strong style={{ color: 'var(--sec-text-primary)' }}>Your photos only.</strong> SEC does not supply or display product images. Every menu item needs a photo you upload before guests can see it.
+                </p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>
+                  Use Menu Maker in the Dashboard to pick common item names and set your prices, or add custom items. You can skip this step and set up your menu anytime.
+                </p>
+                <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
+                  See our{' '}
+                  <Link to={createPageUrl('VenueComplianceCharter')} className="underline" style={{ color: 'var(--sec-accent)' }}>
+                    Venue Compliance Charter
+                  </Link>{' '}
+                  for menu listing responsibilities.
+                </p>
+              </div>
             </motion.div>
           )}
 
