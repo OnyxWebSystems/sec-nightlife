@@ -51,7 +51,7 @@ function resolveAvailability(imageUrl, requestedAvailable) {
 
 const menuItemSchema = z.object({
   name: z.string().min(1).max(120),
-  category: z.string().max(60).optional(),
+  category: z.string().min(1).max(60).optional(),
   sub_category: z.string().max(80).optional().nullable(),
   catalog_item_id: z.string().max(80).optional().nullable(),
   price: z.number().positive(),
@@ -70,6 +70,8 @@ const fromCatalogSchema = z.object({
         catalog_item_id: z.string().min(1),
         price: z.number().positive().optional(),
         image_url: z.string().url().optional().nullable(),
+        category: z.string().min(1).max(60).optional(),
+        sub_category: z.string().max(80).optional().nullable(),
       })
     )
     .min(1),
@@ -158,12 +160,20 @@ router.post('/venues/:venueId/menu-items/from-catalog', authenticateToken, async
         throw err;
       }
       const venueImage = isVenueOwnedImageUrl(row.image_url) ? row.image_url.trim() : null;
+      const category =
+        row.category != null && String(row.category).trim()
+          ? String(row.category).trim()
+          : cat.topCategory;
+      const subCategory =
+        row.sub_category !== undefined
+          ? row.sub_category
+          : cat.subCategory;
       toCreate.push({
         venueId,
         catalogItemId: cat.id,
         name: cat.name,
-        category: cat.topCategory,
-        subCategory: cat.subCategory,
+        category,
+        subCategory,
         price,
         imageUrl: venueImage,
         isAvailable: !!venueImage,

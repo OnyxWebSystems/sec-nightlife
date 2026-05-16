@@ -20,7 +20,10 @@ export default function BusinessMenu() {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
+  const [editingCategoryItem, setEditingCategoryItem] = useState(null);
   const [priceEdit, setPriceEdit] = useState('');
+  const [categoryEdit, setCategoryEdit] = useState('');
+  const [subCategoryEdit, setSubCategoryEdit] = useState('');
   const [photoTargetId, setPhotoTargetId] = useState(null);
   const [uploading, setUploading] = useState(false);
 
@@ -118,6 +121,22 @@ export default function BusinessMenu() {
       toast.success('Price updated');
     } catch (e) {
       toast.error(e?.message || 'Update failed');
+    }
+  };
+
+  const saveCategory = async (item) => {
+    const category = categoryEdit.trim();
+    if (!category) return toast.error('Category name is required');
+    try {
+      await apiPatch(`/api/business/venues/${venueId}/menu-items/${item.id}`, {
+        category,
+        sub_category: subCategoryEdit.trim() || null,
+      });
+      setEditingCategoryItem(null);
+      invalidateMenu();
+      toast.success('Category updated');
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Update failed');
     }
   };
 
@@ -244,10 +263,50 @@ export default function BusinessMenu() {
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
-                    {item.category}
-                    {item.sub_category ? ` · ${item.sub_category}` : ''}
-                  </div>
+                  {editingCategoryItem?.id === item.id ? (
+                    <div className="mt-2 space-y-2">
+                      <input
+                        type="text"
+                        maxLength={60}
+                        className="sec-input-rect h-8 w-full text-sm"
+                        placeholder="Category name"
+                        value={categoryEdit}
+                        onChange={(e) => setCategoryEdit(e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        maxLength={80}
+                        className="sec-input-rect h-8 w-full text-sm"
+                        placeholder="Sub-category (optional)"
+                        value={subCategoryEdit}
+                        onChange={(e) => setSubCategoryEdit(e.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <button type="button" className="sec-btn sec-btn-primary text-xs h-8" onClick={() => saveCategory(item)}>
+                          Save
+                        </button>
+                        <button type="button" className="sec-btn sec-btn-ghost text-xs h-8" onClick={() => setEditingCategoryItem(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-left text-xs mt-0.5 block"
+                      style={{ color: 'var(--sec-text-muted)' }}
+                      onClick={() => {
+                        setEditingCategoryItem(item);
+                        setCategoryEdit(item.category || '');
+                        setSubCategoryEdit(item.sub_category || '');
+                        setEditingItem(null);
+                      }}
+                    >
+                      {item.category}
+                      {item.sub_category ? ` · ${item.sub_category}` : ''}
+                      <span className="ml-1" style={{ color: 'var(--sec-accent)' }}>— edit category</span>
+                    </button>
+                  )}
                   {editingItem?.id === item.id ? (
                     <div className="flex gap-2 mt-2">
                       <input
@@ -272,6 +331,7 @@ export default function BusinessMenu() {
                       onClick={() => {
                         setEditingItem(item);
                         setPriceEdit(String(item.price));
+                        setEditingCategoryItem(null);
                       }}
                     >
                       R{Number(item.price).toFixed(0)} — edit price

@@ -81,6 +81,8 @@ export default function MenuCatalogBrowser({
   const [subCategory, setSubCategory] = useState('');
   const [customOpen, setCustomOpen] = useState(false);
   const [pendingItem, setPendingItem] = useState(null);
+  const [pendingCategory, setPendingCategory] = useState('');
+  const [pendingSubCategory, setPendingSubCategory] = useState('');
   const [priceInput, setPriceInput] = useState('');
   const [custom, setCustom] = useState({ name: '', price: '', category: 'Drinks', sub_category: '', image_url: '' });
   const [uploading, setUploading] = useState(false);
@@ -131,6 +133,8 @@ export default function MenuCatalogBrowser({
   const openAddSheet = (item) => {
     setPendingItem(item);
     setPendingPhotoUrl('');
+    setPendingCategory(item.top_category || 'Other');
+    setPendingSubCategory(item.sub_category || '');
     setPriceInput(String(item.default_price_zar > 0 ? item.default_price_zar : ''));
   };
 
@@ -145,13 +149,18 @@ export default function MenuCatalogBrowser({
       toast.error('Upload your own photo of this item');
       return;
     }
+    const category = pendingCategory.trim();
+    if (!category) {
+      toast.error('Enter a category name');
+      return;
+    }
 
     const payload = {
       catalog_item_id: pendingItem.id,
       name: pendingItem.name,
       price,
-      category: pendingItem.top_category,
-      sub_category: pendingItem.sub_category,
+      category,
+      sub_category: pendingSubCategory.trim() || null,
       image_url: pendingPhotoUrl,
     };
 
@@ -166,7 +175,13 @@ export default function MenuCatalogBrowser({
     if (!venueId) return;
     try {
       await apiPost(`/api/business/venues/${venueId}/menu-items/from-catalog`, {
-        items: [{ catalog_item_id: pendingItem.id, price, image_url: pendingPhotoUrl }],
+        items: [{
+          catalog_item_id: pendingItem.id,
+          price,
+          image_url: pendingPhotoUrl,
+          category,
+          sub_category: pendingSubCategory.trim() || null,
+        }],
       });
       setPendingItem(null);
       setPendingPhotoUrl('');
@@ -187,6 +202,7 @@ export default function MenuCatalogBrowser({
   const addCustom = async () => {
     const name = custom.name.trim();
     const price = parseFloat(String(custom.price).replace(',', '.'));
+    const category = custom.category.trim() || topCategory;
     if (!name) return toast.error('Name is required');
     if (!Number.isFinite(price) || price <= 0) return toast.error('Enter a valid price');
     if (!custom.image_url) return toast.error('Upload your own photo of this item');
@@ -195,7 +211,7 @@ export default function MenuCatalogBrowser({
       onAddToDraft({
         name,
         price,
-        category: custom.category,
+        category,
         sub_category: custom.sub_category?.trim() || null,
         image_url: custom.image_url || null,
       });
@@ -210,7 +226,7 @@ export default function MenuCatalogBrowser({
         items: [{
           name,
           price,
-          category: custom.category,
+          category,
           sub_category: custom.sub_category?.trim() || null,
           image_url: custom.image_url || null,
         }],
@@ -226,6 +242,12 @@ export default function MenuCatalogBrowser({
   useEffect(() => {
     setSubCategory('');
   }, [topCategory]);
+
+  useEffect(() => {
+    if (customOpen && !custom.category) {
+      setCustom((c) => ({ ...c, category: topCategory }));
+    }
+  }, [topCategory, customOpen, custom.category]);
 
   return (
     <div className="space-y-4">
@@ -374,29 +396,24 @@ export default function MenuCatalogBrowser({
               onChange={(e) => setCustom((c) => ({ ...c, name: e.target.value }))}
               style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
             />
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                className="h-10 px-3 rounded-lg text-sm border"
-                placeholder="Price (ZAR)"
-                type="number"
-                value={custom.price}
-                onChange={(e) => setCustom((c) => ({ ...c, price: e.target.value }))}
-                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
-              />
-              <select
-                className="h-10 px-3 rounded-lg text-sm border"
-                value={custom.category}
-                onChange={(e) => setCustom((c) => ({ ...c, category: e.target.value }))}
-                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
-              >
-                {TOP_TABS.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
             <input
               className="w-full h-10 px-3 rounded-lg text-sm border"
-              placeholder="Category label (e.g. Cocktails, Starters)"
+              placeholder="Price (ZAR)"
+              type="number"
+              value={custom.price}
+              onChange={(e) => setCustom((c) => ({ ...c, price: e.target.value }))}
+              style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
+            />
+            <input
+              className="w-full h-10 px-3 rounded-lg text-sm border"
+              placeholder={`Category (e.g. ${topCategory}, Cocktails, Starters)`}
+              value={custom.category}
+              onChange={(e) => setCustom((c) => ({ ...c, category: e.target.value }))}
+              style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
+            />
+            <input
+              className="w-full h-10 px-3 rounded-lg text-sm border"
+              placeholder="Sub-category (optional, e.g. Premium, Sharing)"
               value={custom.sub_category}
               onChange={(e) => setCustom((c) => ({ ...c, sub_category: e.target.value }))}
               style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
@@ -454,6 +471,30 @@ export default function MenuCatalogBrowser({
               onChange={(e) => setPriceInput(e.target.value)}
               style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
             />
+            <label className="text-xs block mb-1" style={{ color: 'var(--sec-text-muted)' }}>
+              Category name
+            </label>
+            <input
+              type="text"
+              maxLength={60}
+              className="w-full h-10 px-3 rounded-xl border mb-2 text-sm"
+              value={pendingCategory}
+              onChange={(e) => setPendingCategory(e.target.value)}
+              placeholder="e.g. Drinks, Food, Cocktails"
+              style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
+            />
+            <label className="text-xs block mb-1" style={{ color: 'var(--sec-text-muted)' }}>
+              Sub-category (optional)
+            </label>
+            <input
+              type="text"
+              maxLength={80}
+              className="w-full h-10 px-3 rounded-xl border mb-3 text-sm"
+              value={pendingSubCategory}
+              onChange={(e) => setPendingSubCategory(e.target.value)}
+              placeholder="e.g. Beer, Starters"
+              style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
+            />
             <p className="text-xs mb-2" style={{ color: 'var(--sec-text-muted)' }}>
               Upload your own photo (required — guests only see items with your photo)
             </p>
@@ -481,6 +522,8 @@ export default function MenuCatalogBrowser({
                 onClick={() => {
                   setPendingItem(null);
                   setPendingPhotoUrl('');
+                  setPendingCategory('');
+                  setPendingSubCategory('');
                 }}
                 style={{ borderColor: 'var(--sec-border)' }}
               >
