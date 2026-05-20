@@ -1,29 +1,42 @@
 import { line, sumCheckoutLines } from './checkoutLines.js';
+import { splitPlatformGross } from './platformSplit.js';
 
 /**
  * Build checkout lines for a venue table booking.
+ * SEC takes 15% from the customer total (not added on top).
  * @param {object} table - VenueTable with optional event include
  * @param {object} opts
- * @param {number} opts.menuTotal - chargeable menu (extras beyond included)
+ * @param {number} opts.menuTotal - full selected menu total for min-spend checks
  * @param {string} opts.settlementMode
- * @param {Array} opts.menuItems - for included item labels
+ * @param {string} opts.bookingMode - 'host' | 'join' | 'custom_host'
  */
 export function computeVenueCheckout(
   table,
-  { menuTotal = 0, settlementMode, menuItems = [], venue = null, isCustomHost = false, overrideMinSpend = null } = {},
+  {
+    menuTotal = 0,
+    settlementMode,
+    menuItems = [],
+    venue = null,
+    bookingMode = 'join',
+    overrideMinSpend = null,
+  } = {},
 ) {
   const mode = settlementMode || table.minSpendSettlement || 'PREPAY_LUMP';
-  const bookingFee = Number(table.bookingFeeZar || 0);
+  const joinFee = Number(table.bookingFeeZar || 0);
+  const hostFee = Number(table.hostTableFeeZar || venue?.hostTableFeeZar || 0);
   const minSpend = overrideMinSpend != null ? Number(overrideMinSpend) : Number(table.minimumSpend || 0);
   const lines = [];
+  const isHost = bookingMode === 'host' || bookingMode === 'custom_host';
+  const isCustomHost = bookingMode === 'custom_host';
 
   if (isCustomHost) {
     const customFee = Number(venue?.customTableBookingFeeZar || 0);
     if (customFee > 0) lines.push(line('custom_table_booking_fee', 'Custom table booking fee', customFee));
-    const hostFee = Number(table.hostTableFeeZar || venue?.hostTableFeeZar || 0);
-    if (hostFee > 0) lines.push(line('host_table_fee', 'Host table fee', hostFee));
-  } else if (bookingFee > 0) {
-    lines.push(line('booking_fee', 'Booking fee', bookingFee));
+    if (hostFee > 0) lines.push(line('host_table_fee', 'Host booking fee', hostFee));
+  } else if (isHost) {
+    if (hostFee > 0) lines.push(line('host_table_fee', 'Host booking fee', hostFee));
+  } else if (joinFee > 0) {
+    lines.push(line('booking_fee', 'Join booking fee', joinFee));
   }
 
   const event = table.event;
@@ -41,33 +54,48 @@ export function computeVenueCheckout(
     lines.push(line(`included_${id}`, `${name} (included)`, 0));
   }
 
+  const menu = Number(menuTotal || 0);
+
   if (mode === 'PREPAY_LUMP' && minSpend > 0) {
     lines.push(line('minimum_spend', 'Minimum spend', minSpend));
   } else if (mode === 'PREPAY_MENU') {
-    const menu = Number(menuTotal || 0);
-    if (menu > 0) lines.push(line('menu', 'Menu (extra)', menu));
     if (menu < minSpend) {
       return { error: `Select menu items worth at least R${minSpend.toFixed(0)} (currently R${menu.toFixed(0)}).` };
     }
+    const spendLine = Math.max(minSpend, menu);
+    if (spendLine > 0) lines.push(line('minimum_spend', 'Minimum spend', spendLine));
   } else if (mode === 'PAY_ON_ARRIVAL') {
     if (minSpend > 0) lines.push(line('minimum_spend', 'Minimum spend (pay on arrival)', minSpend));
-    const menu = Number(menuTotal || 0);
-    if (menu > 0) lines.push(line('menu', 'Menu pre-order (extra)', menu));
+    if (menu > 0) lines.push(line('menu', 'Menu pre-order', menu));
   }
 
   const chargeable = lines.filter((l) => Number(l.amount_zar) > 0);
   const subtotal = sumCheckoutLines(chargeable);
-  const platformFee = subtotal > 0 ? Number((subtotal * 0.15).toFixed(2)) : 0;
-  if (platformFee > 0) lines.push(line('platform_fee', 'SEC service fee (15%)', platformFee));
+  const { secAmount: platformFee, recipientAmount: venueShare } = splitPlatformGross(subtotal);
 
   return {
-    lines,
+    lines: chargeable,
+    displayLines: chargeable,
     mode,
+    bookingMode,
     subtotal,
     platformFee,
-    venueShare: Number((subtotal * 0.85).toFixed(2)),
-    total: sumCheckoutLines(lines),
+    venueShare,
+    total: subtotal,
   };
+}
+
+/** Full selected menu total (all quantities × price). */
+export function computeFullMenuTotal(menuItems, selectedMap) {
+  let total = 0;
+  for (const [id, qtyRaw] of Object.entries(selectedMap || {})) {
+    const qty = Number(qtyRaw) || 0;
+    if (qty <= 0) continue;
+    const item = menuItems.find((m) => m.id === id);
+    if (!item) continue;
+    total += item.price * qty;
+  }
+  return total;
 }
 
 /** Menu total excluding included bundle quantities. */

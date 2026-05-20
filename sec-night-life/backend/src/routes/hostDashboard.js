@@ -504,6 +504,7 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
         event_id: ht.event.id,
         venue_id: ht.event.venueId,
         menu_zar: menuResolved.totalZar,
+        amount_total_zar: menuResolved.totalZar,
         selected_menu_items: menuResolved.items,
         user_id: req.userId,
       },

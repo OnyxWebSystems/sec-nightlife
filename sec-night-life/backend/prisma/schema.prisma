@@ -261,6 +261,11 @@ enum VenueTableMemberStatus {
   LEFT
 }
 
+enum VenueTableMemberRole {
+  HOST
+  GUEST
+}
+
 enum MinSpendSettlement {
   PREPAY_MENU
   PREPAY_LUMP
@@ -303,6 +308,7 @@ model User {
   housePartyJobApplications   HousePartyJobApplication[]
   housePartyJobMessagesSent   HousePartyJobMessage[]     @relation("HousePartyJobMessageSender")
   venueTableMemberships       VenueTableMember[]
+  hostedVenueTables           VenueTable[]               @relation("VenueTableHost")
   blocksInitiated             Block[]                    @relation("BlockInitiator")
   blocksReceived              Block[]                    @relation("BlockTarget")
   reportsInitiated            Report[]                   @relation("ReportInitiator")
@@ -1507,6 +1513,8 @@ model VenueTable {
   tierLabel         String?          @map("tier_label")
   hostingTierKey    String?          @map("hosting_tier_key")
   includedItems     Json?            @map("included_items")
+  hostedTableId     String?          @unique @map("hosted_table_id")
+  hostUserId        String?          @map("host_user_id")
   status            VenueTableStatus @default(AVAILABLE)
   isActive          Boolean          @default(true) @map("is_active")
   createdAt         DateTime         @default(now()) @map("created_at")
@@ -1514,12 +1522,14 @@ model VenueTable {
 
   venue     Venue                @relation(fields: [venueId], references: [id], onDelete: Cascade)
   event     Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  hostUser  User?                @relation("VenueTableHost", fields: [hostUserId], references: [id], onDelete: SetNull)
   members   VenueTableMember[]
   menuItems VenueTableMenuItem[]
   splitLogs SplitPaymentLog[]
 
   @@index([venueId])
   @@index([status])
+  @@index([hostUserId])
   @@map("venue_tables")
 }
 
@@ -1535,6 +1545,7 @@ model VenueTableMember {
   reviewedAt        DateTime?              @map("reviewed_at")
   reviewedByUserId  String?                @map("reviewed_by_user_id")
   settlementMode    MinSpendSettlement?    @map("settlement_mode")
+  memberRole        VenueTableMemberRole   @default(GUEST) @map("member_role")
   status            VenueTableMemberStatus @default(PENDING_PAYMENT)
   joinedAt          DateTime               @default(now()) @map("joined_at")
   paidAt            DateTime?              @map("paid_at")

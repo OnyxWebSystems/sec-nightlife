@@ -25,7 +25,8 @@ import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker';
-import CheckoutCart from '@/components/checkout/CheckoutCart';
+import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
+import CustomTableRequestModal from '@/components/tables/CustomTableRequestModal';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -79,7 +80,10 @@ export default function TableDetails() {
   const tableId = urlParams.get('id');
   const autoJoin = urlParams.get('join');
   const source = urlParams.get('source');
+  const bookingModeParam = urlParams.get('mode');
   const isVenueSource = source === 'venue';
+  const venueBookingMode = bookingModeParam === 'host' ? 'host' : 'join';
+  const isHostCheckout = venueBookingMode === 'host';
   const [selectedMenuItems, setSelectedMenuItems] = useState({});
   const [hostedMenuSelected, setHostedMenuSelected] = useState({});
 
@@ -121,9 +125,9 @@ export default function TableDetails() {
     enabled: !!tableId && isVenueSource,
   });
 
-  const [venueSettlementMode, setVenueSettlementMode] = useState('PREPAY_LUMP');
+  const [venueSettlementMode, setVenueSettlementMode] = useState('PREPAY_MENU');
   const [customRequestOpen, setCustomRequestOpen] = useState(false);
-  const [customForm, setCustomForm] = useState({ guestCount: '4', notes: '', preferredTime: '', proposedMinimumSpend: '' });
+  const [customSubmitting, setCustomSubmitting] = useState(false);
 
   const venueMenuSelectionPayload = useMemo(
     () =>
@@ -134,14 +138,21 @@ export default function TableDetails() {
   );
 
   const { data: venueCheckoutPreview } = useQuery({
-    queryKey: ['venue-checkout-preview', tableId, venueMenuSelectionPayload, venueSettlementMode],
+    queryKey: ['venue-checkout-preview', tableId, venueMenuSelectionPayload, venueSettlementMode, venueBookingMode],
     queryFn: () =>
       apiPost(`/api/venue-tables/${tableId}/checkout-preview`, {
         selectedMenuItems: venueMenuSelectionPayload,
         settlementMode: venueSettlementMode,
+        bookingMode: venueBookingMode,
       }),
     enabled: isVenueSource && !!tableId && !!venueTable,
   });
+
+  useEffect(() => {
+    if (urlParams.get('request') === '1' && isHostCheckout) {
+      setCustomRequestOpen(true);
+    }
+  }, [isHostCheckout]);
 
   useEffect(() => {
     if (!isVenueSource || !venueTable?.includedItems?.length) return;
@@ -173,6 +184,7 @@ export default function TableDetails() {
       const pay = await apiPost(`/api/venue-tables/${tableId}/join`, {
         selectedMenuItems: selected,
         settlementMode: venueSettlementMode,
+        bookingMode: venueBookingMode,
       });
       if (pay?.reference && pay?.access_code) {
         await launchPaystackInline({
@@ -183,6 +195,9 @@ export default function TableDetails() {
           onSuccess: async (payload) => {
             await verifyPaystackReference(payload?.reference || pay.reference);
             queryClient.invalidateQueries(['venue-table', tableId]);
+            if (isHostCheckout && venueTable?.eventId) {
+              navigate(createPageUrl('HostDashboard?tab=tables&manage=1'));
+            }
           },
         });
       }
@@ -391,9 +406,11 @@ export default function TableDetails() {
         <div className="sec-card" style={{ padding: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>{venueTable.tableName}</h1>
           <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{venueTable.venue?.name}</p>
+          <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-accent)', fontWeight: 600 }}>
+            {isHostCheckout ? 'Hosting this table' : 'Joining this table'}
+          </p>
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
-          <p style={{ marginTop: 6, fontSize: 13 }}>R{Number(venueTable.amountContributed).toFixed(0)} of R{Number(venueTable.minimumSpend).toFixed(0)} contributed ({Number(venueTable.progressPercentage).toFixed(1)}%)</p>
         </div>
         <div style={{ marginTop: 14 }}>
           {Object.entries(grouped).map(([category, items]) => (
@@ -419,11 +436,12 @@ export default function TableDetails() {
           settlementMode={settlement}
           showSettlementOptions
           onSettlementChange={setVenueSettlementMode}
+          footnote={isHostCheckout ? CHECKOUT_FOOTNOTES.venueHost : CHECKOUT_FOOTNOTES.venue}
         />
         {membership?.status === 'PENDING_VENUE_REVIEW' ? (
           <p className="text-sm text-amber-400 mt-3 text-center">Request pending venue approval</p>
         ) : null}
-        {(venueTable.allowsCustomRequests || venueTable.isCustomListing) && membership?.status !== 'APPROVED' ? (
+        {isHostCheckout && (venueTable.allowsCustomRequests || venueTable.isCustomListing) && membership?.status !== 'APPROVED' ? (
           <button
             type="button"
             className="sec-btn sec-btn-ghost sec-btn-full mt-3"
@@ -433,83 +451,42 @@ export default function TableDetails() {
             Request custom table (venue reviews first)
           </button>
         ) : null}
-        <Dialog open={customRequestOpen} onOpenChange={setCustomRequestOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Custom table request</DialogTitle>
-              <DialogDescription>The venue will review before you can pay.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <label className="text-sm block">
-                Guest count
-                <input
-                  type="number"
-                  min={1}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border"
-                  value={customForm.guestCount}
-                  onChange={(e) => setCustomForm((f) => ({ ...f, guestCount: e.target.value }))}
-                />
-              </label>
-              <label className="text-sm block">
-                Preferred time
-                <input
-                  className="w-full mt-1 px-3 py-2 rounded-lg border"
-                  value={customForm.preferredTime}
-                  onChange={(e) => setCustomForm((f) => ({ ...f, preferredTime: e.target.value }))}
-                />
-              </label>
-              <label className="text-sm block">
-                Your minimum spend (ZAR)
-                <input
-                  type="number"
-                  min={0}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border"
-                  value={customForm.proposedMinimumSpend}
-                  onChange={(e) => setCustomForm((f) => ({ ...f, proposedMinimumSpend: e.target.value }))}
-                />
-              </label>
-              <label className="text-sm block">
-                Notes
-                <Textarea
-                  rows={3}
-                  value={customForm.notes}
-                  onChange={(e) => setCustomForm((f) => ({ ...f, notes: e.target.value }))}
-                />
-              </label>
-              <button
-                type="button"
-                className="sec-btn sec-btn-primary w-full"
-                onClick={async () => {
-                  try {
-                    const selected = Object.entries(selectedMenuItems)
-                      .filter(([, qty]) => Number(qty) > 0)
-                      .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) }));
-                    await apiPost(`/api/venue-tables/${tableId}/request`, {
-                      isCustom: true,
-                      userSpecs: {
-                        guestCount: parseInt(customForm.guestCount, 10) || 4,
-                        proposedMinimumSpend: parseFloat(customForm.proposedMinimumSpend) || undefined,
-                        notes: customForm.notes,
-                        preferredTime: customForm.preferredTime,
-                        selectedMenuItems: selected.length ? selected : undefined,
-                      },
-                    });
-                    toast.success('Request sent — venue will review');
-                    setCustomRequestOpen(false);
-                    queryClient.invalidateQueries(['venue-table', tableId]);
-                  } catch (e) {
-                    toast.error(e?.data?.error || e.message);
-                  }
-                }}
-              >
-                Submit request
-              </button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <CustomTableRequestModal
+          open={customRequestOpen}
+          onClose={() => setCustomRequestOpen(false)}
+          submitting={customSubmitting}
+          onSubmit={async (specs) => {
+            setCustomSubmitting(true);
+            try {
+              const selected = Object.entries(selectedMenuItems)
+                .filter(([, qty]) => Number(qty) > 0)
+                .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) }));
+              await apiPost(`/api/venue-tables/${tableId}/request`, {
+                isCustom: true,
+                userSpecs: {
+                  ...specs,
+                  selectedMenuItems: selected.length ? selected : undefined,
+                },
+              });
+              toast.success('Request sent — venue will review');
+              setCustomRequestOpen(false);
+              queryClient.invalidateQueries(['venue-table', tableId]);
+            } catch (e) {
+              toast.error(e?.data?.error || e.message);
+            } finally {
+              setCustomSubmitting(false);
+            }
+          }}
+        />
         <div className="sec-bottom-bar">
           <button onClick={joinVenueTable} disabled={isProcessingPayment || !canPay} className="sec-btn sec-btn-primary sec-btn-full" style={{ height: 48 }}>
-            {isProcessingPayment ? 'Processing…' : checkoutTotal > 0 ? `Pay R${checkoutTotal.toFixed(0)} to book` : 'Complete booking'}
+            {isProcessingPayment
+              ? 'Processing…'
+              : checkoutTotal > 0
+                ? isHostCheckout
+                  ? `Pay R${checkoutTotal.toFixed(0)} to host`
+                  : `Pay R${checkoutTotal.toFixed(0)} to join`
+                : 'Complete booking'}
           </button>
           <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 8 }}>No refunds: once you pay, your booking is confirmed per venue policy.</p>
           <div style={{ marginTop: 8 }}>
@@ -722,6 +699,9 @@ export default function TableDetails() {
               >
                 Pay for selected items
               </button>
+              <p style={{ fontSize: 10, color: 'var(--sec-text-muted)', marginTop: 8, lineHeight: 1.45 }}>
+                {CHECKOUT_FOOTNOTES.hostedMenu}
+              </p>
             </div>
           )}
           {!isGoingMember && totalOnline > 0 && (
@@ -742,9 +722,14 @@ export default function TableDetails() {
                     <span>R{joinZ.toFixed(0)}</span>
                   </div>
                   <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 6 }}>
-                    Platform fee 15% / 85% to the table host on the joining fee portion.
+                    {CHECKOUT_FOOTNOTES.hostedJoin}
                   </p>
                 </>
+              )}
+              {entranceZ > 0 && joinZ === 0 && (
+                <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 6 }}>
+                  Entrance is split 85% to the venue and 15% to SEC.
+                </p>
               )}
               {checkout.tier_min_spend_zar != null && Number(checkout.tier_min_spend_zar) > 0 && (
                 <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 8 }}>

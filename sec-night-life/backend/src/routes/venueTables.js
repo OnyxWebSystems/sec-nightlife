@@ -5,7 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { buildTableCheckoutMetadata } from '../lib/checkoutLines.js';
-import { computeVenueCheckout, computeChargeableMenuTotal } from '../lib/venueCheckout.js';
+import { computeVenueCheckout, computeChargeableMenuTotal, computeFullMenuTotal } from '../lib/venueCheckout.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { sendEmail } from '../lib/email.js';
 
@@ -262,6 +262,44 @@ async function hydrateTableMenu(table) {
   }));
 }
 
+function resolveBookingMode(raw, table, specs) {
+  if (raw === 'host' || raw === 'join' || raw === 'custom_host') return raw;
+  if (table.isCustomListing || specs?.guestCount) return 'custom_host';
+  return 'join';
+}
+
+async function buildVenueCheckoutForTable(table, venue, menuItems, payload, existing) {
+  const specs = existing?.userSpecs || {};
+  const bookingMode = resolveBookingMode(payload.bookingMode, table, specs);
+  if (bookingMode === 'host' || bookingMode === 'custom_host') {
+    if (table.hostedTableId || table.hostUserId) {
+      return { error: 'This table is already hosted. Join the host\'s table instead.' };
+    }
+  }
+  if (bookingMode === 'join' && table.hostedTableId) {
+    return { error: 'This table is hosted. Use the join hosted table flow instead.' };
+  }
+
+  const selMap = {};
+  for (const s of payload.selectedMenuItems || []) selMap[s.menuItemId] = s.quantity;
+  const settlementMode = payload.settlementMode || table.minSpendSettlement || 'PREPAY_LUMP';
+  const fullMenu = computeFullMenuTotal(menuItems, selMap);
+  const menuTotal = settlementMode === 'PREPAY_MENU' ? fullMenu : computeChargeableMenuTotal(menuItems, selMap, table.includedItems);
+
+  const checkout = computeVenueCheckout(
+    { ...table, event: table.event },
+    {
+      menuTotal,
+      settlementMode,
+      menuItems,
+      venue,
+      bookingMode,
+      overrideMinSpend: specs.proposedMinimumSpend,
+    },
+  );
+  return { checkout, bookingMode, settlementMode, menuSelections: payload.selectedMenuItems || [], menuTotal };
+}
+
 router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) => {
   try {
     const payload = z
@@ -270,6 +308,7 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
           .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(0) }))
           .optional(),
         settlementMode: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
+        bookingMode: z.enum(['host', 'join', 'custom_host']).optional(),
       })
       .parse(req.body || {});
     const table = await prisma.venueTable.findUnique({
@@ -282,30 +321,16 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
     const menuItems = await hydrateTableMenu(table);
-    const selMap = {};
-    for (const s of payload.selectedMenuItems || []) selMap[s.menuItemId] = s.quantity;
-    const menuTotal = computeChargeableMenuTotal(menuItems, selMap, table.includedItems);
     let myMembership = null;
     if (req.userId) {
       myMembership = await prisma.venueTableMember.findUnique({
         where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
       });
     }
-    const specs = myMembership?.userSpecs || {};
-    const isCustomHost = Boolean(table.isCustomListing || specs.guestCount);
-    const checkout = computeVenueCheckout(
-      { ...table, event: table.event },
-      {
-        menuTotal,
-        settlementMode: payload.settlementMode,
-        menuItems,
-        venue: table.venue,
-        isCustomHost,
-        overrideMinSpend: specs.proposedMinimumSpend,
-      },
-    );
-    if (checkout.error) return res.status(400).json({ error: checkout.error });
-    res.json(checkout);
+    const result = await buildVenueCheckoutForTable(table, table.venue, menuItems, payload, myMembership);
+    if (result.error) return res.status(400).json({ error: result.error });
+    if (result.checkout.error) return res.status(400).json({ error: result.checkout.error });
+    res.json({ ...result.checkout, bookingMode: result.bookingMode });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     next(e);
@@ -495,6 +520,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
           .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) }))
           .optional(),
         settlementMode: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
+        bookingMode: z.enum(['host', 'join', 'custom_host']).optional(),
       })
       .parse(req.body || {});
     const table = await prisma.venueTable.findUnique({
@@ -534,34 +560,21 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     }
 
     const menuItems = await hydrateTableMenu(table);
-    const menuSelections = payload.selectedMenuItems || [];
     const menuMap = new Map(menuItems.map((i) => [i.id, i]));
-    const selMap = {};
-    for (const sel of menuSelections) {
+    for (const sel of payload.selectedMenuItems || []) {
       const item = menuMap.get(sel.menuItemId);
       if (!item || !item.isAvailable) {
         return res.status(400).json({ error: 'Invalid menu item selection' });
       }
-      selMap[sel.menuItemId] = sel.quantity;
     }
-    const menuTotal = computeChargeableMenuTotal(menuItems, selMap, table.includedItems);
 
-    const settlementMode = payload.settlementMode || table.minSpendSettlement || 'PREPAY_LUMP';
-    const specs = existing?.userSpecs || {};
-    const isCustomHost = Boolean(table.isCustomListing || specs.guestCount);
-    const checkout = computeVenueCheckout(
-      { ...table, event: table.event },
-      {
-        menuTotal,
-        settlementMode,
-        menuItems,
-        venue: table.venue,
-        isCustomHost,
-        overrideMinSpend: specs.proposedMinimumSpend,
-      },
-    );
+    const result = await buildVenueCheckoutForTable(table, table.venue, menuItems, payload, existing);
+    if (result.error) return res.status(400).json({ error: result.error });
+    const { checkout, bookingMode, settlementMode, menuSelections, menuTotal } = result;
     if (checkout.error) return res.status(400).json({ error: checkout.error });
     if (checkout.total <= 0) return res.status(400).json({ error: 'Nothing to pay for this booking' });
+
+    const isHost = bookingMode === 'host' || bookingMode === 'custom_host';
 
     const member = await prisma.venueTableMember.upsert({
       where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
@@ -570,11 +583,13 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
         userId: req.userId,
         selectedMenuItems: menuSelections.length ? menuSelections : undefined,
         settlementMode,
+        memberRole: isHost ? 'HOST' : 'GUEST',
         status: 'PENDING_PAYMENT',
       },
       update: {
         selectedMenuItems: menuSelections.length ? menuSelections : undefined,
         settlementMode,
+        memberRole: isHost ? 'HOST' : 'GUEST',
         status: 'PENDING_PAYMENT',
       },
     });
@@ -589,10 +604,11 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     metadata.venueTableMemberId = member.id;
     metadata.venueId = table.venueId;
     metadata.selectedMenuItems = menuSelections;
+    metadata.booking_mode = bookingMode;
     metadata.booking_fee_zar = Number(table.bookingFeeZar || 0);
+    metadata.host_table_fee_zar = Number(table.hostTableFeeZar || 0);
     metadata.minimum_spend_zar = Number(table.minimumSpend || 0);
     metadata.menu_zar = menuTotal;
-    metadata.platform_fee_zar = checkout.platformFee;
 
     const pay = await initializePaystackPayment({
       userId: req.userId,

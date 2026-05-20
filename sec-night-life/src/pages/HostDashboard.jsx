@@ -81,6 +81,14 @@ export default function HostDashboard() {
   const [pendingTableId, setPendingTableId] = useState(null);
   const [inviteOpenTableId, setInviteOpenTableId] = useState(null);
   const [inviteSearch, setInviteSearch] = useState('');
+  const [manageTableId, setManageTableId] = useState(null);
+  const [rulesForm, setRulesForm] = useState({
+    tableName: '',
+    isPublic: true,
+    hasJoiningFee: false,
+    joiningFee: '',
+  });
+  const [savingRules, setSavingRules] = useState(false);
 
   useEffect(() => {
     authService.getCurrentUser().then(async (u) => {
@@ -109,7 +117,8 @@ export default function HostDashboard() {
       setTab('tables');
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, setSearchParams]);
+    if (searchParams.get('tab') === 'tables') setTab('tables');
+  }, [searchParams, setSearchParams, navigate]);
 
   useEffect(() => {
     if (!inviteOpenTableId) setInviteSearch('');
@@ -139,6 +148,25 @@ export default function HostDashboard() {
     queryFn: () => apiGet('/api/host/tables'),
     enabled: !!user?.id,
   });
+
+  useEffect(() => {
+    if (searchParams.get('manage') !== '1' || !tables.length) return;
+    const firstInApp = tables.find((t) => t.tableType === 'IN_APP_EVENT' && t.status === 'ACTIVE');
+    if (!firstInApp) return;
+    setTab('tables');
+    setManageTableId(firstInApp.id);
+    setRulesForm({
+      tableName: firstInApp.tableName || '',
+      isPublic: firstInApp.isPublic !== false,
+      hasJoiningFee: Boolean(firstInApp.hasJoiningFee),
+      joiningFee: firstInApp.joiningFee ? String(firstInApp.joiningFee) : '',
+    });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('manage');
+      return next;
+    }, { replace: true });
+  }, [searchParams, tables, setSearchParams]);
 
   const { data: jobs = [], isLoading: loadJ } = useQuery({
     queryKey: ['host-jobs', user?.id],
@@ -615,6 +643,26 @@ export default function HostDashboard() {
                           <UserPlus className="w-4 h-4" />
                           {inviteOpenTableId === t.id ? 'Hide invite search' : 'Invite a user'}
                         </button>
+                        {t.tableType === 'IN_APP_EVENT' && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-secondary py-2 px-3 rounded-xl"
+                            onClick={() => {
+                              const opening = manageTableId !== t.id;
+                              setManageTableId(opening ? t.id : null);
+                              if (opening) {
+                                setRulesForm({
+                                  tableName: t.tableName || '',
+                                  isPublic: t.isPublic !== false,
+                                  hasJoiningFee: Boolean(t.hasJoiningFee),
+                                  joiningFee: t.joiningFee ? String(t.joiningFee) : '',
+                                });
+                              }
+                            }}
+                          >
+                            {manageTableId === t.id ? 'Hide rules' : 'Manage rules'}
+                          </button>
+                        )}
                       </>
                     )}
                     {t.pendingJoinCount > 0 && (
@@ -632,6 +680,72 @@ export default function HostDashboard() {
                       This table is not visible to others and has no group chat until Paystack confirms your listing payment.
                       After it goes live, your host ticket appears under Profile, and you can invite registered users below.
                     </p>
+                  )}
+                  {t.status === 'ACTIVE' && manageTableId === t.id && t.tableType === 'IN_APP_EVENT' && (
+                    <div className="mt-3 rounded-xl border border-[var(--sec-accent-border)] bg-[var(--sec-bg-elevated)] p-4 space-y-3">
+                      <p className="text-sm font-semibold text-[var(--sec-text-primary)]">Table rules</p>
+                      <div>
+                        <label className="text-xs text-[var(--sec-text-muted)] block mb-1">Table name (updates group chat)</label>
+                        <Input
+                          value={rulesForm.tableName}
+                          onChange={(e) => setRulesForm((f) => ({ ...f, tableName: e.target.value }))}
+                          className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+                          maxLength={60}
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={rulesForm.isPublic}
+                          onChange={(e) => setRulesForm((f) => ({ ...f, isPublic: e.target.checked }))}
+                        />
+                        Public table (anyone can join without approval)
+                      </label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={rulesForm.hasJoiningFee}
+                          onChange={(e) => setRulesForm((f) => ({ ...f, hasJoiningFee: e.target.checked }))}
+                        />
+                        Charge a joining fee (85% to you)
+                      </label>
+                      {rulesForm.hasJoiningFee ? (
+                        <div>
+                          <label className="text-xs text-[var(--sec-text-muted)] block mb-1">Joining fee (ZAR, min R10)</label>
+                          <Input
+                            type="number"
+                            min={10}
+                            value={rulesForm.joiningFee}
+                            onChange={(e) => setRulesForm((f) => ({ ...f, joiningFee: e.target.value }))}
+                            className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+                          />
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={savingRules}
+                        className="sec-btn sec-btn-primary text-sm py-2 px-4 rounded-xl"
+                        onClick={async () => {
+                          setSavingRules(true);
+                          try {
+                            await apiPatch(`/api/host/tables/${t.id}`, {
+                              tableName: rulesForm.tableName.trim(),
+                              isPublic: rulesForm.isPublic,
+                              hasJoiningFee: rulesForm.hasJoiningFee,
+                              joiningFee: rulesForm.hasJoiningFee ? Number(rulesForm.joiningFee) || 10 : null,
+                            });
+                            toast.success('Table rules updated');
+                            queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                          } catch (err) {
+                            toast.error(err?.message || 'Could not save rules');
+                          } finally {
+                            setSavingRules(false);
+                          }
+                        }}
+                      >
+                        {savingRules ? 'Saving…' : 'Save rules'}
+                      </button>
+                    </div>
                   )}
                   {t.status === 'ACTIVE' && inviteOpenTableId === t.id && (
                     <div className="mt-3 rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] p-3 space-y-2">

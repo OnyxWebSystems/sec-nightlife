@@ -19,6 +19,7 @@ import { expectedTotalFromMetadata } from '../lib/checkoutLines.js';
 import { normalizeGuestGenderPreference } from '../lib/genderPreference.js';
 import { getEventEntranceZar } from '../lib/hostedTableSecFees.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
+import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfterPayment.js';
 import {
   visibleUntilAfterEventDate,
   visibleUntilAfterParty,
@@ -256,8 +257,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
             data: { menuSpendTotal: { increment: menuZar } },
           });
         });
-        const secAmount = Number((menuZar * 0.15).toFixed(2));
-        const venueAmount = Number((menuZar * 0.85).toFixed(2));
+        const { secAmount, recipientAmount: venueAmount } = splitSecPlatform(menuZar);
         const venueId = mem.hostedTable?.event?.venueId;
         if (venueId) {
           const venueCode = await resolveRecipientCodeForVenue(venueId);
@@ -319,8 +319,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
       if (member.status === 'CONFIRMED') return;
       const table = member.venueTable;
       const totalPaid = Number(amount || 0);
-      const secAmount = Number((totalPaid * 0.15).toFixed(2));
-      const venueAmount = Number((totalPaid * 0.85).toFixed(2));
+      const { secAmount, recipientAmount: venueAmount } = splitSecPlatform(totalPaid);
 
       const currentOccupancy = table.currentOccupancy + 1;
       const amountContributed = table.amountContributed + totalPaid;
@@ -357,6 +356,21 @@ async function applyReferenceSideEffects(reference, paystackData) {
           reference,
         },
       });
+
+      const bookingMode = metadata.booking_mode || metadata.bookingMode;
+      const isHostPayment = bookingMode === 'host' || bookingMode === 'custom_host' || member.memberRole === 'HOST';
+      if (isHostPayment && table.eventId && !table.hostedTableId) {
+        await ensureHostedTableFromVenueHostPayment({
+          tx,
+          venueTable: table,
+          userId: String(userId),
+          paystackReference: reference,
+          amountTotal: totalPaid,
+          selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
+          settlementMode: metadata.settlement_mode || member.settlementMode,
+        });
+      }
+
       const user = await tx.user.findUnique({
         where: { id: String(userId) },
         include: { userProfile: { select: { username: true } } },
@@ -365,16 +379,20 @@ async function applyReferenceSideEffects(reference, paystackData) {
       await createInAppNotification({
         userId: table.venue.ownerUserId,
         type: 'TABLE_JOINED',
-        title: 'Venue table joined',
-        body: `@${username} joined your table ${table.tableName} and contributed R${totalPaid.toFixed(2)}`,
+        title: isHostPayment ? 'New table host' : 'Venue table joined',
+        body: isHostPayment
+          ? `@${username} is now hosting ${table.tableName} (R${totalPaid.toFixed(2)} paid).`
+          : `@${username} joined your table ${table.tableName} and contributed R${totalPaid.toFixed(2)}`,
         referenceId: table.id,
         referenceType: 'VENUE_TABLE',
       });
       await createInAppNotification({
         userId: String(userId),
         type: 'TABLE_JOINED',
-        title: 'Table confirmed',
-        body: `You're confirmed at ${table.tableName}. Menu items are locked in. No refunds.`,
+        title: isHostPayment ? 'You are hosting this table' : 'Table confirmed',
+        body: isHostPayment
+          ? `You're hosting ${table.tableName}. Set your table rules in Host Dashboard.`
+          : `You're confirmed at ${table.tableName}. Menu items are locked in. No refunds.`,
         referenceId: table.id,
         referenceType: 'VENUE_TABLE',
       });

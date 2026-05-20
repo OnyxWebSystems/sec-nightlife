@@ -47,6 +47,7 @@ function hostingFromApi(hc) {
           max_guests: String(t.max_guests ?? ''),
           min_spend: String(t.min_spend ?? ''),
           booking_fee_zar: String(t.booking_fee_zar ?? ''),
+          host_table_fee_zar: String(t.host_table_fee_zar ?? ''),
           tier_table_slots: String(t.tier_table_slots ?? ''),
           included_items: Array.isArray(t?.included_items)
             ? t.included_items.map((inc) => ({
@@ -308,7 +309,13 @@ export default function BusinessEvents() {
         const bfRaw = String(t.booking_fee_zar ?? '').trim();
         const bookingFee = bfRaw ? parseFloat(bfRaw.replace(',', '.')) : 0;
         if (bfRaw && (Number.isNaN(bookingFee) || bookingFee < 0)) {
-          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} booking fee on tier "${tierName}"`);
+          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} join booking fee on tier "${tierName}"`);
+          return;
+        }
+        const hfRaw = String(t.host_table_fee_zar ?? '').trim();
+        const hostFee = hfRaw ? parseFloat(hfRaw.replace(',', '.')) : 0;
+        if (hfRaw && (Number.isNaN(hostFee) || hostFee < 0)) {
+          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} host booking fee on tier "${tierName}"`);
           return;
         }
         const tierPayload = {
@@ -317,6 +324,7 @@ export default function BusinessEvents() {
           min_spend: ms,
           tier_table_slots: slots,
           booking_fee_zar: bookingFee,
+          host_table_fee_zar: hostFee,
         };
         if (included.length) tierPayload.included_items = included;
         parsedTiers.push(tierPayload);
@@ -763,7 +771,7 @@ export default function BusinessEvents() {
                                 ...p.hosting_config[cat],
                                 tiers: [
                                   ...(p.hosting_config[cat].tiers || []),
-                                  { tier_name: '', max_guests: '', min_spend: '', booking_fee_zar: '', tier_table_slots: '', included_items: [] },
+                                  { tier_name: '', max_guests: '', min_spend: '', booking_fee_zar: '', host_table_fee_zar: '', tier_table_slots: '', included_items: [] },
                                 ],
                               },
                             },
@@ -853,7 +861,7 @@ export default function BusinessEvents() {
                             />
                           </div>
                           <div className="flex-1 min-w-[100px]">
-                            <Label className="text-xs text-gray-500">Booking fee (ZAR)</Label>
+                            <Label className="text-xs text-gray-500">Join booking fee (ZAR)</Label>
                             <Input
                               type="number"
                               min={0}
@@ -861,6 +869,27 @@ export default function BusinessEvents() {
                               onChange={(e) => {
                                 const next = [...(form.hosting_config[cat].tiers || [])];
                                 next[idx] = { ...next[idx], booking_fee_zar: e.target.value };
+                                setForm((p) => ({
+                                  ...p,
+                                  hosting_config: {
+                                    ...p.hosting_config,
+                                    [cat]: { ...p.hosting_config[cat], tiers: next },
+                                  },
+                                }));
+                              }}
+                              className="mt-1 h-10 rounded-xl"
+                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[100px]">
+                            <Label className="text-xs text-gray-500">Host booking fee (ZAR)</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={tier.host_table_fee_zar || ''}
+                              onChange={(e) => {
+                                const next = [...(form.hosting_config[cat].tiers || [])];
+                                next[idx] = { ...next[idx], host_table_fee_zar: e.target.value };
                                 setForm((p) => ({
                                   ...p,
                                   hosting_config: {

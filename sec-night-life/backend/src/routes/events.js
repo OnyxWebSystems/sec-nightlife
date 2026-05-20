@@ -8,6 +8,7 @@ import { logger } from '../lib/logger.js';
 import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingConfig.js';
 import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
 import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
+import { buildEventTableTiers } from '../lib/eventTableTiers.js';
 
 const router = Router();
 
@@ -33,6 +34,7 @@ const tablePricingTierSchema = z.object({
   max_guests: z.number().int().min(1).max(500),
   min_spend: z.number().min(0),
   booking_fee_zar: z.number().min(0).optional(),
+  host_table_fee_zar: z.number().min(0).optional(),
   /** Per-tier hosted-table slots; required when tiers exist (enforced in hostingCategorySchema). */
   tier_table_slots: z.number().int().min(1).optional(),
   included_items: z.array(includedItemSchema).optional(),
@@ -467,6 +469,17 @@ router.get('/', optionalAuth, async (req, res, next) => {
         ? sortEventsByFollowThenDate(events, followedSet, sortDesc).slice(0, take)
         : events;
     res.json(ordered.map(mapEventRow));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Grouped table tiers for Event Details (host/join flows). */
+router.get('/:id/table-tiers', optionalAuth, async (req, res, next) => {
+  try {
+    const result = await buildEventTableTiers(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Event not found' });
+    res.json(result);
   } catch (err) {
     next(err);
   }

@@ -22,10 +22,14 @@ export async function syncEventVenueTables(eventId) {
       const tier = tiers[tierIdx];
       const slots = Number(tier.tier_table_slots) || 1;
       const tierKeyBase = `${cat}:${tierIdx}`;
-      const bookingFee =
+      const hostFee =
+        tier.host_table_fee_zar != null && tier.host_table_fee_zar !== ''
+          ? Number(tier.host_table_fee_zar) || 0
+          : Number(section.host_table_fee_zar) || 0;
+      const joinFee =
         tier.booking_fee_zar != null && tier.booking_fee_zar !== ''
           ? Number(tier.booking_fee_zar) || 0
-          : Number(section.host_table_fee_zar) || 0;
+          : 0;
       const includedItems = Array.isArray(tier.included_items) ? tier.included_items : [];
 
       for (let slotIdx = 0; slotIdx < slots; slotIdx++) {
@@ -44,7 +48,8 @@ export async function syncEventVenueTables(eventId) {
           description: event.description,
           guestCapacity: Number(tier.max_guests) || 6,
           minimumSpend: Number(tier.min_spend) || 0,
-          bookingFeeZar: bookingFee,
+          bookingFeeZar: joinFee,
+          hostTableFeeZar: hostFee,
           minSpendSettlement: 'PREPAY_LUMP',
           tierLabel: tier.tier_name || null,
           hostingTierKey,

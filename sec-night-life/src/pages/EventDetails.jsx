@@ -12,7 +12,8 @@ import {
 } from 'lucide-react';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 
-import TrendingTableCard from '@/components/home/TrendingTableCard';
+import EventTableTierCard from '@/components/events/EventTableTierCard';
+import EventTableTierSheet from '@/components/events/EventTableTierSheet';
 import TicketPurchaseButton from '@/components/events/TicketPurchaseButton';
 import EventShareModal from '@/components/events/EventShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
@@ -24,6 +25,7 @@ export default function EventDetails() {
   const [userProfile, setUserProfile] = useState(null);
   const [isInterested, setIsInterested] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [selectedTier, setSelectedTier] = useState(null);
 
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
@@ -78,13 +80,12 @@ export default function EventDetails() {
     enabled: !!event?.venue_id,
   });
 
-  const { data: venueTablesData } = useQuery({
-    queryKey: ['event-venue-tables', eventId],
-    queryFn: () => apiGet(`/api/venue-tables/available?eventId=${encodeURIComponent(eventId)}&limit=100`),
+  const { data: tableTiersData } = useQuery({
+    queryKey: ['event-table-tiers', eventId],
+    queryFn: () => apiGet(`/api/events/${encodeURIComponent(eventId)}/table-tiers`),
     enabled: !!eventId,
   });
-  const venueTables = venueTablesData?.items ?? [];
-  const customTableListing = venueTables.find((t) => t.isCustomListing || t.allowsCustomRequests);
+  const tableTiers = tableTiersData?.tiers ?? [];
 
   const toggleInterestMutation = useMutation({
     mutationFn: async () => {
@@ -158,12 +159,7 @@ export default function EventDetails() {
     tier.price < min ? tier.price : min, event.ticket_tiers?.[0]?.price || 0
   );
 
-  const openVenueTables = venueTables.filter((t) => Number(t.spotsRemaining ?? 0) > 0);
-  const fullVenueTables = venueTables.filter((t) => Number(t.spotsRemaining ?? 0) <= 0);
-  const allowsCustomTable =
-    Boolean(event.hosting_config?.general?.allows_custom_requests) ||
-    Boolean(event.hosting_config?.vip?.allows_custom_requests) ||
-    Boolean(customTableListing);
+  const totalSpotsRemaining = tableTiers.reduce((sum, t) => sum + Number(t.totalSpotsRemaining || 0), 0);
 
   const venueLine =
     [event.venue_address, event.venue_suburb, event.venue_city || venue?.city]
@@ -403,39 +399,6 @@ export default function EventDetails() {
           </div>
         )}
 
-        {['general', 'vip'].map((cat) => {
-          const tiers = event.hosting_config?.[cat]?.tiers;
-          if (!Array.isArray(tiers) || tiers.length === 0) return null;
-          const label = cat === 'vip' ? 'VIP' : 'General';
-          return (
-            <div key={cat} className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
-                Venue table options · {label}
-              </h2>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--sec-text-muted)', lineHeight: 1.6 }}>
-                {tiers.map((t, i) => (
-                  <li key={i}>
-                    <strong>{t.tier_name || t.name || `Tier ${i + 1}`}</strong>
-                    {' — '}up to {t.max_guests} guests · min spend R{Number(t.min_spend).toLocaleString()}
-                    {Array.isArray(t.included_items) && t.included_items.length > 0 && (
-                      <span>
-                        {' · includes '}
-                        {t.included_items.map((inc, j) => (
-                          <span key={j}>
-                            {j > 0 ? ', ' : ''}
-                            {inc.quantity > 1 ? `${inc.quantity}× ` : ''}
-                            {inc.name || 'item'}
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
-
         {event.has_entrance_fee && event.entrance_fee_amount != null && (
           <div className="sec-card" style={{
             padding: '12px 16px', marginBottom: 20,
@@ -528,58 +491,43 @@ export default function EventDetails() {
           </div>
         )}
 
-        {/* ── Tables section ── */}
         <div data-tables-section style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Users size={15} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
-              Tables ({venueTables.length})
+              Table tiers ({tableTiers.length})
             </h2>
-            <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Book with the venue on Sec</span>
+            <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Host or join on Sec</span>
           </div>
 
-          {openVenueTables.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              {openVenueTables.map((vt) => (
-                <Link
-                  key={vt.id}
-                  to={createPageUrl(`TableDetails?id=${encodeURIComponent(vt.id)}&source=venue`)}
-                  className="sec-card"
-                  style={{ padding: '14px 16px', textDecoration: 'none', display: 'block', border: '1px solid var(--sec-border)' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <div>
-                      <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-text-primary)' }}>{vt.tableName}</p>
-                      <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-                        Min R{Number(vt.minimumSpend).toFixed(0)}
-                        {Number(vt.bookingFeeZar) > 0 ? ` · Booking R${Number(vt.bookingFeeZar).toFixed(0)}` : ''}
-                      </p>
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--sec-accent)', fontWeight: 600 }}>{vt.spotsRemaining} left</span>
-                  </div>
-                </Link>
+          {tableTiers.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+              {tableTiers.map((tier) => (
+                <EventTableTierCard
+                  key={tier.tierKey}
+                  tier={tier}
+                  onSelect={setSelectedTier}
+                />
               ))}
             </div>
-          ) : null}
-
-          {allowsCustomTable && customTableListing ? (
-            <Link
-              to={createPageUrl(`TableDetails?id=${encodeURIComponent(customTableListing.id)}&source=venue&request=1`)}
-              className="sec-btn sec-btn-ghost sec-btn-full"
-              style={{ display: 'block', textAlign: 'center', marginBottom: 16, textDecoration: 'none' }}
-            >
-              Request a custom table
-            </Link>
-          ) : null}
-
-          {venueTables.length === 0 ? (
+          ) : (
             <div className="sec-card" style={{ textAlign: 'center', padding: '32px 24px' }}>
               <p style={{ fontSize: 14, color: 'var(--sec-text-muted)' }}>The venue has not listed tables for this event yet.</p>
             </div>
-          ) : (
-            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>Select a tier to book and pay on Sec</p>
           )}
+
+          {tableTiers.length > 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>
+              Select a tier to host your own table or join an existing one
+            </p>
+          ) : null}
         </div>
+
+        <EventTableTierSheet
+          tier={selectedTier}
+          open={Boolean(selectedTier)}
+          onClose={() => setSelectedTier(null)}
+        />
 
         {/* ── Location / directions ── */}
         {mapQuery && (
@@ -611,11 +559,11 @@ export default function EventDetails() {
       {/* ── Sticky bottom bar — price left / CTA right ── */}
       <div className="sec-bottom-bar sec-bottom-bar--responsive">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 960, margin: '0 auto' }}>
-          {venueTables.length > 0 ? (
+          {tableTiers.length > 0 ? (
             <>
               <div className="sec-bottom-bar__price">
-                <div className="sec-bottom-bar__price-label">Open tables</div>
-                <div className="sec-bottom-bar__price-value">{openVenueTables.length}</div>
+                <div className="sec-bottom-bar__price-label">Spots left</div>
+                <div className="sec-bottom-bar__price-value">{totalSpotsRemaining}</div>
               </div>
               <div className="sec-bottom-bar__cta">
                 <button

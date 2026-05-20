@@ -1,5 +1,8 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
+import { splitPlatformGross } from './platformSplit.js';
+
+export { splitPlatformGross, splitPlatformGross as splitSecPlatform } from './platformSplit.js';
 
 function requirePaystackKey() {
   const key = process.env.PAYSTACK_SECRET_KEY;
@@ -30,13 +33,6 @@ async function paystackFetch(path, { method = 'GET', body } = {}) {
     throw err;
   }
   return data;
-}
-
-export function splitSecPlatform(grossZar) {
-  const gross = Number(grossZar) || 0;
-  const sec = Math.round(gross * 0.15 * 100) / 100;
-  const recipient = Math.round((gross - sec) * 100) / 100;
-  return { secAmount: sec, recipientAmount: recipient };
 }
 
 /**

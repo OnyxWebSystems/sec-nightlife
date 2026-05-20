@@ -73,7 +73,8 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
               />
             </div>
             <div>
-              <Label className="text-xs">Guest booking fee (ZAR)</Label>
+              <Label className="text-xs">Join booking fee (ZAR)</Label>
+              <p className="text-[10px] text-[var(--sec-text-muted)] mb-1">Fee guests pay to book a spot on an unhosted table</p>
               <Input
                 value={tier.booking_fee_zar ?? ''}
                 onChange={(e) => updateTier(idx, { booking_fee_zar: e.target.value })}
@@ -81,7 +82,8 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
               />
             </div>
             <div>
-              <Label className="text-xs">Host table fee (ZAR)</Label>
+              <Label className="text-xs">Host booking fee (ZAR)</Label>
+              <p className="text-[10px] text-[var(--sec-text-muted)] mb-1">Fee a guest pays to own and host a table in this tier</p>
               <Input
                 value={tier.host_table_fee_zar ?? ''}
                 onChange={(e) => updateTier(idx, { host_table_fee_zar: e.target.value })}

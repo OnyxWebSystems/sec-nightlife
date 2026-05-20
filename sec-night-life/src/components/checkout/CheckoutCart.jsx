@@ -1,13 +1,26 @@
 import React from 'react';
 
+export const CHECKOUT_FOOTNOTES = {
+  venue:
+    'Your total includes everything due now. SEC retains 15% of that amount; the venue receives 85%.',
+  venueHost:
+    'Your total includes everything due now. SEC retains 15%; the venue receives 85%. After payment you can set table rules in Host Dashboard.',
+  hostedJoin:
+    'Entrance (if any) is split 85% to the venue and 15% to SEC. The host joining fee is split 85% to the table host and 15% to SEC.',
+  hostedMenu:
+    'Menu orders are split 85% to the venue and 15% to SEC.',
+};
+
 /**
- * UberEats-style checkout breakdown for table bookings.
+ * Checkout breakdown for table bookings.
+ * SEC's 15% is taken from the total — not shown as a separate line item.
  */
 export default function CheckoutCart({
   lines = [],
   settlementMode = 'PAY_ON_ARRIVAL',
   onSettlementChange,
   showSettlementOptions = false,
+  footnote,
 }) {
   const total = lines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
 
@@ -31,9 +44,9 @@ export default function CheckoutCart({
         <span>Total due now</span>
         <span style={{ color: 'var(--sec-accent)' }}>R{total.toFixed(2)}</span>
       </div>
-      {lines.some((l) => l.code === 'platform_fee') ? (
+      {lines.length > 0 && footnote ? (
         <p className="text-[10px] leading-relaxed pt-1" style={{ color: 'var(--sec-text-muted)' }}>
-          Venue charges (booking, entrance, menu) are split 85% to the venue and 15% to SEC. Joining fees on hosted tables go 85% to the host.
+          {footnote}
         </p>
       ) : null}
       {showSettlementOptions && onSettlementChange ? (

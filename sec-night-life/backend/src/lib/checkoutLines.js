@@ -1,6 +1,8 @@
 /**
  * Standard Paystack / payment metadata line items for table checkout.
  */
+import { splitPlatformGross } from './platformSplit.js';
+
 export function buildTableCheckoutMetadata({
   userId,
   venueTableId,
@@ -10,6 +12,8 @@ export function buildTableCheckoutMetadata({
   lines,
 }) {
   const amountTotalZar = lines.reduce((sum, l) => sum + Number(l.amount_zar || 0), 0);
+  const gross = Math.round(amountTotalZar * 100) / 100;
+  const { secAmount, recipientAmount } = splitPlatformGross(gross);
   return {
     type: 'TABLE_CHECKOUT',
     user_id: userId,
@@ -18,7 +22,10 @@ export function buildTableCheckoutMetadata({
     event_id: eventId || undefined,
     settlement_mode: settlementMode || 'PAY_ON_ARRIVAL',
     lines,
-    amount_total_zar: Math.round(amountTotalZar * 100) / 100,
+    amount_total_zar: gross,
+    /** Informational — SEC share embedded in amount_total_zar (not charged on top). */
+    platform_fee_zar: secAmount,
+    venue_share_zar: recipientAmount,
   };
 }
 
@@ -30,31 +37,47 @@ export function line(code, label, amountZar) {
   return { code, label, amount_zar: Math.round(Number(amountZar) * 100) / 100 };
 }
 
-/** Legacy metadata types map into TABLE_CHECKOUT lines for verify. */
+/**
+ * Reconstruct chargeable lines from legacy metadata.
+ * platform_fee_zar is NEVER added — it is derived from the gross total.
+ */
 export function linesFromLegacyMetadata(metadata) {
   const type = metadata?.type;
   const lines = [];
+  const bookingMode = metadata.booking_mode || metadata.bookingMode;
+
   if (type === 'VENUE_TABLE_JOIN' || type === 'TABLE_CHECKOUT') {
-    const booking = Number(metadata.booking_fee_zar || 0);
+    const hostFee = Number(metadata.host_table_fee_zar || 0);
+    const joinFee = Number(metadata.booking_fee_zar || 0);
+    const customFee = Number(metadata.custom_table_booking_fee_zar || 0);
+    const entrance = Number(metadata.entrance_zar || 0);
     const minSpend = Number(metadata.minimum_spend_zar || metadata.min_spend_zar || 0);
     const menu = Number(metadata.menu_zar || metadata.menu_total_zar || 0);
-    const platform = Number(metadata.platform_fee_zar || 0);
-    if (booking > 0) lines.push(line('booking_fee', 'Booking fee', booking));
+
+    if (customFee > 0) lines.push(line('custom_table_booking_fee', 'Custom table booking fee', customFee));
+    if (bookingMode === 'host' || bookingMode === 'custom_host') {
+      if (hostFee > 0) lines.push(line('host_table_fee', 'Host booking fee', hostFee));
+    } else if (joinFee > 0) {
+      lines.push(line('booking_fee', 'Join booking fee', joinFee));
+    }
+    if (entrance > 0) lines.push(line('entrance', 'Entrance', entrance));
     if (minSpend > 0) lines.push(line('minimum_spend', 'Minimum spend', minSpend));
     if (menu > 0) lines.push(line('menu', 'Menu', menu));
-    if (platform > 0) lines.push(line('platform_fee', 'Service fee', platform));
+
     if (lines.length === 0 && metadata.amount_total_zar) {
       lines.push(line('total', 'Total', metadata.amount_total_zar));
     }
     return lines;
   }
+
   if (type === 'HOSTED_TABLE_JOIN') {
     const entrance = Number(metadata.entrance_zar || 0);
-    const join = Number(metadata.joining_fee_zar || metadata.join_fee_zar || 0);
+    const join = Number(metadata.joining_fee_zar || metadata.join_fee_zar || metadata.join_zar || 0);
     if (entrance > 0) lines.push(line('entrance', 'Entrance', entrance));
     if (join > 0) lines.push(line('joining_fee', 'Joining fee', join));
     return lines;
   }
+
   if (type === 'TABLE_HOST_FEE') {
     const entrance = Number(metadata.entrance_zar || 0);
     const host = Number(metadata.host_fee_zar || 0);
@@ -64,6 +87,13 @@ export function linesFromLegacyMetadata(metadata) {
     if (menu > 0) lines.push(line('menu', 'Menu', menu));
     return lines;
   }
+
+  if (type === 'HOSTED_TABLE_MENU') {
+    const menu = Number(metadata.menu_zar || 0);
+    if (menu > 0) lines.push(line('menu', 'Menu', menu));
+    return lines;
+  }
+
   return lines;
 }
 

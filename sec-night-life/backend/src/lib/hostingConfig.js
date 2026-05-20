@@ -20,6 +20,10 @@ function normalizeLegacySlot(slot) {
         t.booking_fee_zar != null && t.booking_fee_zar !== ''
           ? Number(t.booking_fee_zar) || 0
           : 0,
+      host_table_fee_zar:
+        t.host_table_fee_zar != null && t.host_table_fee_zar !== ''
+          ? Number(t.host_table_fee_zar) || 0
+          : 0,
       included_items: Array.isArray(t.included_items) ? t.included_items : [],
     }));
   }
