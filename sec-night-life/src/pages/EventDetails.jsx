@@ -69,6 +69,8 @@ export default function EventDetails() {
     queryKey: ['event', eventId],
     queryFn: () => apiGet(`/api/events/${eventId}`),
     enabled: !!eventId,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: venue } = useQuery({
@@ -84,6 +86,8 @@ export default function EventDetails() {
     queryKey: ['event-table-tiers', eventId],
     queryFn: () => apiGet(`/api/events/${encodeURIComponent(eventId)}/table-tiers`),
     enabled: !!eventId,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
   const tableTiers = tableTiersData?.tiers ?? [];
 
@@ -406,7 +410,7 @@ export default function EventDetails() {
           }}>
             <Ticket size={16} strokeWidth={1.5} style={{ color: 'var(--sec-accent)', flexShrink: 0 }} />
             <div>
-              <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 2, fontWeight: 500 }}>Entrance at door</p>
+              <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 2, fontWeight: 500 }}>Entrance fee</p>
               <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
                 R{Number(event.entrance_fee_amount)}
               </p>

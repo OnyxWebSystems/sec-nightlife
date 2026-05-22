@@ -69,7 +69,7 @@ export default function BusinessVenueTables() {
           minimumSpend: parseFloat(tier.min_spend) || 0,
           bookingFeeZar: parseFloat(tier.booking_fee_zar) || 0,
           hostTableFeeZar: parseFloat(tier.host_table_fee_zar) || 0,
-          minSpendSettlement: 'PREPAY_LUMP',
+          minSpendSettlement: 'PREPAY_MENU',
           serviceDate: form.serviceDate ? new Date(form.serviceDate).toISOString() : null,
           startTime: form.startTime,
           allowsCustomRequests: form.allowsCustomRequests,

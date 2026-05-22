@@ -8,7 +8,7 @@ import { logger } from '../lib/logger.js';
 import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingConfig.js';
 import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
 import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
-import { buildEventTableTiers } from '../lib/eventTableTiers.js';
+import { buildEventTableTiers, statsFromEventTableTiers } from '../lib/eventTableTiers.js';
 
 const router = Router();
 
@@ -353,6 +353,33 @@ function mapHostedTableToStatRow(ht) {
 
 async function computeEventStats(eventId, hostingRaw) {
   const hosting = normalizeHostingConfig(hostingRaw);
+  const hasVenueTiers =
+    (Array.isArray(hosting?.general?.tiers) && hosting.general.tiers.length > 0) ||
+    (Array.isArray(hosting?.vip?.tiers) && hosting.vip.tiers.length > 0);
+
+  if (hasVenueTiers) {
+    const [goingCount, tierPayload] = await Promise.all([
+      prisma.eventAttendance.count({ where: { eventId, confirmed: true } }),
+      buildEventTableTiers(eventId),
+    ]);
+    const tiers = tierPayload?.tiers || [];
+    const tableStats = statsFromEventTableTiers(tiers);
+    return {
+      going_count: goingCount,
+      hosted_tables: tableStats.hosted_tables,
+      general: {
+        tables_remaining: tableStats.general.tables_remaining,
+        tables_with_join_space: tableStats.general.tables_with_join_space,
+        tables_full: tableStats.general.tables_full,
+      },
+      vip: {
+        tables_remaining: tableStats.vip.tables_remaining,
+        tables_with_join_space: tableStats.vip.tables_with_join_space,
+        tables_full: tableStats.vip.tables_full,
+      },
+    };
+  }
+
   const [goingCount, tableRows, hostedSecRows] = await Promise.all([
     prisma.eventAttendance.count({ where: { eventId, confirmed: true } }),
     prisma.table.findMany({

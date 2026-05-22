@@ -624,7 +624,7 @@ export default function BusinessEvents() {
                   onCheckedChange={(v) => setForm((p) => ({ ...p, has_entrance_fee: v === true }))}
                 />
                 <Label htmlFor="entrance-fee" className="text-gray-300 text-sm cursor-pointer">
-                  Entrance fee at the door
+                  Entrance fee
                 </Label>
               </div>
               {form.has_entrance_fee && (

@@ -17,9 +17,10 @@ export const CHECKOUT_FOOTNOTES = {
  */
 export default function CheckoutCart({
   lines = [],
-  settlementMode = 'PAY_ON_ARRIVAL',
+  settlementMode = 'PREPAY_MENU',
   onSettlementChange,
   showSettlementOptions = false,
+  minimumSpendZar = 0,
   footnote,
 }) {
   const total = lines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
@@ -49,27 +50,10 @@ export default function CheckoutCart({
           {footnote}
         </p>
       ) : null}
-      {showSettlementOptions && onSettlementChange ? (
-        <div className="space-y-2 pt-2">
-          <p className="text-xs font-medium" style={{ color: 'var(--sec-text-muted)' }}>
-            Minimum spend
-          </p>
-          {[
-            { value: 'PREPAY_MENU', label: 'Pre-select menu to meet minimum' },
-            { value: 'PREPAY_LUMP', label: 'Pay minimum spend now' },
-            { value: 'PAY_ON_ARRIVAL', label: 'Pay minimum on arrival (booking fee now)' },
-          ].map((opt) => (
-            <label key={opt.value} className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="radio"
-                name="settlement"
-                checked={settlementMode === opt.value}
-                onChange={() => onSettlementChange(opt.value)}
-              />
-              {opt.label}
-            </label>
-          ))}
-        </div>
+      {showSettlementOptions && Number(minimumSpendZar) > 0 ? (
+        <p className="text-xs pt-2" style={{ color: 'var(--sec-text-muted)' }}>
+          Select menu items to meet the minimum spend (R{Number(minimumSpendZar).toFixed(0)}) before checkout.
+        </p>
       ) : null}
     </div>
   );

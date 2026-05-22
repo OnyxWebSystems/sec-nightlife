@@ -156,3 +156,37 @@ export async function buildEventTableTiers(eventId) {
 
   return { tiers };
 }
+
+/**
+ * Derive Tables & attendance stats from tier payloads (venue slots + hosted tables).
+ */
+export function statsFromEventTableTiers(tiers = []) {
+  const empty = () => ({
+    tables_remaining: 0,
+    tables_with_join_space: 0,
+    tables_full: 0,
+    hosted_tables: 0,
+  });
+
+  const byCat = { general: empty(), vip: empty() };
+
+  let hostedAll = 0;
+
+  for (const tier of tiers) {
+    const cat = tier.category === 'vip' ? 'vip' : 'general';
+    const bucket = byCat[cat];
+    bucket.tables_remaining += Number(tier.totalSpotsRemaining) || 0;
+    bucket.tables_with_join_space += Number(tier.tablesOpenForJoin) || 0;
+
+    for (const slot of tier.slots || []) {
+      if (slot.isHosted) hostedAll += 1;
+      if (slot.spotsRemaining <= 0) bucket.tables_full += 1;
+    }
+  }
+
+  return {
+    hosted_tables: hostedAll,
+    general: byCat.general,
+    vip: byCat.vip,
+  };
+}

@@ -21,10 +21,22 @@ export function computeVenueCheckout(
     overrideMinSpend = null,
   } = {},
 ) {
-  const mode = settlementMode || table.minSpendSettlement || 'PREPAY_LUMP';
   const joinFee = Number(table.bookingFeeZar || 0);
   const hostFee = Number(table.hostTableFeeZar || venue?.hostTableFeeZar || 0);
   const minSpend = overrideMinSpend != null ? Number(overrideMinSpend) : Number(table.minimumSpend || 0);
+  const minSpendRequired = minSpend > 0;
+  const mode = minSpendRequired
+    ? 'PREPAY_MENU'
+    : settlementMode || table.minSpendSettlement || 'PREPAY_MENU';
+  if (minSpendRequired && mode !== 'PREPAY_MENU') {
+    return { error: 'Select menu items to meet the minimum spend before checkout.' };
+  }
+  if (mode === 'PREPAY_LUMP' || mode === 'PAY_ON_ARRIVAL') {
+    return {
+      error:
+        'Pay minimum now and pay on arrival are no longer supported. Select menu items to meet the minimum spend.',
+    };
+  }
   const lines = [];
   const isHost = bookingMode === 'host' || bookingMode === 'custom_host';
   const isCustomHost = bookingMode === 'custom_host';
@@ -41,7 +53,7 @@ export function computeVenueCheckout(
 
   const event = table.event;
   if (event?.hasEntranceFee && Number(event.entranceFeeAmount) > 0) {
-    lines.push(line('entrance', 'Entrance', Number(event.entranceFeeAmount)));
+    lines.push(line('entrance', 'Entrance fee', Number(event.entranceFeeAmount)));
   }
 
   const included = Array.isArray(table.includedItems) ? table.includedItems : [];
@@ -56,17 +68,18 @@ export function computeVenueCheckout(
 
   const menu = Number(menuTotal || 0);
 
-  if (mode === 'PREPAY_LUMP' && minSpend > 0) {
-    lines.push(line('minimum_spend', 'Minimum spend', minSpend));
-  } else if (mode === 'PREPAY_MENU') {
-    if (menu < minSpend) {
-      return { error: `Select menu items worth at least R${minSpend.toFixed(0)} (currently R${menu.toFixed(0)}).` };
+  if (mode === 'PREPAY_MENU') {
+    if (minSpend > 0 && menu < minSpend) {
+      return {
+        error: `Select menu items worth at least R${minSpend.toFixed(0)} (currently R${menu.toFixed(0)}).`,
+      };
     }
-    const spendLine = Math.max(minSpend, menu);
-    if (spendLine > 0) lines.push(line('minimum_spend', 'Minimum spend', spendLine));
-  } else if (mode === 'PAY_ON_ARRIVAL') {
-    if (minSpend > 0) lines.push(line('minimum_spend', 'Minimum spend (pay on arrival)', minSpend));
-    if (menu > 0) lines.push(line('menu', 'Menu pre-order', menu));
+    const spendLine = minSpend > 0 ? Math.max(minSpend, menu) : menu;
+    if (spendLine > 0) {
+      lines.push(
+        line('minimum_spend', minSpend > 0 ? 'Menu selection (minimum spend)' : 'Menu pre-order', spendLine),
+      );
+    }
   }
 
   const chargeable = lines.filter((l) => Number(l.amount_zar) > 0);

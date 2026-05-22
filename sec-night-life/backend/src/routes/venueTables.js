@@ -256,6 +256,7 @@ async function hydrateTableMenu(table) {
     venueMenuItemId: m.id,
     name: m.name,
     category: m.category,
+    sub_category: m.subCategory,
     price: m.price,
     imageUrl: m.imageUrl,
     isAvailable: m.isAvailable,
@@ -282,9 +283,25 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
 
   const selMap = {};
   for (const s of payload.selectedMenuItems || []) selMap[s.menuItemId] = s.quantity;
-  const settlementMode = payload.settlementMode || table.minSpendSettlement || 'PREPAY_LUMP';
+  const overrideMinSpend = specs.proposedMinimumSpend;
+  const minSpend = overrideMinSpend != null ? Number(overrideMinSpend) : Number(table.minimumSpend || 0);
+  const settlementMode =
+    minSpend > 0 ? 'PREPAY_MENU' : payload.settlementMode || table.minSpendSettlement || 'PREPAY_MENU';
+  if (
+    minSpend > 0 &&
+    payload.settlementMode &&
+    payload.settlementMode !== 'PREPAY_MENU'
+  ) {
+    return { error: 'Select menu items to meet the minimum spend before checkout.' };
+  }
+  if (
+    payload.settlementMode &&
+    (payload.settlementMode === 'PREPAY_LUMP' || payload.settlementMode === 'PAY_ON_ARRIVAL')
+  ) {
+    return { error: 'Only menu pre-selection is supported for table checkout.' };
+  }
   const fullMenu = computeFullMenuTotal(menuItems, selMap);
-  const menuTotal = settlementMode === 'PREPAY_MENU' ? fullMenu : computeChargeableMenuTotal(menuItems, selMap, table.includedItems);
+  const menuTotal = fullMenu;
 
   const checkout = computeVenueCheckout(
     { ...table, event: table.event },

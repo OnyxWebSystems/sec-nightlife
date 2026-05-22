@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
+import { groupMenuByCategory, formatMenuCategoryLabel } from '@/lib/groupMenuByCategory';
 
 function isVenuePhoto(url) {
   return url && typeof url === 'string' && url.startsWith('http') && !url.includes('/menu-catalog/');
@@ -61,6 +62,8 @@ export default function BusinessMenu() {
     () => new Set(items.map((i) => i.catalog_item_id).filter(Boolean)),
     [items]
   );
+
+  const menuSections = useMemo(() => groupMenuByCategory(items), [items]);
 
   const photoCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -200,8 +203,23 @@ export default function BusinessMenu() {
       ) : items.length === 0 ? (
         <p style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>No items yet — add from Menu Maker above.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {items.map((item) => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {menuSections.map(({ category, items: sectionItems }) => (
+            <div key={category}>
+              <h3
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  marginBottom: 10,
+                  color: 'var(--sec-text-primary)',
+                  paddingBottom: 8,
+                  borderBottom: '1px solid var(--sec-border)',
+                }}
+              >
+                {category}
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {sectionItems.map((item) => {
             const hasPhoto = isVenuePhoto(item.image_url);
             const published = hasPhoto && item.is_available;
             return (
@@ -302,8 +320,7 @@ export default function BusinessMenu() {
                         setEditingItem(null);
                       }}
                     >
-                      {item.category}
-                      {item.sub_category ? ` · ${item.sub_category}` : ''}
+                      {formatMenuCategoryLabel(item)}
                       <span className="ml-1" style={{ color: 'var(--sec-accent)' }}>— edit category</span>
                     </button>
                   )}
@@ -353,6 +370,9 @@ export default function BusinessMenu() {
               </div>
             );
           })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

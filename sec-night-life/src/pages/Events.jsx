@@ -623,7 +623,7 @@ function EventCard({ event }) {
               <Ticket size={13} strokeWidth={1.5} />
               From R{lowestTicketPrice}
               <span style={{ color: 'var(--sec-text-muted)', fontWeight: 500 }}>·</span>
-              Door R{doorEntrance}
+              Entrance R{doorEntrance}
             </span>
           ) : lowestTicketPrice > 0 ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
@@ -633,7 +633,7 @@ function EventCard({ event }) {
           ) : doorEntrance != null ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
               <Ticket size={13} strokeWidth={1.5} />
-              Door R{doorEntrance}
+              Entrance R{doorEntrance}
             </span>
           ) : (
             <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Free Entry</span>

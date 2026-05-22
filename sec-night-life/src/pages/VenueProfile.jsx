@@ -482,7 +482,7 @@ export default function VenueProfile() {
                           <span>{getDateLabel(event.date)}</span>
                           {event.start_time && <span>• {event.start_time}</span>}
                           {event.has_entrance_fee && event.entrance_fee_amount != null && (
-                            <span>• Door R{event.entrance_fee_amount}</span>
+                            <span>• Entrance R{event.entrance_fee_amount}</span>
                           )}
                         </div>
                       </div>

@@ -1062,7 +1062,7 @@ export default function HostDashboard() {
                     checked={partyForm.hasEntranceFee}
                     onChange={(e) => setPartyForm((f) => ({ ...f, hasEntranceFee: e.target.checked }))}
                   />
-                  Entrance fee at door
+                  Entrance fee
                 </label>
                 {partyForm.hasEntranceFee && (
                   <>

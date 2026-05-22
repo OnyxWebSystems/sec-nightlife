@@ -20,7 +20,7 @@ export function buildTableCheckoutMetadata({
     venue_table_id: venueTableId || undefined,
     hosted_table_id: hostedTableId || undefined,
     event_id: eventId || undefined,
-    settlement_mode: settlementMode || 'PAY_ON_ARRIVAL',
+    settlement_mode: settlementMode || 'PREPAY_MENU',
     lines,
     amount_total_zar: gross,
     /** Informational — SEC share embedded in amount_total_zar (not charged on top). */
@@ -60,7 +60,7 @@ export function linesFromLegacyMetadata(metadata) {
     } else if (joinFee > 0) {
       lines.push(line('booking_fee', 'Join booking fee', joinFee));
     }
-    if (entrance > 0) lines.push(line('entrance', 'Entrance', entrance));
+    if (entrance > 0) lines.push(line('entrance', 'Entrance fee', entrance));
     if (minSpend > 0) lines.push(line('minimum_spend', 'Minimum spend', minSpend));
     if (menu > 0) lines.push(line('menu', 'Menu', menu));
 
@@ -73,7 +73,7 @@ export function linesFromLegacyMetadata(metadata) {
   if (type === 'HOSTED_TABLE_JOIN') {
     const entrance = Number(metadata.entrance_zar || 0);
     const join = Number(metadata.joining_fee_zar || metadata.join_fee_zar || metadata.join_zar || 0);
-    if (entrance > 0) lines.push(line('entrance', 'Entrance', entrance));
+    if (entrance > 0) lines.push(line('entrance', 'Entrance fee', entrance));
     if (join > 0) lines.push(line('joining_fee', 'Joining fee', join));
     return lines;
   }
@@ -82,7 +82,7 @@ export function linesFromLegacyMetadata(metadata) {
     const entrance = Number(metadata.entrance_zar || 0);
     const host = Number(metadata.host_fee_zar || 0);
     const menu = Number(metadata.menu_zar || 0);
-    if (entrance > 0) lines.push(line('entrance', 'Entrance', entrance));
+    if (entrance > 0) lines.push(line('entrance', 'Entrance fee', entrance));
     if (host > 0) lines.push(line('host_fee', 'Host table fee', host));
     if (menu > 0) lines.push(line('menu', 'Menu', menu));
     return lines;

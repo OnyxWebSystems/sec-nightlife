@@ -24,7 +24,8 @@ import { toast } from 'sonner';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
-import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import MenuPicker, { menuSelectionToPayload, menuSelectionTotal } from '@/components/menu/MenuPicker';
+import VenueMenuBrowser from '@/components/menu/VenueMenuBrowser';
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
 import CustomTableRequestModal from '@/components/tables/CustomTableRequestModal';
 
@@ -125,7 +126,8 @@ export default function TableDetails() {
     enabled: !!tableId && isVenueSource,
   });
 
-  const [venueSettlementMode, setVenueSettlementMode] = useState('PREPAY_MENU');
+  const venueSettlementMode = 'PREPAY_MENU';
+  const [venueCheckoutStep, setVenueCheckoutStep] = useState('menu');
   const [customRequestOpen, setCustomRequestOpen] = useState(false);
   const [customSubmitting, setCustomSubmitting] = useState(false);
 
@@ -195,6 +197,10 @@ export default function TableDetails() {
           onSuccess: async (payload) => {
             await verifyPaystackReference(payload?.reference || pay.reference);
             queryClient.invalidateQueries(['venue-table', tableId]);
+            if (venueTable?.eventId) {
+              queryClient.invalidateQueries(['event', venueTable.eventId]);
+              queryClient.invalidateQueries(['event-table-tiers', venueTable.eventId]);
+            }
             if (isHostCheckout && venueTable?.eventId) {
               navigate(createPageUrl('HostDashboard?tab=tables&manage=1'));
             }
@@ -384,22 +390,31 @@ export default function TableDetails() {
       if (id) includedSeed[id] = Math.max(includedSeed[id] || 0, Number(inc.quantity) || 1);
     }
 
-    const grouped = (venueTable.menuItems || []).reduce((acc, item) => {
-      const key = item.category || 'Other';
-      acc[key] = acc[key] || [];
-      acc[key].push(item);
-      return acc;
-    }, {});
-    const settlement = venueSettlementMode || venueTable.minSpendSettlement || 'PREPAY_LUMP';
-    const checkoutLines = venueCheckoutPreview?.lines?.length
-      ? venueCheckoutPreview.lines
-      : [];
-    const checkoutTotal = venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
+    const venueMenuItems = (venueTable.menuItems || []).map((item) => ({
+      ...item,
+      image_url: item.imageUrl || item.image_url,
+      sub_category: item.sub_category || item.subCategory,
+    }));
+    const minSpendZar = Number(venueTable.minimumSpend) || 0;
+    const menuSubtotal = menuSelectionTotal(venueMenuItems, selectedMenuItems);
+    const minSpendMet = minSpendZar <= 0 || menuSubtotal >= minSpendZar;
+    const checkoutLines = venueCheckoutPreview?.lines?.length ? venueCheckoutPreview.lines : [];
+    const checkoutTotal =
+      venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
     const membership = venueTable.myMembership;
     const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
-    const canPay =
-      checkoutTotal > 0 &&
-      (!needsApproval || membership?.status === 'APPROVED' || membership?.status === 'LEFT');
+    const approvalOk = !needsApproval || membership?.status === 'APPROVED' || membership?.status === 'LEFT';
+    const canPay = checkoutTotal > 0 && minSpendMet && approvalOk;
+    const includedForPicker = (venueTable.includedItems || []).map((inc) => {
+      const id = inc.menu_item_id || inc.menuItemId;
+      const row = venueMenuItems.find((m) => m.id === id);
+      return {
+        name: row?.name || inc.name || 'Included item',
+        quantity: inc.quantity || 1,
+        image_url: row?.image_url || null,
+        price: row?.price || 0,
+      };
+    });
     return (
       <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: 20, paddingBottom: 90 }}>
         <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
@@ -412,32 +427,42 @@ export default function TableDetails() {
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
         </div>
-        <div style={{ marginTop: 14 }}>
-          {Object.entries(grouped).map(([category, items]) => (
-            <div key={category} className="sec-card" style={{ padding: 14, marginBottom: 10 }}>
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>{category}</div>
-              {items.map((item) => (
-                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <div>{item.name} · R{Number(item.price).toFixed(0)}</div>
-                  <input
-                    type="number"
-                    min={0}
-                    value={selectedMenuItems[item.id] || 0}
-                    onChange={(e) => setSelectedMenuItems((s) => ({ ...s, [item.id]: e.target.value }))}
-                    style={{ width: 68 }}
-                  />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-        <CheckoutCart
-          lines={checkoutLines}
-          settlementMode={settlement}
-          showSettlementOptions
-          onSettlementChange={setVenueSettlementMode}
-          footnote={isHostCheckout ? CHECKOUT_FOOTNOTES.venueHost : CHECKOUT_FOOTNOTES.venue}
-        />
+        {venueCheckoutStep === 'menu' ? (
+          <>
+            <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 16, marginBottom: 8 }}>Select your menu</h2>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 12 }}>
+              {minSpendZar > 0
+                ? `Choose items worth at least R${minSpendZar.toFixed(0)} to meet the minimum spend.`
+                : 'Add items from the venue menu (optional).'}
+            </p>
+            <VenueMenuBrowser
+              items={venueMenuItems}
+              selected={selectedMenuItems}
+              onChange={(id, qty) => setSelectedMenuItems((s) => ({ ...s, [id]: qty }))}
+              includedItems={includedForPicker}
+              minimumSpendZar={minSpendZar}
+              onContinue={() => setVenueCheckoutStep('checkout')}
+              continueLabel="Review order"
+            />
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="sec-btn sec-btn-ghost"
+              style={{ marginTop: 14, marginBottom: 8 }}
+              onClick={() => setVenueCheckoutStep('menu')}
+            >
+              ← Edit menu
+            </button>
+            <CheckoutCart
+              lines={checkoutLines}
+              settlementMode={venueSettlementMode}
+              minimumSpendZar={minSpendZar}
+              footnote={isHostCheckout ? CHECKOUT_FOOTNOTES.venueHost : CHECKOUT_FOOTNOTES.venue}
+            />
+          </>
+        )}
         {membership?.status === 'PENDING_VENUE_REVIEW' ? (
           <p className="text-sm text-amber-400 mt-3 text-center">Request pending venue approval</p>
         ) : null}
@@ -478,6 +503,7 @@ export default function TableDetails() {
             }
           }}
         />
+        {venueCheckoutStep === 'checkout' && (
         <div className="sec-bottom-bar">
           <button onClick={joinVenueTable} disabled={isProcessingPayment || !canPay} className="sec-btn sec-btn-primary sec-btn-full" style={{ height: 48 }}>
             {isProcessingPayment
@@ -493,6 +519,7 @@ export default function TableDetails() {
             <RefundPolicyNote />
           </div>
         </div>
+        )}
       </div>
     );
   }
@@ -711,7 +738,7 @@ export default function TableDetails() {
               </p>
               {entranceZ > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-                  <span style={{ color: 'var(--sec-text-muted)' }}>Event entrance</span>
+                  <span style={{ color: 'var(--sec-text-muted)' }}>Entrance fee</span>
                   <span>R{entranceZ.toFixed(0)}</span>
                 </div>
               )}
