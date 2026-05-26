@@ -2,6 +2,18 @@ import React, { useMemo } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import { groupMenuByCategory } from '@/lib/groupMenuByCategory';
 
+/** Build map of bundled included quantities by menu item id. */
+export function includedQtyMap(includedItems = []) {
+  const map = new Map();
+  for (const inc of includedItems) {
+    const id = inc.menu_item_id || inc.menuItemId || inc.id;
+    if (!id) continue;
+    map.set(id, (map.get(id) || 0) + Math.max(1, Number(inc.quantity) || 1));
+  }
+  return map;
+}
+
+/** Full selection total (all qty × price). */
 export function menuSelectionTotal(items, selected, includedItems = []) {
   let sum = 0;
   for (const [id, qty] of Object.entries(selected || {})) {
@@ -9,9 +21,27 @@ export function menuSelectionTotal(items, selected, includedItems = []) {
     if (item) sum += Number(item.price) * Number(qty || 0);
   }
   for (const inc of includedItems) {
-    sum += Number(inc.price || 0) * Number(inc.quantity || 0);
+    const id = inc.menu_item_id || inc.menuItemId || inc.id;
+    if (id && !selected?.[id]) {
+      sum += Number(inc.price || 0) * Number(inc.quantity || 0);
+    }
   }
   return sum;
+}
+
+/** Chargeable total: only quantities above tier-included bundle count. */
+export function menuSelectionChargeableTotal(items, selected, includedItems = []) {
+  const bundled = includedQtyMap(includedItems);
+  let total = 0;
+  for (const [id, qtyRaw] of Object.entries(selected || {})) {
+    const qty = Number(qtyRaw) || 0;
+    if (qty <= 0) continue;
+    const item = items.find((m) => m.id === id);
+    if (!item) continue;
+    const extra = Math.max(0, qty - (bundled.get(id) || 0));
+    total += Number(item.price) * extra;
+  }
+  return total;
 }
 
 export function menuSelectionToPayload(items, selected) {

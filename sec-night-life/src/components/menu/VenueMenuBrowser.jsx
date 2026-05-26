@@ -1,5 +1,5 @@
 import React from 'react';
-import { menuSelectionTotal } from '@/components/menu/MenuPicker';
+import { menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import VenueMenuNavigator from '@/components/menu/VenueMenuNavigator';
 
 function normalizeItem(item) {
@@ -11,7 +11,7 @@ function normalizeItem(item) {
 }
 
 /**
- * Guest table checkout menu: navigator + min-spend progress + sticky cart bar.
+ * Guest table checkout menu: navigator + min-spend progress (footer owned by TableDetails).
  */
 export default function VenueMenuBrowser({
   items = [],
@@ -21,15 +21,12 @@ export default function VenueMenuBrowser({
   includedItems = [],
   minimumSpendZar = 0,
   venueLogoUrl,
-  onContinue,
-  onPayMinimumLump,
-  continueLabel = 'Continue to checkout',
+  hideStickyFooter = true,
 }) {
   const normalized = items.map(normalizeItem);
-  const cartTotal = menuSelectionTotal(normalized, selected, includedItems);
+  const chargeableTotal = menuSelectionChargeableTotal(normalized, selected, includedItems);
   const minSpend = Number(minimumSpendZar) || 0;
-  const minMet = minSpend <= 0 || cartTotal >= minSpend;
-  const itemCount = Object.values(selected).reduce((s, q) => s + (Number(q) > 0 ? Number(q) : 0), 0);
+  const minMet = minSpend <= 0 || chargeableTotal >= minSpend;
 
   if (!normalized.length && !includedItems.length) {
     return (
@@ -40,10 +37,15 @@ export default function VenueMenuBrowser({
   }
 
   return (
-    <div style={{ paddingBottom: 120 }}>
+    <div style={{ paddingBottom: hideStickyFooter ? 0 : 120 }}>
       {includedItems.length > 0 && (
         <div className="sec-card" style={{ padding: 14, marginBottom: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>Included with your tier</div>
+          <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>
+            Included with your table — not charged
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 10 }}>
+            These quantities are bundled with your table. Add more from the menu below if you want extras.
+          </p>
           {includedItems.map((inc, i) => (
             <div key={`inc-${i}`} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
               {inc.image_url ? (
@@ -71,64 +73,30 @@ export default function VenueMenuBrowser({
 
       {minSpend > 0 && (
         <div className="sec-card" style={{ padding: 12, marginTop: 12, marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-            <span style={{ color: 'var(--sec-text-muted)' }}>Minimum spend</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ color: 'var(--sec-text-muted)' }}>Chargeable menu total</span>
             <span style={{ fontWeight: 700, color: minMet ? 'var(--sec-success)' : 'var(--sec-text-primary)' }}>
-              R{cartTotal.toFixed(0)} / R{minSpend.toFixed(0)}
+              R{chargeableTotal.toFixed(0)} / R{minSpend.toFixed(0)} min
             </span>
           </div>
           {!minMet && (
             <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 8 }}>
-              Add items from the menu, or pay the minimum upfront without selecting items.
+              Add chargeable items from the menu, or pay the minimum upfront without selecting items.
             </p>
           )}
         </div>
       )}
-
-      <div
-        className="sec-bottom-bar"
-        style={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
-          background: 'rgba(0,0,0,0.94)',
-          borderTop: '1px solid var(--sec-border)',
-          zIndex: 50,
-        }}
-      >
-        <div style={{ maxWidth: 960, margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: 13 }}>
-            <span style={{ color: 'var(--sec-text-muted)' }}>
-              {itemCount} item{itemCount === 1 ? '' : 's'}
-            </span>
-            <span style={{ fontWeight: 700, fontSize: 16 }}>R{cartTotal.toFixed(0)}</span>
-          </div>
-          {onContinue ? (
-            <button
-              type="button"
-              className="sec-btn sec-btn-primary sec-btn-full"
-              style={{ height: 48, marginBottom: onPayMinimumLump ? 8 : 0 }}
-              disabled={disabled || (minSpend > 0 && !minMet)}
-              onClick={onContinue}
-            >
-              {continueLabel}
-            </button>
-          ) : null}
-          {onPayMinimumLump ? (
-            <button
-              type="button"
-              className="sec-btn sec-btn-ghost sec-btn-full"
-              style={{ height: 44 }}
-              disabled={disabled}
-              onClick={onPayMinimumLump}
-            >
-              Pay R{minSpend.toFixed(0)} minimum without selecting items
-            </button>
-          ) : null}
-        </div>
-      </div>
     </div>
   );
+}
+
+/** Helpers for parent footer */
+export function getVenueMenuCartStats(items, selected, includedItems) {
+  const normalized = (items || []).map(normalizeItem);
+  const chargeableTotal = menuSelectionChargeableTotal(normalized, selected, includedItems);
+  const itemCount = Object.values(selected || {}).reduce(
+    (s, q) => s + (Number(q) > 0 ? Number(q) : 0),
+    0,
+  );
+  return { normalized, chargeableTotal, itemCount };
 }

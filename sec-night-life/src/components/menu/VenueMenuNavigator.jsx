@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Minus, Plus } from 'lucide-react';
 import { buildMenuHierarchy, filterMenuBySearch } from '@/lib/groupMenuHierarchy';
+import MenuItemImagePreview from '@/components/menu/MenuItemImagePreview';
 
 function normalizeItem(item) {
   return {
@@ -82,6 +83,7 @@ export default function VenueMenuNavigator({
   const [search, setSearch] = useState('');
   const [topCategory, setTopCategory] = useState(null);
   const [subCategory, setSubCategory] = useState('All');
+  const [previewItem, setPreviewItem] = useState(null);
 
   const normalized = useMemo(() => items.map(normalizeItem), [items]);
   const filtered = useMemo(() => filterMenuBySearch(normalized, search), [normalized, search]);
@@ -110,7 +112,14 @@ export default function VenueMenuNavigator({
           <img
             src={venueLogoUrl}
             alt=""
-            style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover', border: '1px solid var(--sec-border)' }}
+            style={{
+              maxHeight: 48,
+              maxWidth: 120,
+              width: 'auto',
+              height: 'auto',
+              objectFit: 'contain',
+              background: 'transparent',
+            }}
           />
         </div>
       ) : null}
@@ -228,13 +237,7 @@ export default function VenueMenuNavigator({
         </p>
       ) : null}
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-          gap: 10,
-        }}
-      >
+      <div className="venue-menu-grid">
         {displayItems.map((item) => {
           const qty = Number(selected[item.id] || 0);
           return (
@@ -250,11 +253,26 @@ export default function VenueMenuNavigator({
               }}
             >
               {item.image_url ? (
-                <img
-                  src={item.image_url}
-                  alt=""
-                  style={{ width: '100%', height: 72, borderRadius: 10, objectFit: 'cover' }}
-                />
+                <button
+                  type="button"
+                  onClick={() => setPreviewItem(item)}
+                  aria-label={`View photo of ${item.name}`}
+                  style={{
+                    padding: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    width: '100%',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <img
+                    src={item.image_url}
+                    alt=""
+                    style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block' }}
+                  />
+                </button>
               ) : (
                 <div style={{ width: '100%', height: 72, borderRadius: 10, background: 'var(--sec-bg-hover)' }} />
               )}
@@ -286,6 +304,13 @@ export default function VenueMenuNavigator({
       {displayItems.length === 0 ? (
         <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 12 }}>No items match your search.</p>
       ) : null}
+
+      <MenuItemImagePreview
+        open={Boolean(previewItem)}
+        imageUrl={previewItem?.image_url}
+        itemName={previewItem?.name}
+        onClose={() => setPreviewItem(null)}
+      />
     </div>
   );
 }

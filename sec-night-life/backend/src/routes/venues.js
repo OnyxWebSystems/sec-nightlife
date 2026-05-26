@@ -394,6 +394,34 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       data: updates
     });
 
+    if (extraData.accepts_day_bookings === true) {
+      const existingCustom = await prisma.venueTable.findFirst({
+        where: {
+          venueId: venue.id,
+          eventId: null,
+          isCustomListing: true,
+          isActive: true,
+        },
+      });
+      if (!existingCustom) {
+        await prisma.venueTable.create({
+          data: {
+            venueId: venue.id,
+            eventId: null,
+            tableName: 'Custom table request',
+            description: 'Submit your specs — the venue reviews before checkout.',
+            guestCapacity: 500,
+            minimumSpend: 0,
+            bookingFeeZar: 0,
+            minSpendSettlement: 'PREPAY_MENU',
+            allowsCustomRequests: true,
+            isCustomListing: true,
+            isActive: true,
+          },
+        });
+      }
+    }
+
     res.json({
       id: updated.id,
       name: updated.name,

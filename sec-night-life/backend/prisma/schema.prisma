@@ -1500,6 +1500,7 @@ model VenueTable {
   guestCapacity     Int              @map("guest_capacity")
   currentOccupancy  Int              @default(0) @map("current_occupancy")
   minimumSpend      Float            @map("minimum_spend")
+  hostMinimumSpend  Float?           @map("host_minimum_spend")
   bookingFeeZar     Float            @default(0) @map("booking_fee_zar")
   hostTableFeeZar   Float            @default(0) @map("host_table_fee_zar")
   minSpendSettlement MinSpendSettlement @default(PAY_ON_ARRIVAL) @map("min_spend_settlement")

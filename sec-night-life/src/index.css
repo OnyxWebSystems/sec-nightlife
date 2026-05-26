@@ -359,6 +359,21 @@
     flex: 1;
   }
 
+  .venue-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+    gap: 10px;
+  }
+
+  @media (max-width: 480px) {
+    .table-checkout-footer .table-checkout-footer__actions {
+      flex-direction: column;
+    }
+    .table-checkout-footer .sec-btn-full {
+      width: 100%;
+    }
+  }
+
   @media (min-width: 1024px) {
     .sec-bottom-bar--responsive {
       position: sticky;

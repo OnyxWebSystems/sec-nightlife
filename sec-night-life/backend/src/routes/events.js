@@ -32,7 +32,9 @@ const includedItemSchema = z.object({
 const tablePricingTierSchema = z.object({
   tier_name: z.string().min(1).max(80).optional(),
   max_guests: z.number().int().min(1).max(500),
-  min_spend: z.number().min(0),
+  min_spend: z.number().min(0).optional(),
+  min_spend_join: z.number().min(0).optional(),
+  min_spend_host: z.number().min(0).optional(),
   booking_fee_zar: z.number().min(0).optional(),
   host_table_fee_zar: z.number().min(0).optional(),
   /** Per-tier hosted-table slots; required when tiers exist (enforced in hostingCategorySchema). */

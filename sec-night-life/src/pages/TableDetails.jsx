@@ -24,8 +24,9 @@ import { toast } from 'sonner';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
-import MenuPicker, { menuSelectionToPayload, menuSelectionTotal } from '@/components/menu/MenuPicker';
-import VenueMenuBrowser from '@/components/menu/VenueMenuBrowser';
+import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
+import VenueMenuBrowser, { getVenueMenuCartStats } from '@/components/menu/VenueMenuBrowser';
+import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
 import CustomTableRequestModal from '@/components/tables/CustomTableRequestModal';
 
@@ -151,10 +152,10 @@ export default function TableDetails() {
   });
 
   useEffect(() => {
-    if (urlParams.get('request') === '1' && isHostCheckout) {
+    if (urlParams.get('request') === '1') {
       setCustomRequestOpen(true);
     }
-  }, [isHostCheckout]);
+  }, []);
 
   useEffect(() => {
     if (!isVenueSource || !venueTable?.includedItems?.length) return;
@@ -395,12 +396,30 @@ export default function TableDetails() {
       image_url: item.imageUrl || item.image_url,
       sub_category: item.sub_category || item.subCategory,
     }));
-    const minSpendZar = Number(venueTable.minimumSpend) || 0;
-    const menuSubtotal = menuSelectionTotal(venueMenuItems, selectedMenuItems);
+    const includedForPicker = (venueTable.includedItems || []).map((inc) => {
+      const id = inc.menu_item_id || inc.menuItemId;
+      const row = venueMenuItems.find((m) => m.id === id);
+      return {
+        menu_item_id: id,
+        name: row?.name || inc.name || 'Included item',
+        quantity: inc.quantity || 1,
+        image_url: row?.image_url || null,
+        price: row?.price || 0,
+      };
+    });
+    const minSpendZar =
+      isHostCheckout
+        ? Number(venueTable.hostMinimumSpend ?? venueTable.host_minimum_spend ?? venueTable.minimumSpend) || 0
+        : Number(venueTable.minimumSpend) || 0;
+    const { chargeableTotal, itemCount } = getVenueMenuCartStats(
+      venueMenuItems,
+      selectedMenuItems,
+      includedForPicker,
+    );
     const minSpendMet =
       minSpendZar <= 0 ||
       venueSettlementMode === 'PREPAY_LUMP' ||
-      menuSubtotal >= minSpendZar;
+      chargeableTotal >= minSpendZar;
     const checkoutLines = venueCheckoutPreview?.lines?.length ? venueCheckoutPreview.lines : [];
     const checkoutTotal =
       venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
@@ -408,18 +427,12 @@ export default function TableDetails() {
     const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
     const approvalOk = !needsApproval || membership?.status === 'APPROVED' || membership?.status === 'LEFT';
     const canPay = checkoutTotal > 0 && minSpendMet && approvalOk && !venueCheckoutPreview?.error;
-    const includedForPicker = (venueTable.includedItems || []).map((inc) => {
-      const id = inc.menu_item_id || inc.menuItemId;
-      const row = venueMenuItems.find((m) => m.id === id);
-      return {
-        name: row?.name || inc.name || 'Included item',
-        quantity: inc.quantity || 1,
-        image_url: row?.image_url || null,
-        price: row?.price || 0,
-      };
-    });
+    const showCustomRequest =
+      (venueTable.allowsCustomRequests || venueTable.isCustomListing) &&
+      membership?.status !== 'APPROVED';
+    const footerPad = venueCheckoutStep === 'menu' ? (minSpendZar > 0 ? 200 : 160) : 120;
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: 20, paddingBottom: 90 }}>
+      <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: 20, paddingBottom: footerPad }}>
         <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
         <div className="sec-card" style={{ padding: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>{venueTable.tableName}</h1>
@@ -448,19 +461,7 @@ export default function TableDetails() {
               includedItems={includedForPicker}
               minimumSpendZar={minSpendZar}
               venueLogoUrl={venueTable.venue?.logo_url || venueTable.venue?.logoUrl}
-              onContinue={() => {
-                setVenueSettlementMode('PREPAY_MENU');
-                setVenueCheckoutStep('checkout');
-              }}
-              onPayMinimumLump={
-                minSpendZar > 0
-                  ? () => {
-                      setVenueSettlementMode('PREPAY_LUMP');
-                      setVenueCheckoutStep('checkout');
-                    }
-                  : undefined
-              }
-              continueLabel="Review order"
+              hideStickyFooter
             />
           </>
         ) : (
@@ -493,7 +494,7 @@ export default function TableDetails() {
         {membership?.status === 'PENDING_VENUE_REVIEW' ? (
           <p className="text-sm text-amber-400 mt-3 text-center">Request pending venue approval</p>
         ) : null}
-        {isHostCheckout && (venueTable.allowsCustomRequests || venueTable.isCustomListing) && membership?.status !== 'APPROVED' ? (
+        {showCustomRequest ? (
           <button
             type="button"
             className="sec-btn sec-btn-ghost sec-btn-full mt-3"
@@ -530,22 +531,54 @@ export default function TableDetails() {
             }
           }}
         />
-        {venueCheckoutStep === 'checkout' && (
-        <div className="sec-bottom-bar">
-          <button onClick={joinVenueTable} disabled={isProcessingPayment || !canPay} className="sec-btn sec-btn-primary sec-btn-full" style={{ height: 48 }}>
-            {isProcessingPayment
-              ? 'Processing…'
-              : checkoutTotal > 0
-                ? isHostCheckout
-                  ? `Pay R${checkoutTotal.toFixed(0)} to host`
-                  : `Pay R${checkoutTotal.toFixed(0)} to join`
-                : 'Complete booking'}
-          </button>
-          <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 8 }}>No refunds: once you pay, your booking is confirmed per venue policy.</p>
-          <div style={{ marginTop: 8 }}>
+        {venueCheckoutStep === 'menu' ? (
+          <TableCheckoutFooter
+            itemCount={itemCount}
+            cartTotalZar={chargeableTotal}
+            minSpendZar={minSpendZar}
+            minMet={minSpendMet}
+            onContinue={() => {
+              setVenueSettlementMode('PREPAY_MENU');
+              setVenueCheckoutStep('checkout');
+            }}
+            onPayMinimumLump={
+              minSpendZar > 0
+                ? () => {
+                    setVenueSettlementMode('PREPAY_LUMP');
+                    setVenueCheckoutStep('checkout');
+                  }
+                : undefined
+            }
+            continueLabel="Review order"
+          />
+        ) : (
+          <TableCheckoutFooter
+            itemCount={itemCount}
+            cartTotalZar={checkoutTotal}
+            minSpendZar={minSpendZar}
+            minMet
+            onContinue={null}
+          >
+            <button
+              type="button"
+              onClick={joinVenueTable}
+              disabled={isProcessingPayment || !canPay}
+              className="sec-btn sec-btn-primary sec-btn-full"
+              style={{ height: 48, minHeight: 44 }}
+            >
+              {isProcessingPayment
+                ? 'Processing…'
+                : checkoutTotal > 0
+                  ? isHostCheckout
+                    ? `Pay R${checkoutTotal.toFixed(0)} to host`
+                    : `Pay R${checkoutTotal.toFixed(0)} to join`
+                  : 'Complete booking'}
+            </button>
+            <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+              No refunds: once you pay, your booking is confirmed per venue policy.
+            </p>
             <RefundPolicyNote />
-          </div>
-        </div>
+          </TableCheckoutFooter>
         )}
       </div>
     );

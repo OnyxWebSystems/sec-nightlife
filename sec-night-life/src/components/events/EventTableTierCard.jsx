@@ -89,12 +89,35 @@ export default function EventTableTierCard({ tier, onSelect }) {
           marginBottom: 10,
         }}
       >
-        <div>
-          <span style={{ color: 'var(--sec-text-muted)', display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Min spend
-          </span>
-          <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>{formatZar(tier.minSpend)}</span>
-        </div>
+        {Number(tier.minSpendJoin ?? tier.minSpend) !== Number(tier.minSpendHost ?? tier.minSpendJoin ?? tier.minSpend) ? (
+          <>
+            <div>
+              <span style={{ color: 'var(--sec-text-muted)', display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Min spend (join)
+              </span>
+              <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+                {formatZar(tier.minSpendJoin ?? tier.minSpend)}
+              </span>
+            </div>
+            <div>
+              <span style={{ color: 'var(--sec-text-muted)', display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Min spend (host)
+              </span>
+              <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+                {formatZar(tier.minSpendHost ?? tier.minSpendJoin ?? tier.minSpend)}
+              </span>
+            </div>
+          </>
+        ) : (
+          <div>
+            <span style={{ color: 'var(--sec-text-muted)', display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Min spend
+            </span>
+            <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+              {formatZar(tier.minSpendJoin ?? tier.minSpend)}
+            </span>
+          </div>
+        )}
         {Number(tier.hostBookingFeeZar) > 0 ? (
         <div>
           <span style={{ color: 'var(--sec-text-muted)', display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>

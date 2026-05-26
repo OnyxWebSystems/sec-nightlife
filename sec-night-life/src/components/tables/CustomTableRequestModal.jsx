@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Minus, Plus, Sparkles } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import SecLogo from '@/components/ui/SecLogo';
 
 export default function CustomTableRequestModal({
   open,
@@ -16,10 +17,6 @@ export default function CustomTableRequestModal({
   });
 
   if (!open) return null;
-
-  const adjustGuests = (delta) => {
-    setForm((f) => ({ ...f, guestCount: Math.max(1, Math.min(20, f.guestCount + delta)) }));
-  };
 
   return (
     <>
@@ -37,7 +34,7 @@ export default function CustomTableRequestModal({
           bottom: 0,
           transform: 'translateX(-50%)',
           width: '100%',
-          maxWidth: 480,
+          maxWidth: 'min(480px, calc(100vw - 32px))',
           zIndex: 301,
           borderTopLeftRadius: 'var(--radius-xl)',
           borderTopRightRadius: 'var(--radius-xl)',
@@ -81,7 +78,7 @@ export default function CustomTableRequestModal({
             <X size={16} />
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Sparkles size={18} style={{ color: '#111' }} />
+            <SecLogo size={20} variant="full" />
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111', margin: 0 }}>Custom table request</h2>
           </div>
           <p style={{ fontSize: 13, color: 'rgba(0,0,0,0.65)', margin: 0 }}>
@@ -94,27 +91,30 @@ export default function CustomTableRequestModal({
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
               Guest count
             </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button
-                type="button"
-                onClick={() => adjustGuests(-1)}
-                className="sec-btn sec-btn-ghost"
-                style={{ width: 44, height: 44, padding: 0 }}
-              >
-                <Minus size={16} />
-              </button>
-              <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-text-primary)', minWidth: 32, textAlign: 'center' }}>
-                {form.guestCount}
-              </span>
-              <button
-                type="button"
-                onClick={() => adjustGuests(1)}
-                className="sec-btn sec-btn-ghost"
-                style={{ width: 44, height: 44, padding: 0 }}
-              >
-                <Plus size={16} />
-              </button>
-            </div>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              value={form.guestCount}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10);
+                setForm((f) => ({
+                  ...f,
+                  guestCount: Number.isFinite(n) ? Math.min(500, Math.max(1, n)) : 1,
+                }));
+              }}
+              className="w-full"
+              style={{
+                height: 44,
+                padding: '0 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--sec-border)',
+                backgroundColor: 'var(--sec-bg-card)',
+                color: 'var(--sec-text-primary)',
+                fontSize: 14,
+              }}
+            />
+            <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 6 }}>Up to 500 guests</p>
           </div>
 
           <div>

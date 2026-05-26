@@ -55,6 +55,7 @@ const createTableSchema = z.object({
   description: z.string().trim().max(500).optional().nullable(),
   guestCapacity: z.number().int().min(1).max(100),
   minimumSpend: z.number().min(0),
+  hostMinimumSpend: z.number().min(0).optional().nullable(),
   bookingFeeZar: z.number().min(0).optional(),
   hostTableFeeZar: z.number().min(0).optional(),
   minSpendSettlement: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
@@ -87,6 +88,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         description: d.description ?? null,
         guestCapacity: d.guestCapacity,
         minimumSpend: d.minimumSpend,
+        hostMinimumSpend: d.hostMinimumSpend ?? null,
         bookingFeeZar: d.bookingFeeZar ?? 0,
         hostTableFeeZar: d.hostTableFeeZar ?? 0,
         minSpendSettlement: d.minSpendSettlement ?? 'PAY_ON_ARRIVAL',
@@ -176,8 +178,12 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
     if (!requireVenueOwner(req, res)) return;
     const owned = await assertVenueOwnedByUser(req.params.venueId, req.userId);
     if (!owned) return res.status(403).json({ error: 'Forbidden' });
+    const dayOnly = req.query.dayOnly === 'true' || req.query.dayOnly === '1';
     const tables = await prisma.venueTable.findMany({
-      where: { venueId: req.params.venueId },
+      where: {
+        venueId: req.params.venueId,
+        ...(dayOnly ? { eventId: null } : {}),
+      },
       include: { menuItems: true, _count: { select: { members: true } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -284,18 +290,27 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
   const selMap = {};
   for (const s of payload.selectedMenuItems || []) selMap[s.menuItemId] = s.quantity;
   const overrideMinSpend = specs.proposedMinimumSpend;
-  const minSpend = overrideMinSpend != null ? Number(overrideMinSpend) : Number(table.minimumSpend || 0);
+  const isHostMode = bookingMode === 'host' || bookingMode === 'custom_host';
+  const minSpend =
+    overrideMinSpend != null
+      ? Number(overrideMinSpend)
+      : isHostMode
+        ? Number(table.hostMinimumSpend ?? table.minimumSpend ?? 0)
+        : Number(table.minimumSpend || 0);
   const settlementMode =
     payload.settlementMode ||
     (minSpend > 0 ? 'PREPAY_MENU' : table.minSpendSettlement || 'PREPAY_MENU');
   if (settlementMode === 'PAY_ON_ARRIVAL') {
     return { error: 'Pay on arrival is not supported for table checkout.' };
   }
-  const fullMenu = computeFullMenuTotal(menuItems, selMap);
-  const menuTotal = fullMenu;
+  const menuTotal = computeChargeableMenuTotal(
+    menuItems,
+    selMap,
+    Array.isArray(table.includedItems) ? table.includedItems : [],
+  );
 
   const checkout = computeVenueCheckout(
-    { ...table, event: table.event },
+    { ...table, event: table.event, minimumSpend: minSpend },
     {
       menuTotal,
       settlementMode,
@@ -385,7 +400,7 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
     const payload = z
       .object({
         userSpecs: z.object({
-          guestCount: z.number().int().min(1).optional(),
+          guestCount: z.number().int().min(1).max(500).optional(),
           proposedMinimumSpend: z.number().min(0).optional(),
           notes: z.string().max(2000).optional(),
           preferredTime: z.string().optional(),

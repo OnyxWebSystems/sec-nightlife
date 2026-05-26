@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TableTierEditor from '@/components/business/TableTierEditor';
 import { resolveTierFeesForSave } from '@/lib/tierBookingFees';
+import { resolveTierMinSpends } from '@/lib/tierMinSpend';
 
 export default function BusinessVenueTables() {
   const navigate = useNavigate();
@@ -48,7 +49,7 @@ export default function BusinessVenueTables() {
 
   const { data: tables = [], isLoading } = useQuery({
     queryKey: ['biz-venue-tables', venue?.id],
-    queryFn: () => apiGet(`/api/venue-tables/venue/${venue.id}`),
+    queryFn: () => apiGet(`/api/venue-tables/venue/${venue.id}?dayOnly=true`),
     enabled: !!venue?.id,
   });
 
@@ -63,12 +64,14 @@ export default function BusinessVenueTables() {
       for (const tier of form.tiers) {
         if (!tier.tier_name?.trim()) throw new Error('Each tier needs a name');
         const fees = resolveTierFeesForSave(tier);
+        const spends = resolveTierMinSpends(tier);
         await apiPost('/api/venue-tables', {
           venueId: venue.id,
           tableName: tier.tier_name.trim(),
           description: form.description || null,
           guestCapacity: parseInt(tier.max_guests, 10) || 6,
-          minimumSpend: parseFloat(tier.min_spend) || 0,
+          minimumSpend: spends.min_spend_join,
+          hostMinimumSpend: spends.min_spend_host,
           bookingFeeZar: fees.booking_fee_zar,
           hostTableFeeZar: fees.host_table_fee_zar,
           minSpendSettlement: 'PREPAY_MENU',
@@ -199,7 +202,7 @@ export default function BusinessVenueTables() {
             <div className="flex justify-center py-12"><Loader2 className="animate-spin" /></div>
           ) : tables.length === 0 ? (
             <div className="sec-card p-8 text-center text-sm text-[var(--sec-text-muted)]">
-              No listings yet. Publish an event with table tiers, or add a day listing above.
+              No day listings yet. Add a listing above, or enable day bookings in Settings so guests can request a custom table.
             </div>
           ) : (
             <div className="space-y-3">
@@ -208,7 +211,7 @@ export default function BusinessVenueTables() {
                   <div>
                     <p className="font-semibold">{t.tableName}</p>
                     <p className="text-xs text-[var(--sec-text-muted)] mt-1">
-                      {t.eventId ? 'Event table' : 'Day booking'}
+                      Day booking
                       {' · '}Min R{Number(t.minimumSpend).toFixed(0)}
                       {' · '}Fee R{Number(t.bookingFeeZar || 0).toFixed(0)}
                       {' · '}{t.memberCount || 0} bookings

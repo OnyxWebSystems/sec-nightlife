@@ -136,12 +136,17 @@ export async function buildEventTableTiers(eventId) {
       const allUnhostedOpen = slots.filter((s) => !s.isHosted && s.spotsRemaining > 0);
       const totalSpotsRemaining = slots.reduce((sum, s) => sum + s.spotsRemaining, 0);
 
+      const minSpendJoin = Number(tierDef.min_spend_join ?? tierDef.min_spend) || 0;
+      const minSpendHost = Number(tierDef.min_spend_host ?? tierDef.min_spend_join ?? tierDef.min_spend) || 0;
+
       tiers.push({
         tierKey,
         tierName: tierDef.tier_name || tierDef.name || `Tier ${tierIdx + 1}`,
         category: cat,
         tierIndex: tierIdx,
-        minSpend: Number(tierDef.min_spend) || 0,
+        minSpend: minSpendJoin,
+        minSpendJoin,
+        minSpendHost,
         hostBookingFeeZar: hostFee,
         joinBookingFeeZar: joinFee,
         maxGuestsPerTable: Number(tierDef.max_guests) || 6,

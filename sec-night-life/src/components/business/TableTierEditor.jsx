@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { tierFeeTogglesFromTier } from '@/lib/tierBookingFees';
+import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
 
 export default function TableTierEditor({ tiers = [], onChange, venueMenuItems = [], showSlots = false }) {
   const updateTier = (idx, patch) => {
@@ -19,6 +20,8 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
         tier_name: '',
         max_guests: '6',
         min_spend: '2000',
+        min_spend_join: '2000',
+        min_spend_host: '2000',
         booking_fee_zar: '0',
         host_table_fee_zar: '0',
         include_join_booking_fee: false,
@@ -73,10 +76,18 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
               />
             </div>
             <div>
-              <Label className="text-xs">Min spend (ZAR)</Label>
+              <Label className="text-xs">Min spend to join (ZAR)</Label>
               <Input
-                value={tier.min_spend || ''}
-                onChange={(e) => updateTier(idx, { min_spend: e.target.value })}
+                value={tier.min_spend_join ?? tier.min_spend ?? ''}
+                onChange={(e) => updateTier(idx, { min_spend_join: e.target.value })}
+                className="h-9 mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Min spend to host (ZAR)</Label>
+              <Input
+                value={tier.min_spend_host ?? tier.min_spend ?? ''}
+                onChange={(e) => updateTier(idx, { min_spend_host: e.target.value })}
                 className="h-9 mt-1"
               />
             </div>
@@ -129,32 +140,12 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
           </div>
           {venueMenuItems.length > 0 && (
             <div>
-              <Label className="text-xs text-[var(--sec-text-muted)]">Included menu items (optional)</Label>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {venueMenuItems.map((m) => {
-                  const inc = (tier.included_items || []).find((x) => x.menu_item_id === m.id);
-                  const on = Boolean(inc);
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      className="text-xs px-2 py-1 rounded-lg border"
-                      style={{
-                        borderColor: on ? 'var(--sec-accent)' : 'var(--sec-border)',
-                        backgroundColor: on ? 'var(--sec-accent-muted)' : 'transparent',
-                      }}
-                      onClick={() => {
-                        let items = [...(tier.included_items || [])];
-                        if (on) items = items.filter((x) => x.menu_item_id !== m.id);
-                        else items.push({ menu_item_id: m.id, quantity: '1' });
-                        updateTier(idx, { included_items: items });
-                      }}
-                    >
-                      {m.name}
-                    </button>
-                  );
-                })}
-              </div>
+              <Label className="text-xs text-[var(--sec-text-muted)]">Items included with table (free for guests)</Label>
+              <TierIncludedItemsEditor
+                includedItems={tier.included_items || []}
+                venueMenuItems={venueMenuItems}
+                onChange={(items) => updateTier(idx, { included_items: items })}
+              />
             </div>
           )}
         </div>

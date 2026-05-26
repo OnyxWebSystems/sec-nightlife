@@ -19,6 +19,8 @@ import { apiGet, uploadFile } from '@/api/client';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { tierFeeTogglesFromTier, resolveTierFeesForSave } from '@/lib/tierBookingFees';
+import { tierMinSpendsFromApi, resolveTierMinSpends } from '@/lib/tierMinSpend';
+import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
 
 function isoToDatetimeLocal(iso) {
   if (!iso) return '';
@@ -45,10 +47,11 @@ function hostingFromApi(hc) {
     tiers: Array.isArray(s?.tiers) && s.tiers.length
       ? s.tiers.map((t) => {
           const toggles = tierFeeTogglesFromTier(t);
+          const spends = tierMinSpendsFromApi(t);
           return {
           tier_name: String(t.tier_name ?? t.name ?? ''),
           max_guests: String(t.max_guests ?? ''),
-          min_spend: String(t.min_spend ?? ''),
+          ...spends,
           booking_fee_zar: String(t.booking_fee_zar ?? ''),
           host_table_fee_zar: String(t.host_table_fee_zar ?? ''),
           include_join_booking_fee: toggles.include_join_booking_fee,
@@ -288,17 +291,22 @@ export default function BusinessEvents() {
         (t) =>
           String(t?.tier_name || '').trim() &&
           String(t?.max_guests || '').trim() &&
-          String(t?.min_spend ?? '').trim() !== '' &&
+          (String(t?.min_spend_join ?? t?.min_spend ?? '').trim() !== '' ||
+            String(t?.min_spend_host ?? t?.min_spend ?? '').trim() !== '') &&
           String(t?.tier_table_slots ?? '').trim() !== ''
       );
       const parsedTiers = [];
       let totalTierSlots = 0;
       for (const t of tierRows) {
         const mg = parseInt(String(t.max_guests).trim(), 10);
-        const ms = parseFloat(String(t.min_spend).replace(',', '.'));
+        const spends = resolveTierMinSpends(t);
         const slots = parseInt(String(t.tier_table_slots).trim(), 10);
-        if (Number.isNaN(mg) || mg < 1 || Number.isNaN(ms) || ms < 0 || Number.isNaN(slots) || slots < 1) {
-          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} pricing tiers (guests, min spend, and table slots)`);
+        if (Number.isNaN(mg) || mg < 1 || Number.isNaN(slots) || slots < 1) {
+          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} pricing tiers (guests and table slots)`);
+          return;
+        }
+        if (spends.min_spend_join < 0 || spends.min_spend_host < 0) {
+          toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} minimum spend amounts`);
           return;
         }
         const tierName = String(t.tier_name || '').trim();
@@ -324,7 +332,9 @@ export default function BusinessEvents() {
         const tierPayload = {
           tier_name: tierName,
           max_guests: mg,
-          min_spend: ms,
+          min_spend: spends.min_spend_join,
+          min_spend_join: spends.min_spend_join,
+          min_spend_host: spends.min_spend_host,
           tier_table_slots: slots,
           booking_fee_zar: fees.booking_fee_zar,
           host_table_fee_zar: fees.host_table_fee_zar,
@@ -724,6 +734,8 @@ export default function BusinessEvents() {
                                     tier_name: '',
                                     max_guests: '',
                                     min_spend: '',
+                                    min_spend_join: '',
+                                    min_spend_host: '',
                                     booking_fee_zar: '',
                                     host_table_fee_zar: '',
                                     include_join_booking_fee: false,
@@ -798,15 +810,37 @@ export default function BusinessEvents() {
                             />
                           </div>
                           <div className="flex-1 min-w-[100px]">
-                            <Label className="text-xs text-gray-500">Min spend (ZAR)</Label>
+                            <Label className="text-xs text-gray-500">Min spend to join (ZAR)</Label>
                             <Input
                               type="number"
                               min={0}
                               step={0.01}
-                              value={tier.min_spend}
+                              value={tier.min_spend_join ?? tier.min_spend ?? ''}
                               onChange={(e) => {
                                 const next = [...(form.hosting_config[cat].tiers || [])];
-                                next[idx] = { ...next[idx], min_spend: e.target.value };
+                                next[idx] = { ...next[idx], min_spend_join: e.target.value };
+                                setForm((p) => ({
+                                  ...p,
+                                  hosting_config: {
+                                    ...p.hosting_config,
+                                    [cat]: { ...p.hosting_config[cat], tiers: next },
+                                  },
+                                }));
+                              }}
+                              className="mt-1 h-10 rounded-xl"
+                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[100px]">
+                            <Label className="text-xs text-gray-500">Min spend to host (ZAR)</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              step={0.01}
+                              value={tier.min_spend_host ?? tier.min_spend ?? ''}
+                              onChange={(e) => {
+                                const next = [...(form.hosting_config[cat].tiers || [])];
+                                next[idx] = { ...next[idx], min_spend_host: e.target.value };
                                 setForm((p) => ({
                                   ...p,
                                   hosting_config: {
@@ -934,72 +968,24 @@ export default function BusinessEvents() {
                           </div>
                           {venueMenuItems.length > 0 && (
                             <div className="w-full mt-2">
-                              <Label className="text-xs text-gray-500">Included with tier (optional)</Label>
-                              <div className="flex flex-wrap gap-2 mt-1">
-                                {venueMenuItems.map((m) => {
-                                  const included = tier.included_items || [];
-                                  const existing = included.find((x) => x.menu_item_id === m.id);
-                                  const qty = existing ? parseInt(String(existing.quantity), 10) || 0 : 0;
-                                  return (
-                                    <button
-                                      key={m.id}
-                                      type="button"
-                                      className="text-xs px-2 py-1 rounded-lg border"
-                                      style={{
-                                        borderColor: qty > 0 ? 'var(--sec-accent)' : 'var(--sec-border)',
-                                        backgroundColor: qty > 0 ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
-                                        color: 'var(--sec-text-primary)',
-                                      }}
-                                      onClick={() => {
-                                        const next = [...(form.hosting_config[cat].tiers || [])];
-                                        let items = [...(next[idx].included_items || [])];
-                                        if (qty > 0) items = items.filter((x) => x.menu_item_id !== m.id);
-                                        else items.push({ menu_item_id: m.id, quantity: '1' });
-                                        next[idx] = { ...next[idx], included_items: items };
-                                        setForm((p) => ({
-                                          ...p,
-                                          hosting_config: {
-                                            ...p.hosting_config,
-                                            [cat]: { ...p.hosting_config[cat], tiers: next },
-                                          },
-                                        }));
-                                      }}
-                                    >
-                                      {m.name}{qty > 0 ? ` ×${qty}` : ''}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              {(tier.included_items || []).map((inc) => {
-                                const row = venueMenuItems.find((m) => m.id === inc.menu_item_id);
-                                if (!row) return null;
-                                return (
-                                  <div key={inc.menu_item_id} className="flex items-center gap-2 mt-1 text-xs">
-                                    <span>{row.name}</span>
-                                    <Input
-                                      type="number"
-                                      min={1}
-                                      max={99}
-                                      className="h-8 w-16"
-                                      value={inc.quantity}
-                                      onChange={(e) => {
-                                        const next = [...(form.hosting_config[cat].tiers || [])];
-                                        const items = (next[idx].included_items || []).map((x) =>
-                                          x.menu_item_id === inc.menu_item_id ? { ...x, quantity: e.target.value } : x
-                                        );
-                                        next[idx] = { ...next[idx], included_items: items };
-                                        setForm((p) => ({
-                                          ...p,
-                                          hosting_config: {
-                                            ...p.hosting_config,
-                                            [cat]: { ...p.hosting_config[cat], tiers: next },
-                                          },
-                                        }));
-                                      }}
-                                    />
-                                  </div>
-                                );
-                              })}
+                              <Label className="text-xs text-gray-500">
+                                Items included with this table (free for guests)
+                              </Label>
+                              <TierIncludedItemsEditor
+                                includedItems={tier.included_items || []}
+                                venueMenuItems={venueMenuItems}
+                                onChange={(items) => {
+                                  const next = [...(form.hosting_config[cat].tiers || [])];
+                                  next[idx] = { ...next[idx], included_items: items };
+                                  setForm((p) => ({
+                                    ...p,
+                                    hosting_config: {
+                                      ...p.hosting_config,
+                                      [cat]: { ...p.hosting_config[cat], tiers: next },
+                                    },
+                                  }));
+                                }}
+                              />
                             </div>
                           )}
                           <Button

@@ -34,13 +34,22 @@ export async function syncEventVenueTables(eventId) {
           where: { eventId: event.id, hostingTierKey },
         });
 
+        const joinMin =
+          tier.min_spend_join != null && tier.min_spend_join !== ''
+            ? Number(tier.min_spend_join) || 0
+            : Number(tier.min_spend) || 0;
+        const hostMin =
+          tier.min_spend_host != null && tier.min_spend_host !== ''
+            ? Number(tier.min_spend_host) || 0
+            : Number(tier.min_spend) || 0;
         const data = {
           venueId: event.venueId,
           eventId: event.id,
           tableName,
           description: event.description,
           guestCapacity: Number(tier.max_guests) || 6,
-          minimumSpend: Number(tier.min_spend) || 0,
+          minimumSpend: joinMin,
+          hostMinimumSpend: hostMin,
           bookingFeeZar: joinFee,
           hostTableFeeZar: hostFee,
           minSpendSettlement: 'PREPAY_MENU',
@@ -111,7 +120,7 @@ export async function syncEventVenueTables(eventId) {
             eventId: event.id,
             tableName: 'Custom table request',
             description: 'Submit your specs — the venue reviews before checkout.',
-            guestCapacity: 20,
+            guestCapacity: 500,
             minimumSpend: 0,
             bookingFeeZar: 0,
             minSpendSettlement: 'PREPAY_MENU',
