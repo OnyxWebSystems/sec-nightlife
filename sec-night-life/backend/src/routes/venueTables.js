@@ -199,6 +199,31 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
   }
 });
 
+/** Idempotent day custom listing id for Book on Sec (no POST to /venues required). */
+router.get('/day-custom-listing', optionalAuth, async (req, res, next) => {
+  try {
+    const venueId = typeof req.query.venueId === 'string' ? req.query.venueId : '';
+    if (!venueId) return res.status(400).json({ error: 'venueId is required' });
+    const venue = await prisma.venue.findFirst({ where: { id: venueId, deletedAt: null } });
+    if (!venue) return res.status(404).json({ error: 'Venue not found' });
+    if (!venue.acceptsDayBookings) {
+      return res.status(400).json({ error: 'This venue has not enabled day table bookings' });
+    }
+    const listing = await ensureDayCustomVenueTable(venueId);
+    if (!listing?.id) {
+      return res.status(500).json({ error: 'Could not create custom table listing' });
+    }
+    res.json({
+      tableId: listing.id,
+      id: listing.id,
+      venueId: venue.id,
+      isCustomListing: true,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/available', optionalAuth, async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);

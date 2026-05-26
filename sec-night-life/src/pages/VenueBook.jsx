@@ -2,9 +2,14 @@ import React, { useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
-import { apiGet, apiPost } from '@/api/client';
+import { apiGet } from '@/api/client';
 import { ChevronLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+
+function pickCustomListingId(items = []) {
+  const row = items.find((t) => t.isCustomListing || t.is_custom_listing);
+  return row?.id || null;
+}
 
 export default function VenueBook() {
   const navigate = useNavigate();
@@ -18,7 +23,7 @@ export default function VenueBook() {
     enabled: !!venueId,
   });
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['venue-day-tables', venueId],
     queryFn: () => apiGet(`/api/venue-tables/available?venueId=${encodeURIComponent(venueId)}&dayOnly=true&limit=50`),
     enabled: !!venueId,
@@ -26,27 +31,42 @@ export default function VenueBook() {
 
   const tables = data?.items ?? [];
   const dayBookingsOn = Boolean(venue?.accepts_day_bookings ?? venue?.acceptsDayBookings);
-  const customListing = tables.find((t) => t.isCustomListing);
-  const bookableTables = tables.filter((t) => !t.isCustomListing);
+  const customListingId = pickCustomListingId(tables);
+  const bookableTables = tables.filter((t) => !t.isCustomListing && !t.is_custom_listing);
+
+  const resolveCustomListingId = async () => {
+    if (customListingId) return customListingId;
+    const available = await apiGet(
+      `/api/venue-tables/available?venueId=${encodeURIComponent(venueId)}&dayOnly=true&limit=50`,
+    );
+    const fromAvailable = pickCustomListingId(available?.items);
+    if (fromAvailable) return fromAvailable;
+    const direct = await apiGet(
+      `/api/venue-tables/day-custom-listing?venueId=${encodeURIComponent(venueId)}`,
+    );
+    return direct?.tableId || direct?.id || null;
+  };
 
   const goCustomRequest = async () => {
     if (!venueId) return;
-    let listingId = customListing?.id;
-    if (!listingId) {
-      setEnsuring(true);
-      try {
-        const r = await apiPost(`/api/venues/${venueId}/custom-table-request`, {});
-        listingId = r?.customListingId || r?.tableId;
-        await refetch();
-      } catch (e) {
-        toast.error(e?.data?.error || e.message || 'Could not start custom request');
+    setEnsuring(true);
+    try {
+      const listingId = await resolveCustomListingId();
+      if (!listingId) {
+        toast.error('Custom table request is not available for this venue right now.');
         return;
-      } finally {
-        setEnsuring(false);
       }
-    }
-    if (listingId) {
       navigate(createPageUrl(`TableDetails?id=${listingId}&source=venue&request=1`));
+    } catch (e) {
+      if (e?.data?.code === 'HTML_INSTEAD_OF_JSON') {
+        toast.error(
+          'Could not reach the API. Redeploy the backend with the latest code, or set VITE_API_URL to your live API base URL.',
+        );
+      } else {
+        toast.error(e?.data?.error || e.message || 'Could not start custom request');
+      }
+    } finally {
+      setEnsuring(false);
     }
   };
 
@@ -96,14 +116,24 @@ export default function VenueBook() {
             </div>
           )}
 
-          <button
-            type="button"
-            disabled={ensuring}
-            onClick={goCustomRequest}
-            className="sec-btn sec-btn-ghost sec-btn-full block text-center w-full"
-          >
-            {ensuring ? 'Loading…' : 'Request a custom table'}
-          </button>
+          {customListingId ? (
+            <Link
+              to={createPageUrl(`TableDetails?id=${customListingId}&source=venue&request=1`)}
+              className="sec-btn sec-btn-ghost sec-btn-full block text-center w-full"
+              style={{ textDecoration: 'none' }}
+            >
+              Request a custom table
+            </Link>
+          ) : (
+            <button
+              type="button"
+              disabled={ensuring}
+              onClick={goCustomRequest}
+              className="sec-btn sec-btn-ghost sec-btn-full block text-center w-full"
+            >
+              {ensuring ? 'Loading…' : 'Request a custom table'}
+            </button>
+          )}
         </>
       )}
     </div>
