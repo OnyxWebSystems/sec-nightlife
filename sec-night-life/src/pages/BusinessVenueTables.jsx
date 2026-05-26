@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TableTierEditor from '@/components/business/TableTierEditor';
+import { resolveTierFeesForSave } from '@/lib/tierBookingFees';
 
 export default function BusinessVenueTables() {
   const navigate = useNavigate();
@@ -61,14 +62,15 @@ export default function BusinessVenueTables() {
     mutationFn: async () => {
       for (const tier of form.tiers) {
         if (!tier.tier_name?.trim()) throw new Error('Each tier needs a name');
+        const fees = resolveTierFeesForSave(tier);
         await apiPost('/api/venue-tables', {
           venueId: venue.id,
           tableName: tier.tier_name.trim(),
           description: form.description || null,
           guestCapacity: parseInt(tier.max_guests, 10) || 6,
           minimumSpend: parseFloat(tier.min_spend) || 0,
-          bookingFeeZar: parseFloat(tier.booking_fee_zar) || 0,
-          hostTableFeeZar: parseFloat(tier.host_table_fee_zar) || 0,
+          bookingFeeZar: fees.booking_fee_zar,
+          hostTableFeeZar: fees.host_table_fee_zar,
           minSpendSettlement: 'PREPAY_MENU',
           serviceDate: form.serviceDate ? new Date(form.serviceDate).toISOString() : null,
           startTime: form.startTime,
@@ -118,6 +120,15 @@ export default function BusinessVenueTables() {
     onError: (e) => toast.error(e?.data?.error || e.message),
   });
 
+  useEffect(() => {
+    if (venueDetail) {
+      setVenueFees({
+        host_table_fee_zar: String(venueDetail.host_table_fee_zar ?? ''),
+        custom_table_booking_fee_zar: String(venueDetail.custom_table_booking_fee_zar ?? ''),
+      });
+    }
+  }, [venueDetail?.id, venueDetail?.host_table_fee_zar, venueDetail?.custom_table_booking_fee_zar]);
+
   if (!venue) {
     return (
       <div className="sec-page flex flex-col items-center justify-center min-h-[50vh] px-6 text-center">
@@ -131,15 +142,6 @@ export default function BusinessVenueTables() {
 
   const pending = reservations?.items || [];
   const dayBookingsOn = Boolean(venueDetail?.accepts_day_bookings);
-
-  useEffect(() => {
-    if (venueDetail) {
-      setVenueFees({
-        host_table_fee_zar: String(venueDetail.host_table_fee_zar ?? ''),
-        custom_table_booking_fee_zar: String(venueDetail.custom_table_booking_fee_zar ?? ''),
-      });
-    }
-  }, [venueDetail?.id, venueDetail?.host_table_fee_zar, venueDetail?.custom_table_booking_fee_zar]);
 
   return (
     <div className="sec-page max-w-3xl mx-auto pb-28">

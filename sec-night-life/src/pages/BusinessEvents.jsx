@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { apiGet, uploadFile } from '@/api/client';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
+import { tierFeeTogglesFromTier, resolveTierFeesForSave } from '@/lib/tierBookingFees';
 
 function isoToDatetimeLocal(iso) {
   if (!iso) return '';
@@ -42,12 +43,16 @@ function hostingFromApi(hc) {
     host_table_fee_zar: s?.host_table_fee_zar != null && s.host_table_fee_zar !== '' ? String(s.host_table_fee_zar) : '',
     allows_custom_requests: Boolean(s?.allows_custom_requests),
     tiers: Array.isArray(s?.tiers) && s.tiers.length
-      ? s.tiers.map((t) => ({
+      ? s.tiers.map((t) => {
+          const toggles = tierFeeTogglesFromTier(t);
+          return {
           tier_name: String(t.tier_name ?? t.name ?? ''),
           max_guests: String(t.max_guests ?? ''),
           min_spend: String(t.min_spend ?? ''),
           booking_fee_zar: String(t.booking_fee_zar ?? ''),
           host_table_fee_zar: String(t.host_table_fee_zar ?? ''),
+          include_join_booking_fee: toggles.include_join_booking_fee,
+          include_host_booking_fee: toggles.include_host_booking_fee,
           tier_table_slots: String(t.tier_table_slots ?? ''),
           included_items: Array.isArray(t?.included_items)
             ? t.included_items.map((inc) => ({
@@ -55,7 +60,8 @@ function hostingFromApi(hc) {
                 quantity: String(inc.quantity ?? '1'),
               }))
             : [],
-        }))
+        };
+        })
       : [],
   });
   return {
@@ -306,15 +312,12 @@ export default function BusinessEvents() {
             quantity: Math.max(1, parseInt(String(inc.quantity || '1'), 10) || 1),
           }))
           .filter((inc) => inc.menu_item_id);
-        const bfRaw = String(t.booking_fee_zar ?? '').trim();
-        const bookingFee = bfRaw ? parseFloat(bfRaw.replace(',', '.')) : 0;
-        if (bfRaw && (Number.isNaN(bookingFee) || bookingFee < 0)) {
+        const fees = resolveTierFeesForSave(t);
+        if (fees.include_join_booking_fee && fees.booking_fee_zar < 0) {
           toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} join booking fee on tier "${tierName}"`);
           return;
         }
-        const hfRaw = String(t.host_table_fee_zar ?? '').trim();
-        const hostFee = hfRaw ? parseFloat(hfRaw.replace(',', '.')) : 0;
-        if (hfRaw && (Number.isNaN(hostFee) || hostFee < 0)) {
+        if (fees.include_host_booking_fee && fees.host_table_fee_zar < 0) {
           toast.error(`Check ${cat === 'vip' ? 'VIP' : 'General'} host booking fee on tier "${tierName}"`);
           return;
         }
@@ -323,8 +326,10 @@ export default function BusinessEvents() {
           max_guests: mg,
           min_spend: ms,
           tier_table_slots: slots,
-          booking_fee_zar: bookingFee,
-          host_table_fee_zar: hostFee,
+          booking_fee_zar: fees.booking_fee_zar,
+          host_table_fee_zar: fees.host_table_fee_zar,
+          include_join_booking_fee: fees.include_join_booking_fee,
+          include_host_booking_fee: fees.include_host_booking_fee,
         };
         if (included.length) tierPayload.included_items = included;
         parsedTiers.push(tierPayload);
@@ -643,62 +648,6 @@ export default function BusinessEvents() {
                 </div>
               )}
             </div>
-            <div className="space-y-3 rounded-xl border p-4" style={{ borderColor: 'var(--sec-border)' }}>
-              <h3 className="text-sm font-semibold text-gray-200">Ticket tiers (you name them)</h3>
-              <p className="text-xs text-gray-500">General admission, VIP, VVIP, or any label your venue uses.</p>
-              {(form.ticket_tiers || []).map((tier, idx) => (
-                <div key={idx} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <Input
-                    placeholder="Tier name"
-                    value={tier.name || ''}
-                    onChange={(e) => {
-                      const next = [...form.ticket_tiers];
-                      next[idx] = { ...next[idx], name: e.target.value };
-                      setForm((p) => ({ ...p, ticket_tiers: next }));
-                    }}
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Price ZAR"
-                    value={tier.price ?? ''}
-                    onChange={(e) => {
-                      const next = [...form.ticket_tiers];
-                      next[idx] = { ...next[idx], price: parseFloat(e.target.value) || 0 };
-                      setForm((p) => ({ ...p, ticket_tiers: next }));
-                    }}
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Qty"
-                    value={tier.quantity ?? ''}
-                    onChange={(e) => {
-                      const next = [...form.ticket_tiers];
-                      next[idx] = { ...next[idx], quantity: parseInt(e.target.value, 10) || 0 };
-                      setForm((p) => ({ ...p, ticket_tiers: next }));
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setForm((p) => ({ ...p, ticket_tiers: p.ticket_tiers.filter((_, i) => i !== idx) }))}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  setForm((p) => ({
-                    ...p,
-                    ticket_tiers: [...(p.ticket_tiers || []), { name: '', price: 0, quantity: 100, sold: 0 }],
-                  }))
-                }
-              >
-                Add ticket tier
-              </Button>
-            </div>
             {(['general', 'vip']).map((cat) => {
               const label = cat === 'vip' ? 'VIP' : 'General';
               const sec = form.hosting_config?.[cat] || emptyHostingSection();
@@ -713,7 +662,7 @@ export default function BusinessEvents() {
                     {label} venue tables
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Guests pay booking fee + minimum spend + entrance at checkout. Included items are bundled; they may add more from your menu.
+                    Guests pay minimum spend at checkout (plus optional booking and entrance fees you enable per tier). Included items are bundled; they may add more from your menu.
                   </p>
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
                     <Checkbox
@@ -771,7 +720,17 @@ export default function BusinessEvents() {
                                 ...p.hosting_config[cat],
                                 tiers: [
                                   ...(p.hosting_config[cat].tiers || []),
-                                  { tier_name: '', max_guests: '', min_spend: '', booking_fee_zar: '', host_table_fee_zar: '', tier_table_slots: '', included_items: [] },
+                                  {
+                                    tier_name: '',
+                                    max_guests: '',
+                                    min_spend: '',
+                                    booking_fee_zar: '',
+                                    host_table_fee_zar: '',
+                                    include_join_booking_fee: false,
+                                    include_host_booking_fee: false,
+                                    tier_table_slots: '',
+                                    included_items: [],
+                                  },
                                 ],
                               },
                             },
@@ -860,47 +819,83 @@ export default function BusinessEvents() {
                               style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
                             />
                           </div>
-                          <div className="flex-1 min-w-[100px]">
-                            <Label className="text-xs text-gray-500">Join booking fee (ZAR)</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              value={tier.booking_fee_zar || ''}
-                              onChange={(e) => {
-                                const next = [...(form.hosting_config[cat].tiers || [])];
-                                next[idx] = { ...next[idx], booking_fee_zar: e.target.value };
-                                setForm((p) => ({
-                                  ...p,
-                                  hosting_config: {
-                                    ...p.hosting_config,
-                                    [cat]: { ...p.hosting_config[cat], tiers: next },
-                                  },
-                                }));
-                              }}
-                              className="mt-1 h-10 rounded-xl"
-                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
-                            />
-                          </div>
-                          <div className="flex-1 min-w-[100px]">
-                            <Label className="text-xs text-gray-500">Host booking fee (ZAR)</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              value={tier.host_table_fee_zar || ''}
-                              onChange={(e) => {
-                                const next = [...(form.hosting_config[cat].tiers || [])];
-                                next[idx] = { ...next[idx], host_table_fee_zar: e.target.value };
-                                setForm((p) => ({
-                                  ...p,
-                                  hosting_config: {
-                                    ...p.hosting_config,
-                                    [cat]: { ...p.hosting_config[cat], tiers: next },
-                                  },
-                                }));
-                              }}
-                              className="mt-1 h-10 rounded-xl"
-                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
-                            />
+                          <div className="w-full col-span-2 space-y-2">
+                            <label className="flex items-center gap-2 text-xs cursor-pointer">
+                              <Checkbox
+                                checked={Boolean(tier.include_join_booking_fee)}
+                                onCheckedChange={(v) => {
+                                  const next = [...(form.hosting_config[cat].tiers || [])];
+                                  next[idx] = { ...next[idx], include_join_booking_fee: Boolean(v) };
+                                  setForm((p) => ({
+                                    ...p,
+                                    hosting_config: {
+                                      ...p.hosting_config,
+                                      [cat]: { ...p.hosting_config[cat], tiers: next },
+                                    },
+                                  }));
+                                }}
+                              />
+                              Charge join booking fee
+                            </label>
+                            {tier.include_join_booking_fee ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                placeholder="Join fee (ZAR)"
+                                value={tier.booking_fee_zar || ''}
+                                onChange={(e) => {
+                                  const next = [...(form.hosting_config[cat].tiers || [])];
+                                  next[idx] = { ...next[idx], booking_fee_zar: e.target.value };
+                                  setForm((p) => ({
+                                    ...p,
+                                    hosting_config: {
+                                      ...p.hosting_config,
+                                      [cat]: { ...p.hosting_config[cat], tiers: next },
+                                    },
+                                  }));
+                                }}
+                                className="h-10 rounded-xl"
+                                style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                              />
+                            ) : null}
+                            <label className="flex items-center gap-2 text-xs cursor-pointer">
+                              <Checkbox
+                                checked={Boolean(tier.include_host_booking_fee)}
+                                onCheckedChange={(v) => {
+                                  const next = [...(form.hosting_config[cat].tiers || [])];
+                                  next[idx] = { ...next[idx], include_host_booking_fee: Boolean(v) };
+                                  setForm((p) => ({
+                                    ...p,
+                                    hosting_config: {
+                                      ...p.hosting_config,
+                                      [cat]: { ...p.hosting_config[cat], tiers: next },
+                                    },
+                                  }));
+                                }}
+                              />
+                              Charge host booking fee
+                            </label>
+                            {tier.include_host_booking_fee ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                placeholder="Host fee (ZAR)"
+                                value={tier.host_table_fee_zar || ''}
+                                onChange={(e) => {
+                                  const next = [...(form.hosting_config[cat].tiers || [])];
+                                  next[idx] = { ...next[idx], host_table_fee_zar: e.target.value };
+                                  setForm((p) => ({
+                                    ...p,
+                                    hosting_config: {
+                                      ...p.hosting_config,
+                                      [cat]: { ...p.hosting_config[cat], tiers: next },
+                                    },
+                                  }));
+                                }}
+                                className="h-10 rounded-xl"
+                                style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                              />
+                            ) : null}
                           </div>
                           <div className="flex-1 min-w-[120px]">
                             <Label className="text-xs text-gray-500">Hosted tables (tier)</Label>

@@ -3,6 +3,8 @@ import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { tierFeeTogglesFromTier } from '@/lib/tierBookingFees';
 
 export default function TableTierEditor({ tiers = [], onChange, venueMenuItems = [], showSlots = false }) {
   const updateTier = (idx, patch) => {
@@ -19,6 +21,8 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
         min_spend: '2000',
         booking_fee_zar: '0',
         host_table_fee_zar: '0',
+        include_join_booking_fee: false,
+        include_host_booking_fee: false,
         tier_table_slots: showSlots ? '1' : undefined,
         included_items: [],
       },
@@ -27,7 +31,11 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
 
   return (
     <div className="space-y-3">
-      {tiers.map((tier, idx) => (
+      {tiers.map((tier, idx) => {
+        const toggles = tierFeeTogglesFromTier(tier);
+        const includeJoin = tier.include_join_booking_fee ?? toggles.include_join_booking_fee;
+        const includeHost = tier.include_host_booking_fee ?? toggles.include_host_booking_fee;
+        return (
         <div
           key={idx}
           className="rounded-xl border p-3 space-y-2"
@@ -72,23 +80,41 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
                 className="h-9 mt-1"
               />
             </div>
-            <div>
-              <Label className="text-xs">Join booking fee (ZAR)</Label>
-              <p className="text-[10px] text-[var(--sec-text-muted)] mb-1">Fee guests pay to book a spot on an unhosted table</p>
-              <Input
-                value={tier.booking_fee_zar ?? ''}
-                onChange={(e) => updateTier(idx, { booking_fee_zar: e.target.value })}
-                className="h-9 mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Host booking fee (ZAR)</Label>
-              <p className="text-[10px] text-[var(--sec-text-muted)] mb-1">Fee a guest pays to own and host a table in this tier</p>
-              <Input
-                value={tier.host_table_fee_zar ?? ''}
-                onChange={(e) => updateTier(idx, { host_table_fee_zar: e.target.value })}
-                className="h-9 mt-1"
-              />
+            <div className="col-span-2 space-y-2">
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <Checkbox
+                  checked={Boolean(includeJoin)}
+                  onCheckedChange={(v) => updateTier(idx, { include_join_booking_fee: Boolean(v) })}
+                />
+                Charge join booking fee
+              </label>
+              {includeJoin ? (
+                <div>
+                  <p className="text-[10px] text-[var(--sec-text-muted)] mb-1">Fee guests pay to book a spot on an unhosted table</p>
+                  <Input
+                    value={tier.booking_fee_zar ?? ''}
+                    onChange={(e) => updateTier(idx, { booking_fee_zar: e.target.value })}
+                    className="h-9"
+                  />
+                </div>
+              ) : null}
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <Checkbox
+                  checked={Boolean(includeHost)}
+                  onCheckedChange={(v) => updateTier(idx, { include_host_booking_fee: Boolean(v) })}
+                />
+                Charge host booking fee
+              </label>
+              {includeHost ? (
+                <div>
+                  <p className="text-[10px] text-[var(--sec-text-muted)] mb-1">Fee a guest pays to own and host a table in this tier</p>
+                  <Input
+                    value={tier.host_table_fee_zar ?? ''}
+                    onChange={(e) => updateTier(idx, { host_table_fee_zar: e.target.value })}
+                    className="h-9"
+                  />
+                </div>
+              ) : null}
             </div>
             {showSlots ? (
               <div>
@@ -132,7 +158,8 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
       <Button type="button" variant="outline" size="sm" onClick={addTier} className="w-full">
         <Plus size={14} className="mr-1" /> Add tier
       </Button>

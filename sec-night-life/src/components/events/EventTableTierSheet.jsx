@@ -111,14 +111,17 @@ export default function EventTableTierSheet({ tier, open, onClose }) {
               <Crown size={14} /> Host a table
             </h3>
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 10 }}>
-              Pay the host booking fee (R{Number(tier.hostBookingFeeZar).toLocaleString()}), meet minimum spend, and set your table rules.
+              {Number(tier.hostBookingFeeZar) > 0
+                ? `Pay the host booking fee (R${Number(tier.hostBookingFeeZar).toLocaleString()}), `
+                : ''}
+              meet minimum spend, and set your table rules.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {unhostedSlots.map((s) => (
                 <SlotRow
                   key={`host-${s.venueTableId}`}
                   label={s.tableName}
-                  sub={`${s.spotsRemaining} spots left · Host fee R${Number(tier.hostBookingFeeZar).toLocaleString()}`}
+                  sub={`${s.spotsRemaining} spots left${Number(tier.hostBookingFeeZar) > 0 ? ` · Host fee R${Number(tier.hostBookingFeeZar).toLocaleString()}` : ''}`}
                   actionLabel="Host"
                   onAction={() => goVenue(s.venueTableId, 'host')}
                 />
@@ -163,7 +166,7 @@ export default function EventTableTierSheet({ tier, open, onClose }) {
                   <SlotRow
                     key={`join-${s.venueTableId}`}
                     label={s.tableName}
-                    sub={`${s.spotsRemaining} spots left · Join fee R${Number(tier.joinBookingFeeZar).toLocaleString()}`}
+                    sub={`${s.spotsRemaining} spots left${Number(tier.joinBookingFeeZar) > 0 ? ` · Join fee R${Number(tier.joinBookingFeeZar).toLocaleString()}` : ''}`}
                     actionLabel="Join"
                     onAction={() => goVenue(s.venueTableId, 'join')}
                   />

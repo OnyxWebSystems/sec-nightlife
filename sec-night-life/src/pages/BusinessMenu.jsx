@@ -10,7 +10,8 @@ import { toast } from 'sonner';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
-import { groupMenuByCategory, formatMenuCategoryLabel } from '@/lib/groupMenuByCategory';
+import VenueMenuNavigator from '@/components/menu/VenueMenuNavigator';
+import { formatMenuCategoryLabel } from '@/lib/groupMenuByCategory';
 
 function isVenuePhoto(url) {
   return url && typeof url === 'string' && url.startsWith('http') && !url.includes('/menu-catalog/');
@@ -63,7 +64,7 @@ export default function BusinessMenu() {
     [items]
   );
 
-  const menuSections = useMemo(() => groupMenuByCategory(items), [items]);
+  const venueLogoUrl = venues[0]?.logo_url || venues[0]?.logoUrl;
 
   const photoCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -203,116 +204,90 @@ export default function BusinessMenu() {
       ) : items.length === 0 ? (
         <p style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>No items yet — add from Menu Maker above.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {menuSections.map(({ category, items: sectionItems }) => (
-            <div key={category}>
-              <h3
-                style={{
-                  fontSize: 16,
-                  fontWeight: 700,
-                  marginBottom: 10,
-                  color: 'var(--sec-text-primary)',
-                  paddingBottom: 8,
-                  borderBottom: '1px solid var(--sec-border)',
-                }}
-              >
-                {category}
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {sectionItems.map((item) => {
-            const hasPhoto = isVenuePhoto(item.image_url);
-            const published = hasPhoto && item.is_available;
-            return (
-              <div key={item.id} className="sec-card" style={{ padding: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className="relative shrink-0"
-                  onClick={() => {
-                    setPhotoTargetId(item.id);
-                    document.getElementById(`menu-photo-${item.id}`)?.click();
-                  }}
-                  title={hasPhoto ? 'Change photo' : 'Upload photo (required)'}
-                >
-                  {hasPhoto ? (
-                    <img src={item.image_url} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover' }} />
+        <>
+          <VenueMenuNavigator
+            items={items}
+            mode="manage"
+            venueLogoUrl={venueLogoUrl}
+            renderManageActions={(item) => {
+              const hasPhoto = isVenuePhoto(item.image_url);
+              const published = hasPhoto && item.is_available;
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 10, color: published ? 'var(--sec-accent)' : '#f59e0b' }}>
+                    {published ? 'Live' : hasPhoto ? 'Hidden' : 'Needs photo'}
+                  </span>
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-ghost text-xs h-7"
+                    onClick={() => {
+                      setPhotoTargetId(item.id);
+                      document.getElementById(`menu-photo-${item.id}`)?.click();
+                    }}
+                  >
+                    <Pencil size={12} className="inline mr-1" />
+                    Photo
+                  </button>
+                  <input
+                    id={`menu-photo-${item.id}`}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      setPhotoTargetId(item.id);
+                      photoCrop.handleInputChange(e);
+                    }}
+                  />
+                  {editingItem?.id === item.id ? (
+                    <div className="flex gap-1 flex-wrap">
+                      <input
+                        type="number"
+                        min={1}
+                        className="sec-input-rect h-7 w-16 text-xs"
+                        value={priceEdit}
+                        onChange={(e) => setPriceEdit(e.target.value)}
+                      />
+                      <button type="button" className="sec-btn sec-btn-primary text-xs h-7 px-2" onClick={() => savePrice(item)}>
+                        Save
+                      </button>
+                    </div>
                   ) : (
-                    <div
-                      style={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: 8,
-                        background: 'var(--sec-bg-hover)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 10,
-                        color: 'var(--sec-text-muted)',
-                        textAlign: 'center',
-                        padding: 4,
+                    <button
+                      type="button"
+                      className="sec-btn sec-btn-ghost text-xs h-7"
+                      onClick={() => {
+                        setEditingItem(item);
+                        setPriceEdit(String(item.price));
+                        setEditingCategoryItem(null);
                       }}
                     >
-                      Add photo
-                    </div>
+                      R{Number(item.price).toFixed(0)}
+                    </button>
                   )}
-                  <span className="absolute bottom-0 right-0 bg-black/60 rounded p-0.5">
-                    <Pencil size={10} className="text-white" />
-                  </span>
-                </button>
-                <input
-                  id={`menu-photo-${item.id}`}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    setPhotoTargetId(item.id);
-                    photoCrop.handleInputChange(e);
-                  }}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 600 }}>{item.name}</span>
-                    {published ? (
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}>
-                        Live for guests
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
-                        {hasPhoto ? 'Hidden' : 'Needs photo'}
-                      </span>
-                    )}
-                  </div>
                   {editingCategoryItem?.id === item.id ? (
-                    <div className="mt-2 space-y-2">
+                    <div className="space-y-1">
                       <input
                         type="text"
-                        maxLength={60}
-                        className="sec-input-rect h-8 w-full text-sm"
-                        placeholder="Category name"
+                        className="sec-input-rect h-7 w-full text-xs"
+                        placeholder="Category"
                         value={categoryEdit}
                         onChange={(e) => setCategoryEdit(e.target.value)}
                       />
                       <input
                         type="text"
-                        maxLength={80}
-                        className="sec-input-rect h-8 w-full text-sm"
-                        placeholder="Sub-category (optional)"
+                        className="sec-input-rect h-7 w-full text-xs"
+                        placeholder="Sub-category"
                         value={subCategoryEdit}
                         onChange={(e) => setSubCategoryEdit(e.target.value)}
                       />
-                      <div className="flex gap-2">
-                        <button type="button" className="sec-btn sec-btn-primary text-xs h-8" onClick={() => saveCategory(item)}>
-                          Save
-                        </button>
-                        <button type="button" className="sec-btn sec-btn-ghost text-xs h-8" onClick={() => setEditingCategoryItem(null)}>
-                          Cancel
-                        </button>
-                      </div>
+                      <button type="button" className="sec-btn sec-btn-primary text-xs h-7 w-full" onClick={() => saveCategory(item)}>
+                        Save
+                      </button>
                     </div>
                   ) : (
                     <button
                       type="button"
-                      className="text-left text-xs mt-0.5 block"
-                      style={{ color: 'var(--sec-text-muted)' }}
+                      className="sec-btn sec-btn-ghost text-xs h-7"
                       onClick={() => {
                         setEditingCategoryItem(item);
                         setCategoryEdit(item.category || '');
@@ -321,59 +296,26 @@ export default function BusinessMenu() {
                       }}
                     >
                       {formatMenuCategoryLabel(item)}
-                      <span className="ml-1" style={{ color: 'var(--sec-accent)' }}>— edit category</span>
                     </button>
                   )}
-                  {editingItem?.id === item.id ? (
-                    <div className="flex gap-2 mt-2">
-                      <input
-                        type="number"
-                        min={1}
-                        className="sec-input-rect h-8 w-24 text-sm"
-                        value={priceEdit}
-                        onChange={(e) => setPriceEdit(e.target.value)}
-                      />
-                      <button type="button" className="sec-btn sec-btn-primary text-xs h-8" onClick={() => savePrice(item)}>
-                        Save
-                      </button>
-                      <button type="button" className="sec-btn sec-btn-ghost text-xs h-8" onClick={() => setEditingItem(null)}>
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
+                  <div className="flex gap-1">
                     <button
                       type="button"
-                      className="text-sm mt-1 font-semibold"
-                      style={{ color: 'var(--sec-accent)' }}
-                      onClick={() => {
-                        setEditingItem(item);
-                        setPriceEdit(String(item.price));
-                        setEditingCategoryItem(null);
-                      }}
+                      className="sec-btn sec-btn-ghost text-xs h-7 flex-1"
+                      disabled={!hasPhoto}
+                      onClick={() => toggleAvailable(item)}
                     >
-                      R{Number(item.price).toFixed(0)} — edit price
+                      {item.is_available && hasPhoto ? 'Hide' : 'Show'}
                     </button>
-                  )}
+                    <button type="button" className="sec-btn sec-btn-ghost h-7 px-2" onClick={() => removeItem(item.id)} aria-label="Delete">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  className="sec-btn sec-btn-ghost text-xs"
-                  disabled={!hasPhoto}
-                  onClick={() => toggleAvailable(item)}
-                  title={!hasPhoto ? 'Upload a photo first' : undefined}
-                >
-                  {item.is_available && hasPhoto ? 'Hide' : 'Show'}
-                </button>
-                <button type="button" className="sec-btn sec-btn-ghost" onClick={() => removeItem(item.id)} aria-label="Delete">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            );
-          })}
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            }}
+          />
+        </>
       )}
 
       <ImageCropDialog

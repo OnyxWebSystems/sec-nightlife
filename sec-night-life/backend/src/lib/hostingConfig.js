@@ -7,6 +7,32 @@ function emptyLegacyCat() {
   return { max_tables: null, tiers: [], host_table_fee_zar: null, allows_custom_requests: false };
 }
 
+/** Resolve join/host booking fees from tier toggles (legacy: fee > 0 implies enabled). */
+export function resolveTierBookingFees(tier, section = {}) {
+  const joinRaw =
+    tier?.booking_fee_zar != null && tier.booking_fee_zar !== ''
+      ? Number(tier.booking_fee_zar) || 0
+      : 0;
+  const hostRaw =
+    tier?.host_table_fee_zar != null && tier.host_table_fee_zar !== ''
+      ? Number(tier.host_table_fee_zar) || 0
+      : Number(section?.host_table_fee_zar) || 0;
+  const includeJoin =
+    tier?.include_join_booking_fee === false
+      ? false
+      : tier?.include_join_booking_fee === true || joinRaw > 0;
+  const includeHost =
+    tier?.include_host_booking_fee === false
+      ? false
+      : tier?.include_host_booking_fee === true || hostRaw > 0;
+  return {
+    joinFee: includeJoin ? joinRaw : 0,
+    hostFee: includeHost ? hostRaw : 0,
+    includeJoin,
+    includeHost,
+  };
+}
+
 function normalizeLegacySlot(slot) {
   if (!slot || typeof slot !== 'object') return emptyLegacyCat();
   const out = emptyLegacyCat();
@@ -14,18 +40,17 @@ function normalizeLegacySlot(slot) {
     out.max_tables = slot.max_tables === null ? null : Number(slot.max_tables);
   }
   if (Array.isArray(slot.tiers)) {
-    out.tiers = slot.tiers.map((t) => ({
-      ...t,
-      booking_fee_zar:
-        t.booking_fee_zar != null && t.booking_fee_zar !== ''
-          ? Number(t.booking_fee_zar) || 0
-          : 0,
-      host_table_fee_zar:
-        t.host_table_fee_zar != null && t.host_table_fee_zar !== ''
-          ? Number(t.host_table_fee_zar) || 0
-          : 0,
-      included_items: Array.isArray(t.included_items) ? t.included_items : [],
-    }));
+    out.tiers = slot.tiers.map((t) => {
+      const { joinFee, hostFee, includeJoin, includeHost } = resolveTierBookingFees(t, slot);
+      return {
+        ...t,
+        include_join_booking_fee: includeJoin,
+        include_host_booking_fee: includeHost,
+        booking_fee_zar: joinFee,
+        host_table_fee_zar: hostFee,
+        included_items: Array.isArray(t.included_items) ? t.included_items : [],
+      };
+    });
   }
   if (slot.host_table_fee_zar != null && slot.host_table_fee_zar !== '') {
     const n = Number(slot.host_table_fee_zar);

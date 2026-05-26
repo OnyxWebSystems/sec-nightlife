@@ -1,7 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Minus, Plus } from 'lucide-react';
-import { groupMenuByCategory } from '@/lib/groupMenuByCategory';
+import React from 'react';
 import { menuSelectionTotal } from '@/components/menu/MenuPicker';
+import VenueMenuNavigator from '@/components/menu/VenueMenuNavigator';
 
 function normalizeItem(item) {
   return {
@@ -11,64 +10,8 @@ function normalizeItem(item) {
   };
 }
 
-function QtyStepper({ qty, onDec, onInc, disabled }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        borderRadius: 999,
-        border: '1px solid var(--sec-border)',
-        background: 'var(--sec-bg-elevated)',
-        padding: '4px 6px',
-      }}
-    >
-      <button
-        type="button"
-        disabled={disabled || qty <= 0}
-        onClick={onDec}
-        aria-label="Decrease quantity"
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: '50%',
-          border: '1px solid var(--sec-border)',
-          background: 'var(--sec-bg-card)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: qty <= 0 ? 0.35 : 1,
-        }}
-      >
-        <Minus size={14} />
-      </button>
-      <span style={{ minWidth: 20, textAlign: 'center', fontWeight: 700, fontSize: 14 }}>{qty}</span>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onInc}
-        aria-label="Increase quantity"
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: '50%',
-          border: 'none',
-          background: 'var(--sec-accent)',
-          color: '#000',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Plus size={14} strokeWidth={2.5} />
-      </button>
-    </div>
-  );
-}
-
 /**
- * Delivery-style venue menu: category chips, images, +/- quantities, sticky cart bar.
+ * Guest table checkout menu: navigator + min-spend progress + sticky cart bar.
  */
 export default function VenueMenuBrowser({
   items = [],
@@ -77,14 +20,12 @@ export default function VenueMenuBrowser({
   disabled = false,
   includedItems = [],
   minimumSpendZar = 0,
+  venueLogoUrl,
   onContinue,
+  onPayMinimumLump,
   continueLabel = 'Continue to checkout',
 }) {
-  const sectionRefs = useRef({});
-  const [activeCategory, setActiveCategory] = useState(null);
-
-  const normalized = useMemo(() => items.map(normalizeItem), [items]);
-  const sections = useMemo(() => groupMenuByCategory(normalized), [normalized]);
+  const normalized = items.map(normalizeItem);
   const cartTotal = menuSelectionTotal(normalized, selected, includedItems);
   const minSpend = Number(minimumSpendZar) || 0;
   const minMet = minSpend <= 0 || cartTotal >= minSpend;
@@ -97,11 +38,6 @@ export default function VenueMenuBrowser({
       </p>
     );
   }
-
-  const scrollToCategory = (category) => {
-    setActiveCategory(category);
-    sectionRefs.current[category]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   return (
     <div style={{ paddingBottom: 120 }}>
@@ -124,107 +60,17 @@ export default function VenueMenuBrowser({
         </div>
       )}
 
-      {sections.length > 1 && (
-        <div
-          style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 20,
-            background: 'var(--sec-bg-base)',
-            paddingBottom: 10,
-            marginBottom: 8,
-            overflowX: 'auto',
-            display: 'flex',
-            gap: 8,
-            WebkitOverflowScrolling: 'touch',
-          }}
-        >
-          {sections.map(({ category }) => (
-            <button
-              key={category}
-              type="button"
-              onClick={() => scrollToCategory(category)}
-              style={{
-                flexShrink: 0,
-                padding: '8px 14px',
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 600,
-                border: `1px solid ${activeCategory === category ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
-                background: activeCategory === category ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
-                color: activeCategory === category ? 'var(--sec-accent)' : 'var(--sec-text-secondary)',
-              }}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {sections.map(({ category, items: catItems }) => (
-        <section
-          key={category}
-          ref={(el) => {
-            sectionRefs.current[category] = el;
-          }}
-          style={{ marginBottom: 20 }}
-        >
-          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, color: 'var(--sec-text-primary)' }}>
-            {category}
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {catItems.map((item) => {
-              const qty = Number(selected[item.id] || 0);
-              return (
-                <div
-                  key={item.id}
-                  className="sec-card"
-                  style={{
-                    padding: 12,
-                    display: 'flex',
-                    gap: 12,
-                    alignItems: 'center',
-                    opacity: disabled ? 0.6 : 1,
-                  }}
-                >
-                  {item.image_url ? (
-                    <img
-                      src={item.image_url}
-                      alt=""
-                      style={{ width: 72, height: 72, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 72,
-                        height: 72,
-                        borderRadius: 12,
-                        background: 'var(--sec-bg-hover)',
-                        flexShrink: 0,
-                      }}
-                    />
-                  )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{item.name}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)' }}>
-                      R{item.price.toFixed(0)}
-                    </div>
-                  </div>
-                  <QtyStepper
-                    qty={qty}
-                    disabled={disabled}
-                    onDec={() => onChange(item.id, Math.max(0, qty - 1))}
-                    onInc={() => onChange(item.id, qty + 1)}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+      <VenueMenuNavigator
+        items={normalized}
+        mode="cart"
+        selected={selected}
+        onChange={onChange}
+        disabled={disabled}
+        venueLogoUrl={venueLogoUrl}
+      />
 
       {minSpend > 0 && (
-        <div className="sec-card" style={{ padding: 12, marginBottom: 12 }}>
+        <div className="sec-card" style={{ padding: 12, marginTop: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
             <span style={{ color: 'var(--sec-text-muted)' }}>Minimum spend</span>
             <span style={{ fontWeight: 700, color: minMet ? 'var(--sec-success)' : 'var(--sec-text-primary)' }}>
@@ -232,8 +78,8 @@ export default function VenueMenuBrowser({
             </span>
           </div>
           {!minMet && (
-            <p style={{ fontSize: 11, color: 'var(--sec-warning)', marginTop: 8 }}>
-              Add R{(minSpend - cartTotal).toFixed(0)} more from the menu to continue.
+            <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 8 }}>
+              Add items from the menu, or pay the minimum upfront without selecting items.
             </p>
           )}
         </div>
@@ -263,11 +109,22 @@ export default function VenueMenuBrowser({
             <button
               type="button"
               className="sec-btn sec-btn-primary sec-btn-full"
-              style={{ height: 48 }}
-              disabled={disabled || !minMet}
+              style={{ height: 48, marginBottom: onPayMinimumLump ? 8 : 0 }}
+              disabled={disabled || (minSpend > 0 && !minMet)}
               onClick={onContinue}
             >
               {continueLabel}
+            </button>
+          ) : null}
+          {onPayMinimumLump ? (
+            <button
+              type="button"
+              className="sec-btn sec-btn-ghost sec-btn-full"
+              style={{ height: 44 }}
+              disabled={disabled}
+              onClick={onPayMinimumLump}
+            >
+              Pay R{minSpend.toFixed(0)} minimum without selecting items
             </button>
           ) : null}
         </div>

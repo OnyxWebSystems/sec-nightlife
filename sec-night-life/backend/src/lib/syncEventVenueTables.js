@@ -1,5 +1,5 @@
 import { prisma } from './prisma.js';
-import { normalizeHostingConfig } from './hostingConfig.js';
+import { normalizeHostingConfig, resolveTierBookingFees } from './hostingConfig.js';
 
 /**
  * Sync event hosting_config tiers to VenueTable listings (one row per tier slot).
@@ -22,14 +22,7 @@ export async function syncEventVenueTables(eventId) {
       const tier = tiers[tierIdx];
       const slots = Number(tier.tier_table_slots) || 1;
       const tierKeyBase = `${cat}:${tierIdx}`;
-      const hostFee =
-        tier.host_table_fee_zar != null && tier.host_table_fee_zar !== ''
-          ? Number(tier.host_table_fee_zar) || 0
-          : Number(section.host_table_fee_zar) || 0;
-      const joinFee =
-        tier.booking_fee_zar != null && tier.booking_fee_zar !== ''
-          ? Number(tier.booking_fee_zar) || 0
-          : 0;
+      const { joinFee, hostFee } = resolveTierBookingFees(tier, section);
       const includedItems = Array.isArray(tier.included_items) ? tier.included_items : [];
 
       for (let slotIdx = 0; slotIdx < slots; slotIdx++) {

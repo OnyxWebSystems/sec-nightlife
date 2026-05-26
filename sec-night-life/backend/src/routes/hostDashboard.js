@@ -1123,6 +1123,7 @@ const createTableSchema = z.object({
   selectedMenuItems: z
     .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) }))
     .optional(),
+  settlementMode: z.enum(['PREPAY_MENU', 'PREPAY_LUMP']).optional(),
 });
 
 const menuOrderSchema = z.object({
@@ -1255,13 +1256,20 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       }
       const includedTotal = includedItemsTotalZar(tierIncluded);
       const cartTotal = Number((menuResolved.totalZar + includedTotal).toFixed(2));
-      if (minSpendZar > 0 && cartTotal + 0.01 < minSpendZar) {
+      const settlementMode = d.settlementMode === 'PREPAY_LUMP' ? 'PREPAY_LUMP' : 'PREPAY_MENU';
+      if (settlementMode === 'PREPAY_MENU' && minSpendZar > 0 && cartTotal + 0.01 < minSpendZar) {
         return res.status(400).json({
           error: `Your menu selection must reach at least R${minSpendZar} (currently R${cartTotal.toFixed(0)}).`,
         });
       }
       const menuCartZar = menuResolved.totalZar;
-      const totalHostPay = entranceZar + hostFee + menuCartZar;
+      const spendZar =
+        minSpendZar > 0
+          ? settlementMode === 'PREPAY_LUMP'
+            ? minSpendZar
+            : Math.max(minSpendZar, menuCartZar)
+          : menuCartZar;
+      const totalHostPay = entranceZar + hostFee + spendZar;
 
       const needsListingPayment = totalHostPay > 0;
       const t = await prisma.$transaction(async (tx) =>

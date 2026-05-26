@@ -25,16 +25,15 @@ export function computeVenueCheckout(
   const hostFee = Number(table.hostTableFeeZar || venue?.hostTableFeeZar || 0);
   const minSpend = overrideMinSpend != null ? Number(overrideMinSpend) : Number(table.minimumSpend || 0);
   const minSpendRequired = minSpend > 0;
-  const mode = minSpendRequired
-    ? 'PREPAY_MENU'
-    : settlementMode || table.minSpendSettlement || 'PREPAY_MENU';
-  if (minSpendRequired && mode !== 'PREPAY_MENU') {
-    return { error: 'Select menu items to meet the minimum spend before checkout.' };
+  const mode =
+    settlementMode ||
+    (minSpendRequired ? 'PREPAY_MENU' : table.minSpendSettlement || 'PREPAY_MENU');
+  if (minSpendRequired && mode !== 'PREPAY_MENU' && mode !== 'PREPAY_LUMP') {
+    return { error: 'Select menu items or pay the minimum spend upfront before checkout.' };
   }
-  if (mode === 'PREPAY_LUMP' || mode === 'PAY_ON_ARRIVAL') {
+  if (mode === 'PAY_ON_ARRIVAL') {
     return {
-      error:
-        'Pay minimum now and pay on arrival are no longer supported. Select menu items to meet the minimum spend.',
+      error: 'Pay on arrival is not supported. Select menu items or pay the minimum spend upfront.',
     };
   }
   const lines = [];
@@ -68,7 +67,13 @@ export function computeVenueCheckout(
 
   const menu = Number(menuTotal || 0);
 
-  if (mode === 'PREPAY_MENU') {
+  if (mode === 'PREPAY_LUMP') {
+    if (minSpend > 0) {
+      lines.push(line('minimum_spend', 'Minimum spend (prepaid)', minSpend));
+    } else if (menu > 0) {
+      lines.push(line('minimum_spend', 'Menu pre-order', menu));
+    }
+  } else if (mode === 'PREPAY_MENU') {
     if (minSpend > 0 && menu < minSpend) {
       return {
         error: `Select menu items worth at least R${minSpend.toFixed(0)} (currently R${menu.toFixed(0)}).`,

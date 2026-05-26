@@ -126,7 +126,7 @@ export default function TableDetails() {
     enabled: !!tableId && isVenueSource,
   });
 
-  const venueSettlementMode = 'PREPAY_MENU';
+  const [venueSettlementMode, setVenueSettlementMode] = useState('PREPAY_MENU');
   const [venueCheckoutStep, setVenueCheckoutStep] = useState('menu');
   const [customRequestOpen, setCustomRequestOpen] = useState(false);
   const [customSubmitting, setCustomSubmitting] = useState(false);
@@ -397,14 +397,17 @@ export default function TableDetails() {
     }));
     const minSpendZar = Number(venueTable.minimumSpend) || 0;
     const menuSubtotal = menuSelectionTotal(venueMenuItems, selectedMenuItems);
-    const minSpendMet = minSpendZar <= 0 || menuSubtotal >= minSpendZar;
+    const minSpendMet =
+      minSpendZar <= 0 ||
+      venueSettlementMode === 'PREPAY_LUMP' ||
+      menuSubtotal >= minSpendZar;
     const checkoutLines = venueCheckoutPreview?.lines?.length ? venueCheckoutPreview.lines : [];
     const checkoutTotal =
       venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
     const membership = venueTable.myMembership;
     const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
     const approvalOk = !needsApproval || membership?.status === 'APPROVED' || membership?.status === 'LEFT';
-    const canPay = checkoutTotal > 0 && minSpendMet && approvalOk;
+    const canPay = checkoutTotal > 0 && minSpendMet && approvalOk && !venueCheckoutPreview?.error;
     const includedForPicker = (venueTable.includedItems || []).map((inc) => {
       const id = inc.menu_item_id || inc.menuItemId;
       const row = venueMenuItems.find((m) => m.id === id);
@@ -438,10 +441,25 @@ export default function TableDetails() {
             <VenueMenuBrowser
               items={venueMenuItems}
               selected={selectedMenuItems}
-              onChange={(id, qty) => setSelectedMenuItems((s) => ({ ...s, [id]: qty }))}
+              onChange={(id, qty) => {
+                setVenueSettlementMode('PREPAY_MENU');
+                setSelectedMenuItems((s) => ({ ...s, [id]: qty }));
+              }}
               includedItems={includedForPicker}
               minimumSpendZar={minSpendZar}
-              onContinue={() => setVenueCheckoutStep('checkout')}
+              venueLogoUrl={venueTable.venue?.logo_url || venueTable.venue?.logoUrl}
+              onContinue={() => {
+                setVenueSettlementMode('PREPAY_MENU');
+                setVenueCheckoutStep('checkout');
+              }}
+              onPayMinimumLump={
+                minSpendZar > 0
+                  ? () => {
+                      setVenueSettlementMode('PREPAY_LUMP');
+                      setVenueCheckoutStep('checkout');
+                    }
+                  : undefined
+              }
               continueLabel="Review order"
             />
           </>
@@ -451,7 +469,10 @@ export default function TableDetails() {
               type="button"
               className="sec-btn sec-btn-ghost"
               style={{ marginTop: 14, marginBottom: 8 }}
-              onClick={() => setVenueCheckoutStep('menu')}
+              onClick={() => {
+                setVenueCheckoutStep('menu');
+                setVenueSettlementMode('PREPAY_MENU');
+              }}
             >
               ← Edit menu
             </button>
@@ -459,7 +480,13 @@ export default function TableDetails() {
               lines={checkoutLines}
               settlementMode={venueSettlementMode}
               minimumSpendZar={minSpendZar}
-              footnote={isHostCheckout ? CHECKOUT_FOOTNOTES.venueHost : CHECKOUT_FOOTNOTES.venue}
+              footnote={
+                venueSettlementMode === 'PREPAY_LUMP' && minSpendZar > 0
+                  ? `You are paying the R${minSpendZar.toFixed(0)} minimum spend upfront without selecting menu items. ${isHostCheckout ? CHECKOUT_FOOTNOTES.venueHost : CHECKOUT_FOOTNOTES.venue}`
+                  : isHostCheckout
+                    ? CHECKOUT_FOOTNOTES.venueHost
+                    : CHECKOUT_FOOTNOTES.venue
+              }
             />
           </>
         )}

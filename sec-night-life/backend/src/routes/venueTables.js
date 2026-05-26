@@ -221,7 +221,7 @@ router.get('/available', optionalAuth, async (req, res, next) => {
     const rows = await prisma.venueTable.findMany({
       where,
       include: {
-        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true, acceptsDayBookings: true } },
+        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true, logoUrl: true, acceptsDayBookings: true } },
         event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
         menuItems: { where: { isAvailable: true } },
       },
@@ -286,19 +286,10 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
   const overrideMinSpend = specs.proposedMinimumSpend;
   const minSpend = overrideMinSpend != null ? Number(overrideMinSpend) : Number(table.minimumSpend || 0);
   const settlementMode =
-    minSpend > 0 ? 'PREPAY_MENU' : payload.settlementMode || table.minSpendSettlement || 'PREPAY_MENU';
-  if (
-    minSpend > 0 &&
-    payload.settlementMode &&
-    payload.settlementMode !== 'PREPAY_MENU'
-  ) {
-    return { error: 'Select menu items to meet the minimum spend before checkout.' };
-  }
-  if (
-    payload.settlementMode &&
-    (payload.settlementMode === 'PREPAY_LUMP' || payload.settlementMode === 'PAY_ON_ARRIVAL')
-  ) {
-    return { error: 'Only menu pre-selection is supported for table checkout.' };
+    payload.settlementMode ||
+    (minSpend > 0 ? 'PREPAY_MENU' : table.minSpendSettlement || 'PREPAY_MENU');
+  if (settlementMode === 'PAY_ON_ARRIVAL') {
+    return { error: 'Pay on arrival is not supported for table checkout.' };
   }
   const fullMenu = computeFullMenuTotal(menuItems, selMap);
   const menuTotal = fullMenu;
@@ -359,7 +350,7 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
     const table = await prisma.venueTable.findUnique({
       where: { id: req.params.tableId },
       include: {
-        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true } },
+        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true, logoUrl: true } },
         event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
         menuItems: true,
         members: {

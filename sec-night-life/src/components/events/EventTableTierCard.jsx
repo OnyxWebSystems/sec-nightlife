@@ -95,18 +95,22 @@ export default function EventTableTierCard({ tier, onSelect }) {
           </span>
           <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>{formatZar(tier.minSpend)}</span>
         </div>
+        {Number(tier.hostBookingFeeZar) > 0 ? (
         <div>
           <span style={{ color: 'var(--sec-text-muted)', display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             Host from
           </span>
           <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>{formatZar(tier.hostBookingFeeZar)}</span>
         </div>
+        ) : null}
+        {Number(tier.joinBookingFeeZar) > 0 ? (
         <div>
           <span style={{ color: 'var(--sec-text-muted)', display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             Join from
           </span>
           <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>{formatZar(tier.joinBookingFeeZar)}</span>
         </div>
+        ) : null}
         <div>
           <span style={{ color: 'var(--sec-text-muted)', display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             Tables open
