@@ -4,15 +4,26 @@ import React, { useState } from 'react';
  * SEC Logo — uses official logo from /Logo folder.
  * Fallback: inline SVG matching brand (stroke + gold accent).
  */
-export default function SecLogo({ size = 32, variant = 'full' }) {
+export default function SecLogo({
+  size = 32,
+  variant = 'full',
+  asset = 'default',
+  className = '',
+}) {
   const [imgError, setImgError] = useState(false);
   const showText = variant === 'full';
 
-  const logoSrc = '/Logo/sec-logo.png';
+  const logoSrc =
+    asset === 'transparent'
+      ? '/Logo/sec-email-logo-transparent.png'
+      : '/Logo/sec-logo.png';
 
   if (!imgError) {
     return (
-      <div className="sec-logo-wrap" style={{ background: 'transparent' }}>
+      <div
+        className={`sec-logo-wrap ${className}`.trim()}
+        style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}
+      >
         <img
           src={logoSrc}
           alt="SEC"
@@ -21,7 +32,8 @@ export default function SecLogo({ size = 32, variant = 'full' }) {
             height: size,
             width: 'auto',
             display: 'block',
-            objectFit: 'contain'
+            objectFit: 'contain',
+            background: 'transparent',
           }}
         />
       </div>

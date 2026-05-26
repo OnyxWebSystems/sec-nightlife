@@ -77,8 +77,13 @@ export default function CustomTableRequestModal({
           >
             <X size={16} />
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <SecLogo size={20} variant="full" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+            <SecLogo
+              size={44}
+              variant="mark"
+              asset="transparent"
+              className="custom-table-request-modal__logo"
+            />
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111', margin: 0 }}>Custom table request</h2>
           </div>
           <p style={{ fontSize: 13, color: 'rgba(0,0,0,0.65)', margin: 0 }}>

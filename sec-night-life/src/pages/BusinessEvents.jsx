@@ -809,50 +809,6 @@ export default function BusinessEvents() {
                               style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
                             />
                           </div>
-                          <div className="flex-1 min-w-[100px]">
-                            <Label className="text-xs text-gray-500">Min spend to join (ZAR)</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              step={0.01}
-                              value={tier.min_spend_join ?? tier.min_spend ?? ''}
-                              onChange={(e) => {
-                                const next = [...(form.hosting_config[cat].tiers || [])];
-                                next[idx] = { ...next[idx], min_spend_join: e.target.value };
-                                setForm((p) => ({
-                                  ...p,
-                                  hosting_config: {
-                                    ...p.hosting_config,
-                                    [cat]: { ...p.hosting_config[cat], tiers: next },
-                                  },
-                                }));
-                              }}
-                              className="mt-1 h-10 rounded-xl"
-                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
-                            />
-                          </div>
-                          <div className="flex-1 min-w-[100px]">
-                            <Label className="text-xs text-gray-500">Min spend to host (ZAR)</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              step={0.01}
-                              value={tier.min_spend_host ?? tier.min_spend ?? ''}
-                              onChange={(e) => {
-                                const next = [...(form.hosting_config[cat].tiers || [])];
-                                next[idx] = { ...next[idx], min_spend_host: e.target.value };
-                                setForm((p) => ({
-                                  ...p,
-                                  hosting_config: {
-                                    ...p.hosting_config,
-                                    [cat]: { ...p.hosting_config[cat], tiers: next },
-                                  },
-                                }));
-                              }}
-                              className="mt-1 h-10 rounded-xl"
-                              style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
-                            />
-                          </div>
                           <div className="w-full col-span-2 space-y-2">
                             <label className="flex items-center gap-2 text-xs cursor-pointer">
                               <Checkbox
@@ -892,6 +848,28 @@ export default function BusinessEvents() {
                                 style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
                               />
                             ) : null}
+                            <div>
+                              <Label className="text-xs text-gray-500">Min spend to join (ZAR)</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={tier.min_spend_join ?? tier.min_spend ?? ''}
+                                onChange={(e) => {
+                                  const next = [...(form.hosting_config[cat].tiers || [])];
+                                  next[idx] = { ...next[idx], min_spend_join: e.target.value };
+                                  setForm((p) => ({
+                                    ...p,
+                                    hosting_config: {
+                                      ...p.hosting_config,
+                                      [cat]: { ...p.hosting_config[cat], tiers: next },
+                                    },
+                                  }));
+                                }}
+                                className="mt-1 h-10 rounded-xl"
+                                style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                              />
+                            </div>
                             <label className="flex items-center gap-2 text-xs cursor-pointer">
                               <Checkbox
                                 checked={Boolean(tier.include_host_booking_fee)}
@@ -930,6 +908,28 @@ export default function BusinessEvents() {
                                 style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
                               />
                             ) : null}
+                            <div>
+                              <Label className="text-xs text-gray-500">Min spend to host (ZAR)</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={tier.min_spend_host ?? tier.min_spend ?? ''}
+                                onChange={(e) => {
+                                  const next = [...(form.hosting_config[cat].tiers || [])];
+                                  next[idx] = { ...next[idx], min_spend_host: e.target.value };
+                                  setForm((p) => ({
+                                    ...p,
+                                    hosting_config: {
+                                      ...p.hosting_config,
+                                      [cat]: { ...p.hosting_config[cat], tiers: next },
+                                    },
+                                  }));
+                                }}
+                                className="mt-1 h-10 rounded-xl"
+                                style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+                              />
+                            </div>
                           </div>
                           <div className="flex-1 min-w-[120px]">
                             <Label className="text-xs text-gray-500">Hosted tables (tier)</Label>

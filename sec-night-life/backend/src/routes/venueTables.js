@@ -8,6 +8,7 @@ import { buildTableCheckoutMetadata } from '../lib/checkoutLines.js';
 import { computeVenueCheckout, computeChargeableMenuTotal, computeFullMenuTotal } from '../lib/venueCheckout.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { sendEmail } from '../lib/email.js';
+import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 
 const router = Router();
 
@@ -210,6 +211,7 @@ router.get('/available', optionalAuth, async (req, res, next) => {
       if (!v?.acceptsDayBookings) {
         return res.json({ items: [], page: 1, limit: 20, total: 0 });
       }
+      await ensureDayCustomVenueTable(venueId);
     }
     const where = {
       isActive: true,
@@ -298,8 +300,9 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
         ? Number(table.hostMinimumSpend ?? table.minimumSpend ?? 0)
         : Number(table.minimumSpend || 0);
   const settlementMode =
-    payload.settlementMode ||
-    (minSpend > 0 ? 'PREPAY_MENU' : table.minSpendSettlement || 'PREPAY_MENU');
+    payload.settlementMode ??
+    table.minSpendSettlement ??
+    (minSpend > 0 ? 'PREPAY_MENU' : 'PREPAY_MENU');
   if (settlementMode === 'PAY_ON_ARRIVAL') {
     return { error: 'Pay on arrival is not supported for table checkout.' };
   }

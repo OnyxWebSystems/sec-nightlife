@@ -67,7 +67,7 @@ export default function TableCheckoutFooter({
               disabled={disabled}
               onClick={onPayMinimumLump}
             >
-              Pay R{minSpend.toFixed(0)} minimum without selecting items
+              Pay R{minSpend.toFixed(0)} minimum only (order on site)
             </button>
           ) : null}
           {children}

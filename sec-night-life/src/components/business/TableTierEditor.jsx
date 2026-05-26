@@ -75,22 +75,6 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
                 className="h-9 mt-1"
               />
             </div>
-            <div>
-              <Label className="text-xs">Min spend to join (ZAR)</Label>
-              <Input
-                value={tier.min_spend_join ?? tier.min_spend ?? ''}
-                onChange={(e) => updateTier(idx, { min_spend_join: e.target.value })}
-                className="h-9 mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Min spend to host (ZAR)</Label>
-              <Input
-                value={tier.min_spend_host ?? tier.min_spend ?? ''}
-                onChange={(e) => updateTier(idx, { min_spend_host: e.target.value })}
-                className="h-9 mt-1"
-              />
-            </div>
             <div className="col-span-2 space-y-2">
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <Checkbox
@@ -109,6 +93,14 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
                   />
                 </div>
               ) : null}
+              <div>
+                <Label className="text-xs">Min spend to join (ZAR)</Label>
+                <Input
+                  value={tier.min_spend_join ?? tier.min_spend ?? ''}
+                  onChange={(e) => updateTier(idx, { min_spend_join: e.target.value })}
+                  className="h-9 mt-1"
+                />
+              </div>
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <Checkbox
                   checked={Boolean(includeHost)}
@@ -126,6 +118,14 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
                   />
                 </div>
               ) : null}
+              <div>
+                <Label className="text-xs">Min spend to host (ZAR)</Label>
+                <Input
+                  value={tier.min_spend_host ?? tier.min_spend ?? ''}
+                  onChange={(e) => updateTier(idx, { min_spend_host: e.target.value })}
+                  className="h-9 mt-1"
+                />
+              </div>
             </div>
             {showSlots ? (
               <div>

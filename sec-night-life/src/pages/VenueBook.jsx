@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
-import { apiGet } from '@/api/client';
-import { ChevronLeft, Armchair, Loader2 } from 'lucide-react';
+import { apiGet, apiPost } from '@/api/client';
+import { ChevronLeft, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function VenueBook() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const venueId = params.get('venueId');
+  const [ensuring, setEnsuring] = useState(false);
 
   const { data: venue } = useQuery({
     queryKey: ['venue', venueId],
@@ -16,7 +18,7 @@ export default function VenueBook() {
     enabled: !!venueId,
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['venue-day-tables', venueId],
     queryFn: () => apiGet(`/api/venue-tables/available?venueId=${encodeURIComponent(venueId)}&dayOnly=true&limit=50`),
     enabled: !!venueId,
@@ -26,6 +28,27 @@ export default function VenueBook() {
   const dayBookingsOn = Boolean(venue?.accepts_day_bookings ?? venue?.acceptsDayBookings);
   const customListing = tables.find((t) => t.isCustomListing);
   const bookableTables = tables.filter((t) => !t.isCustomListing);
+
+  const goCustomRequest = async () => {
+    if (!venueId) return;
+    let listingId = customListing?.id;
+    if (!listingId) {
+      setEnsuring(true);
+      try {
+        const r = await apiPost(`/api/venues/${venueId}/custom-table-request`, {});
+        listingId = r?.customListingId || r?.tableId;
+        await refetch();
+      } catch (e) {
+        toast.error(e?.data?.error || e.message || 'Could not start custom request');
+        return;
+      } finally {
+        setEnsuring(false);
+      }
+    }
+    if (listingId) {
+      navigate(createPageUrl(`TableDetails?id=${listingId}&source=venue&request=1`));
+    }
+  };
 
   if (!venueId) {
     return <div className="sec-page p-6">Missing venue.</div>;
@@ -73,19 +96,14 @@ export default function VenueBook() {
             </div>
           )}
 
-          {customListing ? (
-            <Link
-              to={createPageUrl(`TableDetails?id=${customListing.id}&source=venue&request=1`)}
-              className="sec-btn sec-btn-ghost sec-btn-full block text-center"
-              style={{ textDecoration: 'none' }}
-            >
-              Request a custom table
-            </Link>
-          ) : (
-            <p className="text-xs text-center text-[var(--sec-text-muted)]">
-              Custom table requests will appear when the venue finishes setup.
-            </p>
-          )}
+          <button
+            type="button"
+            disabled={ensuring}
+            onClick={goCustomRequest}
+            className="sec-btn sec-btn-ghost sec-btn-full block text-center w-full"
+          >
+            {ensuring ? 'Loading…' : 'Request a custom table'}
+          </button>
         </>
       )}
     </div>

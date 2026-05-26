@@ -524,6 +524,13 @@
     align-items: center;
   }
 
+  .custom-table-request-modal__logo,
+  .custom-table-request-modal__logo img {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;

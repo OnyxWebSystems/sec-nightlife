@@ -179,9 +179,12 @@ export default function TableDetails() {
       toast.error('Your request was declined');
       return;
     }
-    const selected = Object.entries(selectedMenuItems)
-      .filter(([, qty]) => Number(qty) > 0)
-      .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) }));
+    const selected =
+      venueSettlementMode === 'PREPAY_LUMP'
+        ? []
+        : Object.entries(selectedMenuItems)
+            .filter(([, qty]) => Number(qty) > 0)
+            .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) }));
     setIsProcessingPayment(true);
     try {
       const pay = await apiPost(`/api/venue-tables/${tableId}/join`, {
@@ -448,7 +451,7 @@ export default function TableDetails() {
             <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 16, marginBottom: 8 }}>Select your menu</h2>
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 12 }}>
               {minSpendZar > 0
-                ? `Choose items worth at least R${minSpendZar.toFixed(0)} to meet the minimum spend.`
+                ? `Choose menu items worth at least R${minSpendZar.toFixed(0)}, or pay the minimum only and order on site (your QR is proof for staff).`
                 : 'Add items from the venue menu (optional).'}
             </p>
             <VenueMenuBrowser
@@ -483,7 +486,7 @@ export default function TableDetails() {
               minimumSpendZar={minSpendZar}
               footnote={
                 venueSettlementMode === 'PREPAY_LUMP' && minSpendZar > 0
-                  ? `You are paying the R${minSpendZar.toFixed(0)} minimum spend upfront without selecting menu items. ${isHostCheckout ? CHECKOUT_FOOTNOTES.venueHost : CHECKOUT_FOOTNOTES.venue}`
+                  ? `You are prepaying R${minSpendZar.toFixed(0)} minimum spend. Choose drinks and food on site — show your SEC QR to staff. ${isHostCheckout ? CHECKOUT_FOOTNOTES.venueHost : CHECKOUT_FOOTNOTES.venue}`
                   : isHostCheckout
                     ? CHECKOUT_FOOTNOTES.venueHost
                     : CHECKOUT_FOOTNOTES.venue

@@ -19,6 +19,7 @@ async function syncProfileFollowedVenues(userId, venueId, following) {
   });
 }
 import { isStaff } from '../lib/access.js';
+import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 
 const router = Router();
 
@@ -395,31 +396,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     });
 
     if (extraData.accepts_day_bookings === true) {
-      const existingCustom = await prisma.venueTable.findFirst({
-        where: {
-          venueId: venue.id,
-          eventId: null,
-          isCustomListing: true,
-          isActive: true,
-        },
-      });
-      if (!existingCustom) {
-        await prisma.venueTable.create({
-          data: {
-            venueId: venue.id,
-            eventId: null,
-            tableName: 'Custom table request',
-            description: 'Submit your specs — the venue reviews before checkout.',
-            guestCapacity: 500,
-            minimumSpend: 0,
-            bookingFeeZar: 0,
-            minSpendSettlement: 'PREPAY_MENU',
-            allowsCustomRequests: true,
-            isCustomListing: true,
-            isActive: true,
-          },
-        });
-      }
+      await ensureDayCustomVenueTable(venue.id);
     }
 
     res.json({
@@ -434,6 +411,75 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       longitude: updated.longitude,
       cover_image_url: updated.coverImageUrl,
       compliance_status: updated.complianceStatus
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Ensure day custom listing exists; optional guest request payload. */
+router.post('/:id/custom-table-request', authenticateToken, async (req, res, next) => {
+  try {
+    const venue = await prisma.venue.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+    });
+    if (!venue) return res.status(404).json({ error: 'Venue not found' });
+    if (!venue.acceptsDayBookings) {
+      return res.status(400).json({ error: 'This venue has not enabled day table bookings' });
+    }
+    if (venue.ownerUserId === req.userId) {
+      return res.status(403).json({ error: 'Cannot request a table at your own venue' });
+    }
+    const listing = await ensureDayCustomVenueTable(venue.id);
+    if (!listing?.id) {
+      return res.status(500).json({ error: 'Could not create custom table listing' });
+    }
+
+    const body = req.body || {};
+    const hasSpecs =
+      body.guestCount != null ||
+      body.notes ||
+      body.preferredTime ||
+      body.proposedMinimumSpend != null;
+
+    if (!hasSpecs) {
+      return res.json({
+        customListingId: listing.id,
+        tableId: listing.id,
+        venueId: venue.id,
+      });
+    }
+
+    const userSpecs = {
+      guestCount: body.guestCount != null ? Number(body.guestCount) : undefined,
+      proposedMinimumSpend:
+        body.proposedMinimumSpend != null ? Number(body.proposedMinimumSpend) : undefined,
+      notes: typeof body.notes === 'string' ? body.notes : undefined,
+      preferredTime: typeof body.preferredTime === 'string' ? body.preferredTime : undefined,
+      selectedMenuItems: body.selectedMenuItems,
+    };
+
+    const member = await prisma.venueTableMember.upsert({
+      where: { venueTableId_userId: { venueTableId: listing.id, userId: req.userId } },
+      create: {
+        venueTableId: listing.id,
+        userId: req.userId,
+        userSpecs,
+        status: 'PENDING_VENUE_REVIEW',
+      },
+      update: {
+        userSpecs,
+        status: 'PENDING_VENUE_REVIEW',
+        declineReason: null,
+      },
+    });
+
+    res.status(201).json({
+      customListingId: listing.id,
+      tableId: listing.id,
+      venueId: venue.id,
+      memberId: member.id,
+      status: member.status,
     });
   } catch (err) {
     next(err);

@@ -172,17 +172,26 @@ export function formatSpecsFromHostedTable(ht, members) {
   return parts.length ? parts.join(' · ') : null;
 }
 
-/** Refresh ticket QR summary text after menu changes. */
+/**
+ * @deprecated Do not overwrite all guest join tickets with table-wide menu text.
+ * Menu orders get their own ticket per payment (see payments HOSTED_TABLE_MENU).
+ */
 export async function refreshHostedTableTickets(prisma, hostedTableId) {
   const ht = await prisma.hostedTable.findUnique({
     where: { id: String(hostedTableId) },
     include: { members: true },
   });
   if (!ht) return;
-  const summary = formatSpecsFromHostedTable(ht, ht.members);
+  const hostMem = ht.members?.find((m) => m.userId === ht.hostUserId);
+  if (!hostMem) return;
+  const summary = formatSpecsFromHostedTable(ht, [hostMem]);
   if (!summary) return;
   await prisma.ticket.updateMany({
-    where: { hostedTableId: ht.id },
+    where: {
+      hostedTableId: ht.id,
+      userId: ht.hostUserId,
+      kind: 'TABLE_HOST_FEE',
+    },
     data: { tableSpecsSummary: summary },
   });
 }

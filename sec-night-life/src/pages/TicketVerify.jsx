@@ -353,7 +353,7 @@ export default function TicketVerify() {
             {payload.table_specs_summary && (
               <div className="mb-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Booking details</div>
-                <p className="text-sm text-gray-300 leading-relaxed">{payload.table_specs_summary}</p>
+                <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{payload.table_specs_summary}</p>
               </div>
             )}
 
