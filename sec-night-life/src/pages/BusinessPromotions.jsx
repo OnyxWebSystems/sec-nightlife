@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import * as authService from '@/services/authService';
@@ -10,6 +9,63 @@ import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { createPageUrl } from '@/utils';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
+import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+
+const PUBLISH_ZAR_PER_DAY = 50;
+const BOOST_ZAR_PER_DAY = 150;
+const MIN_PUBLISH_D = 1;
+const MAX_PUBLISH_D = 30;
+const MIN_BOOST_D = 0;
+const MAX_BOOST_D = 30;
+
+async function checkoutPromotionPublish({ promotionId, publishDays, boostDays, email, onSuccess }) {
+  const pay = await apiPost(`/api/promotions/${promotionId}/checkout`, {
+    publishDays,
+    boostDays: Math.max(0, boostDays),
+  });
+  if (!pay?.reference || !pay?.access_code) {
+    toast.error('Could not start payment. Check Paystack configuration.');
+    return false;
+  }
+  await launchPaystackInline({
+    email,
+    amount: pay.amount_zar ?? 0,
+    reference: pay.reference,
+    accessCode: pay.access_code,
+    onSuccess: async (payload) => {
+      await verifyPaystackReference(payload?.reference || pay.reference);
+      if (onSuccess) onSuccess();
+      toast.success('Payment successful — your promotion is live.');
+    },
+    onCancel: () => {
+      toast.message('Checkout closed', { description: 'No charge was completed.' });
+    },
+  });
+  return true;
+}
+
+async function checkoutPromotionBoostOnly({ promotionId, days, email, onSuccess }) {
+  const payment = await apiPost(`/api/promotions/${promotionId}/boost`, { days });
+  if (!payment?.reference || !payment?.access_code) {
+    toast.error('Could not initialize Paystack payment');
+    return false;
+  }
+  await launchPaystackInline({
+    email,
+    amount: payment.amount_zar ?? days * BOOST_ZAR_PER_DAY,
+    reference: payment.reference,
+    accessCode: payment.access_code,
+    onSuccess: async (payload) => {
+      await verifyPaystackReference(payload?.reference || payment.reference);
+      if (onSuccess) onSuccess();
+      toast.success(`Boost active for ${days} day(s)`);
+    },
+    onCancel: () => {
+      toast.message('Checkout closed');
+    },
+  });
+  return true;
+}
 
 const SA_CITIES = ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein', 'Port Elizabeth', 'East London', 'Polokwane', 'Nelspruit', 'Rustenburg'];
 const TYPES = [
@@ -136,7 +192,7 @@ function extractErrorDetails(error) {
   return '';
 }
 
-const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVenue, events, onPublished }) {
+const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVenue, events, userEmail, onPublished }) {
   const [form, setForm] = useState({
     promoteWhat: 'venue',
     eventId: '',
@@ -146,9 +202,10 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
     imageUrl: '',
     imagePublicId: '',
     targetCity: '',
-    startsAt: '',
-    endsAt: '',
   });
+  const [publishDays, setPublishDays] = useState(7);
+  const [boostDays, setBoostDays] = useState(3);
+  const [useBoost, setUseBoost] = useState(true);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -164,35 +221,25 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
     },
   });
 
-  const durationText = useMemo(() => {
-    if (!form.startsAt || !form.endsAt) return '';
-    const start = new Date(form.startsAt);
-    const end = new Date(form.endsAt);
-    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-    return `This promotion runs for ${days} day${days === 1 ? '' : 's'}`;
-  }, [form.startsAt, form.endsAt]);
+  const publishTotal = publishDays * PUBLISH_ZAR_PER_DAY;
+  const boostTotal = useBoost ? boostDays * BOOST_ZAR_PER_DAY : 0;
+  const checkoutTotal = publishTotal + boostTotal;
 
-  async function handlePublish() {
+  async function handlePayAndPublish() {
     setFormError('');
     if (!selectedVenue) return setFormError('Please select a venue.');
     if (form.promoteWhat === 'event' && !form.eventId) return setFormError('Choose an event to promote.');
     if (!form.title.trim()) return setFormError('Title is required.');
     if (!form.body.trim()) return setFormError('Body is required.');
-    if (!form.startsAt || !form.endsAt) return setFormError('Start and end dates are required.');
+    if (!userEmail) return setFormError('Sign in with a verified email to pay.');
+    if (useBoost && boostDays < 1) return setFormError('Choose at least 1 boost day or turn boost off.');
+
+    const now = new Date();
+    const startsAtIso = new Date(now.getTime() + 60_000).toISOString();
+    const endsAtIso = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000).toISOString();
 
     setSaving(true);
     try {
-      let startsAtIso;
-      let endsAtIso;
-      try {
-        startsAtIso = localDateTimeToIso(form.startsAt);
-        endsAtIso = localDateTimeToIso(form.endsAt);
-      } catch {
-        setFormError('Invalid start or end date. Please pick valid date and time values.');
-        setSaving(false);
-        return;
-      }
-
       const payload = {
         venueId: selectedVenue.trim(),
         eventId: form.promoteWhat === 'event' ? form.eventId.trim() : null,
@@ -223,8 +270,6 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         created = await apiPost('/api/promotions', payload);
       } catch (error) {
         if (!isInvalidInputError(error)) throw error;
-
-        // Backward compatibility for older backend payload contracts.
         created = await apiPost('/api/promotions', {
           venue_id: payload.venueId,
           event_id: payload.eventId,
@@ -245,70 +290,113 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         });
       }
 
-      toast.success('Your promotion is live!');
-      setForm({
-        promoteWhat: 'venue',
-        eventId: '',
-        promotionType: 'VENUE_PROMOTION',
-        title: '',
-        body: '',
-        imageUrl: '',
-        imagePublicId: '',
-        targetCity: '',
-        startsAt: '',
-        endsAt: '',
+      const ok = await checkoutPromotionPublish({
+        promotionId: created.id,
+        publishDays,
+        boostDays: useBoost ? boostDays : 0,
+        email: userEmail,
+        onSuccess: async () => {
+          await onPublished(created);
+        },
       });
-      await onPublished(created);
+
+      if (ok) {
+        setForm({
+          promoteWhat: 'venue',
+          eventId: '',
+          promotionType: 'VENUE_PROMOTION',
+          title: '',
+          body: '',
+          imageUrl: '',
+          imagePublicId: '',
+          targetCity: '',
+        });
+        setPublishDays(7);
+        setBoostDays(3);
+        setUseBoost(true);
+      }
     } catch (e) {
       const extra = extractErrorDetails(e);
-      setFormError(extra ? `${formatApiError(e, 'Failed to publish promotion')} — ${extra}` : formatApiError(e, 'Failed to publish promotion'));
+      setFormError(extra ? `${formatApiError(e, 'Could not create or pay')} — ${extra}` : formatApiError(e, 'Could not create or pay'));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="sec-card" style={{ padding: 12, marginBottom: 12 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Create Promotion</h2>
+    <div
+      className="sec-card"
+      style={{
+        padding: 22,
+        marginBottom: 20,
+        border: '1px solid var(--sec-accent-border)',
+        boxShadow: 'var(--shadow-card)',
+        background: 'linear-gradient(165deg, var(--sec-bg-elevated) 0%, var(--sec-bg-card) 45%, var(--sec-bg-card) 100%)',
+      }}
+    >
+      <span className="sec-label" style={{ marginBottom: 8 }}>
+        New campaign
+      </span>
+      <h2 className="sec-page-title" style={{ fontSize: 'var(--text-2xl)', marginBottom: 6 }}>
+        Create & publish
+      </h2>
+      <p className="sec-page-subtitle" style={{ fontSize: 'var(--text-sm)', marginTop: 0, marginBottom: 18 }}>
+        Save a draft, then pay R{PUBLISH_ZAR_PER_DAY}/day to go live. Optional boost R{BOOST_ZAR_PER_DAY}/day for priority in the home feed — all in one checkout.
+      </p>
+
       <Label>What are you promoting?</Label>
       <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'venue', eventId: '' }))} style={{ flex: 1, opacity: form.promoteWhat === 'venue' ? 1 : 0.6 }}>My Venue</button>
-        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'event' }))} style={{ flex: 1, opacity: form.promoteWhat === 'event' ? 1 : 0.6 }}>An Event</button>
+        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'venue', eventId: '' }))} style={{ flex: 1, opacity: form.promoteWhat === 'venue' ? 1 : 0.55, borderColor: form.promoteWhat === 'venue' ? 'var(--sec-accent)' : undefined }}>
+          My Venue
+        </button>
+        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => setForm((f) => ({ ...f, promoteWhat: 'event' }))} style={{ flex: 1, opacity: form.promoteWhat === 'event' ? 1 : 0.55, borderColor: form.promoteWhat === 'event' ? 'var(--sec-accent)' : undefined }}>
+          An Event
+        </button>
       </div>
 
       {form.promoteWhat === 'event' && (
-        <div style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 14 }}>
           <Label>Event</Label>
-          <select className="sec-input-rect" value={form.eventId} onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
+          <select className="sec-input-rect" value={form.eventId} onChange={(e) => setForm((f) => ({ ...f, eventId: e.target.value }))} style={{ marginTop: 6, height: 44, width: '100%' }}>
             <option value="">Select upcoming event</option>
-            {events.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
+            {events.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.title}
+              </option>
+            ))}
           </select>
         </div>
       )}
 
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 14 }}>
         <Label>Promotion Type</Label>
-        <select className="sec-input-rect" value={form.promotionType} onChange={(e) => setForm((f) => ({ ...f, promotionType: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
-          {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        <select className="sec-input-rect" value={form.promotionType} onChange={(e) => setForm((f) => ({ ...f, promotionType: e.target.value }))} style={{ marginTop: 6, height: 44, width: '100%' }}>
+          {TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
         </select>
       </div>
 
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 14 }}>
         <Label>Title ({form.title.length}/100)</Label>
-        <input className="sec-input-rect" value={form.title} maxLength={100} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
+        <input className="sec-input-rect" value={form.title} maxLength={100} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={{ marginTop: 6, height: 44, width: '100%' }} />
       </div>
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 14 }}>
         <Label>Body ({form.body.length}/500)</Label>
-        <textarea className="sec-input-rect" value={form.body} maxLength={500} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} style={{ marginTop: 6, minHeight: 90 }} />
+        <textarea className="sec-input-rect" value={form.body} maxLength={500} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} style={{ marginTop: 6, minHeight: 100, width: '100%' }} />
       </div>
 
-      <div style={{ marginTop: 10 }}>
-        <Label>Image Upload (optional)</Label>
-        <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={imageCrop.handleInputChange} style={{ marginTop: 6 }} />
+      <div style={{ marginTop: 14 }}>
+        <Label>Image (optional)</Label>
+        <input type="file" accept=".jpg,.jpeg,.png,.webp,.svg,image/svg+xml" onChange={imageCrop.handleInputChange} style={{ marginTop: 8 }} />
         {form.imageUrl && (
-          <div style={{ marginTop: 8 }}>
-            <img src={form.imageUrl} alt="Promotion" style={{ width: '100%', borderRadius: 12, maxHeight: 180, objectFit: 'cover' }} />
-            <button type="button" className="sec-btn sec-btn-ghost" style={{ marginTop: 6 }} onClick={() => setForm((f) => ({ ...f, imageUrl: '', imagePublicId: '' }))}>Remove image</button>
+          <div style={{ marginTop: 10 }}>
+            <img src={form.imageUrl} alt="" style={{ width: '100%', borderRadius: 12, maxHeight: 200, objectFit: 'cover' }} />
+            <button type="button" className="sec-btn sec-btn-ghost" style={{ marginTop: 8 }} onClick={() => setForm((f) => ({ ...f, imageUrl: '', imagePublicId: '' }))}>
+              Remove image
+            </button>
           </div>
         )}
       </div>
@@ -322,27 +410,62 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         outputFileName="promotion.jpg"
       />
 
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 14 }}>
         <Label>Target City</Label>
-        <select className="sec-input-rect" value={form.targetCity} onChange={(e) => setForm((f) => ({ ...f, targetCity: e.target.value }))} style={{ marginTop: 6, height: 42 }}>
-          <option value="">National — Show to everyone</option>
-          {SA_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        <select className="sec-input-rect" value={form.targetCity} onChange={(e) => setForm((f) => ({ ...f, targetCity: e.target.value }))} style={{ marginTop: 6, height: 44, width: '100%' }}>
+          <option value="">National — everyone</option>
+          {SA_CITIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
         </select>
       </div>
 
-      <div style={{ marginTop: 10 }}>
-        <Label>Start Date + Time</Label>
-        <input type="datetime-local" className="sec-input-rect" value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
-      </div>
-      <div style={{ marginTop: 10 }}>
-        <Label>End Date + Time</Label>
-        <input type="datetime-local" className="sec-input-rect" value={form.endsAt} onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))} style={{ marginTop: 6, height: 42 }} />
-      </div>
-      {durationText && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>{durationText}</p>}
-      {formError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{formError}</p>}
+      <div
+        style={{
+          marginTop: 22,
+          padding: 16,
+          borderRadius: 14,
+          border: '1px solid var(--sec-border-strong)',
+          background: 'var(--sec-bg-base)',
+        }}
+      >
+        <p className="sec-label" style={{ marginBottom: 10 }}>
+          Checkout
+        </p>
+        <div style={{ marginBottom: 14 }}>
+          <div className="flex justify-between text-sm mb-2" style={{ color: 'var(--sec-text-secondary)' }}>
+            <span>Run length · {publishDays} day{publishDays === 1 ? '' : 's'} × R{PUBLISH_ZAR_PER_DAY}</span>
+            <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>R{publishTotal.toLocaleString('en-ZA')}</span>
+          </div>
+          <input type="range" min={MIN_PUBLISH_D} max={MAX_PUBLISH_D} value={publishDays} onChange={(e) => setPublishDays(parseInt(e.target.value, 10))} className="w-full" style={{ accentColor: 'var(--sec-accent)' }} />
+        </div>
 
-      <button type="button" className="sec-btn sec-btn-primary sec-btn-full" disabled={saving} style={{ marginTop: 12 }} onClick={handlePublish}>
-        {saving ? 'Publishing...' : 'Publish Promotion'}
+        <label className="flex items-center gap-2 text-sm mb-3" style={{ color: 'var(--sec-text-secondary)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={useBoost} onChange={(e) => setUseBoost(e.target.checked)} />
+          Add feed boost (R{BOOST_ZAR_PER_DAY}/day)
+        </label>
+        {useBoost ? (
+          <div style={{ marginBottom: 14 }}>
+            <div className="flex justify-between text-sm mb-2" style={{ color: 'var(--sec-text-secondary)' }}>
+              <span>Boost · {boostDays} day{boostDays === 1 ? '' : 's'}</span>
+              <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>R{boostTotal.toLocaleString('en-ZA')}</span>
+            </div>
+            <input type="range" min={1} max={MAX_BOOST_D} value={Math.max(1, boostDays)} onChange={(e) => setBoostDays(parseInt(e.target.value, 10))} className="w-full" style={{ accentColor: 'var(--sec-warning)' }} />
+          </div>
+        ) : null}
+
+        <div className="flex justify-between items-baseline pt-3 border-t" style={{ borderColor: 'var(--sec-border)' }}>
+          <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Total due</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--sec-accent-bright)' }}>R{checkoutTotal.toLocaleString('en-ZA')}</span>
+        </div>
+      </div>
+
+      {formError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 12 }}>{formError}</p>}
+
+      <button type="button" className="sec-btn sec-btn-primary sec-btn-full" disabled={saving || !selectedVenue} style={{ marginTop: 16, height: 50, fontWeight: 700 }} onClick={() => void handlePayAndPublish()}>
+        {saving ? 'Processing…' : 'Pay & publish with Paystack'}
       </button>
     </div>
   );
@@ -605,55 +728,198 @@ const PromotionEditModal = React.memo(function PromotionEditModal({ open, promot
   );
 });
 
-const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, loadingList, onPatch, onDelete, onBoost, onEditOpen }) {
+const PublishRepublishModal = React.memo(function PublishRepublishModal({ open, promotion, userEmail, onClose, onPaid }) {
+  const [publishDays, setPublishDays] = useState(7);
+  const [boostDays, setBoostDays] = useState(3);
+  const [useBoost, setUseBoost] = useState(true);
+  const [paying, setPaying] = useState(false);
+
+  const publishTotal = publishDays * PUBLISH_ZAR_PER_DAY;
+  const boostTotal = useBoost ? boostDays * BOOST_ZAR_PER_DAY : 0;
+  const checkoutTotal = publishTotal + boostTotal;
+
+  if (!open || !promotion) return null;
+
+  async function pay() {
+    if (!userEmail) {
+      toast.error('Sign in with email to pay.');
+      return;
+    }
+    if (useBoost && boostDays < 1) {
+      toast.error('Choose boost days or turn boost off.');
+      return;
+    }
+    setPaying(true);
+    try {
+      await checkoutPromotionPublish({
+        promotionId: promotion.id,
+        publishDays,
+        boostDays: useBoost ? boostDays : 0,
+        email: userEmail,
+        onSuccess: async () => {
+          await onPaid();
+          onClose();
+        },
+      });
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Payment failed');
+    } finally {
+      setPaying(false);
+    }
+  }
+
   return (
-    <div className="sec-card" style={{ padding: 12 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Your Promotions</h2>
-      {loadingList && <p style={{ fontSize: 12 }}>Loading...</p>}
-      {!loadingList && promotions.length === 0 && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>No promotions yet.</p>}
-      <div style={{ display: 'grid', gap: 8 }}>
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'rgba(0,0,0,0.72)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="sec-card"
+        style={{ maxWidth: 420, width: '100%', padding: 20, border: '1px solid var(--sec-accent-border)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="sec-label">Checkout</span>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginTop: 8 }}>{promotion.title}</h3>
+        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>Pay to go live for the days you choose.</p>
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+            <span style={{ color: 'var(--sec-text-secondary)' }}>Publish · {publishDays}d × R{PUBLISH_ZAR_PER_DAY}</span>
+            <span style={{ fontWeight: 600 }}>R{publishTotal}</span>
+          </div>
+          <input type="range" min={MIN_PUBLISH_D} max={MAX_PUBLISH_D} value={publishDays} onChange={(e) => setPublishDays(+e.target.value)} style={{ width: '100%', accentColor: 'var(--sec-accent)' }} />
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, cursor: 'pointer', color: 'var(--sec-text-secondary)' }}>
+          <input type="checkbox" checked={useBoost} onChange={(e) => setUseBoost(e.target.checked)} />
+          Boost feed · R{BOOST_ZAR_PER_DAY}/day
+        </label>
+        {useBoost ? (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+              <span style={{ color: 'var(--sec-text-secondary)' }}>{boostDays} day(s)</span>
+              <span style={{ fontWeight: 600 }}>R{boostTotal}</span>
+            </div>
+            <input type="range" min={1} max={MAX_BOOST_D} value={Math.max(1, boostDays)} onChange={(e) => setBoostDays(+e.target.value)} style={{ width: '100%', accentColor: 'var(--sec-warning)' }} />
+          </div>
+        ) : null}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--sec-border)' }}>
+          <span style={{ color: 'var(--sec-text-muted)' }}>Total</span>
+          <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-accent-bright)' }}>R{checkoutTotal}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <button type="button" className="sec-btn sec-btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="sec-btn sec-btn-primary" style={{ flex: 1 }} disabled={paying} onClick={() => void pay()}>
+            {paying ? '…' : 'Pay with Paystack'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const PromotionCardsList = React.memo(function PromotionCardsList({
+  promotions,
+  loadingList,
+  listMode,
+  onPatch,
+  onDelete,
+  onEditOpen,
+  onPublishOpen,
+  onBoostPay,
+}) {
+  const title = listMode === 'past' ? 'Past promotions' : 'Live & drafts';
+  return (
+    <div className="sec-card" style={{ padding: 18, border: '1px solid var(--sec-border-strong)', boxShadow: 'var(--shadow-sm)' }}>
+      <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4, letterSpacing: '-0.02em' }}>{title}</h2>
+      <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 12 }}>
+        {listMode === 'past' ? 'Republish to run again or remove permanently.' : 'Pause, boost, or finish edits before you pay drafts live.'}
+      </p>
+      {loadingList && <p style={{ fontSize: 13 }}>Loading…</p>}
+      {!loadingList && promotions.length === 0 && <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Nothing here yet.</p>}
+      <div style={{ display: 'grid', gap: 12 }}>
         {promotions.map((p) => (
-          <div key={p.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 12, padding: 10 }}>
+          <div key={p.id} style={{ border: '1px solid var(--sec-border)', borderRadius: 14, padding: 14, background: 'var(--sec-bg-elevated)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-              <strong style={{ fontSize: 14 }}>{p.title}</strong>
+              <strong style={{ fontSize: 15 }}>{p.title}</strong>
               <PromotionStatusBadge status={p.status} />
             </div>
-            <p style={{ fontSize: 11, marginTop: 4 }}>{p.promotionType}</p>
+            <p style={{ fontSize: 11, marginTop: 6, color: 'var(--sec-text-muted)' }}>{p.promotionType}</p>
             <p style={{ fontSize: 11, marginTop: 2 }}>Target: {p.targetCity || 'National'}</p>
             <p style={{ fontSize: 11 }}>Views {p.boostImpressions + p.organicImpressions} · Clicks {p.totalClicks}</p>
-            {p.eventId && <p style={{ fontSize: 11 }}>Promoting: {p.eventName || 'Event'}</p>}
-            {p.boosted && <p style={{ fontSize: 11, color: 'var(--sec-warning)' }}>Boosted until {new Date(p.boostExpiresAt).toLocaleDateString()}</p>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
-              {p.status !== 'ENDED' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                  {p.status === 'ACTIVE' && (
-                    <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: 'PAUSED' })}>
-                      Pause
-                    </button>
-                  )}
-                  {p.status === 'PAUSED' && (
-                    <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: 'ACTIVE' })}>
-                      Resume
-                    </button>
-                  )}
-                  {p.status === 'DRAFT' && (
-                    <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: 'ACTIVE' })}>
-                      Activate
-                    </button>
-                  )}
-                  <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onBoost(p)}>
-                    Boost
+            {p.eventId && <p style={{ fontSize: 11 }}>Event: {p.eventName || '—'}</p>}
+            {p.boosted && listMode === 'live' ? (
+              <p style={{ fontSize: 11, color: 'var(--sec-warning)', marginTop: 4 }}>Boosted until {p.boostExpiresAt ? new Date(p.boostExpiresAt).toLocaleString() : '—'}</p>
+            ) : null}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+              {listMode === 'past' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button type="button" className="sec-btn sec-btn-primary" onClick={() => onPublishOpen(p)}>
+                    Republish
+                  </button>
+                  <button type="button" className="sec-btn sec-btn-ghost" onClick={() => onDelete(p.id)}>
+                    Delete
                   </button>
                 </div>
+              ) : (
+                <>
+                  {p.status === 'DRAFT' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <button type="button" className="sec-btn sec-btn-primary" onClick={() => onPublishOpen(p)}>
+                        Pay to publish
+                      </button>
+                      <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onEditOpen(p)}>
+                        Edit
+                      </button>
+                    </div>
+                  )}
+                  {p.status !== 'DRAFT' && p.status !== 'ENDED' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {p.status === 'ACTIVE' && (
+                        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: 'PAUSED' })}>
+                          Pause
+                        </button>
+                      )}
+                      {p.status === 'PAUSED' && (
+                        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onPatch(p.id, { status: 'ACTIVE' })}>
+                          Resume
+                        </button>
+                      )}
+                      <button type="button" className="sec-btn sec-btn-secondary" disabled={p.boosted} onClick={() => onBoostPay(p)}>
+                        {p.boosted ? 'Boosted' : 'Boost'}
+                      </button>
+                    </div>
+                  )}
+                  {p.status !== 'DRAFT' && p.status !== 'ENDED' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onEditOpen(p)}>
+                        Edit
+                      </button>
+                      <button type="button" className="sec-btn sec-btn-ghost" onClick={() => onDelete(p.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                  {p.status === 'DRAFT' && (
+                    <button type="button" className="sec-btn sec-btn-ghost sec-btn-full" onClick={() => onDelete(p.id)}>
+                      Delete draft
+                    </button>
+                  )}
+                </>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onEditOpen(p)}>
-                  Edit
-                </button>
-                <button type="button" className="sec-btn sec-btn-ghost" onClick={() => onDelete(p.id)}>
-                  Delete
-                </button>
-              </div>
             </div>
           </div>
         ))}
@@ -663,15 +929,14 @@ const PromotionCardsList = React.memo(function PromotionCardsList({ promotions, 
 });
 
 export default function BusinessPromotions() {
-  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
   const [promotions, setPromotions] = useState([]);
   const [events, setEvents] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
-  const [justPublished, setJustPublished] = useState(null);
   const [editingPromotion, setEditingPromotion] = useState(null);
+  const [publishModal, setPublishModal] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -728,17 +993,33 @@ export default function BusinessPromotions() {
     })();
   }, [selectedVenue, loadPromotions, loadEvents]);
 
-  const handlePromotionPublished = useCallback(async (created) => {
-    setJustPublished(created);
+  const handlePromotionPublished = useCallback(async () => {
     await loadPromotions(selectedVenue);
   }, [selectedVenue, loadPromotions]);
 
-  const goBoostCheckout = useCallback(
-    (promotion) => {
-      if (!promotion?.id) return;
-      navigate(`${createPageUrl('BusinessPromotionBoost')}?id=${encodeURIComponent(promotion.id)}`);
+  const runBoostPayment = useCallback(
+    async (promotion) => {
+      if (!user?.email || !promotion?.id) {
+        toast.error('Sign in to boost');
+        return;
+      }
+      const daysStr = typeof window !== 'undefined' ? window.prompt('Boost days (1–30)', '7') : '7';
+      if (daysStr === null) return;
+      const days = Math.min(30, Math.max(1, parseInt(String(daysStr), 10) || 7));
+      try {
+        await checkoutPromotionBoostOnly({
+          promotionId: promotion.id,
+          days,
+          email: user.email,
+          onSuccess: async () => {
+            await loadPromotions(selectedVenue);
+          },
+        });
+      } catch (e) {
+        toast.error(e?.data?.error || e.message || 'Boost failed');
+      }
     },
-    [navigate]
+    [user?.email, selectedVenue, loadPromotions],
   );
 
   const patchPromotion = useCallback(async (id, payload) => {
@@ -776,49 +1057,56 @@ export default function BusinessPromotions() {
     }
   }, [selectedVenue, loadPromotions]);
 
+  const livePromotions = useMemo(() => promotions.filter((p) => p.status !== 'ENDED'), [promotions]);
+  const pastPromotions = useMemo(() => promotions.filter((p) => p.status === 'ENDED'), [promotions]);
+
   if (!user) return null;
 
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', padding: '16px 12px 100px' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Promotions</h1>
-      <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 14 }}>Create and manage your venue promotions.</p>
-      <div style={{ marginBottom: 12 }}>
+    <div style={{ maxWidth: 920, margin: '0 auto', padding: '24px 16px 120px' }}>
+      <header className="sec-page-header" style={{ marginBottom: 24 }}>
+        <span className="sec-label">Business</span>
+        <h1 className="sec-page-title">Promotions</h1>
+        <p className="sec-page-subtitle">Premium placement for your venue, offers, and announcements — publish by the day and boost for the feed.</p>
+      </header>
+      <div style={{ marginBottom: 16 }}>
         {!userProfile?.payment_setup_complete ? (
-          <div className="sec-card" style={{ padding: 10, marginBottom: 8 }}>
-            <p style={{ fontSize: 12, color: 'var(--sec-text-primary)' }}>
-              Payout setup missing. Add details in
-              {' '}<a href={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>Settings &gt; Payment Methods</a>
-              {' '}to avoid pending payouts.
+          <div className="sec-card" style={{ padding: 12, marginBottom: 10, border: '1px solid var(--sec-border)' }}>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
+              Payout setup missing. Add details in{' '}
+              <a href={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>
+                Settings &gt; Payment Methods
+              </a>{' '}
+              to avoid pending payouts.
             </p>
           </div>
         ) : null}
         <RefundPolicyNote />
       </div>
 
-      <div className="sec-card" style={{ padding: 12, marginBottom: 12 }}>
-        <Label>Select Venue</Label>
-        <select className="sec-input-rect" value={selectedVenue} onChange={(e) => setSelectedVenue(e.target.value)} style={{ marginTop: 6, height: 42 }}>
+      <div className="sec-card" style={{ padding: 14, marginBottom: 20, border: '1px solid var(--sec-border)' }}>
+        <Label>Venue</Label>
+        <select className="sec-input-rect" value={selectedVenue} onChange={(e) => setSelectedVenue(e.target.value)} style={{ marginTop: 8, height: 44, width: '100%' }}>
           <option value="">Choose a venue</option>
-          {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          {venues.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
         </select>
       </div>
 
-      <PromotionCreateForm selectedVenue={selectedVenue} events={events} onPublished={handlePromotionPublished} />
+      <PromotionCreateForm selectedVenue={selectedVenue} events={events} userEmail={user?.email} onPublished={handlePromotionPublished} />
 
-      {justPublished && (
-        <div className="sec-card" style={{ padding: 12, marginBottom: 12, border: '1px solid #facc15' }}>
-          <p style={{ fontSize: 13, marginBottom: 10 }}>
-            Want more reach? Boost this promotion — R150 per day — and get priority placement in the home feed.
-          </p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="sec-btn sec-btn-primary" style={{ flex: 1 }} onClick={() => goBoostCheckout(justPublished)}>Choose boost</button>
-            <button className="sec-btn sec-btn-secondary" style={{ flex: 1 }} onClick={() => setJustPublished(null)}>Maybe Later</button>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <RefundPolicyNote />
-          </div>
-        </div>
-      )}
+      <PublishRepublishModal
+        open={!!publishModal}
+        promotion={publishModal}
+        userEmail={user?.email}
+        onClose={() => setPublishModal(null)}
+        onPaid={async () => {
+          await loadPromotions(selectedVenue);
+        }}
+      />
 
       <PromotionEditModal
         open={!!editingPromotion}
@@ -828,14 +1116,28 @@ export default function BusinessPromotions() {
         onSave={saveEditedPromotion}
       />
 
-      <PromotionCardsList
-        promotions={promotions}
-        loadingList={loadingList}
-        onPatch={patchPromotion}
-        onDelete={deletePromotion}
-        onBoost={goBoostCheckout}
-        onEditOpen={(p) => setEditingPromotion(p)}
-      />
+      <div style={{ display: 'grid', gap: 20, gridTemplateColumns: 'minmax(0, 1fr)' }}>
+        <PromotionCardsList
+          promotions={livePromotions}
+          loadingList={loadingList}
+          listMode="live"
+          onPatch={patchPromotion}
+          onDelete={deletePromotion}
+          onEditOpen={(p) => setEditingPromotion(p)}
+          onPublishOpen={(p) => setPublishModal(p)}
+          onBoostPay={runBoostPayment}
+        />
+        <PromotionCardsList
+          promotions={pastPromotions}
+          loadingList={loadingList}
+          listMode="past"
+          onPatch={patchPromotion}
+          onDelete={deletePromotion}
+          onEditOpen={(p) => setEditingPromotion(p)}
+          onPublishOpen={(p) => setPublishModal(p)}
+          onBoostPay={runBoostPayment}
+        />
+      </div>
     </div>
   );
 }

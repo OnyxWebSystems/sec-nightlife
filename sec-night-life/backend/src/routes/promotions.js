@@ -11,6 +11,8 @@ const PROMOTION_TYPES = ['VENUE_PROMOTION', 'EVENT_PROMOTION', 'SPECIAL_OFFER', 
 const PROMOTION_ROTATION_WINDOW_MINUTES = 2;
 const BOOSTED_WEIGHT = 3;
 const ORGANIC_WEIGHT = 1;
+const PROMOTION_PUBLISH_ZAR_PER_DAY = 50;
+const PROMOTION_BOOST_ZAR_PER_DAY = 150;
 
 function formatOwnerPromotion(p) {
   return {
@@ -246,7 +248,6 @@ router.post('/', authenticateToken, async (req, res, next) => {
     const startsAt = new Date(data.startsAt);
     const endsAt = new Date(data.endsAt);
     const now = new Date();
-    if (startsAt < now) return res.status(400).json({ error: 'startsAt must be now or in the future' });
     if (endsAt <= startsAt) return res.status(400).json({ error: 'endsAt must be after startsAt' });
     if (endsAt > new Date(startsAt.getTime() + 30 * 24 * 60 * 60 * 1000)) return res.status(400).json({ error: 'Promotion duration cannot exceed 30 days' });
 
@@ -273,7 +274,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         imageUrl: data.imageUrl || null,
         imagePublicId: data.imagePublicId || null,
         targetCity: data.targetCity || null,
-        status: 'ACTIVE',
+        status: 'DRAFT',
         startAt: startsAt,
         endAt: endsAt,
       },
@@ -283,8 +284,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
     if (venue.owner?.email) {
       sendEmail({
         to: venue.owner.email,
-        subject: `Your promotion is live — ${created.title}`,
-        text: `Your promotion "${created.title}" is live from ${startsAt.toISOString()} to ${endsAt.toISOString()} targeting ${created.targetCity || 'National'}. Boost for more reach.`,
+        subject: `Promotion draft saved — ${created.title}`,
+        text: `Your promotion "${created.title}" is saved as a draft. Open Business Promotions to pay for publish days (R${PROMOTION_PUBLISH_ZAR_PER_DAY}/day) and go live.`,
       }).catch(() => {});
     }
 
@@ -299,6 +300,12 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
     if (!(await assertPromotionsAccess(req, res))) return;
     const venue = await prisma.venue.findFirst({ where: { id: req.params.venueId, ownerUserId: req.userId, deletedAt: null } });
     if (!venue) return res.status(403).json({ error: 'Forbidden' });
+
+    const now = new Date();
+    await prisma.promotion.updateMany({
+      where: { venueId: req.params.venueId, deletedAt: null, status: 'ACTIVE', endAt: { lt: now } },
+      data: { status: 'ENDED' },
+    });
 
     const promotions = await prisma.promotion.findMany({
       where: { venueId: req.params.venueId, deletedAt: null },
@@ -334,6 +341,12 @@ router.patch('/:promotionId', authenticateToken, async (req, res, next) => {
     const existing = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, include: { venue: true } });
     if (!existing) return res.status(404).json({ error: 'Promotion not found' });
     if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (existing.status === 'ENDED') {
+      return res.status(400).json({ error: 'Ended promotions cannot be edited. Republish or delete.' });
+    }
+    if (parsed.data.status === 'ACTIVE' && existing.status === 'DRAFT') {
+      return res.status(400).json({ error: 'Complete payment to publish your promotion.' });
+    }
 
     const venueId = existing.venueId;
     let nextEventId = existing.eventId;
@@ -398,6 +411,91 @@ const boostBodySchema = z.object({
   days: z.coerce.number().int().min(1).max(30).default(7),
 });
 
+const promotionCheckoutSchema = z.object({
+  publishDays: z.coerce.number().int().min(1).max(30),
+  boostDays: z.coerce.number().int().min(0).max(30).default(0),
+});
+
+/** Pay for publish days (R50/day) plus optional boost (R150/day). Eligible: DRAFT or ENDED (republish). */
+router.post('/:promotionId/checkout', authenticateToken, async (req, res, next) => {
+  try {
+    if (!(await assertPromotionsAccess(req, res))) return;
+    const parsed = promotionCheckoutSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    const { publishDays, boostDays } = parsed.data;
+
+    const promotion = await prisma.promotion.findFirst({
+      where: { id: req.params.promotionId, deletedAt: null },
+      include: { venue: true },
+    });
+    if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
+    if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (!['DRAFT', 'ENDED'].includes(promotion.status)) {
+      return res.status(400).json({ error: 'Only drafts or ended promotions can be published from checkout' });
+    }
+
+    const key = process.env.PAYSTACK_SECRET_KEY;
+    if (!key) return res.status(500).json({ error: 'Paystack is not configured' });
+
+    const owner = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true },
+    });
+    const reference = `promo_pub_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const amountZar = publishDays * PROMOTION_PUBLISH_ZAR_PER_DAY + boostDays * PROMOTION_BOOST_ZAR_PER_DAY;
+    const amountInCents = Math.round(amountZar * 100);
+    const metadata = {
+      promotedPostId: promotion.id,
+      promotion_id: promotion.id,
+      type: 'PROMOTION_PUBLISH',
+      venueId: promotion.venueId,
+      publishDays,
+      boostDays,
+    };
+
+    await prisma.payment.create({
+      data: {
+        userId: req.userId,
+        email: owner?.email || 'user@secnightlife.app',
+        amount: amountZar,
+        reference,
+        status: 'pending',
+        type: 'promotion',
+        metadata,
+      },
+    });
+
+    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: owner?.email || 'user@secnightlife.app',
+        amount: amountInCents,
+        reference,
+        metadata: { user_id: req.userId, ...metadata },
+      }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json?.status) {
+      return res.status(400).json({ error: json?.message || 'Failed to initialize payment' });
+    }
+
+    res.json({
+      reference,
+      authorization_url: json.data.authorization_url,
+      access_code: json.data.access_code,
+      amount_zar: amountZar,
+      publish_days: publishDays,
+      boost_days: boostDays,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => {
   try {
     if (!(await assertPromotionsAccess(req, res))) return;
@@ -411,6 +509,9 @@ router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => 
     });
     if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
     if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (!['ACTIVE', 'PAUSED'].includes(promotion.status)) {
+      return res.status(400).json({ error: 'Only live or paused promotions can be boosted' });
+    }
 
     const key = process.env.PAYSTACK_SECRET_KEY;
     if (!key) return res.status(500).json({ error: 'Paystack is not configured' });
@@ -420,7 +521,7 @@ router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => 
       select: { email: true },
     });
     const reference = `boost_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    const amountZar = 150 * boostDays;
+    const amountZar = PROMOTION_BOOST_ZAR_PER_DAY * boostDays;
     const amountInCents = Math.round(amountZar * 100);
     const metadata = { promotedPostId: promotion.id, type: 'BOOST', venueId: promotion.venueId, boostDays };
 

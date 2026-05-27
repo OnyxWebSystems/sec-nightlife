@@ -192,6 +192,18 @@ export default function TableDetails() {
         settlementMode: venueSettlementMode,
         bookingMode: venueBookingMode,
       });
+      if (pay?.confirmed) {
+        toast.success('Booking confirmed');
+        queryClient.invalidateQueries(['venue-table', tableId]);
+        if (venueTable?.eventId) {
+          queryClient.invalidateQueries(['event', venueTable.eventId]);
+          queryClient.invalidateQueries(['event-table-tiers', venueTable.eventId]);
+        }
+        if (isHostCheckout && venueTable?.eventId) {
+          navigate(createPageUrl('HostDashboard?tab=tables&manage=1'));
+        }
+        return;
+      }
       if (pay?.reference && pay?.access_code) {
         await launchPaystackInline({
           email: user?.email,
@@ -205,11 +217,14 @@ export default function TableDetails() {
               queryClient.invalidateQueries(['event', venueTable.eventId]);
               queryClient.invalidateQueries(['event-table-tiers', venueTable.eventId]);
             }
+            toast.success('Payment successful — booking confirmed');
             if (isHostCheckout && venueTable?.eventId) {
               navigate(createPageUrl('HostDashboard?tab=tables&manage=1'));
             }
           },
         });
+      } else {
+        toast.error('Could not start payment. Please try again.');
       }
     } catch (e) {
       toast.error(e?.message || 'Could not start payment');
@@ -429,7 +444,7 @@ export default function TableDetails() {
     const membership = venueTable.myMembership;
     const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
     const approvalOk = !needsApproval || membership?.status === 'APPROVED' || membership?.status === 'LEFT';
-    const canPay = checkoutTotal > 0 && minSpendMet && approvalOk && !venueCheckoutPreview?.error;
+    const canPay = minSpendMet && approvalOk && !venueCheckoutPreview?.error;
     const showCustomRequest =
       (venueTable.allowsCustomRequests || venueTable.isCustomListing) &&
       membership?.status !== 'APPROVED';
@@ -486,10 +501,8 @@ export default function TableDetails() {
               minimumSpendZar={minSpendZar}
               footnote={
                 venueSettlementMode === 'PREPAY_LUMP' && minSpendZar > 0
-                  ? `You are prepaying R${minSpendZar.toFixed(0)} minimum spend. Choose drinks and food on site — show your SEC QR to staff. ${isHostCheckout ? CHECKOUT_FOOTNOTES.venueHost : CHECKOUT_FOOTNOTES.venue}`
-                  : isHostCheckout
-                    ? CHECKOUT_FOOTNOTES.venueHost
-                    : CHECKOUT_FOOTNOTES.venue
+                  ? `You are prepaying R${minSpendZar.toFixed(0)} minimum spend. Choose drinks and food on site — show your SEC QR to staff.`
+                  : undefined
               }
             />
           </>

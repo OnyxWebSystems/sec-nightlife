@@ -623,9 +623,40 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     if (result.error) return res.status(400).json({ error: result.error });
     const { checkout, bookingMode, settlementMode, menuSelections, menuTotal } = result;
     if (checkout.error) return res.status(400).json({ error: checkout.error });
-    if (checkout.total <= 0) return res.status(400).json({ error: 'Nothing to pay for this booking' });
 
     const isHost = bookingMode === 'host' || bookingMode === 'custom_host';
+
+    if (checkout.total <= 0) {
+      const member = await prisma.venueTableMember.upsert({
+        where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+        create: {
+          venueTableId: table.id,
+          userId: req.userId,
+          selectedMenuItems: menuSelections.length ? menuSelections : undefined,
+          settlementMode,
+          memberRole: isHost ? 'HOST' : 'GUEST',
+          status: 'CONFIRMED',
+        },
+        update: {
+          selectedMenuItems: menuSelections.length ? menuSelections : undefined,
+          settlementMode,
+          memberRole: isHost ? 'HOST' : 'GUEST',
+          status: 'CONFIRMED',
+        },
+      });
+      const nextOccupancy = table.currentOccupancy + 1;
+      const nextStatus =
+        nextOccupancy >= table.guestCapacity ? 'FULL' : nextOccupancy > 0 ? 'PARTIALLY_FILLED' : table.status;
+      await prisma.venueTable.update({
+        where: { id: table.id },
+        data: { currentOccupancy: { increment: 1 }, status: nextStatus },
+      });
+      return res.status(201).json({
+        confirmed: true,
+        memberId: member.id,
+        checkout: { lines: checkout.lines, settlement_mode: settlementMode, total: 0 },
+      });
+    }
 
     const member = await prisma.venueTableMember.upsert({
       where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },

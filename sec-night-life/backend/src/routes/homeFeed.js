@@ -89,6 +89,11 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
 
     const now = new Date();
 
+    await prisma.promotion.updateMany({
+      where: { deletedAt: null, boosted: true, boostExpiresAt: { lt: now } },
+      data: { boosted: false },
+    });
+
     const [promotionRows, eventRows, venueRows, followedRows] = await Promise.all([
       prisma.promotion.findMany({
         where: {
@@ -180,16 +185,18 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const evtQ = [...eventItems];
     const venQ = [...venueItems];
     const merged = [];
-    let i = 0;
+    /** Boosted-first prom queue + extra promo slots so paid boosts surface more often. */
+    const slotPattern = ['prom', 'prom', 'event', 'prom', 'venue', 'event'];
+    let slotIdx = 0;
     while (promQ.length || evtQ.length || venQ.length) {
-      const slot = i % 3;
-      if (slot === 0 && promQ.length) merged.push(promQ.shift());
-      else if (slot === 1 && evtQ.length) merged.push(evtQ.shift());
-      else if (slot === 2 && venQ.length) merged.push(venQ.shift());
+      const slot = slotPattern[slotIdx % slotPattern.length];
+      slotIdx += 1;
+      if (slot === 'prom' && promQ.length) merged.push(promQ.shift());
+      else if (slot === 'event' && evtQ.length) merged.push(evtQ.shift());
+      else if (slot === 'venue' && venQ.length) merged.push(venQ.shift());
       else if (promQ.length) merged.push(promQ.shift());
       else if (evtQ.length) merged.push(evtQ.shift());
       else if (venQ.length) merged.push(venQ.shift());
-      i += 1;
       if (merged.length >= 200) break;
     }
 

@@ -105,10 +105,38 @@ async function applyReferenceSideEffects(reference, paystackData) {
     where: { reference },
     select: { metadata: true },
   });
-  const priorMeta = priorPay?.metadata && typeof priorPay.metadata === 'object' ? priorPay.metadata : {};
+  if (!priorPay) return;
+  const priorMeta = priorPay.metadata && typeof priorPay.metadata === 'object' ? { ...priorPay.metadata } : {};
   if (priorMeta.side_effects_applied) return;
 
-  const metadata = paystackData?.metadata || {};
+  const rawMd = paystackData?.metadata;
+  let fromCharge = {};
+  if (rawMd && typeof rawMd === 'object' && !Array.isArray(rawMd)) {
+    fromCharge = rawMd;
+  } else if (typeof rawMd === 'string') {
+    try {
+      fromCharge = JSON.parse(rawMd);
+    } catch {
+      fromCharge = {};
+    }
+  }
+  const metadata = { ...priorMeta, ...fromCharge };
+
+  const claimed = await prisma.payment.updateMany({
+    where: {
+      reference,
+      NOT: { metadata: { path: ['side_effects_applied'], equals: true } },
+    },
+    data: {
+      metadata: {
+        ...metadata,
+        side_effects_applied: true,
+        side_effects_claimed_at: new Date().toISOString(),
+      },
+    },
+  });
+  if (claimed.count === 0) return;
+
   const userId = metadata.user_id || paystackData?.customer?.customer_code;
   const email = paystackData?.customer?.email || metadata.email || 'unknown@secnightlife.app';
   const amount = paystackData?.amount ? paystackData.amount / 100 : 0;
@@ -120,53 +148,114 @@ async function applyReferenceSideEffects(reference, paystackData) {
     data: { status: 'paid', metadata: paystackData },
   });
 
-  // Type-specific side effects
-  const isBoost = metadata.type === 'BOOST';
+  const PROMO_MS_DAY = 24 * 60 * 60 * 1000;
   const promoId = metadata.promotedPostId || metadata.promotion_id;
-  if (promoId) {
-    const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
-    const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '7'), 10) || 7));
-    const boostExpiry = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
-    await prisma.promotion.updateMany({
-      where: { id: promoId, deletedAt: null },
-      data: isBoost
+
+  if (metadata.type === 'PROMOTION_PUBLISH' && promoId) {
+    const publishDays = Math.min(30, Math.max(1, parseInt(String(metadata.publishDays ?? metadata.publish_days ?? '1'), 10) || 1));
+    const boostDays = Math.min(30, Math.max(0, parseInt(String(metadata.boostDays ?? metadata.boost_days ?? '0'), 10) || 0));
+    const now = new Date();
+    const endAt = new Date(now.getTime() + publishDays * PROMO_MS_DAY);
+    const boostData =
+      boostDays > 0
         ? {
             boosted: true,
-            boostedAt: new Date(),
-            boostExpiresAt: boostExpiry,
+            boostedAt: now,
+            boostExpiresAt: new Date(now.getTime() + boostDays * PROMO_MS_DAY),
             boostPaystackRef: reference,
-            status: 'ACTIVE',
           }
         : {
-            boosted: true,
-            boostedAt: new Date(),
-            boostExpiresAt: boostExpiry,
-            boostPaystackRef: reference,
-          },
+            boosted: false,
+            boostedAt: null,
+            boostExpiresAt: null,
+            boostPaystackRef: null,
+          };
+
+    await prisma.promotion.updateMany({
+      where: { id: String(promoId), deletedAt: null },
+      data: {
+        status: 'ACTIVE',
+        startAt: now,
+        endAt,
+        ...boostData,
+      },
     });
 
     const promo = await prisma.promotion.findFirst({
-      where: { id: promoId, deletedAt: null },
-      select: { id: true, title: true, venueId: true, boostExpiresAt: true },
+      where: { id: String(promoId), deletedAt: null },
+      select: { id: true, title: true, venueId: true },
     });
     if (promo) {
       const venue = await prisma.venue.findFirst({
         where: { id: promo.venueId, deletedAt: null },
         select: { ownerUserId: true, name: true, owner: { select: { email: true } } },
       });
+      const titleNote = boostDays > 0 ? 'Promotion is live and boosted' : 'Promotion is live';
+      const bodyNote =
+        boostDays > 0
+          ? `"${promo.title}" is live for ${publishDays} day(s) with boost on ${venue?.name || 'your venue'}.`
+          : `"${promo.title}" is live for ${publishDays} day(s) on ${venue?.name || 'your venue'}.`;
       await createNotification({
         userId: venue?.ownerUserId,
         type: 'payment',
-        title: 'Promotion boost active',
-        body: `"${promo.title}" is now boosted for ${venue?.name || 'your venue'}.`,
+        title: titleNote,
+        body: bodyNote,
         actionUrl: `/BusinessPromotions`,
       });
-      if (isBoost && venue?.owner?.email) {
+      if (venue?.owner?.email) {
         sendEmail({
           to: venue.owner.email,
-          subject: `Boost activated — ${promo.title}`,
-          text: `Your promotion "${promo.title}" is now boosted for ${boostDays} day(s). Boost expires on ${promo.boostExpiresAt?.toISOString() || 'N/A'}.`,
+          subject: `${titleNote} — ${promo.title}`,
+          text: bodyNote,
         }).catch(() => {});
+      }
+    }
+  } else if (metadata.type === 'BOOST' && promoId) {
+    const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
+    const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '7'), 10) || 7));
+    const boostExpiry = new Date(Date.now() + boostDays * PROMO_MS_DAY);
+
+    const preBoost = await prisma.promotion.findFirst({
+      where: { id: String(promoId), deletedAt: null },
+      select: { boostPaystackRef: true },
+    });
+    if (preBoost?.boostPaystackRef === reference) {
+      // Idempotent: same Paystack reference already applied
+    } else {
+      await prisma.promotion.updateMany({
+        where: { id: String(promoId), deletedAt: null },
+        data: {
+          boosted: true,
+          boostedAt: new Date(),
+          boostExpiresAt: boostExpiry,
+          boostPaystackRef: reference,
+          status: 'ACTIVE',
+        },
+      });
+
+      const promo = await prisma.promotion.findFirst({
+        where: { id: String(promoId), deletedAt: null },
+        select: { id: true, title: true, venueId: true, boostExpiresAt: true },
+      });
+      if (promo) {
+        const venue = await prisma.venue.findFirst({
+          where: { id: promo.venueId, deletedAt: null },
+          select: { ownerUserId: true, name: true, owner: { select: { email: true } } },
+        });
+        await createNotification({
+          userId: venue?.ownerUserId,
+          type: 'payment',
+          title: 'Promotion boost active',
+          body: `"${promo.title}" is now boosted for ${venue?.name || 'your venue'}.`,
+          actionUrl: `/BusinessPromotions`,
+        });
+        if (venue?.owner?.email) {
+          sendEmail({
+            to: venue.owner.email,
+            subject: `Boost activated — ${promo.title}`,
+            text: `Your promotion "${promo.title}" is now boosted for ${boostDays} day(s). Boost expires on ${promo.boostExpiresAt?.toISOString() || 'N/A'}.`,
+          }).catch(() => {});
+        }
       }
     }
   }

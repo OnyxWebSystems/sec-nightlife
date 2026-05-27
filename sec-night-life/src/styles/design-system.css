@@ -130,3 +130,26 @@ html.light {
   --sec-gradient-silver: #C0C0C0;
   --sec-gradient-dark: #1A1A1A;
 }
+
+/* ─── Business page headers (luxury typography) ─── */
+.sec-page-header {
+  margin-bottom: var(--space-6);
+}
+.sec-page-header .sec-label {
+  margin-bottom: var(--space-2);
+}
+.sec-page-title {
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  color: var(--sec-text-primary);
+}
+.sec-page-subtitle {
+  font-size: var(--text-base);
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--sec-text-secondary);
+  max-width: 42rem;
+  margin-top: var(--space-3);
+}

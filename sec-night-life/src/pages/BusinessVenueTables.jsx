@@ -149,6 +149,7 @@ export default function BusinessVenueTables() {
   return (
     <div className="sec-page max-w-3xl mx-auto pb-28">
       <header className="sec-page-header mb-6">
+        <span className="sec-label">Reservations</span>
         <h1 className="sec-page-title">Tables & day bookings</h1>
         <p className="sec-page-subtitle">
           Venue-owned listings for any day or synced from published events. Guests book and pay on Sec.

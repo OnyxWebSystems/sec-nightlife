@@ -21,6 +21,7 @@ import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { tierFeeTogglesFromTier, resolveTierFeesForSave } from '@/lib/tierBookingFees';
 import { tierMinSpendsFromApi, resolveTierMinSpends } from '@/lib/tierMinSpend';
 import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
+import { isEventEnded } from '@/lib/eventLifecycle';
 
 function isoToDatetimeLocal(iso) {
   if (!iso) return '';
@@ -96,7 +97,7 @@ export default function BusinessEvents() {
   const [editingEvent, setEditingEvent] = useState(null);
   const [form, setForm] = useState({ ...EMPTY_EVENT });
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [lifecycleTab, setLifecycleTab] = useState('upcoming');
   const [deleteId, setDeleteId] = useState(null);
   const [coverUploading, setCoverUploading] = useState(false);
 
@@ -179,6 +180,10 @@ export default function BusinessEvents() {
   };
 
   const openEdit = (evt) => {
+    if (isEventEnded(evt)) {
+      toast.error('Past events cannot be edited. View or delete only.');
+      return;
+    }
     setEditingEvent(evt);
     setForm({
       title: evt.title || '',
@@ -210,6 +215,10 @@ export default function BusinessEvents() {
   };
 
   const handleSave = () => {
+    if (editingEvent && isEventEnded(editingEvent)) {
+      toast.error('This event has ended and cannot be updated.');
+      return;
+    }
     if (!form.title || !form.date) {
       toast.error('Please fill in title and date');
       return;
@@ -362,7 +371,12 @@ export default function BusinessEvents() {
   };
 
   const filtered = events
-    .filter(e => statusFilter === 'all' || e.status === statusFilter)
+    .filter((e) => {
+      const ended = isEventEnded(e);
+      if (lifecycleTab === 'draft') return e.status === 'draft' && !ended;
+      if (lifecycleTab === 'past') return ended;
+      return !ended && e.status !== 'draft';
+    })
     .filter(e => !search || (e.title ?? '').toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
@@ -403,30 +417,35 @@ export default function BusinessEvents() {
       ) : null}
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {(['upcoming', 'past', 'draft']).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setLifecycleTab(tab)}
+              className="h-10 rounded-xl px-4 text-sm font-semibold transition-colors"
+              style={{
+                backgroundColor: lifecycleTab === tab ? 'var(--sec-accent)' : 'var(--sec-bg-card)',
+                color: lifecycleTab === tab ? '#000' : 'var(--sec-text-secondary)',
+                border: `1px solid ${lifecycleTab === tab ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
+              }}
+            >
+              {tab === 'upcoming' ? 'Upcoming' : tab === 'past' ? 'Past' : 'Drafts'}
+            </button>
+          ))}
+        </div>
+        <div style={{ position: 'relative', width: '100%' }}>
           <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
           <Input
             placeholder="Search events..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
-            className="h-10 rounded-xl pl-9"
+            className="h-10 rounded-xl pl-9 w-full"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[140px] h-10 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }} className="text-white">
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="published">Published</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
-
-      {/* Events List */}
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: 40 }}>
           <Loader2 size={24} className="animate-spin" style={{ color: 'var(--sec-accent)', margin: '0 auto' }} />
@@ -438,9 +457,15 @@ export default function BusinessEvents() {
         }}>
           <Calendar size={28} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 10px' }} />
           <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 14 }}>
-            {search ? 'No matching events found' : 'No events yet'}
+            {search
+              ? 'No matching events found'
+              : lifecycleTab === 'past'
+                ? 'No past events'
+                : lifecycleTab === 'draft'
+                  ? 'No drafts yet'
+                  : 'No upcoming events'}
           </p>
-          {!search && (
+          {!search && lifecycleTab !== 'past' && (
             <Button onClick={openCreate} variant="outline" className="rounded-xl" style={{ borderColor: 'var(--sec-border)' }}>
               <Plus size={15} className="mr-1.5" /> Create your first event
             </Button>
@@ -448,7 +473,9 @@ export default function BusinessEvents() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtered.map(evt => (
+          {filtered.map((evt) => {
+            const ended = isEventEnded(evt);
+            return (
             <div
               key={evt.id}
               style={{
@@ -484,8 +511,12 @@ export default function BusinessEvents() {
                 </div>
               </div>
 
-              <span className={`sec-badge ${evt.status === 'published' ? 'sec-badge-success' : 'sec-badge-gold'}`}>
-                {evt.status}
+              <span
+                className={`sec-badge ${
+                  ended ? 'sec-badge-gold' : evt.status === 'published' ? 'sec-badge-success' : 'sec-badge-gold'
+                }`}
+              >
+                {ended ? 'Ended' : evt.status}
               </span>
 
               <div style={{ display: 'flex', gap: 4 }}>
@@ -496,6 +527,7 @@ export default function BusinessEvents() {
                 >
                   <Eye size={16} />
                 </button>
+                {!ended ? (
                 <button
                   onClick={() => openEdit(evt)}
                   style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
@@ -503,6 +535,7 @@ export default function BusinessEvents() {
                 >
                   <Edit2 size={16} />
                 </button>
+                ) : null}
                 <button
                   onClick={() => setDeleteId(evt.id)}
                   style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-error)' }}
@@ -512,7 +545,8 @@ export default function BusinessEvents() {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

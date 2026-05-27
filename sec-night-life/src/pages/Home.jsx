@@ -17,6 +17,7 @@ import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
 import { toast } from 'sonner';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { isEventEnded } from '@/lib/eventLifecycle';
 
 function getOrCreateSessionId() {
   try {
@@ -40,7 +41,7 @@ function getPromotionLabel(promotion) {
     .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
-const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, onOpen }) {
+const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, onOpen, compact = false }) {
   const boosted = Boolean(p?.boosted);
   const label = getPromotionLabel(p);
   return (
@@ -57,33 +58,55 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
         }
       }}
       style={{
-        flex: 1,
-        width: '100%',
+        flex: compact ? '0 0 min(88vw, 320px)' : '1 1 auto',
+        width: compact ? 'min(88vw, 320px)' : '100%',
         maxWidth: '100%',
         minWidth: 0,
-        minHeight: 320,
+        minHeight: compact ? 300 : 320,
         boxSizing: 'border-box',
-        padding: 12,
+        padding: 14,
         cursor: 'pointer',
         border: boosted ? '1px solid var(--sec-accent-border)' : '1px solid var(--sec-border)',
-        background: boosted ? 'var(--sec-bg-elevated)' : 'var(--sec-bg-card)',
+        background: boosted
+          ? 'linear-gradient(160deg, var(--sec-bg-elevated) 0%, var(--sec-bg-card) 100%)'
+          : 'var(--sec-bg-card)',
         display: 'flex',
         flexDirection: 'column',
+        boxShadow: boosted ? 'var(--shadow-card)' : undefined,
+        scrollSnapAlign: compact ? 'start' : undefined,
       }}
     >
-      <p
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-          color: 'var(--sec-text-muted)',
-          marginBottom: 8,
-          flexShrink: 0,
-        }}
-      >
-        {label}
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
+        <p
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: boosted ? 'var(--sec-accent-bright)' : 'var(--sec-text-muted)',
+            margin: 0,
+          }}
+        >
+          {label}
+        </p>
+        {boosted ? (
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              padding: '3px 8px',
+              borderRadius: 999,
+              background: 'var(--sec-warning-muted)',
+              color: 'var(--sec-warning)',
+              border: '1px solid rgba(212, 160, 23, 0.35)',
+            }}
+          >
+            Sponsored
+          </span>
+        ) : null}
+      </div>
       <div
         style={{
           width: '100%',
@@ -157,7 +180,7 @@ const HomePromotionCard = React.memo(function HomePromotionCard({ promotion: p, 
   );
 });
 
-const PromoWithImpression = React.memo(function PromoWithImpression({ promotion, sessionId, onOpen }) {
+const PromoWithImpression = React.memo(function PromoWithImpression({ promotion, sessionId, onOpen, compact = false }) {
   const wrapRef = useRef(null);
   const fired = useRef(false);
   useEffect(() => {
@@ -179,8 +202,8 @@ const PromoWithImpression = React.memo(function PromoWithImpression({ promotion,
     return () => ob.disconnect();
   }, [promotion.id, sessionId]);
   return (
-    <div ref={wrapRef} style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
-      <HomePromotionCard promotion={promotion} onOpen={onOpen} />
+    <div ref={wrapRef} style={{ width: compact ? 'auto' : '100%', maxWidth: '100%', minWidth: 0, flexShrink: compact ? 0 : undefined }}>
+      <HomePromotionCard promotion={promotion} onOpen={onOpen} compact={compact} />
     </div>
   );
 });
@@ -199,6 +222,7 @@ export default function Home() {
   const refreshHomeData = useCallback(
     async (showToast = true) => {
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['home-promotions-feed'] }),
         queryClient.invalidateQueries({ queryKey: ['home-feed'] }),
         queryClient.invalidateQueries({ queryKey: ['featured-events'] }),
         queryClient.invalidateQueries({ queryKey: ['featured-events-details'] }),
@@ -330,9 +354,25 @@ export default function Home() {
       return apiGet(`/api/home/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
     },
     getNextPageParam: (lastPage) => (lastPage?.nextCursor != null ? parseInt(lastPage.nextCursor, 10) : undefined),
-    enabled: !isLoadingAuth && !!user,
+    enabled: !isLoadingAuth,
     staleTime: 60_000,
   });
+
+  const { data: promotionsFeedData, isLoading: promotionsFeedLoading } = useQuery({
+    queryKey: ['home-promotions-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedCity],
+    queryFn: async () => {
+      const params = new URLSearchParams({ limit: '12', page: '1', sessionId });
+      if (homeFeedScopeAll) params.set('scope', 'all');
+      else params.set('city', homeFeedCity);
+      return apiGet(`/api/promotions/feed?${params.toString()}`, {
+        headers: { 'x-session-id': sessionId },
+        skipAuth: true,
+      });
+    },
+    staleTime: 60_000,
+    enabled: !isLoadingAuth,
+  });
+  const homePromotions = promotionsFeedData?.results || [];
 
   const feedRows = useMemo(() => (feedPages?.pages || []).flatMap((p) => p.items || []), [feedPages]);
 
@@ -385,8 +425,13 @@ export default function Home() {
     return withIndex.map((x) => x.item);
   };
 
+  const activeEventsOnly = useMemo(
+    () => events.filter((e) => !isEventEnded(e)),
+    [events],
+  );
+
   const prioritizedEvents = sortByFollowedVenueFirst(
-    events,
+    activeEventsOnly,
     (e) => e.venue_id,
     (a, b) => {
       const ad = a?.date ? new Date(a.date).getTime() : 0;
@@ -695,6 +740,42 @@ export default function Home() {
             </section>
           )}
         </div>
+
+        {/* ── Promotions (boosted first) ── */}
+        {(promotionsFeedLoading || homePromotions.length > 0) && (
+          <section style={{ marginBottom: 36 }}>
+            <div className="sec-section-header">
+              <div>
+                <span className="sec-label">Offers</span>
+                <h2 style={{ fontSize: 19, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '4px 0 0', letterSpacing: '-0.02em' }}>
+                  Promotions
+                </h2>
+              </div>
+            </div>
+            {promotionsFeedLoading && homePromotions.length === 0 ? (
+              <div style={{ display: 'flex', gap: 12, overflow: 'hidden' }}>
+                {[1, 2].map((x) => (
+                  <div key={x} className="sec-card" style={{ minWidth: 280, minHeight: 280, opacity: 0.5 }} />
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 14,
+                  overflowX: 'auto',
+                  paddingBottom: 8,
+                  scrollSnapType: 'x mandatory',
+                  WebkitOverflowScrolling: 'touch',
+                }}
+              >
+                {homePromotions.map((p) => (
+                  <PromoWithImpression key={p.id} promotion={p} sessionId={sessionId} onOpen={handlePromotionClick} compact />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* ── For you: mixed feed (cursor pagination) ── */}
         <section style={{ marginBottom: 30 }}>
