@@ -9,6 +9,8 @@ import { computeVenueCheckout, computeChargeableMenuTotal, computeFullMenuTotal 
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { sendEmail } from '../lib/email.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
+import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfterPayment.js';
+import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
 
 const router = Router();
 
@@ -591,7 +593,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     const existing = await prisma.venueTableMember.findUnique({
       where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
     });
-    if (existing && ['CONFIRMED', 'PENDING_PAYMENT'].includes(existing.status)) {
+    if (existing?.status === 'CONFIRMED') {
       return res.status(400).json({ error: 'Already joined' });
     }
     if (existing?.status === 'PENDING_VENUE_REVIEW') {
@@ -627,34 +629,67 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     const isHost = bookingMode === 'host' || bookingMode === 'custom_host';
 
     if (checkout.total <= 0) {
-      const member = await prisma.venueTableMember.upsert({
-        where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
-        create: {
-          venueTableId: table.id,
+      await prisma.$transaction(async (tx) => {
+        await tx.venueTableMember.upsert({
+          where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+          create: {
+            venueTableId: table.id,
+            userId: req.userId,
+            selectedMenuItems: menuSelections.length ? menuSelections : undefined,
+            settlementMode,
+            memberRole: isHost ? 'HOST' : 'GUEST',
+            status: 'CONFIRMED',
+          },
+          update: {
+            selectedMenuItems: menuSelections.length ? menuSelections : undefined,
+            settlementMode,
+            memberRole: isHost ? 'HOST' : 'GUEST',
+            status: 'CONFIRMED',
+          },
+        });
+        const nextOccupancy = table.currentOccupancy + 1;
+        const nextStatus =
+          nextOccupancy >= table.guestCapacity ? 'FULL' : nextOccupancy > 0 ? 'PARTIALLY_FILLED' : table.status;
+        await tx.venueTable.update({
+          where: { id: table.id },
+          data: { currentOccupancy: { increment: 1 }, status: nextStatus },
+        });
+        if (isHost && table.eventId && !table.hostedTableId) {
+          await ensureHostedTableFromVenueHostPayment({
+            tx,
+            venueTable: table,
+            userId: req.userId,
+            paystackReference: `free_host_${table.id}_${req.userId}`,
+            amountTotal: 0,
+            selectedMenuItems: menuSelections.length ? menuSelections : undefined,
+            settlementMode,
+          });
+        }
+      });
+      if (isHost) {
+        const payer = await prisma.user.findUnique({
+          where: { id: req.userId },
+          select: { email: true },
+        });
+        await notifyPaymentSuccess({
           userId: req.userId,
-          selectedMenuItems: menuSelections.length ? menuSelections : undefined,
-          settlementMode,
-          memberRole: isHost ? 'HOST' : 'GUEST',
-          status: 'CONFIRMED',
-        },
-        update: {
-          selectedMenuItems: menuSelections.length ? menuSelections : undefined,
-          settlementMode,
-          memberRole: isHost ? 'HOST' : 'GUEST',
-          status: 'CONFIRMED',
-        },
-      });
-      const nextOccupancy = table.currentOccupancy + 1;
-      const nextStatus =
-        nextOccupancy >= table.guestCapacity ? 'FULL' : nextOccupancy > 0 ? 'PARTIALLY_FILLED' : table.status;
-      await prisma.venueTable.update({
-        where: { id: table.id },
-        data: { currentOccupancy: { increment: 1 }, status: nextStatus },
-      });
+          email: payer?.email,
+          title: 'Table host booking confirmed',
+          body: `You're now hosting ${table.tableName}. Open Host Dashboard to approve join requests and set table rules.`,
+          actionUrl: '/HostDashboard?tab=tables&manage=1',
+          referenceId: table.id,
+          referenceType: 'VENUE_TABLE',
+          emailSubject: `You're hosting ${table.tableName}`,
+        });
+      }
       return res.status(201).json({
         confirmed: true,
-        memberId: member.id,
+        memberId: (await prisma.venueTableMember.findUnique({
+          where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+          select: { id: true },
+        }))?.id,
         checkout: { lines: checkout.lines, settlement_mode: settlementMode, total: 0 },
+        hostDashboardUrl: isHost ? '/HostDashboard?tab=tables&manage=1' : undefined,
       });
     }
 

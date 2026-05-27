@@ -76,6 +76,7 @@ export default function TableDetails() {
   const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [joinMessage, setJoinMessage] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [hostPaySuccess, setHostPaySuccess] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -179,6 +180,10 @@ export default function TableDetails() {
       toast.error('Your request was declined');
       return;
     }
+    if (venueCheckoutPreview?.error) {
+      toast.error(venueCheckoutPreview.error);
+      return;
+    }
     const selected =
       venueSettlementMode === 'PREPAY_LUMP'
         ? []
@@ -192,15 +197,22 @@ export default function TableDetails() {
         settlementMode: venueSettlementMode,
         bookingMode: venueBookingMode,
       });
-      if (pay?.confirmed) {
-        toast.success('Booking confirmed');
+      const refreshBookingQueries = () => {
         queryClient.invalidateQueries(['venue-table', tableId]);
+        queryClient.invalidateQueries(['notifications']);
+        queryClient.invalidateQueries(['notifications-unread']);
         if (venueTable?.eventId) {
           queryClient.invalidateQueries(['event', venueTable.eventId]);
           queryClient.invalidateQueries(['event-table-tiers', venueTable.eventId]);
         }
-        if (isHostCheckout && venueTable?.eventId) {
-          navigate(createPageUrl('HostDashboard?tab=tables&manage=1'));
+      };
+      if (pay?.confirmed) {
+        refreshBookingQueries();
+        if (isHostCheckout) {
+          setHostPaySuccess(true);
+          toast.success('You are now hosting this table');
+        } else {
+          toast.success('Booking confirmed');
         }
         return;
       }
@@ -212,14 +224,12 @@ export default function TableDetails() {
           accessCode: pay.access_code,
           onSuccess: async (payload) => {
             await verifyPaystackReference(payload?.reference || pay.reference);
-            queryClient.invalidateQueries(['venue-table', tableId]);
-            if (venueTable?.eventId) {
-              queryClient.invalidateQueries(['event', venueTable.eventId]);
-              queryClient.invalidateQueries(['event-table-tiers', venueTable.eventId]);
-            }
-            toast.success('Payment successful — booking confirmed');
-            if (isHostCheckout && venueTable?.eventId) {
-              navigate(createPageUrl('HostDashboard?tab=tables&manage=1'));
+            refreshBookingQueries();
+            if (isHostCheckout) {
+              setHostPaySuccess(true);
+              toast.success('Payment successful — you are hosting this table');
+            } else {
+              toast.success('Payment successful — booking confirmed');
             }
           },
         });
@@ -227,7 +237,7 @@ export default function TableDetails() {
         toast.error('Could not start payment. Please try again.');
       }
     } catch (e) {
-      toast.error(e?.message || 'Could not start payment');
+      toast.error(e?.data?.error || e?.message || 'Could not start payment');
     } finally {
       setIsProcessingPayment(false);
     }
@@ -461,6 +471,29 @@ export default function TableDetails() {
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
         </div>
+        {hostPaySuccess && isHostCheckout ? (
+          <div
+            className="sec-card"
+            style={{
+              marginTop: 16,
+              padding: 16,
+              border: '1px solid var(--sec-success-muted, rgba(34,197,94,0.35))',
+              background: 'var(--sec-success-muted, rgba(34,197,94,0.08))',
+            }}
+          >
+            <p style={{ fontSize: 14, lineHeight: 1.5, marginBottom: 12 }}>
+              You are hosting this table. Use Host Dashboard to approve or decline join requests and set your table rules.
+            </p>
+            <button
+              type="button"
+              className="sec-btn sec-btn-primary sec-btn-full"
+              style={{ height: 44 }}
+              onClick={() => navigate(createPageUrl('HostDashboard?tab=tables&manage=1'))}
+            >
+              Open Host Dashboard
+            </button>
+          </div>
+        ) : null}
         {venueCheckoutStep === 'menu' ? (
           <>
             <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 16, marginBottom: 8 }}>Select your menu</h2>
@@ -509,6 +542,18 @@ export default function TableDetails() {
         )}
         {membership?.status === 'PENDING_VENUE_REVIEW' ? (
           <p className="text-sm text-amber-400 mt-3 text-center">Request pending venue approval</p>
+        ) : null}
+        {venueCheckoutPreview?.error ? (
+          <p style={{ color: 'var(--sec-warning)', fontSize: 13, marginTop: 12, textAlign: 'center' }}>
+            {venueCheckoutPreview.error}
+          </p>
+        ) : null}
+        {!canPay && venueCheckoutStep === 'checkout' && minSpendZar > 0 && !venueCheckoutPreview?.error ? (
+          <p style={{ color: 'var(--sec-text-muted)', fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+            {isHostCheckout
+              ? 'Meet the minimum spend with menu items, or go back and choose “Pay minimum only”.'
+              : 'Meet the minimum spend to continue checkout.'}
+          </p>
         ) : null}
         {showCustomRequest ? (
           <button

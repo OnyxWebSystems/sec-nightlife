@@ -3,7 +3,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { createPageUrl } from '@/utils';
@@ -34,7 +34,7 @@ async function checkoutPromotionPublish({ promotionId, publishDays, boostDays, e
     accessCode: pay.access_code,
     onSuccess: async (payload) => {
       await verifyPaystackReference(payload?.reference || pay.reference);
-      if (onSuccess) onSuccess();
+      if (onSuccess) await onSuccess();
       toast.success('Payment successful — your promotion is live.');
     },
     onCancel: () => {
@@ -57,7 +57,7 @@ async function checkoutPromotionBoostOnly({ promotionId, days, email, onSuccess 
     accessCode: payment.access_code,
     onSuccess: async (payload) => {
       await verifyPaystackReference(payload?.reference || payment.reference);
-      if (onSuccess) onSuccess();
+      if (onSuccess) await onSuccess();
       toast.success(`Boost active for ${days} day(s)`);
     },
     onCancel: () => {
@@ -929,6 +929,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
 });
 
 export default function BusinessPromotions() {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
@@ -995,7 +996,10 @@ export default function BusinessPromotions() {
 
   const handlePromotionPublished = useCallback(async () => {
     await loadPromotions(selectedVenue);
-  }, [selectedVenue, loadPromotions]);
+    queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+    queryClient.invalidateQueries({ queryKey: ['home-promotions-feed'] });
+    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+  }, [selectedVenue, loadPromotions, queryClient]);
 
   const runBoostPayment = useCallback(
     async (promotion) => {

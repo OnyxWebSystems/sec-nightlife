@@ -10,6 +10,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { requireVerified } from '../middleware/requireVerified.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { notifyUserAlert } from '../lib/paymentNotifications.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
@@ -1776,13 +1777,21 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
         where: { id: member.id },
         data: { status: 'CANCELLED', hostReviewedAt: new Date(), declineReason: reason },
       });
-      await createInAppNotification({
+      const guestUser = await prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { email: true },
+      });
+      await notifyUserAlert({
         userId: targetUserId,
-        type: 'TABLE_DECLINED',
+        email: guestUser?.email,
+        type: 'table_update',
+        inAppType: 'TABLE_JOINED',
         title: 'Table request declined',
         body: reason,
+        actionUrl: `/TableDetails?id=${table.id}&source=hosted`,
         referenceId: table.id,
         referenceType: 'HOSTED_TABLE',
+        emailSubject: `Join request declined — ${table.tableName}`,
       });
       return res.json({ rejected: true });
     }
@@ -1828,13 +1837,21 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
       });
     });
     const gcId = await addUserToHostedTableGroupChat(table.id, targetUserId);
-    await createInAppNotification({
+    const guestUser = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { email: true },
+    });
+    await notifyUserAlert({
       userId: targetUserId,
-      type: 'JOIN_REQUEST_ACCEPTED',
+      email: guestUser?.email,
+      type: 'table_update',
+      inAppType: 'JOIN_REQUEST_ACCEPTED',
       title: 'Request approved',
       body: `Your join request for "${table.tableName}" was approved — open the table chat to coordinate.`,
+      actionUrl: gcId ? '/Messages' : `/TableDetails?id=${table.id}&source=hosted`,
       referenceId: gcId || table.id,
       referenceType: gcId ? 'HOSTED_TABLE_GROUP_CHAT' : 'HOSTED_TABLE',
+      emailSubject: `Join request approved — ${table.tableName}`,
     });
     res.json({ approved: true });
   } catch (e) {
@@ -2032,13 +2049,21 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
         include: { userProfile: { select: { username: true } } },
       });
       const uname = joiner?.userProfile?.username || joiner?.username || 'someone';
-      await createInAppNotification({
+      const hostUser = await prisma.user.findUnique({
+        where: { id: t.hostUserId },
+        select: { email: true },
+      });
+      await notifyUserAlert({
         userId: t.hostUserId,
-        type: 'TABLE_JOINED',
+        email: hostUser?.email,
+        type: 'table_request',
+        inAppType: 'TABLE_JOINED',
         title: 'Join request',
-        body: `@${uname} requested to join your table`,
+        body: `@${uname} requested to join your table "${t.tableName}".`,
+        actionUrl: '/HostDashboard?tab=tables&manage=1',
         referenceId: t.id,
         referenceType: 'HOSTED_TABLE',
+        emailSubject: `New join request — ${t.tableName}`,
       });
       return res.json({ joined: false, pending: true });
     }

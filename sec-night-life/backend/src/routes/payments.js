@@ -42,6 +42,7 @@ import {
   buildHostedTableHostTicketSummary,
 } from '../lib/ticketMemberSummary.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
+import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
 import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
 import { ensureHostedTableLiveAfterListingPayment } from '../lib/hostedTableAfterListingPaid.js';
 import { addUserToHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
@@ -103,7 +104,7 @@ async function paystackFetch(path, { method = 'GET', body } = {}) {
 async function applyReferenceSideEffects(reference, paystackData) {
   const priorPay = await prisma.payment.findUnique({
     where: { reference },
-    select: { metadata: true },
+    select: { metadata: true, userId: true, email: true },
   });
   if (!priorPay) return;
   const priorMeta = priorPay.metadata && typeof priorPay.metadata === 'object' ? { ...priorPay.metadata } : {};
@@ -130,18 +131,20 @@ async function applyReferenceSideEffects(reference, paystackData) {
     data: {
       metadata: {
         ...metadata,
-        side_effects_applied: true,
-        side_effects_claimed_at: new Date().toISOString(),
+        side_effects_processing: true,
+        side_effects_processing_at: new Date().toISOString(),
       },
     },
   });
   if (claimed.count === 0) return;
 
-  const userId = metadata.user_id || paystackData?.customer?.customer_code;
-  const email = paystackData?.customer?.email || metadata.email || 'unknown@secnightlife.app';
+  const userId = priorPay.userId || metadata.user_id || metadata.userId || null;
+  const email =
+    paystackData?.customer?.email || priorPay.email || metadata.email || 'unknown@secnightlife.app';
   const amount = paystackData?.amount ? paystackData.amount / 100 : 0;
   const type = metadata.type || 'other';
 
+  try {
   // Legacy: update Transaction if exists
   await prisma.transaction.updateMany({
     where: { stripeId: reference },
@@ -171,15 +174,19 @@ async function applyReferenceSideEffects(reference, paystackData) {
             boostPaystackRef: null,
           };
 
-    await prisma.promotion.updateMany({
-      where: { id: String(promoId), deletedAt: null },
-      data: {
-        status: 'ACTIVE',
-        startAt: now,
-        endAt,
-        ...boostData,
-      },
-    });
+    try {
+      await prisma.promotion.update({
+        where: { id: String(promoId) },
+        data: {
+          status: 'ACTIVE',
+          startAt: now,
+          endAt,
+          ...boostData,
+        },
+      });
+    } catch (promoErr) {
+      console.error('PROMOTION_PUBLISH update failed:', promoErr?.message);
+    }
 
     const promo = await prisma.promotion.findFirst({
       where: { id: String(promoId), deletedAt: null },
@@ -195,20 +202,19 @@ async function applyReferenceSideEffects(reference, paystackData) {
         boostDays > 0
           ? `"${promo.title}" is live for ${publishDays} day(s) with boost on ${venue?.name || 'your venue'}.`
           : `"${promo.title}" is live for ${publishDays} day(s) on ${venue?.name || 'your venue'}.`;
-      await createNotification({
-        userId: venue?.ownerUserId,
-        type: 'payment',
+      const payerId = String(priorPay.userId || userId || venue?.ownerUserId || '');
+      const payerEmail =
+        email && email !== 'unknown@secnightlife.app' ? email : venue?.owner?.email || null;
+      await notifyPaymentSuccess({
+        userId: payerId,
+        email: payerEmail,
         title: titleNote,
         body: bodyNote,
-        actionUrl: `/BusinessPromotions`,
+        actionUrl: '/BusinessPromotions',
+        referenceId: promo.id,
+        referenceType: 'PROMOTION',
+        emailSubject: `${titleNote} — ${promo.title}`,
       });
-      if (venue?.owner?.email) {
-        sendEmail({
-          to: venue.owner.email,
-          subject: `${titleNote} — ${promo.title}`,
-          text: bodyNote,
-        }).catch(() => {});
-      }
     }
   } else if (metadata.type === 'BOOST' && promoId) {
     const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
@@ -242,20 +248,21 @@ async function applyReferenceSideEffects(reference, paystackData) {
           where: { id: promo.venueId, deletedAt: null },
           select: { ownerUserId: true, name: true, owner: { select: { email: true } } },
         });
-        await createNotification({
-          userId: venue?.ownerUserId,
-          type: 'payment',
-          title: 'Promotion boost active',
-          body: `"${promo.title}" is now boosted for ${venue?.name || 'your venue'}.`,
-          actionUrl: `/BusinessPromotions`,
+        const boostTitle = 'Promotion boost active';
+        const boostBody = `"${promo.title}" is now boosted for ${venue?.name || 'your venue'}.`;
+        const payerId = String(priorPay.userId || userId || venue?.ownerUserId || '');
+        const payerEmail =
+          email && email !== 'unknown@secnightlife.app' ? email : venue?.owner?.email || null;
+        await notifyPaymentSuccess({
+          userId: payerId,
+          email: payerEmail,
+          title: boostTitle,
+          body: boostBody,
+          actionUrl: '/BusinessPromotions',
+          referenceId: promo.id,
+          referenceType: 'PROMOTION',
+          emailSubject: `${boostTitle} — ${promo.title}`,
         });
-        if (venue?.owner?.email) {
-          sendEmail({
-            to: venue.owner.email,
-            subject: `Boost activated — ${promo.title}`,
-            text: `Your promotion "${promo.title}" is now boosted for ${boostDays} day(s). Boost expires on ${promo.boostExpiresAt?.toISOString() || 'N/A'}.`,
-          }).catch(() => {});
-        }
       }
     }
   }
@@ -527,17 +534,50 @@ async function applyReferenceSideEffects(reference, paystackData) {
         referenceId: table.id,
         referenceType: 'VENUE_TABLE',
       });
-      await createInAppNotification({
-        userId: String(userId),
-        type: 'TABLE_JOINED',
-        title: isHostPayment ? 'You are hosting this table' : 'Table confirmed',
-        body: isHostPayment
-          ? `You're hosting ${table.tableName}. Set your table rules in Host Dashboard.`
-          : `You're confirmed at ${table.tableName}. Menu items are locked in. No refunds.`,
-        referenceId: table.id,
-        referenceType: 'VENUE_TABLE',
-      });
     });
+
+    const vtMember = await prisma.venueTableMember.findFirst({
+      where: {
+        id: String(venueTableMemberId),
+        venueTableId: String(venueTableId),
+        userId: String(userId),
+      },
+      include: { venueTable: { select: { id: true, tableName: true } } },
+    });
+    const bookingModePaid = metadata.booking_mode || metadata.bookingMode;
+    const isHostPaymentPaid =
+      bookingModePaid === 'host' ||
+      bookingModePaid === 'custom_host' ||
+      vtMember?.memberRole === 'HOST';
+    const payerRow = await prisma.user.findUnique({
+      where: { id: String(userId) },
+      select: { email: true },
+    });
+    const payerEmail = payerRow?.email || email;
+    if (isHostPaymentPaid) {
+      await notifyPaymentSuccess({
+        userId: String(userId),
+        email: payerEmail,
+        title: 'Table host payment confirmed',
+        body: `You're now hosting ${vtMember?.venueTable?.tableName || 'your table'}. Open Host Dashboard to approve join requests and set table rules.`,
+        actionUrl: '/HostDashboard?tab=tables&manage=1',
+        referenceId: String(venueTableId),
+        referenceType: 'VENUE_TABLE',
+        emailSubject: `You're hosting ${vtMember?.venueTable?.tableName || 'your table'}`,
+      });
+    } else {
+      await notifyPaymentSuccess({
+        userId: String(userId),
+        email: payerEmail,
+        title: 'Table booking confirmed',
+        body: `Your payment for ${vtMember?.venueTable?.tableName || 'your table'} was successful.`,
+        actionUrl: `/TableDetails?id=${venueTableId}&source=venue`,
+        referenceId: String(venueTableId),
+        referenceType: 'VENUE_TABLE',
+        emailSubject: `Booking confirmed — ${vtMember?.venueTable?.tableName || 'table'}`,
+      });
+    }
+
     const vt = await prisma.venueTable.findUnique({
       where: { id: String(venueTableId) },
       include: { event: true, venue: true },
@@ -714,13 +754,15 @@ async function applyReferenceSideEffects(reference, paystackData) {
             eventStartsAt,
             eventEndsAt,
           });
-          await createInAppNotification({
+          await notifyPaymentSuccess({
             userId: String(userId),
-            type: 'TABLE_JOINED',
-            title: 'Hosted table payment received',
-            body: `Your listing payment for "${hosted.tableName}" was successful. Your table is live.`,
+            email: payer?.email || email,
+            title: 'Hosted table payment confirmed',
+            body: `Your payment for "${hosted.tableName}" was successful. Open Host Dashboard to manage join requests and table rules.`,
+            actionUrl: '/HostDashboard?tab=tables&manage=1',
             referenceId: hosted.id,
             referenceType: 'HOSTED_TABLE',
+            emailSubject: `Table host payment — ${hosted.tableName}`,
           });
           if (hosted.event?.venueId && hosted.eventId) {
             await recordEventVenueTableBooking({
@@ -1342,31 +1384,49 @@ async function applyReferenceSideEffects(reference, paystackData) {
   }
 
   const payType = PAYMENT_TYPES.includes(type) ? type : 'other';
-  const mergedMeta =
-    paystackData && typeof paystackData === 'object'
-      ? { ...paystackData, side_effects_applied: true }
-      : { side_effects_applied: true };
+  const refreshedPay = await prisma.payment.findUnique({
+    where: { reference },
+    select: { metadata: true },
+  });
+  const rawFinalMeta =
+    refreshedPay?.metadata && typeof refreshedPay.metadata === 'object' ? refreshedPay.metadata : metadata;
+  const { side_effects_processing: _sp, side_effects_processing_at: _spa, ...finalMetaBase } = rawFinalMeta;
+  const finalMeta = { ...finalMetaBase, side_effects_applied: true };
   const pmUp = await prisma.payment.updateMany({
     where: { reference },
     data: {
       status: 'success',
       amount,
       type: payType,
-      metadata: mergedMeta,
+      metadata: finalMeta,
     },
   });
   if (pmUp.count === 0) {
     await prisma.payment.create({
       data: {
-        userId: userId || 'unknown',
+        userId: userId || priorPay.userId || 'unknown',
         email,
         amount,
         reference,
         status: 'success',
         type: payType,
-        metadata: mergedMeta,
+        metadata: finalMeta,
       },
     });
+  }
+  } catch (sideEffectErr) {
+    console.error('applyReferenceSideEffects failed:', sideEffectErr?.message);
+    await prisma.payment.updateMany({
+      where: { reference },
+      data: {
+        metadata: {
+          ...metadata,
+          side_effects_processing: false,
+          side_effects_error: String(sideEffectErr?.message || sideEffectErr).slice(0, 500),
+        },
+      },
+    });
+    throw sideEffectErr;
   }
 }
 
