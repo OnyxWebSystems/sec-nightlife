@@ -602,7 +602,14 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     if (existing?.status === 'DECLINED') {
       return res.status(400).json({ error: 'Request was declined by the venue' });
     }
-    const needsVenueApproval = table.allowsCustomRequests || table.isCustomListing;
+    const specsForGate =
+      existing?.userSpecs && typeof existing.userSpecs === 'object' && !Array.isArray(existing.userSpecs)
+        ? existing.userSpecs
+        : {};
+    const bookingModeForGate = resolveBookingMode(payload.bookingMode, table, specsForGate);
+    // Inventory "host this table" checkout must not require a prior venue custom-table approval.
+    const needsVenueApproval =
+      (table.allowsCustomRequests || table.isCustomListing) && bookingModeForGate !== 'host';
     if (needsVenueApproval) {
       if (!existing || existing.status === 'PENDING_VENUE_REVIEW') {
         return res.status(400).json({ error: 'Submit a table request and wait for venue approval before checkout' });

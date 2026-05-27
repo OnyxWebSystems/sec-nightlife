@@ -453,7 +453,12 @@ export default function TableDetails() {
       venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
     const membership = venueTable.myMembership;
     const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
-    const approvalOk = !needsApproval || membership?.status === 'APPROVED' || membership?.status === 'LEFT';
+    // Host-this-tier flow pays the host fee + min spend without a prior venue custom request.
+    const approvalOk =
+      !needsApproval ||
+      isHostCheckout ||
+      membership?.status === 'APPROVED' ||
+      membership?.status === 'LEFT';
     const canPay = minSpendMet && approvalOk && !venueCheckoutPreview?.error;
     const showCustomRequest =
       (venueTable.allowsCustomRequests || venueTable.isCustomListing) &&

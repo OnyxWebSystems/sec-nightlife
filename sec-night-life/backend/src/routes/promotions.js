@@ -445,6 +445,7 @@ router.post('/:promotionId/checkout', authenticateToken, async (req, res, next) 
     const amountZar = publishDays * PROMOTION_PUBLISH_ZAR_PER_DAY + boostDays * PROMOTION_BOOST_ZAR_PER_DAY;
     const amountInCents = Math.round(amountZar * 100);
     const metadata = {
+      sec_kind: 'PROMOTION_PUBLISH',
       promotedPostId: promotion.id,
       promotion_id: promotion.id,
       type: 'PROMOTION_PUBLISH',
@@ -523,7 +524,7 @@ router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => 
     const reference = `boost_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const amountZar = PROMOTION_BOOST_ZAR_PER_DAY * boostDays;
     const amountInCents = Math.round(amountZar * 100);
-    const metadata = { promotedPostId: promotion.id, type: 'BOOST', venueId: promotion.venueId, boostDays };
+    const metadata = { sec_kind: 'BOOST', promotedPostId: promotion.id, promotion_id: promotion.id, type: 'BOOST', venueId: promotion.venueId, boostDays };
 
     await prisma.payment.create({
       data: {

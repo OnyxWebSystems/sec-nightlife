@@ -101,6 +101,25 @@ async function paystackFetch(path, { method = 'GET', body } = {}) {
   return data;
 }
 
+/**
+ * Merge Paystack verify metadata with what we stored on Payment.
+ * Paystack often echoes incomplete metadata and may overwrite keys like `type` — our DB copy must win.
+ */
+function mergePaymentMetadataFromVerify(priorMeta, paystackData) {
+  const rawMd = paystackData?.metadata;
+  let fromCharge = {};
+  if (rawMd && typeof rawMd === 'object' && !Array.isArray(rawMd)) {
+    fromCharge = rawMd;
+  } else if (typeof rawMd === 'string') {
+    try {
+      fromCharge = JSON.parse(rawMd) || {};
+    } catch {
+      fromCharge = {};
+    }
+  }
+  return { ...fromCharge, ...priorMeta };
+}
+
 async function applyReferenceSideEffects(reference, paystackData) {
   const priorPay = await prisma.payment.findUnique({
     where: { reference },
@@ -110,18 +129,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
   const priorMeta = priorPay.metadata && typeof priorPay.metadata === 'object' ? { ...priorPay.metadata } : {};
   if (priorMeta.side_effects_applied) return;
 
-  const rawMd = paystackData?.metadata;
-  let fromCharge = {};
-  if (rawMd && typeof rawMd === 'object' && !Array.isArray(rawMd)) {
-    fromCharge = rawMd;
-  } else if (typeof rawMd === 'string') {
-    try {
-      fromCharge = JSON.parse(rawMd);
-    } catch {
-      fromCharge = {};
-    }
-  }
-  const metadata = { ...priorMeta, ...fromCharge };
+  const metadata = mergePaymentMetadataFromVerify(priorMeta, paystackData);
 
   const claimed = await prisma.payment.updateMany({
     where: {
@@ -152,9 +160,17 @@ async function applyReferenceSideEffects(reference, paystackData) {
   });
 
   const PROMO_MS_DAY = 24 * 60 * 60 * 1000;
-  const promoId = metadata.promotedPostId || metadata.promotion_id;
+  const promoId =
+    metadata.promotedPostId ||
+    metadata.promotion_id ||
+    metadata.promoted_post_id ||
+    null;
+  const isPromoPublish =
+    promoId &&
+    (metadata.sec_kind === 'PROMOTION_PUBLISH' ||
+      String(metadata.type || '').toUpperCase() === 'PROMOTION_PUBLISH');
 
-  if (metadata.type === 'PROMOTION_PUBLISH' && promoId) {
+  if (isPromoPublish) {
     const publishDays = Math.min(30, Math.max(1, parseInt(String(metadata.publishDays ?? metadata.publish_days ?? '1'), 10) || 1));
     const boostDays = Math.min(30, Math.max(0, parseInt(String(metadata.boostDays ?? metadata.boost_days ?? '0'), 10) || 0));
     const now = new Date();
@@ -174,24 +190,26 @@ async function applyReferenceSideEffects(reference, paystackData) {
             boostPaystackRef: null,
           };
 
-    try {
-      await prisma.promotion.update({
-        where: { id: String(promoId) },
-        data: {
-          status: 'ACTIVE',
-          startAt: now,
-          endAt,
-          ...boostData,
-        },
-      });
-    } catch (promoErr) {
-      console.error('PROMOTION_PUBLISH update failed:', promoErr?.message);
+    const publishUp = await prisma.promotion.updateMany({
+      where: { id: String(promoId), deletedAt: null },
+      data: {
+        status: 'ACTIVE',
+        startAt: now,
+        endAt,
+        ...boostData,
+      },
+    });
+    if (publishUp.count === 0) {
+      console.error('PROMOTION_PUBLISH: updateMany matched 0 rows', { reference, promoId });
     }
 
-    const promo = await prisma.promotion.findFirst({
-      where: { id: String(promoId), deletedAt: null },
-      select: { id: true, title: true, venueId: true },
-    });
+    const promo =
+      publishUp.count > 0
+        ? await prisma.promotion.findFirst({
+            where: { id: String(promoId), deletedAt: null },
+            select: { id: true, title: true, venueId: true },
+          })
+        : null;
     if (promo) {
       const venue = await prisma.venue.findFirst({
         where: { id: promo.venueId, deletedAt: null },
@@ -216,7 +234,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         emailSubject: `${titleNote} — ${promo.title}`,
       });
     }
-  } else if (metadata.type === 'BOOST' && promoId) {
+  } else if ((metadata.sec_kind === 'BOOST' || metadata.type === 'BOOST') && promoId) {
     const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
     const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '7'), 10) || 7));
     const boostExpiry = new Date(Date.now() + boostDays * PROMO_MS_DAY);
