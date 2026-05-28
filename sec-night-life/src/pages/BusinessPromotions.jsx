@@ -977,6 +977,19 @@ export default function BusinessPromotions() {
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
   });
+  const selectedVenueRecord = useMemo(
+    () => venues.find((venue) => String(venue.id) === String(selectedVenue)) || null,
+    [venues, selectedVenue],
+  );
+
+  useEffect(() => {
+    if (!Array.isArray(venues) || venues.length === 0) {
+      setSelectedVenue('');
+      return;
+    }
+    const currentExists = venues.some((venue) => String(venue.id) === String(selectedVenue));
+    if (!currentExists) setSelectedVenue(String(venues[0].id));
+  }, [venues, selectedVenue]);
 
   const loadPromotions = useCallback(async (venueId) => {
     if (!venueId) return;
@@ -1104,14 +1117,15 @@ export default function BusinessPromotions() {
 
       <div className="sec-card" style={{ padding: 14, marginBottom: 20, border: '1px solid var(--sec-border)' }}>
         <Label>Venue</Label>
-        <select className="sec-input-rect" value={selectedVenue} onChange={(e) => setSelectedVenue(e.target.value)} style={{ marginTop: 8, height: 44, width: '100%' }}>
-          <option value="">Choose a venue</option>
-          {venues.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-            </option>
-          ))}
-        </select>
+        {selectedVenueRecord ? (
+          <div className="sec-input-rect" style={{ marginTop: 8, height: 44, width: '100%', display: 'flex', alignItems: 'center', padding: '0 12px' }}>
+            {selectedVenueRecord.name}
+          </div>
+        ) : (
+          <p style={{ marginTop: 8, fontSize: 13, color: 'var(--sec-text-secondary)' }}>
+            No venue found for this account yet. Create a venue first to publish promotions.
+          </p>
+        )}
       </div>
 
       <PromotionCreateForm selectedVenue={selectedVenue} events={events} userEmail={user?.email} onPublished={handlePromotionPublished} />
