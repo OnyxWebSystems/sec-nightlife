@@ -26,20 +26,36 @@ function isVenueOwnedImageUrl(url) {
   return t.startsWith('https://') || t.startsWith('http://');
 }
 
+const SPECIAL_OFFER_EXP_PREFIX = '__SEC_SPECIAL_OFFER_EXP__:';
+
+function parseSpecialOfferExpiry(rawSubCategory) {
+  if (!rawSubCategory || typeof rawSubCategory !== 'string') return null;
+  const val = rawSubCategory.trim();
+  if (!val.startsWith(SPECIAL_OFFER_EXP_PREFIX)) return null;
+  const iso = val.slice(SPECIAL_OFFER_EXP_PREFIX.length).trim();
+  if (!iso) return null;
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
 function formatMenuItem(row) {
   const imageUrl = isVenueOwnedImageUrl(row.imageUrl) ? row.imageUrl : null;
+  const specialOfferExpiry = parseSpecialOfferExpiry(row.subCategory);
+  const isExpired = specialOfferExpiry ? specialOfferExpiry.getTime() <= Date.now() : false;
   return {
     id: row.id,
     venue_id: row.venueId,
     catalog_item_id: row.catalogItemId,
     name: row.name,
     category: row.category,
-    sub_category: row.subCategory,
+    sub_category: specialOfferExpiry ? null : row.subCategory,
     price: row.price,
     image_url: imageUrl,
-    is_available: row.isAvailable && !!imageUrl,
+    is_available: row.isAvailable && !!imageUrl && !isExpired,
     sort_order: row.sortOrder,
     needs_photo: !imageUrl,
+    special_offer_expires_at: specialOfferExpiry ? specialOfferExpiry.toISOString() : null,
+    is_expired: isExpired,
   };
 }
 
@@ -284,7 +300,12 @@ router.get('/venues/:venueId/menu-items/public', async (req, res, next) => {
       },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
-    res.json(rows.filter((r) => isVenueOwnedImageUrl(r.imageUrl)).map(formatMenuItem));
+    res.json(
+      rows
+        .filter((r) => isVenueOwnedImageUrl(r.imageUrl))
+        .map(formatMenuItem)
+        .filter((item) => item.is_available)
+    );
   } catch (e) {
     next(e);
   }

@@ -120,16 +120,26 @@ function mergePaymentMetadataFromVerify(priorMeta, paystackData) {
   return { ...fromCharge, ...priorMeta };
 }
 
+function isObjectRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function flattenPaymentMetadata(value) {
+  if (!isObjectRecord(value)) return {};
+  const nested = isObjectRecord(value.metadata) ? value.metadata : {};
+  return { ...nested, ...value };
+}
+
 async function applyReferenceSideEffects(reference, paystackData) {
   const priorPay = await prisma.payment.findUnique({
     where: { reference },
     select: { metadata: true, userId: true, email: true },
   });
   if (!priorPay) return;
-  const priorMeta = priorPay.metadata && typeof priorPay.metadata === 'object' ? { ...priorPay.metadata } : {};
+  const priorMeta = flattenPaymentMetadata(priorPay.metadata);
   if (priorMeta.side_effects_applied) return;
 
-  const metadata = mergePaymentMetadataFromVerify(priorMeta, paystackData);
+  const metadata = flattenPaymentMetadata(mergePaymentMetadataFromVerify(priorMeta, paystackData));
 
   const claimed = await prisma.payment.updateMany({
     where: {
@@ -1813,9 +1823,17 @@ router.get('/verify/:reference', authenticateToken, async (req, res, next) => {
     if (mapped === 'paid') {
       await applyReferenceSideEffects(reference, paystackResp.data);
     } else {
+      const existing = await prisma.payment.findUnique({
+        where: { reference },
+        select: { metadata: true },
+      });
+      const mergedMeta = mergePaymentMetadataFromVerify(
+        flattenPaymentMetadata(existing?.metadata),
+        paystackResp.data,
+      );
       await prisma.payment.updateMany({
         where: { reference },
-        data: { status: mapped, metadata: paystackResp.data },
+        data: { status: mapped, metadata: mergedMeta },
       });
     }
 
@@ -1839,7 +1857,17 @@ router.get('/paystack/verify/:reference', authenticateToken, async (req, res, ne
     const mapped = status === 'success' ? 'paid' : status === 'failed' ? 'failed' : 'pending';
     await prisma.transaction.updateMany({ where: { userId: req.userId, stripeId: reference }, data: { status: mapped, metadata: paystackResp.data } });
     if (mapped === 'paid') await applyReferenceSideEffects(reference, paystackResp.data);
-    else await prisma.payment.updateMany({ where: { reference }, data: { status: mapped, metadata: paystackResp.data } });
+    else {
+      const existing = await prisma.payment.findUnique({
+        where: { reference },
+        select: { metadata: true },
+      });
+      const mergedMeta = mergePaymentMetadataFromVerify(
+        flattenPaymentMetadata(existing?.metadata),
+        paystackResp.data,
+      );
+      await prisma.payment.updateMany({ where: { reference }, data: { status: mapped, metadata: mergedMeta } });
+    }
     res.json({ status: mapped, paystack_status: status });
   } catch (err) {
     next(err);

@@ -10,9 +10,24 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { PreferencesProvider } from '@/context/PreferencesContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import RequireBusinessAccount from '@/components/RequireBusinessAccount';
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : null;
+const BUSINESS_ONLY_PAGES = new Set([
+  'BusinessDashboard',
+  'VenueAnalytics',
+  'BusinessEvents',
+  'BusinessBookings',
+  'BusinessMenu',
+  'CreateJob',
+  'BusinessJobs',
+  'BusinessPromotions',
+  'BusinessPromotionBoost',
+  'BusinessMessages',
+  'BusinessVenueTables',
+  'FeedbackInsights',
+]);
 
 const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   <Layout currentPageName={currentPageName}>{children}</Layout>
@@ -59,7 +74,13 @@ const AuthenticatedApp = () => {
             element={
               <LayoutWrapper currentPageName={path}>
                 <Suspense fallback={<RoutePageFallback />}>
-                  <Page />
+                  {BUSINESS_ONLY_PAGES.has(path) ? (
+                    <RequireBusinessAccount>
+                      <Page />
+                    </RequireBusinessAccount>
+                  ) : (
+                    <Page />
+                  )}
                 </Suspense>
               </LayoutWrapper>
             }

@@ -17,6 +17,7 @@ const MIN_PUBLISH_D = 1;
 const MAX_PUBLISH_D = 30;
 const MIN_BOOST_D = 0;
 const MAX_BOOST_D = 30;
+const SPECIAL_OFFER_EXP_PREFIX = '__SEC_SPECIAL_OFFER_EXP__:';
 
 async function checkoutPromotionPublish({ promotionId, publishDays, boostDays, email, onSuccess }) {
   const pay = await apiPost(`/api/promotions/${promotionId}/checkout`, {
@@ -853,6 +854,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
   onEditOpen,
   onPublishOpen,
   onBoostPay,
+  onAddToMenuSpecial,
 }) {
   const title = listMode === 'past' ? 'Past promotions' : 'Live & drafts';
   return (
@@ -930,6 +932,15 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
                   {p.status === 'DRAFT' && (
                     <button type="button" className="sec-btn sec-btn-ghost sec-btn-full" onClick={() => onDelete(p.id)}>
                       Delete draft
+                    </button>
+                  )}
+                  {p.promotionType === 'SPECIAL_OFFER' && (
+                    <button
+                      type="button"
+                      className="sec-btn sec-btn-secondary sec-btn-full"
+                      onClick={() => onAddToMenuSpecial?.(p)}
+                    >
+                      Add to menu special offers
                     </button>
                   )}
                 </>
@@ -1053,6 +1064,59 @@ export default function BusinessPromotions() {
     [user?.email, handlePromotionPublished],
   );
 
+  const addSpecialOfferToMenu = useCallback(
+    async (promotion) => {
+      if (!selectedVenue) {
+        toast.error('No venue selected.');
+        return;
+      }
+      if (!promotion?.title) {
+        toast.error('Promotion title is required.');
+        return;
+      }
+      if (!promotion?.imageUrl) {
+        toast.error('Add an image to this promotion first so the menu special can be visible.');
+        return;
+      }
+      const expiryInput =
+        typeof window !== 'undefined'
+          ? window.prompt('Special offer expiry date/time (YYYY-MM-DD HH:mm)', '')
+          : '';
+      if (expiryInput == null) return;
+      const normalized = String(expiryInput).trim().replace(' ', 'T');
+      const expiryDate = normalized ? new Date(normalized) : null;
+      if (!expiryDate || Number.isNaN(expiryDate.getTime())) {
+        toast.error('Enter a valid expiry date/time, e.g. 2026-05-30 23:00');
+        return;
+      }
+      if (expiryDate.getTime() <= Date.now()) {
+        toast.error('Expiry must be in the future.');
+        return;
+      }
+      const priceInput = typeof window !== 'undefined' ? window.prompt('Special offer price (ZAR)', '99') : '99';
+      if (priceInput == null) return;
+      const price = Number(String(priceInput).replace(',', '.'));
+      if (!Number.isFinite(price) || price <= 0) {
+        toast.error('Enter a valid positive price.');
+        return;
+      }
+      try {
+        await apiPost(`/api/business/venues/${selectedVenue}/menu-items`, {
+          name: promotion.title,
+          category: 'Special Offers',
+          sub_category: `${SPECIAL_OFFER_EXP_PREFIX}${expiryDate.toISOString()}`,
+          price,
+          image_url: promotion.imageUrl,
+          is_available: true,
+        });
+        toast.success('Special offer added to menu');
+      } catch (e) {
+        toast.error(e?.data?.error || e.message || 'Could not add special offer to menu');
+      }
+    },
+    [selectedVenue]
+  );
+
   const patchPromotion = useCallback(async (id, payload) => {
     try {
       await apiPatch(`/api/promotions/${id}`, payload);
@@ -1156,6 +1220,7 @@ export default function BusinessPromotions() {
           onEditOpen={(p) => setEditingPromotion(p)}
           onPublishOpen={(p) => setPublishModal(p)}
           onBoostPay={runBoostPayment}
+          onAddToMenuSpecial={addSpecialOfferToMenu}
         />
         <PromotionCardsList
           promotions={pastPromotions}
@@ -1166,6 +1231,7 @@ export default function BusinessPromotions() {
           onEditOpen={(p) => setEditingPromotion(p)}
           onPublishOpen={(p) => setPublishModal(p)}
           onBoostPay={runBoostPayment}
+          onAddToMenuSpecial={addSpecialOfferToMenu}
         />
       </div>
     </div>

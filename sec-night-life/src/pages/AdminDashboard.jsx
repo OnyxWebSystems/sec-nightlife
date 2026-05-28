@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -133,7 +133,7 @@ export default function AdminDashboard() {
         if (shouldLoadAdminQueues) {
           const adminEndpoints = [
             { key: 'dashboard', label: 'dashboard stats', fetch: () => apiGet('/api/admin/dashboard') },
-            { key: 'payments', label: 'payments', fetch: () => apiGet('/api/admin/payments?limit=20') },
+            { key: 'payments', label: 'payments', fetch: () => apiGet('/api/admin/payments?limit=200') },
             { key: 'users', label: 'ID verification queue', fetch: () => apiGet('/api/admin/verification/users?status=pending&limit=20') },
             { key: 'venues', label: 'venue compliance queue', fetch: () => apiGet('/api/admin/verification/venues?status=pending&limit=20') },
           ];
@@ -268,6 +268,37 @@ export default function AdminDashboard() {
       setActionLoading(null);
     }
   };
+
+  const paymentBuckets = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayOfWeek = startOfToday.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const startOfWeek = new Date(startOfToday);
+    startOfWeek.setDate(startOfToday.getDate() + mondayOffset);
+    const startOfLast30 = new Date(startOfToday);
+    startOfLast30.setDate(startOfToday.getDate() - 30);
+
+    const buckets = {
+      today: [],
+      thisWeek: [],
+      last30Days: [],
+      older: [],
+    };
+
+    for (const payment of payments) {
+      const created = payment?.createdAt ? new Date(payment.createdAt) : null;
+      if (!created || Number.isNaN(created.getTime())) {
+        buckets.older.push(payment);
+        continue;
+      }
+      if (created >= startOfToday) buckets.today.push(payment);
+      else if (created >= startOfWeek) buckets.thisWeek.push(payment);
+      else if (created >= startOfLast30) buckets.last30Days.push(payment);
+      else buckets.older.push(payment);
+    }
+    return buckets;
+  }, [payments]);
 
   const handlePromoterRevoke = async (userId) => {
     const reason = window.prompt('Reason for revoking promoter badge:');
@@ -869,18 +900,32 @@ export default function AdminDashboard() {
             {payments.length === 0 ? (
               <p className="text-sm text-[var(--sec-text-muted)]">No payments yet</p>
             ) : (
-              payments.map((p) => (
-                <div
-                  key={p.id}
-                  className="p-4 rounded-xl bg-[#141416] border border-[#262629] flex justify-between items-center"
-                >
-                  <div>
-                    <p className="font-medium">R{p.amount?.toLocaleString()} · {p.type}</p>
-                    <p className="text-xs text-[var(--sec-text-muted)]">{p.email} · {p.status}</p>
-                  </div>
-                  <span className="text-xs text-[var(--sec-text-muted)]">
-                    {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ''}
-                  </span>
+              [
+                ['today', 'Today'],
+                ['thisWeek', 'This week'],
+                ['last30Days', 'Last 30 days'],
+                ['older', 'Older payments'],
+              ].map(([key, label]) => (
+                <div key={key} className="space-y-2">
+                  <h4 className="text-sm font-semibold text-[var(--sec-text-secondary)]">
+                    {label} ({paymentBuckets[key].length})
+                  </h4>
+                  {paymentBuckets[key].length === 0 ? (
+                    <p className="text-xs text-[var(--sec-text-muted)]">No payments</p>
+                  ) : paymentBuckets[key].map((p) => (
+                    <div
+                      key={p.id}
+                      className="p-4 rounded-xl bg-[#141416] border border-[#262629] flex justify-between items-center"
+                    >
+                      <div>
+                        <p className="font-medium">R{p.amount?.toLocaleString()} · {p.type}</p>
+                        <p className="text-xs text-[var(--sec-text-muted)]">{p.email} · {p.status}</p>
+                      </div>
+                      <span className="text-xs text-[var(--sec-text-muted)]">
+                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ''}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               ))
             )}
