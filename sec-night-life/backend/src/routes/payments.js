@@ -169,6 +169,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
     promoId &&
     (metadata.sec_kind === 'PROMOTION_PUBLISH' ||
       String(metadata.type || '').toUpperCase() === 'PROMOTION_PUBLISH');
+  if (!promoId && (metadata.sec_kind === 'PROMOTION_PUBLISH' || metadata.type === 'BOOST')) {
+    console.warn('applyReferenceSideEffects: promotion metadata missing promoId', {
+      reference,
+      sec_kind: metadata.sec_kind,
+      type: metadata.type,
+    });
+  }
 
   if (isPromoPublish) {
     const publishDays = Math.min(30, Math.max(1, parseInt(String(metadata.publishDays ?? metadata.publish_days ?? '1'), 10) || 1));
@@ -1437,15 +1444,28 @@ async function applyReferenceSideEffects(reference, paystackData) {
     await prisma.payment.updateMany({
       where: { reference },
       data: {
+        status: 'success',
         metadata: {
           ...metadata,
+          side_effects_applied: false,
           side_effects_processing: false,
           side_effects_error: String(sideEffectErr?.message || sideEffectErr).slice(0, 500),
         },
       },
     });
-    throw sideEffectErr;
   }
+}
+
+async function assertPaymentOwnership(reference, userId) {
+  const payment = await prisma.payment.findUnique({
+    where: { reference },
+    select: { userId: true },
+  });
+  if (!payment) return { ok: false, code: 404, error: 'Payment reference not found' };
+  if (!payment.userId || String(payment.userId) !== String(userId)) {
+    return { ok: false, code: 403, error: 'Not authorized to verify this payment' };
+  }
+  return { ok: true };
 }
 
 /** Paystack charge.failed: mark Payment/Transaction failed and notify payer, venue, and table host when applicable. */
@@ -1778,6 +1798,8 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
 router.get('/verify/:reference', authenticateToken, async (req, res, next) => {
   try {
     const reference = req.params.reference;
+    const ownership = await assertPaymentOwnership(reference, req.userId);
+    if (!ownership.ok) return res.status(ownership.code).json({ error: ownership.error });
     const paystackResp = await paystackFetch(`/transaction/verify/${encodeURIComponent(reference)}`);
     const status = paystackResp.data.status;
     const mapped = status === 'success' ? 'paid' : status === 'failed' ? 'failed' : 'pending';
@@ -1810,6 +1832,8 @@ router.get('/verify/:reference', authenticateToken, async (req, res, next) => {
 router.get('/paystack/verify/:reference', authenticateToken, async (req, res, next) => {
   try {
     const reference = req.params.reference;
+    const ownership = await assertPaymentOwnership(reference, req.userId);
+    if (!ownership.ok) return res.status(ownership.code).json({ error: ownership.error });
     const paystackResp = await paystackFetch(`/transaction/verify/${encodeURIComponent(reference)}`);
     const status = paystackResp.data.status;
     const mapped = status === 'success' ? 'paid' : status === 'failed' ? 'failed' : 'pending';

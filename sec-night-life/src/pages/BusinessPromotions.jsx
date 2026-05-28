@@ -9,7 +9,7 @@ import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { createPageUrl } from '@/utils';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
-import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { launchPaystackInline, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
 
 const PUBLISH_ZAR_PER_DAY = 50;
 const BOOST_ZAR_PER_DAY = 150;
@@ -33,7 +33,13 @@ async function checkoutPromotionPublish({ promotionId, publishDays, boostDays, e
     reference: pay.reference,
     accessCode: pay.access_code,
     onSuccess: async (payload) => {
-      await verifyPaystackReference(payload?.reference || pay.reference);
+      const verify = await verifyPaystackReferenceWithRetry(payload?.reference || pay.reference, { retries: 3, baseDelayMs: 1000 });
+      if (verify?.status === 'failed') throw new Error('Payment verification failed.');
+      if (verify?.status !== 'paid') {
+        toast.message('Payment received, confirmation pending', {
+          description: 'We are finalizing your promotion. It should appear shortly.',
+        });
+      }
       if (onSuccess) await onSuccess();
       toast.success('Payment successful — your promotion is live.');
     },
@@ -56,7 +62,13 @@ async function checkoutPromotionBoostOnly({ promotionId, days, email, onSuccess 
     reference: payment.reference,
     accessCode: payment.access_code,
     onSuccess: async (payload) => {
-      await verifyPaystackReference(payload?.reference || payment.reference);
+      const verify = await verifyPaystackReferenceWithRetry(payload?.reference || payment.reference, { retries: 3, baseDelayMs: 1000 });
+      if (verify?.status === 'failed') throw new Error('Boost payment verification failed.');
+      if (verify?.status !== 'paid') {
+        toast.message('Payment received, confirmation pending', {
+          description: 'We are finalizing your boost. It should appear shortly.',
+        });
+      }
       if (onSuccess) await onSuccess();
       toast.success(`Boost active for ${days} day(s)`);
     },
@@ -1016,14 +1028,14 @@ export default function BusinessPromotions() {
           days,
           email: user.email,
           onSuccess: async () => {
-            await loadPromotions(selectedVenue);
+            await handlePromotionPublished();
           },
         });
       } catch (e) {
         toast.error(e?.data?.error || e.message || 'Boost failed');
       }
     },
-    [user?.email, selectedVenue, loadPromotions],
+    [user?.email, handlePromotionPublished],
   );
 
   const patchPromotion = useCallback(async (id, payload) => {
@@ -1107,9 +1119,7 @@ export default function BusinessPromotions() {
         promotion={publishModal}
         userEmail={user?.email}
         onClose={() => setPublishModal(null)}
-        onPaid={async () => {
-          await loadPromotions(selectedVenue);
-        }}
+        onPaid={handlePromotionPublished}
       />
 
       <PromotionEditModal

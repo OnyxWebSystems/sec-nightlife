@@ -130,3 +130,24 @@ export async function launchPaystackInline({ email, amount, reference, accessCod
 export async function verifyPaystackReference(reference) {
   return apiGet(`/api/payments/verify/${encodeURIComponent(reference)}`);
 }
+
+export async function verifyPaystackReferenceWithRetry(reference, options = {}) {
+  const retries = Math.max(0, Number(options.retries ?? 3));
+  const baseDelayMs = Math.max(200, Number(options.baseDelayMs ?? 1000));
+  let lastResult = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const result = await verifyPaystackReference(reference);
+    lastResult = result;
+    if (result?.status === 'paid') return result;
+    if (result?.status === 'failed') return result;
+    if (attempt === retries) break;
+
+    const delayMs = baseDelayMs * (attempt + 1);
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, delayMs);
+    });
+  }
+
+  return lastResult;
+}
