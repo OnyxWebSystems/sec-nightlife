@@ -32,13 +32,14 @@ async function checkoutPromotionPublish({ promotionId, publishDays, boostDays, e
     amount: pay.amount_zar ?? 0,
     reference: pay.reference,
     accessCode: pay.access_code,
-    onSuccess: async (payload) => {
-      const verify = await verifyPaystackReferenceWithRetry(payload?.reference || pay.reference, { retries: 3, baseDelayMs: 1000 });
+    onSuccess: async () => {
+      const verify = await verifyPaystackReferenceWithRetry(pay.reference, { retries: 6, baseDelayMs: 1200 });
       if (verify?.status === 'failed') throw new Error('Payment verification failed.');
       if (verify?.status !== 'paid') {
         toast.message('Payment received, confirmation pending', {
           description: 'We are finalizing your promotion. It should appear shortly.',
         });
+        throw new Error('Payment is still pending confirmation. Please wait and refresh shortly.');
       }
       if (onSuccess) await onSuccess();
       toast.success('Payment successful — your promotion is live.');
@@ -61,13 +62,14 @@ async function checkoutPromotionBoostOnly({ promotionId, days, email, onSuccess 
     amount: payment.amount_zar ?? days * BOOST_ZAR_PER_DAY,
     reference: payment.reference,
     accessCode: payment.access_code,
-    onSuccess: async (payload) => {
-      const verify = await verifyPaystackReferenceWithRetry(payload?.reference || payment.reference, { retries: 3, baseDelayMs: 1000 });
+    onSuccess: async () => {
+      const verify = await verifyPaystackReferenceWithRetry(payment.reference, { retries: 6, baseDelayMs: 1200 });
       if (verify?.status === 'failed') throw new Error('Boost payment verification failed.');
       if (verify?.status !== 'paid') {
         toast.message('Payment received, confirmation pending', {
           description: 'We are finalizing your boost. It should appear shortly.',
         });
+        throw new Error('Boost payment is still pending confirmation. Please wait and refresh shortly.');
       }
       if (onSuccess) await onSuccess();
       toast.success(`Boost active for ${days} day(s)`);
