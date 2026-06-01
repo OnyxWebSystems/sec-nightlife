@@ -5,6 +5,11 @@ import { isStaff } from '../lib/access.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { sendEmail } from '../lib/email.js';
+import {
+  activatePromotionAfterPublishPayment,
+  isPromotionPublishPayment,
+  resolvePromotionIdFromMetadata,
+} from '../lib/promotionPublishAfterPayment.js';
 
 const router = Router();
 const PROMOTION_TYPES = ['VENUE_PROMOTION', 'EVENT_PROMOTION', 'SPECIAL_OFFER', 'ANNOUNCEMENT'];
@@ -414,6 +419,174 @@ const boostBodySchema = z.object({
 const promotionCheckoutSchema = z.object({
   publishDays: z.coerce.number().int().min(1).max(30),
   boostDays: z.coerce.number().int().min(0).max(30).default(0),
+});
+
+const confirmPublishSchema = z.object({
+  reference: z.string().min(8).max(120),
+});
+
+function flattenPaymentMetadata(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const nested = value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata) ? value.metadata : {};
+  return { ...nested, ...value };
+}
+
+async function paystackVerifyReference(reference) {
+  const key = process.env.PAYSTACK_SECRET_KEY;
+  if (!key) return null;
+  const res = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.status) return null;
+  return data.data;
+}
+
+/** After Paystack success, ensure a paid publish payment activates the promotion (idempotent). */
+router.post('/:promotionId/confirm-publish', authenticateToken, async (req, res, next) => {
+  try {
+    if (!(await assertPromotionsAccess(req, res))) return;
+    const parsed = confirmPublishSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+
+    const promotion = await prisma.promotion.findFirst({
+      where: { id: req.params.promotionId, deletedAt: null },
+      include: { venue: true },
+    });
+    if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
+    if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    const payment = await prisma.payment.findUnique({
+      where: { reference: parsed.data.reference },
+      select: { reference: true, userId: true, email: true, status: true, type: true, metadata: true },
+    });
+    if (!payment) return res.status(404).json({ error: 'Payment reference not found' });
+    if (String(payment.userId) !== String(req.userId)) {
+      return res.status(403).json({ error: 'Not authorized for this payment' });
+    }
+
+    const metadata = flattenPaymentMetadata(payment.metadata);
+    const paidPromoId = resolvePromotionIdFromMetadata(metadata);
+    if (!paidPromoId || String(paidPromoId) !== String(promotion.id)) {
+      return res.status(400).json({ error: 'Payment does not match this promotion' });
+    }
+    if (!isPromotionPublishPayment(metadata, payment.type)) {
+      return res.status(400).json({ error: 'Payment is not a promotion publish charge' });
+    }
+    if (payment.status !== 'success' && payment.status !== 'paid') {
+      return res.status(402).json({ error: 'Payment is not confirmed yet', payment_status: payment.status });
+    }
+
+    const activation = await activatePromotionAfterPublishPayment({
+      promoId: promotion.id,
+      metadata,
+      reference: payment.reference,
+      payerUserId: payment.userId,
+      payerEmail: payment.email,
+      sendNotification: false,
+    });
+
+    const refreshed = await prisma.promotion.findFirst({
+      where: { id: promotion.id, deletedAt: null },
+      include: { event: { select: { title: true } } },
+    });
+
+    res.json({
+      ok: true,
+      activated: activation.activated,
+      reason: activation.reason || null,
+      promotion: refreshed ? formatOwnerPromotion(refreshed) : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Recover a draft that already has a successful publish payment (no new charge). */
+router.post('/:promotionId/sync-publish', authenticateToken, async (req, res, next) => {
+  try {
+    if (!(await assertPromotionsAccess(req, res))) return;
+
+    const promotion = await prisma.promotion.findFirst({
+      where: { id: req.params.promotionId, deletedAt: null },
+      include: { venue: true },
+    });
+    if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
+    if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (!['DRAFT', 'ENDED'].includes(promotion.status)) {
+      return res.json({
+        ok: true,
+        activated: false,
+        reason: 'already_live',
+        promotion: formatOwnerPromotion(promotion),
+      });
+    }
+
+    const payments = await prisma.payment.findMany({
+      where: { userId: req.userId, type: 'promotion', status: { in: ['success', 'pending'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 80,
+      select: { reference: true, metadata: true, type: true, email: true, userId: true, status: true },
+    });
+
+    let match = payments.find((row) => {
+      if (row.status !== 'success') return false;
+      const meta = flattenPaymentMetadata(row.metadata);
+      return (
+        String(resolvePromotionIdFromMetadata(meta)) === String(promotion.id) &&
+        isPromotionPublishPayment(meta, row.type)
+      );
+    });
+
+    if (!match) {
+      const pending = payments.find((row) => {
+        if (row.status !== 'pending') return false;
+        const meta = flattenPaymentMetadata(row.metadata);
+        return (
+          String(resolvePromotionIdFromMetadata(meta)) === String(promotion.id) &&
+          isPromotionPublishPayment(meta, row.type)
+        );
+      });
+      if (pending) {
+        const verified = await paystackVerifyReference(pending.reference);
+        if (verified?.status === 'success') {
+          await prisma.payment.updateMany({
+            where: { reference: pending.reference },
+            data: { status: 'success', amount: verified.amount ? verified.amount / 100 : undefined },
+          });
+          match = pending;
+        }
+      }
+    }
+
+    if (!match) {
+      return res.status(404).json({ error: 'No successful publish payment found for this promotion yet' });
+    }
+
+    const metadata = flattenPaymentMetadata(match.metadata);
+    const activation = await activatePromotionAfterPublishPayment({
+      promoId: promotion.id,
+      metadata,
+      reference: match.reference,
+      payerUserId: match.userId,
+      payerEmail: match.email,
+      sendNotification: false,
+    });
+
+    const refreshed = await prisma.promotion.findFirst({
+      where: { id: promotion.id, deletedAt: null },
+      include: { event: { select: { title: true } } },
+    });
+
+    res.json({
+      ok: true,
+      activated: activation.activated,
+      reason: activation.reason || null,
+      promotion: refreshed ? formatOwnerPromotion(refreshed) : null,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /** Pay for publish days (R50/day) plus optional boost (R150/day). Eligible: DRAFT or ENDED (republish). */

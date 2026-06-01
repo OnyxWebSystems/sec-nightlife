@@ -18,15 +18,6 @@ const MIN_PUBLISH_D = 1;
 const MAX_PUBLISH_D = 30;
 const MIN_BOOST_D = 0;
 const MAX_BOOST_D = 30;
-const SPECIAL_OFFER_EXP_PREFIX = '__SEC_SPECIAL_OFFER_EXP__:';
-
-function encodeSpecialOfferSubCategory(startsAtIso, endsAtIso) {
-  const start = new Date(startsAtIso);
-  const end = new Date(endsAtIso);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  return `${SPECIAL_OFFER_EXP_PREFIX}${start.toISOString()}|${end.toISOString()}`;
-}
-
 function validatePromotionScheduleForDraft(startsAtLocal, endsAtLocal) {
   const start = new Date(startsAtLocal);
   const end = new Date(endsAtLocal);
@@ -99,6 +90,28 @@ const PROMOTION_CROP_DIALOG_PROPS = {
   contentClassName: 'max-w-2xl',
 };
 
+async function confirmPromotionPublishAfterPayment(promotionId, reference) {
+  const delays = [0, 1200, 2400, 3600];
+  let lastError = null;
+  for (const delayMs of delays) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    }
+    try {
+      const result = await apiPost(`/api/promotions/${promotionId}/confirm-publish`, { reference });
+      if (result?.promotion?.status === 'ACTIVE' || result?.activated || result?.reason === 'already_live') {
+        return result;
+      }
+    } catch (e) {
+      lastError = e;
+      const status = e?.status ?? e?.response?.status;
+      if (status !== 402 && status !== 404) throw e;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
 async function checkoutPromotionPublish({ promotionId, publishDays, boostDays, email, onSuccess }) {
   const pay = await apiPost(`/api/promotions/${promotionId}/checkout`, {
     publishDays,
@@ -114,13 +127,17 @@ async function checkoutPromotionPublish({ promotionId, publishDays, boostDays, e
     reference: pay.reference,
     accessCode: pay.access_code,
     onSuccess: async () => {
-      const verify = await verifyPaystackReferenceWithRetry(pay.reference, { retries: 6, baseDelayMs: 1200 });
+      const verify = await verifyPaystackReferenceWithRetry(pay.reference, { retries: 8, baseDelayMs: 1500 });
       if (verify?.status === 'failed') throw new Error('Payment verification failed.');
       if (verify?.status !== 'paid') {
         toast.message('Payment received, confirmation pending', {
           description: 'We are finalizing your promotion. It should appear shortly.',
         });
         throw new Error('Payment is still pending confirmation. Please wait and refresh shortly.');
+      }
+      const confirmed = await confirmPromotionPublishAfterPayment(promotionId, pay.reference);
+      if (confirmed?.promotion?.status !== 'ACTIVE' && !confirmed?.activated && confirmed?.reason !== 'already_live') {
+        throw new Error('Payment succeeded but the promotion could not be published. Please refresh or contact support.');
       }
       if (onSuccess) await onSuccess();
       toast.success('Payment successful — your promotion is live.');
@@ -656,7 +673,9 @@ const MenuSpecialOfferModal = React.memo(function MenuSpecialOfferModal({ open, 
 
   useEffect(() => {
     if (!selectedItem) return;
-    setSpecialPrice(String(selectedItem.price ?? ''));
+    const normal =
+      selectedItem.base_price ?? selectedItem.original_price ?? selectedItem.price ?? '';
+    setSpecialPrice(String(normal));
   }, [selectedItem]);
 
   async function handleApply() {
@@ -668,14 +687,19 @@ const MenuSpecialOfferModal = React.memo(function MenuSpecialOfferModal({ open, 
     const price = Number(String(specialPrice).replace(',', '.'));
     if (!Number.isFinite(price) || price <= 0) return setError('Enter a valid special price.');
 
-    const subCategory = encodeSpecialOfferSubCategory(promotion.startsAt, promotion.endsAt);
-    if (!subCategory) return setError('Promotion schedule is invalid.');
+    const originalPrice =
+      selectedItem.base_price ?? selectedItem.original_price ?? selectedItem.price;
+    if (!Number.isFinite(Number(originalPrice)) || Number(originalPrice) <= 0) {
+      return setError('Could not determine the item’s normal price.');
+    }
 
     setSaving(true);
     try {
       await apiPatch(`/api/business/venues/${venueId}/menu-items/${selectedItem.id}`, {
-        price,
-        sub_category: subCategory,
+        special_price: price,
+        special_starts_at: promotion.startsAt,
+        special_ends_at: promotion.endsAt,
+        original_price: Number(originalPrice),
         is_available: true,
       });
       toast.success(`${selectedItem.name} is on special for this promotion’s schedule.`);
@@ -1136,6 +1160,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
   onDelete,
   onEditOpen,
   onPublishOpen,
+  onSyncPublish,
   onBoostPay,
   onAddToMenuSpecial,
 }) {
@@ -1176,14 +1201,24 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
               ) : (
                 <>
                   {p.status === 'DRAFT' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <button type="button" className="sec-btn sec-btn-primary" onClick={() => onPublishOpen(p)}>
-                        Pay to publish
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <button type="button" className="sec-btn sec-btn-primary" onClick={() => onPublishOpen(p)}>
+                          Pay to publish
+                        </button>
+                        <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onEditOpen(p)}>
+                          Edit
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="sec-btn sec-btn-ghost sec-btn-full"
+                        style={{ marginTop: 8, fontSize: 12 }}
+                        onClick={() => onSyncPublish?.(p)}
+                      >
+                        Already paid? Sync publish status
                       </button>
-                      <button type="button" className="sec-btn sec-btn-secondary" onClick={() => onEditOpen(p)}>
-                        Edit
-                      </button>
-                    </div>
+                    </>
                   )}
                   {p.status !== 'DRAFT' && p.status !== 'ENDED' && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1348,6 +1383,26 @@ export default function BusinessPromotions() {
     [user?.email, handlePromotionPublished],
   );
 
+  const syncPromotionPublish = useCallback(
+    async (promotion) => {
+      if (!promotion?.id) return;
+      try {
+        const result = await apiPost(`/api/promotions/${promotion.id}/sync-publish`, {});
+        if (result?.promotion?.status === 'ACTIVE' || result?.activated) {
+          await handlePromotionPublished();
+          toast.success('Promotion is now live.');
+          return;
+        }
+        toast.message('No paid publish found', {
+          description: 'Use Pay to publish if you have not completed checkout yet.',
+        });
+      } catch (e) {
+        toast.error(e?.data?.error || e.message || 'Could not sync publish status');
+      }
+    },
+    [handlePromotionPublished],
+  );
+
   const openMenuSpecialOffer = useCallback(
     (promotion) => {
       if (!selectedVenue) {
@@ -1473,6 +1528,7 @@ export default function BusinessPromotions() {
           onDelete={deletePromotion}
           onEditOpen={(p) => setEditingPromotion(p)}
           onPublishOpen={(p) => setPublishModal(p)}
+          onSyncPublish={syncPromotionPublish}
           onBoostPay={runBoostPayment}
           onAddToMenuSpecial={openMenuSpecialOffer}
         />
@@ -1484,6 +1540,7 @@ export default function BusinessPromotions() {
           onDelete={deletePromotion}
           onEditOpen={(p) => setEditingPromotion(p)}
           onPublishOpen={(p) => setPublishModal(p)}
+          onSyncPublish={syncPromotionPublish}
           onBoostPay={runBoostPayment}
           onAddToMenuSpecial={openMenuSpecialOffer}
         />

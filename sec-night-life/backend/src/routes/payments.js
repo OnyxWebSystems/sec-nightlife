@@ -46,6 +46,11 @@ import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
 import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
 import { ensureHostedTableLiveAfterListingPayment } from '../lib/hostedTableAfterListingPaid.js';
 import { addUserToHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
+import {
+  activatePromotionAfterPublishPayment,
+  isPromotionPublishPayment,
+  resolvePromotionIdFromMetadata,
+} from '../lib/promotionPublishAfterPayment.js';
 
 const router = Router();
 
@@ -133,7 +138,7 @@ function flattenPaymentMetadata(value) {
 async function applyReferenceSideEffects(reference, paystackData) {
   const priorPay = await prisma.payment.findUnique({
     where: { reference },
-    select: { metadata: true, userId: true, email: true },
+    select: { metadata: true, userId: true, email: true, type: true, status: true },
   });
   if (!priorPay) return;
   const priorMeta = flattenPaymentMetadata(priorPay.metadata);
@@ -170,15 +175,8 @@ async function applyReferenceSideEffects(reference, paystackData) {
   });
 
   const PROMO_MS_DAY = 24 * 60 * 60 * 1000;
-  const promoId =
-    metadata.promotedPostId ||
-    metadata.promotion_id ||
-    metadata.promoted_post_id ||
-    null;
-  const isPromoPublish =
-    promoId &&
-    (metadata.sec_kind === 'PROMOTION_PUBLISH' ||
-      String(metadata.type || '').toUpperCase() === 'PROMOTION_PUBLISH');
+  const promoId = resolvePromotionIdFromMetadata(metadata);
+  const isPromoPublish = isPromotionPublishPayment(metadata, priorPay.type);
   if (!promoId && (metadata.sec_kind === 'PROMOTION_PUBLISH' || metadata.type === 'BOOST')) {
     console.warn('applyReferenceSideEffects: promotion metadata missing promoId', {
       reference,
@@ -187,95 +185,21 @@ async function applyReferenceSideEffects(reference, paystackData) {
     });
   }
 
-  if (isPromoPublish) {
-    const publishDays = Math.min(30, Math.max(1, parseInt(String(metadata.publishDays ?? metadata.publish_days ?? '1'), 10) || 1));
-    const boostDays = Math.min(30, Math.max(0, parseInt(String(metadata.boostDays ?? metadata.boost_days ?? '0'), 10) || 0));
-    const now = new Date();
-    const existingPromo = await prisma.promotion.findFirst({
-      where: { id: String(promoId), deletedAt: null },
-      select: { startAt: true, endAt: true },
+  if (isPromoPublish && promoId) {
+    const activation = await activatePromotionAfterPublishPayment({
+      promoId,
+      metadata,
+      reference,
+      payerUserId: priorPay.userId || userId,
+      payerEmail: email,
+      sendNotification: true,
     });
-
-    let startAt = existingPromo?.startAt ? new Date(existingPromo.startAt) : now;
-    let endAt = existingPromo?.endAt ? new Date(existingPromo.endAt) : new Date(now.getTime() + publishDays * PROMO_MS_DAY);
-
-    const scheduleValid =
-      !Number.isNaN(startAt.getTime()) &&
-      !Number.isNaN(endAt.getTime()) &&
-      endAt > startAt &&
-      endAt.getTime() - startAt.getTime() <= 30 * PROMO_MS_DAY &&
-      endAt > now;
-
-    if (!scheduleValid) {
-      console.warn('PROMOTION_PUBLISH: invalid saved schedule, using publishDays fallback', {
+    if (!activation.activated) {
+      console.error('PROMOTION_PUBLISH: activation failed', {
         reference,
         promoId,
-        startAt: existingPromo?.startAt,
-        endAt: existingPromo?.endAt,
-      });
-      startAt = now;
-      endAt = new Date(now.getTime() + publishDays * PROMO_MS_DAY);
-    } else if (startAt.getTime() < now.getTime()) {
-      startAt = now;
-    }
-
-    const boostData =
-      boostDays > 0
-        ? {
-            boosted: true,
-            boostedAt: now,
-            boostExpiresAt: new Date(now.getTime() + boostDays * PROMO_MS_DAY),
-            boostPaystackRef: reference,
-          }
-        : {
-            boosted: false,
-            boostedAt: null,
-            boostExpiresAt: null,
-            boostPaystackRef: null,
-          };
-
-    const publishUp = await prisma.promotion.updateMany({
-      where: { id: String(promoId), deletedAt: null },
-      data: {
-        status: 'ACTIVE',
-        startAt,
-        endAt,
-        ...boostData,
-      },
-    });
-    if (publishUp.count === 0) {
-      console.error('PROMOTION_PUBLISH: updateMany matched 0 rows', { reference, promoId });
-    }
-
-    const promo =
-      publishUp.count > 0
-        ? await prisma.promotion.findFirst({
-            where: { id: String(promoId), deletedAt: null },
-            select: { id: true, title: true, venueId: true },
-          })
-        : null;
-    if (promo) {
-      const venue = await prisma.venue.findFirst({
-        where: { id: promo.venueId, deletedAt: null },
-        select: { ownerUserId: true, name: true, owner: { select: { email: true } } },
-      });
-      const titleNote = boostDays > 0 ? 'Promotion is live and boosted' : 'Promotion is live';
-      const bodyNote =
-        boostDays > 0
-          ? `"${promo.title}" is live for ${publishDays} day(s) with boost on ${venue?.name || 'your venue'}.`
-          : `"${promo.title}" is live for ${publishDays} day(s) on ${venue?.name || 'your venue'}.`;
-      const payerId = String(priorPay.userId || userId || venue?.ownerUserId || '');
-      const payerEmail =
-        email && email !== 'unknown@secnightlife.app' ? email : venue?.owner?.email || null;
-      await notifyPaymentSuccess({
-        userId: payerId,
-        email: payerEmail,
-        title: titleNote,
-        body: bodyNote,
-        actionUrl: '/BusinessPromotions',
-        referenceId: promo.id,
-        referenceType: 'PROMOTION',
-        emailSubject: `${titleNote} — ${promo.title}`,
+        reason: activation.reason,
+        status: activation.promotion?.status,
       });
     }
   } else if ((metadata.sec_kind === 'BOOST' || metadata.type === 'BOOST') && promoId) {
@@ -1855,6 +1779,22 @@ router.get('/verify/:reference', authenticateToken, async (req, res, next) => {
 
     if (mapped === 'paid') {
       await applyReferenceSideEffects(reference, paystackResp.data);
+      const paidRow = await prisma.payment.findUnique({
+        where: { reference },
+        select: { metadata: true, type: true, userId: true, email: true },
+      });
+      const paidMeta = flattenPaymentMetadata(paidRow?.metadata);
+      const paidPromoId = resolvePromotionIdFromMetadata(paidMeta);
+      if (paidPromoId && isPromotionPublishPayment(paidMeta, paidRow?.type)) {
+        await activatePromotionAfterPublishPayment({
+          promoId: paidPromoId,
+          metadata: paidMeta,
+          reference,
+          payerUserId: paidRow?.userId || req.userId,
+          payerEmail: paidRow?.email,
+          sendNotification: false,
+        });
+      }
     } else {
       const existing = await prisma.payment.findUnique({
         where: { reference },
@@ -1889,8 +1829,25 @@ router.get('/paystack/verify/:reference', authenticateToken, async (req, res, ne
     const status = paystackResp.data.status;
     const mapped = status === 'success' ? 'paid' : status === 'failed' ? 'failed' : 'pending';
     await prisma.transaction.updateMany({ where: { userId: req.userId, stripeId: reference }, data: { status: mapped, metadata: paystackResp.data } });
-    if (mapped === 'paid') await applyReferenceSideEffects(reference, paystackResp.data);
-    else {
+    if (mapped === 'paid') {
+      await applyReferenceSideEffects(reference, paystackResp.data);
+      const paidRow = await prisma.payment.findUnique({
+        where: { reference },
+        select: { metadata: true, type: true, userId: true, email: true },
+      });
+      const paidMeta = flattenPaymentMetadata(paidRow?.metadata);
+      const paidPromoId = resolvePromotionIdFromMetadata(paidMeta);
+      if (paidPromoId && isPromotionPublishPayment(paidMeta, paidRow?.type)) {
+        await activatePromotionAfterPublishPayment({
+          promoId: paidPromoId,
+          metadata: paidMeta,
+          reference,
+          payerUserId: paidRow?.userId || req.userId,
+          payerEmail: paidRow?.email,
+          sendNotification: false,
+        });
+      }
+    } else {
       const existing = await prisma.payment.findUnique({
         where: { reference },
         select: { metadata: true },

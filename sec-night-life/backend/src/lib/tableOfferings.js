@@ -297,7 +297,10 @@ export async function buildTableOfferings({ userId, limit = 40 } = {}) {
       g.tables.push(tableSummary);
       g.totalSpots += spots;
       g.tableCount += 1;
-      if (boosted) g.boosted = true;
+      if (boosted) {
+        g.boosted = true;
+        if (t.photo) g.imageUrl = t.photo;
+      }
       const jf = t.hasJoiningFee ? Number(t.joiningFee || 0) : 0;
       if (t.hasJoiningFee && jf > 0) {
         if (g.minJoinFeeZar == null || jf < g.minJoinFeeZar) g.minJoinFeeZar = jf;
@@ -331,7 +334,10 @@ export async function buildTableOfferings({ userId, limit = 40 } = {}) {
         g.tables.push(tableSummary);
         g.totalSpots += spots;
         g.tableCount += 1;
-        if (boosted) g.boosted = true;
+        if (boosted) {
+          g.boosted = true;
+          if (t.photo) g.imageUrl = t.photo;
+        }
       }
     }
   }

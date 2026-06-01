@@ -136,9 +136,18 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
           <button type="button" className="min-h-[44px] min-w-[44px] flex items-center justify-center" onClick={onBack}>
             <ChevronLeft className="w-6 h-6" />
           </button>
-          <div className="min-w-0">
-            <p className="font-semibold truncate">{title}</p>
-            <p className="text-xs text-gray-500">{detail?.memberCount || 0} members</p>
+          <div className="min-w-0 flex items-center gap-2">
+            {detail?.hostedTable?.photo ? (
+              <img
+                src={detail.hostedTable.photo}
+                alt=""
+                className="w-10 h-10 rounded-full object-cover border border-[#262629] shrink-0"
+              />
+            ) : null}
+            <div className="min-w-0">
+              <p className="font-semibold truncate">{title}</p>
+              <p className="text-xs text-gray-500">{detail?.memberCount || 0} members</p>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1">

@@ -2,8 +2,17 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import {
+  clearExpiredMenuSpecials,
+  formatVenueMenuItemForClient,
+  isVenueOwnedImageUrl,
+  parseLegacySpecialSubCategory,
+  SPECIAL_OFFER_EXP_PREFIX,
+} from '../lib/menuSpecials.js';
 
 const router = Router();
+
+export { SPECIAL_OFFER_EXP_PREFIX, parseLegacySpecialSubCategory as parseSpecialOfferWindow };
 
 async function assertVenueOwner(venueId, userId) {
   const venue = await prisma.venue.findFirst({
@@ -18,82 +27,24 @@ async function assertVenueOwner(venueId, userId) {
   return venue;
 }
 
-/** SEC catalog paths must never be shown as venue product photos. */
-function isVenueOwnedImageUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  const t = url.trim();
-  if (!t || t.startsWith('/menu-catalog/')) return false;
-  return t.startsWith('https://') || t.startsWith('http://');
-}
-
-export const SPECIAL_OFFER_EXP_PREFIX = '__SEC_SPECIAL_OFFER_EXP__:';
-
-/** @returns {{ startsAt: Date | null, endsAt: Date } | null} */
-export function parseSpecialOfferWindow(rawSubCategory) {
-  if (!rawSubCategory || typeof rawSubCategory !== 'string') return null;
-  const val = rawSubCategory.trim();
-  if (!val.startsWith(SPECIAL_OFFER_EXP_PREFIX)) return null;
-  const rest = val.slice(SPECIAL_OFFER_EXP_PREFIX.length).trim();
-  if (!rest) return null;
-  const parts = rest.split('|');
-  if (parts.length === 2) {
-    const startsAt = new Date(parts[0]);
-    const endsAt = new Date(parts[1]);
-    if (!Number.isNaN(startsAt.getTime()) && !Number.isNaN(endsAt.getTime())) {
-      return { startsAt, endsAt };
-    }
-    return null;
-  }
-  const endsAt = new Date(rest);
-  if (Number.isNaN(endsAt.getTime())) return null;
-  return { startsAt: null, endsAt };
-}
-
-export function encodeSpecialOfferWindow(startsAtIso, endsAtIso) {
-  const start = new Date(startsAtIso);
-  const end = new Date(endsAtIso);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  return `${SPECIAL_OFFER_EXP_PREFIX}${start.toISOString()}|${end.toISOString()}`;
-}
-
-function formatMenuItem(row) {
-  const imageUrl = isVenueOwnedImageUrl(row.imageUrl) ? row.imageUrl : null;
-  const specialWindow = parseSpecialOfferWindow(row.subCategory);
-  const now = Date.now();
-  const isExpired = specialWindow ? specialWindow.endsAt.getTime() <= now : false;
-  const notStarted = specialWindow?.startsAt ? specialWindow.startsAt.getTime() > now : false;
-  const inSpecialWindow = specialWindow && !isExpired && !notStarted;
-  return {
-    id: row.id,
-    venue_id: row.venueId,
-    catalog_item_id: row.catalogItemId,
-    name: row.name,
-    category: row.category,
-    sub_category: specialWindow ? null : row.subCategory,
-    price: row.price,
-    image_url: imageUrl,
-    is_available: row.isAvailable && !!imageUrl && !isExpired && !notStarted,
-    sort_order: row.sortOrder,
-    needs_photo: !imageUrl,
-    special_offer_starts_at: specialWindow?.startsAt ? specialWindow.startsAt.toISOString() : null,
-    special_offer_expires_at: specialWindow ? specialWindow.endsAt.toISOString() : null,
-    is_expired: isExpired,
-    is_special_offer: !!inSpecialWindow,
-  };
-}
-
 function resolveAvailability(imageUrl, requestedAvailable) {
   const owned = isVenueOwnedImageUrl(imageUrl);
   if (requestedAvailable === false) return false;
   return owned;
 }
 
+const isoDateTime = z.union([z.string().datetime(), z.coerce.date()]);
+
 const menuItemSchema = z.object({
   name: z.string().min(1).max(120),
   category: z.string().min(1).max(60).optional(),
   sub_category: z.string().max(80).optional().nullable(),
   catalog_item_id: z.string().max(80).optional().nullable(),
-  price: z.number().positive(),
+  price: z.number().positive().optional(),
+  original_price: z.number().positive().optional(),
+  special_price: z.number().positive().optional(),
+  special_starts_at: isoDateTime.optional().nullable(),
+  special_ends_at: isoDateTime.optional().nullable(),
   image_url: z
     .union([z.string().url(), z.literal(''), z.string().regex(/^\//)])
     .optional()
@@ -116,6 +67,57 @@ const fromCatalogSchema = z.object({
     .min(1),
 });
 
+function buildSpecialPatchData(patch, existing) {
+  const hasSpecial =
+    patch.special_price != null ||
+    patch.special_starts_at !== undefined ||
+    patch.special_ends_at !== undefined;
+
+  if (!hasSpecial) return {};
+
+  const specialPrice = patch.special_price != null ? patch.special_price : existing.specialPrice;
+  const specialStartsAt =
+    patch.special_starts_at !== undefined
+      ? patch.special_starts_at
+        ? new Date(patch.special_starts_at)
+        : null
+      : existing.specialStartsAt;
+  const specialEndsAt =
+    patch.special_ends_at !== undefined
+      ? patch.special_ends_at
+        ? new Date(patch.special_ends_at)
+        : null
+      : existing.specialEndsAt;
+
+  if (!specialPrice || !specialEndsAt) {
+    const err = new Error('special_price and special_ends_at are required for a menu special');
+    err.status = 400;
+    throw err;
+  }
+  if (specialEndsAt <= (specialStartsAt || new Date(0))) {
+    const err = new Error('special_ends_at must be after special_starts_at');
+    err.status = 400;
+    throw err;
+  }
+
+  const originalPrice =
+    patch.original_price != null
+      ? patch.original_price
+      : existing.originalPrice != null
+        ? existing.originalPrice
+        : existing.price;
+
+  return {
+    price: originalPrice,
+    originalPrice,
+    specialPrice,
+    specialStartsAt: specialStartsAt || new Date(),
+    specialEndsAt,
+    subCategory:
+      existing.subCategory?.startsWith(SPECIAL_OFFER_EXP_PREFIX) ? null : existing.subCategory,
+  };
+}
+
 router.get('/venues/:venueId/menu-items', authenticateToken, async (req, res, next) => {
   try {
     await assertVenueOwner(req.params.venueId, req.userId);
@@ -123,7 +125,7 @@ router.get('/venues/:venueId/menu-items', authenticateToken, async (req, res, ne
       where: { venueId: req.params.venueId },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
-    res.json(rows.map(formatMenuItem));
+    res.json(rows.map(formatVenueMenuItemForClient));
   } catch (e) {
     next(e);
   }
@@ -137,8 +139,13 @@ router.post('/venues/:venueId/menu-items', authenticateToken, async (req, res, n
     const items = Array.isArray(body?.items) ? body.items : Array.isArray(body) ? body : [body];
     const parsed = z.array(menuItemSchema).min(1).parse(items);
     const created = await prisma.$transaction(
-      parsed.map((item, idx) =>
-        prisma.venueMenuItem.create({
+      parsed.map((item, idx) => {
+        if (!item.price) {
+          const err = new Error('price is required when creating menu items');
+          err.status = 400;
+          throw err;
+        }
+        return prisma.venueMenuItem.create({
           data: {
             venueId,
             catalogItemId: item.catalog_item_id || null,
@@ -150,10 +157,10 @@ router.post('/venues/:venueId/menu-items', authenticateToken, async (req, res, n
             isAvailable: resolveAvailability(item.image_url, item.is_available),
             sortOrder: item.sort_order ?? idx,
           },
-        })
-      )
+        });
+      })
     );
-    res.status(201).json(created.map(formatMenuItem));
+    res.status(201).json(created.map(formatVenueMenuItemForClient));
   } catch (e) {
     next(e);
   }
@@ -204,9 +211,7 @@ router.post('/venues/:venueId/menu-items/from-catalog', authenticateToken, async
           ? String(row.category).trim()
           : cat.topCategory;
       const subCategory =
-        row.sub_category !== undefined
-          ? row.sub_category
-          : cat.subCategory;
+        row.sub_category !== undefined ? row.sub_category : cat.subCategory;
       toCreate.push({
         venueId,
         catalogItemId: cat.id,
@@ -228,7 +233,7 @@ router.post('/venues/:venueId/menu-items/from-catalog', authenticateToken, async
         : [];
 
     res.status(201).json({
-      created: created.map(formatMenuItem),
+      created: created.map(formatVenueMenuItemForClient),
       skipped_catalog_ids: skipped,
     });
   } catch (e) {
@@ -272,19 +277,24 @@ router.patch('/venues/:venueId/menu-items/:itemId', authenticateToken, async (re
       nextAvailable = true;
     }
 
+    const specialData = buildSpecialPatchData(patch, existing);
+
     const updated = await prisma.venueMenuItem.update({
       where: { id: itemId },
       data: {
         ...(patch.name != null ? { name: patch.name.trim() } : {}),
         ...(patch.category != null ? { category: patch.category.trim() } : {}),
-        ...(patch.sub_category !== undefined ? { subCategory: patch.sub_category } : {}),
-        ...(patch.price != null ? { price: patch.price } : {}),
+        ...(patch.sub_category !== undefined && !specialData.specialPrice
+          ? { subCategory: patch.sub_category }
+          : {}),
+        ...(patch.price != null && !specialData.specialPrice ? { price: patch.price } : {}),
         ...(patch.image_url !== undefined ? { imageUrl: nextImage } : {}),
         isAvailable: nextAvailable,
         ...(patch.sort_order !== undefined ? { sortOrder: patch.sort_order } : {}),
+        ...specialData,
       },
     });
-    res.json(formatMenuItem(updated));
+    res.json(formatVenueMenuItemForClient(updated));
   } catch (e) {
     next(e);
   }
@@ -326,7 +336,7 @@ router.get('/venues/:venueId/menu-items/public', async (req, res, next) => {
     res.json(
       rows
         .filter((r) => isVenueOwnedImageUrl(r.imageUrl))
-        .map(formatMenuItem)
+        .map(formatVenueMenuItemForClient)
         .filter((item) => item.is_available)
     );
   } catch (e) {
@@ -334,4 +344,5 @@ router.get('/venues/:venueId/menu-items/public', async (req, res, next) => {
   }
 });
 
+export { clearExpiredMenuSpecials, formatVenueMenuItemForClient };
 export default router;

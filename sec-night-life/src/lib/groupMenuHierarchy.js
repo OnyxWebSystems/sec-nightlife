@@ -31,28 +31,37 @@ export function buildMenuHierarchy(items = []) {
 
   for (const item of items) {
     const cat = topCategory(item);
-    const sub = subCategory(item) || 'All';
+    const sub = subCategory(item);
     if (!catMap.has(cat)) {
       catMap.set(cat, { order: [], map: new Map() });
       catOrder.push(cat);
     }
     const bucket = catMap.get(cat);
-    if (!bucket.map.has(sub)) {
-      bucket.map.set(sub, []);
-      bucket.order.push(sub);
+    if (sub) {
+      if (!bucket.map.has(sub)) {
+        bucket.map.set(sub, []);
+        bucket.order.push(sub);
+      }
+      bucket.map.get(sub).push(item);
     }
-    bucket.map.get(sub).push(item);
   }
 
   const categories = catOrder.map((name) => {
     const bucket = catMap.get(name);
+    const categoryItems = items.filter((i) => topCategory(i) === name);
     const subs = bucket.order.map((subName) => ({
       name: subName,
       items: bucket.map.get(subName),
     }));
-    if (!subs.some((s) => s.name === 'All') && subs.length > 1) {
-      subs.unshift({ name: 'All', items: [...items.filter((i) => topCategory(i) === name)] });
+
+    if (subs.length > 1 || (subs.length === 1 && subs[0].name !== 'All')) {
+      subs.unshift({ name: 'All', items: categoryItems });
+    } else if (subs.length === 0) {
+      subs.push({ name: 'All', items: categoryItems });
+    } else if (subs.length === 1) {
+      subs[0] = { name: 'All', items: categoryItems };
     }
+
     return { name, subcategories: subs };
   });
 

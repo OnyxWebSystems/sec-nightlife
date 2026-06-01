@@ -19,12 +19,21 @@ export default function HostedTableCard({ table, onJoin, compact = false }) {
     <div
       className="sec-card"
       style={{
-        padding: compact ? 12 : 14,
+        padding: 0,
         borderRadius: 14,
-        border: '1px solid var(--sec-border)',
+        border: table?.boosted ? '1px solid rgba(212, 175, 55, 0.45)' : '1px solid var(--sec-border)',
         background: table?.boosted ? 'var(--sec-bg-elevated)' : 'var(--sec-bg-card)',
+        overflow: 'hidden',
       }}
     >
+      {table?.photo ? (
+        <img
+          src={table.photo}
+          alt=""
+          style={{ width: '100%', height: compact ? 100 : 120, objectFit: 'cover', display: 'block' }}
+        />
+      ) : null}
+      <div style={{ padding: compact ? 12 : 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -68,6 +77,7 @@ export default function HostedTableCard({ table, onJoin, compact = false }) {
         >
           Details
         </Link>
+      </div>
       </div>
     </div>
   );

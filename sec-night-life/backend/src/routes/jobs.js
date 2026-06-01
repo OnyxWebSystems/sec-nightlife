@@ -24,11 +24,19 @@ const postingSchema = z.object({
   venueId: z.string().min(1),
 });
 
+const optionalUrlField = z.preprocess(
+  (v) => (v === '' || v == null || v === undefined ? null : String(v).trim()),
+  z.union([z.string().url(), z.null()]).optional(),
+);
+
 const applicationSchema = z.object({
   coverMessage: z.string().trim().min(50).max(1000),
-  cvUrl: z.string().url().optional().nullable(),
-  cvFileName: z.string().max(255).optional().nullable(),
-  portfolioUrl: z.string().url().optional().nullable(),
+  cvUrl: optionalUrlField,
+  cvFileName: z.preprocess(
+    (v) => (v === '' || v == null ? null : String(v).trim()),
+    z.string().max(255).nullable().optional(),
+  ),
+  portfolioUrl: optionalUrlField,
 });
 
 const messageSchema = z.object({

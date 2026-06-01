@@ -9,11 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { Plus, Loader2, MessageCircle, Copy, UserPlus } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { Input } from '@/components/ui/input';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import ImageCropDialog from '@/components/profile/ImageCropDialog';
+import { useImageCropUpload } from '@/hooks/useImageCropUpload';
+import { uploadHostedTablePhotoFile } from '@/lib/uploadHostedTablePhoto';
+import HostedTableHostCard from '@/components/host/HostedTableHostCard';
 const STATUS_BADGE = {
   DRAFT: { label: 'Draft', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
   PENDING_PAYMENT: { label: 'Pending payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
@@ -87,8 +91,36 @@ export default function HostDashboard() {
     isPublic: true,
     hasJoiningFee: false,
     joiningFee: '',
+    photo: '',
+    photoPublicId: '',
   });
+  const [rulesPhotoPreview, setRulesPhotoPreview] = useState('');
   const [savingRules, setSavingRules] = useState(false);
+
+  const createTablePhotoCrop = useImageCropUpload({
+    onCropped: async (file) => {
+      try {
+        const result = await uploadHostedTablePhotoFile(file);
+        if (!result) return;
+        setTableForm((f) => ({ ...f, photo: result.imageUrl, photoPublicId: result.imagePublicId }));
+      } catch (e) {
+        toast.error(e?.message || 'Photo upload failed');
+      }
+    },
+  });
+
+  const manageTablePhotoCrop = useImageCropUpload({
+    onCropped: async (file) => {
+      try {
+        const result = await uploadHostedTablePhotoFile(file);
+        if (!result) return;
+        setRulesForm((f) => ({ ...f, photo: result.imageUrl, photoPublicId: result.imagePublicId }));
+        setRulesPhotoPreview(result.imageUrl);
+      } catch (e) {
+        toast.error(e?.message || 'Photo upload failed');
+      }
+    },
+  });
 
   useEffect(() => {
     authService.getCurrentUser().then(async (u) => {
@@ -552,202 +584,68 @@ export default function HostDashboard() {
                 t.venueName;
               const hostStatusBadge = TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
               return (
-                <div
+                <HostedTableHostCard
                   key={t.id}
-                  className="sec-card p-4 rounded-2xl border border-[var(--sec-border)] bg-[var(--sec-bg-card)] shadow-sm"
-                >
-                  <div className="flex justify-between gap-2 items-start">
-                    <div>
-                      <div className="font-semibold text-base">{t.tableName || t.venueName}</div>
-                      <div className="text-xs text-[var(--sec-text-muted)] mt-1 flex items-start gap-1">
-                        <span className="opacity-80">{loc}</span>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span
-                        className="text-[10px] px-2 py-0.5 rounded-full"
-                        style={{ background: hostStatusBadge.bg, color: hostStatusBadge.color }}
-                      >
-                        {hostStatusBadge.label}
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full border border-[var(--sec-border)]">
-                        {t.isPublic ? 'Public' : 'Private'}
-                      </span>
-                      {(t.pendingInviteCount ?? 0) > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200">
-                          {t.pendingInviteCount} invite{t.pendingInviteCount === 1 ? '' : 's'} pending
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {t.photo && <img src={t.photo} alt="" className="w-full h-28 object-cover rounded-xl mt-3" />}
-                  <div className="text-xs text-[var(--sec-text-muted)] mt-2">
-                    {format(parseISO(t.eventDate), 'EEE d MMM')} · {t.eventTime} ·{' '}
-                    {t.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External'}
-                  </div>
-                  <div className="text-xs mt-2 flex flex-wrap gap-2">
-                    <span className="px-2 py-0.5 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]">
-                      {t.eventType || 'CLUB_TABLE'}
-                    </span>
-                  </div>
-                  {t.tableDescription && (
-                    <div className="text-xs text-[var(--sec-text-muted)] mt-2 line-clamp-2">{t.tableDescription}</div>
-                  )}
-                  <div className="text-sm mt-3 flex flex-wrap gap-3 items-center">
-                    <span>Members {t._count?.members ?? 0}</span>
-                    <span className="opacity-60">·</span>
-                    <span>Spots left {t.spotsRemaining}</span>
-                    {t.hasJoiningFee && (
-                      <span className="text-amber-200">R{Number(t.joiningFee || 0).toFixed(0)} join</span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {t.status === 'DRAFT' && (
-                      <button
-                        type="button"
-                        className="text-xs sec-btn sec-btn-primary py-2 px-3 rounded-xl"
-                        onClick={() => startRetryListingPayment(t.id)}
-                      >
-                        Pay listing & go live
-                      </button>
-                    )}
-                    {t.groupChat?.id && (
-                      <Link
-                        to={`${createPageUrl('Messages')}?group=${encodeURIComponent(t.groupChat.id)}&gk=HOSTED_TABLE`}
-                        className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-secondary py-2 px-3 rounded-xl"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                        Open group chat
-                      </Link>
-                    )}
-                    {t.status === 'ACTIVE' && (
-                      <>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-secondary py-2 px-3 rounded-xl"
-                          onClick={() => copyHostedTableLink(t.id)}
-                        >
-                          <Copy className="w-4 h-4" />
-                          Copy table link
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-ghost py-2 px-3 rounded-xl border border-[var(--sec-border)]"
-                          onClick={() =>
-                            setInviteOpenTableId((cur) => {
-                              const next = cur === t.id ? null : t.id;
-                              return next;
-                            })
-                          }
-                        >
-                          <UserPlus className="w-4 h-4" />
-                          {inviteOpenTableId === t.id ? 'Hide invite search' : 'Invite a user'}
-                        </button>
-                        {t.tableType === 'IN_APP_EVENT' && (
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-secondary py-2 px-3 rounded-xl"
-                            onClick={() => {
-                              const opening = manageTableId !== t.id;
-                              setManageTableId(opening ? t.id : null);
-                              if (opening) {
-                                setRulesForm({
-                                  tableName: t.tableName || '',
-                                  isPublic: t.isPublic !== false,
-                                  hasJoiningFee: Boolean(t.hasJoiningFee),
-                                  joiningFee: t.joiningFee ? String(t.joiningFee) : '',
-                                });
-                              }
-                            }}
-                          >
-                            {manageTableId === t.id ? 'Hide rules' : 'Manage rules'}
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {t.pendingJoinCount > 0 && (
-                      <button
-                        type="button"
-                        className="text-xs sec-btn sec-btn-ghost py-2 px-3 rounded-xl"
-                        onClick={() => setPendingTableId(pendingTableId === t.id ? null : t.id)}
-                      >
-                        {pendingTableId === t.id ? 'Hide requests' : 'Review requests'}
-                      </button>
-                    )}
-                  </div>
-                  {t.status === 'DRAFT' && (
-                    <p className="text-xs text-[var(--sec-text-muted)] mt-2 leading-relaxed">
-                      This table is not visible to others and has no group chat until Paystack confirms your listing payment.
-                      After it goes live, your host ticket appears under Profile, and you can invite registered users below.
-                    </p>
-                  )}
-                  {t.status === 'ACTIVE' && manageTableId === t.id && t.tableType === 'IN_APP_EVENT' && (
-                    <div className="mt-3 rounded-xl border border-[var(--sec-accent-border)] bg-[var(--sec-bg-elevated)] p-4 space-y-3">
-                      <p className="text-sm font-semibold text-[var(--sec-text-primary)]">Table rules</p>
-                      <div>
-                        <label className="text-xs text-[var(--sec-text-muted)] block mb-1">Table name (updates group chat)</label>
-                        <Input
-                          value={rulesForm.tableName}
-                          onChange={(e) => setRulesForm((f) => ({ ...f, tableName: e.target.value }))}
-                          className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
-                          maxLength={60}
-                        />
-                      </div>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={rulesForm.isPublic}
-                          onChange={(e) => setRulesForm((f) => ({ ...f, isPublic: e.target.checked }))}
-                        />
-                        Public table (anyone can join without approval)
-                      </label>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={rulesForm.hasJoiningFee}
-                          onChange={(e) => setRulesForm((f) => ({ ...f, hasJoiningFee: e.target.checked }))}
-                        />
-                        Charge a joining fee (85% to you)
-                      </label>
-                      {rulesForm.hasJoiningFee ? (
-                        <div>
-                          <label className="text-xs text-[var(--sec-text-muted)] block mb-1">Joining fee (ZAR, min R10)</label>
-                          <Input
-                            type="number"
-                            min={10}
-                            value={rulesForm.joiningFee}
-                            onChange={(e) => setRulesForm((f) => ({ ...f, joiningFee: e.target.value }))}
-                            className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
-                          />
-                        </div>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={savingRules}
-                        className="sec-btn sec-btn-primary text-sm py-2 px-4 rounded-xl"
-                        onClick={async () => {
-                          setSavingRules(true);
-                          try {
-                            await apiPatch(`/api/host/tables/${t.id}`, {
-                              tableName: rulesForm.tableName.trim(),
-                              isPublic: rulesForm.isPublic,
-                              hasJoiningFee: rulesForm.hasJoiningFee,
-                              joiningFee: rulesForm.hasJoiningFee ? Number(rulesForm.joiningFee) || 10 : null,
-                            });
-                            toast.success('Table rules updated');
-                            queryClient.invalidateQueries({ queryKey: ['host-tables'] });
-                          } catch (err) {
-                            toast.error(err?.message || 'Could not save rules');
-                          } finally {
-                            setSavingRules(false);
-                          }
-                        }}
-                      >
-                        {savingRules ? 'Saving…' : 'Save rules'}
-                      </button>
-                    </div>
-                  )}
-                  {t.status === 'ACTIVE' && inviteOpenTableId === t.id && (
+                  table={t}
+                  hostStatusBadge={hostStatusBadge}
+                  loc={loc}
+                  manageTableId={manageTableId}
+                  inviteOpenTableId={inviteOpenTableId}
+                  pendingTableId={pendingTableId}
+                  rulesForm={rulesForm}
+                  setRulesForm={setRulesForm}
+                  savingRules={savingRules}
+                  photoPreviewUrl={manageTableId === t.id ? rulesPhotoPreview : ''}
+                  onPayListing={startRetryListingPayment}
+                  onCopyLink={copyHostedTableLink}
+                  onBoost={boostTable}
+                  onManageToggle={(row) => {
+                    const opening = manageTableId !== row.id;
+                    setManageTableId(opening ? row.id : null);
+                    setRulesPhotoPreview('');
+                    if (opening) {
+                      setRulesForm({
+                        tableName: row.tableName || '',
+                        isPublic: row.isPublic !== false,
+                        hasJoiningFee: Boolean(row.hasJoiningFee),
+                        joiningFee: row.joiningFee ? String(row.joiningFee) : '',
+                        photo: row.photo || '',
+                        photoPublicId: row.photoPublicId || '',
+                      });
+                    }
+                  }}
+                  onInviteToggle={(id) => setInviteOpenTableId((cur) => (cur === id ? null : id))}
+                  onReviewToggle={(id) => setPendingTableId((cur) => (cur === id ? null : id))}
+                  onPhotoInputChange={manageTablePhotoCrop.handleInputChange}
+                  onSaveRules={async (row) => {
+                    setSavingRules(true);
+                    try {
+                      const payload = {
+                        ...(rulesForm.photo ? { photo: rulesForm.photo, photoPublicId: rulesForm.photoPublicId || null } : {}),
+                      };
+                      if (row.tableType === 'IN_APP_EVENT') {
+                        Object.assign(payload, {
+                          tableName: rulesForm.tableName.trim(),
+                          isPublic: rulesForm.isPublic,
+                          hasJoiningFee: rulesForm.hasJoiningFee,
+                          joiningFee: rulesForm.hasJoiningFee ? Number(rulesForm.joiningFee) || 10 : null,
+                        });
+                      } else if (rulesForm.photo) {
+                        Object.assign(payload, { tableName: rulesForm.tableName.trim() || row.tableName });
+                      }
+                      await apiPatch(`/api/host/tables/${row.id}`, payload);
+                      toast.success('Table settings updated');
+                      setRulesPhotoPreview('');
+                      queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                      queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+                    } catch (err) {
+                      toast.error(err?.message || 'Could not save settings');
+                    } finally {
+                      setSavingRules(false);
+                    }
+                  }}
+                  childrenInvite={
+                    t.status === 'ACTIVE' && inviteOpenTableId === t.id ? (
                     <div className="mt-3 rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] p-3 space-y-2">
                       <p className="text-[11px] text-[var(--sec-text-muted)]">
                         Search by username or name. Only people with an SEC account receive the in-app invite. Private
@@ -805,8 +703,10 @@ export default function HostDashboard() {
                         <p className="text-[11px] text-[var(--sec-text-muted)]">Enter 2+ characters to search.</p>
                       )}
                     </div>
-                  )}
-                  {pendingTableId === t.id && (
+                    ) : null
+                  }
+                  childrenPending={
+                    pendingTableId === t.id ? (
                     <div className="mt-3 space-y-2 border-t border-[var(--sec-border)] pt-3">
                       {pendingLoading ? (
                         <p className="text-xs text-[var(--sec-text-muted)]">Loading…</p>
@@ -924,19 +824,9 @@ export default function HostDashboard() {
                         ))
                       )}
                     </div>
-                  )}
-                  {t.boosted ? (
-                    <p className="text-xs text-amber-400 mt-2">Promoted on home</p>
-                  ) : t.status === 'ACTIVE' ? (
-                    <button
-                      type="button"
-                      className="sec-btn sec-btn-secondary text-xs mt-2 py-1.5"
-                      onClick={() => boostTable(t.id)}
-                    >
-                      Boost visibility (R200)
-                    </button>
-                  ) : null}
-                </div>
+                    ) : null
+                  }
+                />
               );
             })}
             {tables.length === 0 && !loadT && (
@@ -1126,6 +1016,24 @@ export default function HostDashboard() {
         </div>
       )}
 
+      <ImageCropDialog
+        open={createTablePhotoCrop.cropOpen || manageTablePhotoCrop.cropOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            createTablePhotoCrop.onCropOpenChange(false);
+            manageTablePhotoCrop.onCropOpenChange(false);
+          }
+        }}
+        imageSrc={createTablePhotoCrop.cropSrc || manageTablePhotoCrop.cropSrc}
+        title="Crop table photo"
+        onCropped={(file) => {
+          if (createTablePhotoCrop.cropOpen) createTablePhotoCrop.handleCropped(file);
+          else manageTablePhotoCrop.handleCropped(file);
+        }}
+        outputFileName="hosted-table.jpg"
+        aspect={1}
+      />
+
       {showTableModal && (
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 p-4">
           <div className="bg-[var(--sec-bg-card)] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 max-h-[90vh] overflow-y-auto border border-[var(--sec-border)]">
@@ -1242,6 +1150,20 @@ export default function HostDashboard() {
                   onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
                 />
               )}
+              <div>
+                <label className="text-xs text-[var(--sec-text-muted)] block mb-2">
+                  Table photo (group chat, browse & Home when boosted)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="w-full text-xs sec-input-rect"
+                  onChange={createTablePhotoCrop.handleInputChange}
+                />
+                {tableForm.photo ? (
+                  <img src={tableForm.photo} alt="" className="w-full h-28 object-cover rounded-xl mt-2" />
+                ) : null}
+              </div>
               <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2">
                 <label className="flex items-start gap-3 text-sm cursor-pointer">
                   <input

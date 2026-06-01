@@ -281,21 +281,27 @@ router.get('/available', optionalAuth, async (req, res, next) => {
 
 async function hydrateTableMenu(table) {
   if (table.menuItems?.length) return table.menuItems;
+  const { formatVenueMenuItemForClient, isVenueOwnedImageUrl } = await import('../lib/menuSpecials.js');
   const catalog = await prisma.venueMenuItem.findMany({
     where: { venueId: table.venueId, isAvailable: true },
     orderBy: { category: 'asc' },
   });
-  return catalog.map((m) => ({
-    id: m.id,
-    venueTableId: table.id,
-    venueMenuItemId: m.id,
-    name: m.name,
-    category: m.category,
-    sub_category: m.subCategory,
-    price: m.price,
-    imageUrl: m.imageUrl,
-    isAvailable: m.isAvailable,
-  }));
+  return catalog
+    .filter((m) => isVenueOwnedImageUrl(m.imageUrl))
+    .map(formatVenueMenuItemForClient)
+    .filter((item) => item.is_available)
+    .map((item) => ({
+      id: item.id,
+      venueTableId: table.id,
+      venueMenuItemId: item.id,
+      name: item.name,
+      category: item.category,
+      sub_category: item.sub_category,
+      price: item.price,
+      original_price: item.original_price,
+      imageUrl: item.image_url,
+      isAvailable: item.is_available,
+    }));
 }
 
 function resolveBookingMode(raw, table, specs) {

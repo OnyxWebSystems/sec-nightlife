@@ -398,6 +398,8 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       id: t.id,
       tableName: t.tableName,
       tableDescription: t.tableDescription,
+      photo: t.photo,
+      photoPublicId: t.photoPublicId,
       status: t.status,
       isPublic: t.isPublic,
       venueName: t.venueName,

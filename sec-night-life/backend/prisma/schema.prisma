@@ -526,18 +526,22 @@ model MenuCatalogItem {
 }
 
 model VenueMenuItem {
-  id            String   @id @default(cuid())
-  venueId       String   @map("venue_id")
-  catalogItemId String?  @map("catalog_item_id")
-  name          String
-  category      String   @default("Other")
-  subCategory   String?  @map("sub_category")
-  price         Float
-  imageUrl      String?  @map("image_url")
-  isAvailable   Boolean  @default(true) @map("is_available")
-  sortOrder     Int      @default(0) @map("sort_order")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(cuid())
+  venueId         String    @map("venue_id")
+  catalogItemId   String?   @map("catalog_item_id")
+  name            String
+  category        String    @default("Other")
+  subCategory     String?   @map("sub_category")
+  price           Float
+  originalPrice   Float?    @map("original_price")
+  specialPrice    Float?    @map("special_price")
+  specialStartsAt DateTime? @map("special_starts_at")
+  specialEndsAt   DateTime? @map("special_ends_at")
+  imageUrl        String?   @map("image_url")
+  isAvailable     Boolean   @default(true) @map("is_available")
+  sortOrder       Int       @default(0) @map("sort_order")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   venue         Venue            @relation(fields: [venueId], references: [id], onDelete: Cascade)
   catalogItem   MenuCatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)

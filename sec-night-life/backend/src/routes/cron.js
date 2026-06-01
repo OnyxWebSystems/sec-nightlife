@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { sendEmail } from '../lib/email.js';
 import { logger } from '../lib/logger.js';
+import { clearExpiredMenuSpecials } from '../lib/menuSpecials.js';
 
 const router = Router();
 
@@ -54,10 +55,25 @@ router.get('/expire-promotions', async (req, res, next) => {
       data: { boosted: false },
     });
 
+    const menuSpecials = await clearExpiredMenuSpecials();
+
     res.json({
       expired: expiredPromotions.count,
       boostsExpired: expiredBoosts.count,
+      menuSpecialsCleared: menuSpecials.cleared,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/expire-menu-specials', async (req, res, next) => {
+  try {
+    if (!isCronAuthorized(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const result = await clearExpiredMenuSpecials();
+    res.json(result);
   } catch (err) {
     next(err);
   }

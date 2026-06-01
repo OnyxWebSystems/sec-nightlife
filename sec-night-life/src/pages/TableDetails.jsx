@@ -770,6 +770,20 @@ export default function TableDetails() {
           </button>
         </header>
         <div style={{ padding: 20 }}>
+          {hostedTable.photo ? (
+            <img
+              src={hostedTable.photo}
+              alt=""
+              style={{
+                width: '100%',
+                maxHeight: 220,
+                objectFit: 'cover',
+                borderRadius: 16,
+                marginBottom: 16,
+                border: '1px solid var(--sec-border)',
+              }}
+            />
+          ) : null}
           <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Hosted table</p>
           <h1 style={{ fontSize: 22, fontWeight: 700, marginTop: 6 }}>{hostedTable.tableName}</h1>
           {hostedTable.event?.title && (

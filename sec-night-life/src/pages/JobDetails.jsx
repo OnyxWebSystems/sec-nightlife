@@ -37,6 +37,19 @@ function getPublicVisibility(job) {
   return { isVisible: true, reason: 'Visible to party goers' };
 }
 
+const COVER_MIN_CHARS = 50;
+const COVER_MAX_CHARS = 1000;
+
+function userCanApplyToJobs(user) {
+  if (!user) return false;
+  if (['USER', 'FREELANCER', 'VENUE'].includes(user.role)) return true;
+  try {
+    return localStorage.getItem('sec_active_mode') === 'partygoer';
+  } catch {
+    return false;
+  }
+}
+
 export default function JobDetails() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -99,8 +112,17 @@ export default function JobDetails() {
 
   const selectedMyApplication = useMemo(() => myApplications.find((x) => x.jobPostingId === jobId), [myApplications, jobId]);
 
+  const coverTrimmed = coverMessage.trim();
+  const coverCharsOk = coverTrimmed.length >= COVER_MIN_CHARS && coverTrimmed.length <= COVER_MAX_CHARS;
+
   const submitApplication = useMutation({
-    mutationFn: () => apiPost(`/api/jobs/${jobId}/apply`, { coverMessage, cvUrl: cvUrl || null, cvFileName: cvFileName || null, portfolioUrl: portfolioUrl || null }),
+    mutationFn: () =>
+      apiPost(`/api/jobs/${jobId}/apply`, {
+        coverMessage: coverTrimmed,
+        cvUrl: cvUrl?.trim() || null,
+        cvFileName: cvFileName?.trim() || null,
+        portfolioUrl: portfolioUrl?.trim() || null,
+      }),
     onSuccess: async () => {
       toast.success('Application submitted');
       setShowApplyDialog(false);
@@ -239,14 +261,16 @@ export default function JobDetails() {
   if (!job) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Job not found</div>;
 
   const spotsRemaining = Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
-  const canApply = !!user &&
+  const canApply =
+    userCanApplyToJobs(user) &&
     !ownerJobLoading &&
     !ownerJob &&
     !myAppsLoading &&
     !myAppsError &&
     !selectedMyApplication &&
     job.status === 'OPEN' &&
-    spotsRemaining > 0;
+    spotsRemaining > 0 &&
+    (!job.closingDate || new Date(job.closingDate) > new Date());
   const visibility = getPublicVisibility(ownerJob || job);
 
   return (
@@ -290,8 +314,18 @@ export default function JobDetails() {
         <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>
           Unable to verify application state right now.
         </p>
-      ) : user && user.role !== 'USER' && !ownerJob ? (
-        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>Switch to Party Goer mode to apply for jobs.</p>
+      ) : user && !userCanApplyToJobs(user) && !ownerJob ? (
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>
+          Switch to Party Goer mode in the menu to apply for jobs.
+        </p>
+      ) : !user ? (
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>Sign in to apply for this job.</p>
+      ) : job.status !== 'OPEN' ? (
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>This job is no longer accepting applications.</p>
+      ) : spotsRemaining <= 0 ? (
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>All spots have been filled.</p>
+      ) : job.closingDate && new Date(job.closingDate) <= new Date() ? (
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>Applications are closed for this job.</p>
       ) : null}
 
       {ownerJob ? (
@@ -580,44 +614,121 @@ export default function JobDetails() {
       </Dialog>
 
       <Dialog open={showApplyDialog} onOpenChange={setShowApplyDialog}>
-        <DialogContent className="max-w-md border-[var(--sec-border)] bg-[var(--sec-bg-card)] text-[var(--sec-text-primary)]">
-          <DialogHeader>
-            <DialogTitle>Apply for {job.title}</DialogTitle>
-            <DialogDescription style={{ color: 'var(--sec-text-muted)' }}>Submit your application details.</DialogDescription>
-          </DialogHeader>
-          <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
-            <Textarea value={coverMessage} onChange={(e) => setCoverMessage(e.target.value)} placeholder="Cover message (50-1000 characters)" className="min-h-[120px] border-[var(--sec-border)] bg-[var(--sec-bg-elevated)]" />
-            <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{coverMessage.length}/1000</div>
-            <input type="url" className="sec-input" value={portfolioUrl} onChange={(e) => setPortfolioUrl(e.target.value)} placeholder="Portfolio URL (optional)" />
+        <DialogContent className="max-w-lg gap-0 border-[var(--sec-border)] bg-[var(--sec-bg-card)] p-0 text-[var(--sec-text-primary)] overflow-hidden">
+          <div
+            style={{
+              padding: '20px 22px 16px',
+              borderBottom: '1px solid var(--sec-border)',
+              background: 'linear-gradient(165deg, var(--sec-bg-elevated) 0%, var(--sec-bg-card) 100%)',
+            }}
+          >
+            <DialogHeader className="space-y-2 text-left">
+              <DialogTitle style={{ fontSize: 20, fontWeight: 700 }}>Apply for this role</DialogTitle>
+              <DialogDescription style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>
+                {job.title} · {job.venue?.name}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div style={{ padding: '18px 22px 22px', display: 'grid', gap: 16, maxHeight: 'min(70vh, 520px)', overflowY: 'auto' }}>
             <div>
-              <label style={{ fontSize: 12, color: 'var(--sec-text-muted)', display: 'block', marginBottom: 6 }}>CV (PDF, max 5MB)</label>
-              <input type="file" accept="application/pdf,.pdf" className="sec-input" style={{ padding: 8 }} onChange={(e) => uploadCv(e.target.files?.[0])} />
-            </div>
-            {uploading ? <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Uploading CV...</div> : null}
-            {cvFileName ? (
-              <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--sec-border)', background: 'var(--sec-bg-elevated)' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cvFileName}</span>
-                <button type="button" className="sec-btn sec-btn-ghost sec-btn-sm" onClick={() => { setCvFileName(''); setCvUrl(''); }}>Remove</button>
+              <Label style={{ fontSize: 12, color: 'var(--sec-text-secondary)' }}>Cover letter</Label>
+              <Textarea
+                value={coverMessage}
+                onChange={(e) => setCoverMessage(e.target.value)}
+                placeholder="Tell the venue why you’re a great fit — experience, availability, and what you bring to the role."
+                className="mt-2 min-h-[140px] border-[var(--sec-border)] bg-[var(--sec-bg-elevated)]"
+                maxLength={COVER_MAX_CHARS}
+              />
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: coverCharsOk ? 'var(--sec-text-muted)' : 'var(--sec-warning, #f59e0b)',
+                }}
+              >
+                {coverTrimmed.length} / {COVER_MIN_CHARS} minimum · {COVER_MAX_CHARS} max
+                {!coverCharsOk && coverTrimmed.length < COVER_MIN_CHARS
+                  ? ` — add ${COVER_MIN_CHARS - coverTrimmed.length} more character${COVER_MIN_CHARS - coverTrimmed.length === 1 ? '' : 's'}`
+                  : ''}
               </div>
-            ) : null}
-            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
-              By applying you agree to follow the{' '}
-              <LegalDocLink pageName="PromoterCodeOfConduct">Promoter Code of Conduct</LegalDocLink>
-              {' '}and{' '}
+            </div>
+            <div>
+              <Label style={{ fontSize: 12, color: 'var(--sec-text-secondary)' }}>Portfolio link (optional)</Label>
+              <input
+                type="url"
+                className="sec-input-rect mt-2"
+                style={{ height: 44, width: '100%' }}
+                value={portfolioUrl}
+                onChange={(e) => setPortfolioUrl(e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+            <div>
+              <Label style={{ fontSize: 12, color: 'var(--sec-text-secondary)' }}>CV (PDF, max 5MB)</Label>
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                className="sec-input-rect mt-2"
+                style={{ padding: 10, width: '100%' }}
+                onChange={(e) => uploadCv(e.target.files?.[0])}
+              />
+              {uploading ? <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>Uploading CV…</p> : null}
+              {cvFileName ? (
+                <div
+                  style={{
+                    marginTop: 10,
+                    fontSize: 13,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: '1px solid var(--sec-border)',
+                    background: 'var(--sec-bg-elevated)',
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cvFileName}</span>
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-ghost sec-btn-sm"
+                    onClick={() => {
+                      setCvFileName('');
+                      setCvUrl('');
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.55 }}>
+              By applying you agree to the{' '}
+              <LegalDocLink pageName="PromoterCodeOfConduct">Promoter Code of Conduct</LegalDocLink> and{' '}
               <LegalDocLink pageName="CommunityGuidelines">Community Guidelines</LegalDocLink>.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
-              <button type="button" className="sec-btn sec-btn-secondary w-full" style={{ height: 44 }} onClick={() => setShowApplyDialog(false)}>Cancel</button>
-              <button
-                type="button"
-                className="sec-btn sec-btn-primary w-full"
-                style={{ height: 48 }}
-                disabled={submitApplication.isPending || coverMessage.trim().length < 50 || coverMessage.trim().length > 1000}
-                onClick={() => submitApplication.mutate()}
-              >
-                {submitApplication.isPending ? 'Submitting...' : 'Submit application'}
-              </button>
-            </div>
+          </div>
+          <div
+            style={{
+              padding: '14px 22px 20px',
+              borderTop: '1px solid var(--sec-border)',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 10,
+            }}
+          >
+            <button type="button" className="sec-btn sec-btn-secondary" style={{ height: 46 }} onClick={() => setShowApplyDialog(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="sec-btn sec-btn-primary"
+              style={{ height: 46, fontWeight: 700 }}
+              disabled={submitApplication.isPending || !coverCharsOk}
+              onClick={() => submitApplication.mutate()}
+            >
+              {submitApplication.isPending ? 'Submitting…' : 'Submit application'}
+            </button>
           </div>
         </DialogContent>
       </Dialog>
