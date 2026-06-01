@@ -8,15 +8,15 @@ ALTER TABLE "venue_menu_items" ADD COLUMN IF NOT EXISTS "special_ends_at" TIMEST
 UPDATE "venue_menu_items" v
 SET
   "special_starts_at" = CASE
-    WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND position('|' in substring(v."sub_category" from 29)) > 0
-    THEN (split_part(substring(v."sub_category" from 29), '|', 1))::timestamptz
+    WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND position('|' in substring(v."sub_category" from 27)) > 0
+    THEN (split_part(substring(v."sub_category" from 27), '|', 1))::timestamptz
     ELSE NULL
   END,
   "special_ends_at" = CASE
-    WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND position('|' in substring(v."sub_category" from 29)) > 0
-    THEN (split_part(substring(v."sub_category" from 29), '|', 2))::timestamptz
+    WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND position('|' in substring(v."sub_category" from 27)) > 0
+    THEN (split_part(substring(v."sub_category" from 27), '|', 2))::timestamptz
     WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%'
-    THEN (substring(v."sub_category" from 29))::timestamptz
+    THEN (substring(v."sub_category" from 27))::timestamptz
     ELSE NULL
   END,
   "special_price" = CASE
@@ -39,15 +39,15 @@ WHERE v."catalog_item_id" = c."id"
 UPDATE "venue_menu_items" v
 SET
   "special_starts_at" = CASE
-    WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND position('|' in substring(v."sub_category" from 29)) > 0
-    THEN (split_part(substring(v."sub_category" from 29), '|', 1))::timestamptz
+    WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND position('|' in substring(v."sub_category" from 27)) > 0
+    THEN (split_part(substring(v."sub_category" from 27), '|', 1))::timestamptz
     ELSE NULL
   END,
   "special_ends_at" = CASE
-    WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND position('|' in substring(v."sub_category" from 29)) > 0
-    THEN (split_part(substring(v."sub_category" from 29), '|', 2))::timestamptz
+    WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND position('|' in substring(v."sub_category" from 27)) > 0
+    THEN (split_part(substring(v."sub_category" from 27), '|', 2))::timestamptz
     WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%'
-    THEN (substring(v."sub_category" from 29))::timestamptz
+    THEN (substring(v."sub_category" from 27))::timestamptz
     ELSE NULL
   END,
   "special_price" = CASE
@@ -56,7 +56,7 @@ SET
   END,
   "original_price" = CASE
     WHEN v."sub_category" LIKE '__SEC_SPECIAL_OFFER_EXP__:%' AND v."original_price" IS NULL
-    THEN COALESCE(c."default_price_zar", v."price")
+    THEN v."price"
     ELSE v."original_price"
   END,
   "sub_category" = NULL
