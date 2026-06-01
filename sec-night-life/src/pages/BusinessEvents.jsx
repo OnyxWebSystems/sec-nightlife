@@ -23,6 +23,13 @@ import { tierMinSpendsFromApi, resolveTierMinSpends } from '@/lib/tierMinSpend';
 import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
 import { isEventEnded } from '@/lib/eventLifecycle';
 
+const EVENT_COVER_CROP_ASPECT = 16 / 9;
+const EVENT_COVER_CROP_DIALOG_PROPS = {
+  aspect: EVENT_COVER_CROP_ASPECT,
+  maxCropHeight: 'min(85vh, 560px)',
+  contentClassName: 'max-w-3xl',
+};
+
 function isoToDatetimeLocal(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -1138,10 +1145,10 @@ export default function BusinessEvents() {
         open={coverCrop.cropOpen}
         onOpenChange={coverCrop.onCropOpenChange}
         imageSrc={coverCrop.cropSrc}
-        aspect={16 / 9}
         title="Crop event cover"
         onCropped={coverCrop.handleCropped}
         outputFileName="event-cover.jpg"
+        {...EVENT_COVER_CROP_DIALOG_PROPS}
       />
     </div>
   );
