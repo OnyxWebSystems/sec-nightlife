@@ -464,13 +464,14 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
         declineReason: null,
       },
     });
-    await createInAppNotification({
-      userId: table.venue.ownerUserId,
-      type: 'TABLE_REQUEST',
-      title: 'New table request',
-      body: `A guest requested ${table.tableName}. Review in Business Bookings.`,
-      referenceId: table.id,
-      referenceType: 'VENUE_TABLE',
+    await prisma.notification.create({
+      data: {
+        userId: table.venue.ownerUserId,
+        type: 'TABLE_REQUEST',
+        title: 'New table request',
+        body: `A guest requested ${table.tableName}. Review in Tables & day bookings.`,
+        actionUrl: '/BusinessVenueTables',
+      },
     });
     res.status(201).json({ member, status: 'PENDING_VENUE_REVIEW' });
   } catch (e) {
@@ -511,13 +512,14 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
           reviewedByUserId: req.userId,
         },
       });
-      await createInAppNotification({
-        userId: member.userId,
-        type: 'TABLE_DECLINED',
-        title: 'Table request declined',
-        body: payload.declineReason.trim(),
-        referenceId: member.venueTableId,
-        referenceType: 'VENUE_TABLE',
+      await prisma.notification.create({
+        data: {
+          userId: member.userId,
+          type: 'TABLE_DECLINED',
+          title: 'Table request declined',
+          body: payload.declineReason.trim(),
+          actionUrl: '/Notifications',
+        },
       });
       if (guestEmail) {
         try {
@@ -537,13 +539,16 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
       where: { id: member.id },
       data: { status: 'APPROVED', reviewedAt: new Date(), reviewedByUserId: req.userId },
     });
-    await createInAppNotification({
-      userId: member.userId,
-      type: 'TABLE_APPROVED',
-      title: 'Table request approved',
-      body: `You can now complete payment for ${tableLabel}.`,
-      referenceId: member.venueTableId,
-      referenceType: 'VENUE_TABLE',
+    const { ensureVenueTableThread } = await import('./venueTableMessages.js');
+    await ensureVenueTableThread(member.id);
+    await prisma.notification.create({
+      data: {
+        userId: member.userId,
+        type: 'TABLE_APPROVED',
+        title: 'Table request approved',
+        body: `You can now complete payment for ${tableLabel}.`,
+        actionUrl: `/TableDetails?id=${member.venueTableId}&source=venue`,
+      },
     });
     if (guestEmail) {
       try {

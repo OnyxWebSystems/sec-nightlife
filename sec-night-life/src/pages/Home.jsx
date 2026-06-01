@@ -389,7 +389,13 @@ export default function Home() {
     staleTime: listStale,
     enabled: !isLoadingAuth,
   });
-  const tableOfferings = tableOfferingsData?.items || [];
+  const tableOfferings = useMemo(() => {
+    const items = tableOfferingsData?.items || [];
+    return items.filter((o) => {
+      if (o.type !== 'venue_event') return true;
+      return !isEventEnded({ date: o.eventDate, ends_at: o.eventEndsAt, endsAt: o.eventEndsAt });
+    });
+  }, [tableOfferingsData?.items]);
 
   const { data: hostPartiesData } = useQuery({
     queryKey: ['host-parties-public-home'],

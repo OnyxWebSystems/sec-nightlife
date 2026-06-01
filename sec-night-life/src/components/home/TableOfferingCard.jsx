@@ -206,7 +206,7 @@ export default function TableOfferingCard({ offering, wide = false }) {
                 {offering.city}
               </span>
             )}
-            {offering.totalSpots > 0 && (
+            {offering.type !== 'venue_day' && offering.totalSpots > 0 && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                 <Users size={10} />
                 {offering.totalSpots} spots

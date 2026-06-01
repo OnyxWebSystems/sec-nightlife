@@ -108,6 +108,15 @@ function ownerJobDetailsPath(jobPostingId) {
   return `/JobDetails?id=${jobPostingId}`;
 }
 
+function ownerBusinessMessagesPath(applicationId, hired = false) {
+  const tab = hired ? 'promoters' : 'jobs';
+  return `/BusinessMessages?tab=${tab}&application=${applicationId}`;
+}
+
+function applicantMayMessage(status) {
+  return status === 'SHORTLISTED' || status === 'HIRED';
+}
+
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
     const parsed = postingSchema.safeParse(req.body || {});
@@ -290,7 +299,16 @@ router.get('/:jobId', authenticateToken, async (req, res, next) => {
           orderBy: { appliedAt: 'desc' },
           select: {
             id: true, coverMessage: true, cvUrl: true, cvFileName: true, portfolioUrl: true, status: true, appliedAt: true,
-            applicant: { select: { id: true, email: true, fullName: true } },
+            applicant: {
+              select: {
+                id: true,
+                email: true,
+                fullName: true,
+                userProfile: {
+                  select: { username: true, avatarUrl: true, isVerifiedPromoter: true },
+                },
+              },
+            },
           },
         },
       },
@@ -543,6 +561,15 @@ router.get('/applications/:applicationId/messages', authenticateToken, async (re
   try {
     const application = await getApplicationWithAccess(req.params.applicationId, req.userId);
     if (!application) return res.status(403).json({ error: 'Forbidden' });
+    const senderIsOwner = application.jobPosting.venue.owner.id === req.userId;
+    if (!senderIsOwner && !applicantMayMessage(application.status)) {
+      return res.status(403).json({
+        error:
+          application.status === 'REJECTED'
+            ? 'You cannot message this business while your application is rejected.'
+            : 'You can message this venue after you are waitlisted or hired.',
+      });
+    }
     await prisma.jobMessage.updateMany({
       where: { applicationId: application.id, readAt: null, senderUserId: { not: req.userId } },
       data: { readAt: new Date() },
@@ -565,8 +592,13 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
     const application = await getApplicationWithAccess(req.params.applicationId, req.userId);
     if (!application) return res.status(403).json({ error: 'Forbidden' });
     const senderIsOwner = application.jobPosting.venue.owner.id === req.userId;
-    if (!senderIsOwner && application.status === 'REJECTED') {
-      return res.status(403).json({ error: 'You cannot message this business while your application is rejected.' });
+    if (!senderIsOwner && !applicantMayMessage(application.status)) {
+      return res.status(403).json({
+        error:
+          application.status === 'REJECTED'
+            ? 'You cannot message this business while your application is rejected.'
+            : 'You can message this venue after you are waitlisted or hired.',
+      });
     }
     const created = await prisma.jobMessage.create({
       data: {
@@ -581,7 +613,7 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
     const recipient = senderIsOwner ? application.applicant : application.jobPosting.venue.owner;
     const recipientActionPath = senderIsOwner
       ? myApplicationThreadPath(application.id, application.jobPostingId)
-      : ownerJobDetailsPath(application.jobPostingId);
+      : ownerBusinessMessagesPath(application.id, application.status === 'HIRED');
     if (recipient?.email) {
       const appBase = (process.env.APP_URL || '').replace(/\/+$/, '');
       const appUrl = appBase ? `${appBase}${recipientActionPath}` : '';

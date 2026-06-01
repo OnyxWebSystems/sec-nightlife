@@ -84,6 +84,7 @@ export default function TableDetails() {
   const autoJoin = urlParams.get('join');
   const source = urlParams.get('source');
   const bookingModeParam = urlParams.get('mode');
+  const settlementParam = urlParams.get('settlement');
   const isVenueSource = source === 'venue';
   const venueBookingMode = bookingModeParam === 'host' ? 'host' : 'join';
   const isHostCheckout = venueBookingMode === 'host';
@@ -128,8 +129,22 @@ export default function TableDetails() {
     enabled: !!tableId && isVenueSource,
   });
 
-  const [venueSettlementMode, setVenueSettlementMode] = useState('PREPAY_MENU');
-  const [venueCheckoutStep, setVenueCheckoutStep] = useState('menu');
+  const [venueSettlementMode, setVenueSettlementMode] = useState(() =>
+    settlementParam === 'PREPAY_LUMP' ? 'PREPAY_LUMP' : 'PREPAY_MENU',
+  );
+  const [venueCheckoutStep, setVenueCheckoutStep] = useState(() =>
+    settlementParam === 'PREPAY_LUMP' ? 'checkout' : 'menu',
+  );
+
+  useEffect(() => {
+    if (settlementParam === 'PREPAY_LUMP') {
+      setVenueSettlementMode('PREPAY_LUMP');
+      setVenueCheckoutStep('checkout');
+    } else if (settlementParam === 'PREPAY_MENU') {
+      setVenueSettlementMode('PREPAY_MENU');
+      setVenueCheckoutStep('menu');
+    }
+  }, [settlementParam]);
   const [customRequestOpen, setCustomRequestOpen] = useState(false);
   const [customSubmitting, setCustomSubmitting] = useState(false);
 

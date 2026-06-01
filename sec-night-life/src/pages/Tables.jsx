@@ -102,7 +102,9 @@ export default function Tables() {
                         </span>
                       ))}
                       <span style={{ fontSize: 11, color: 'var(--sec-accent)' }}>
-                        {offering.totalSpots} spots · tap to open
+                        {offering.type !== 'venue_day' && offering.totalSpots > 0
+                          ? `${offering.totalSpots} spots · tap to open`
+                          : 'tap to open'}
                       </span>
                     </div>
                   )}

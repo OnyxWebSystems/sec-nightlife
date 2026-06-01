@@ -432,4 +432,60 @@ router.get('/venue-table-reservations', authenticateToken, async (req, res, next
   }
 });
 
+/** Confirmed / paid venue & day table bookings (incl. custom tables after checkout). */
+router.get('/venue-table-bookings', authenticateToken, async (req, res, next) => {
+  try {
+    const ownedVenues = await prisma.venue.findMany({
+      where: { ownerUserId: req.userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!ownedVenues.length) return res.json({ items: [] });
+    const venueIds = ownedVenues.map((v) => v.id);
+    const members = await prisma.venueTableMember.findMany({
+      where: {
+        status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] },
+        venueTable: { venueId: { in: venueIds } },
+      },
+      include: {
+        user: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
+        venueTable: {
+          include: {
+            event: { select: { id: true, title: true, date: true } },
+            venue: { select: { id: true, name: true, city: true } },
+          },
+        },
+      },
+      orderBy: { paidAt: 'desc' },
+      take: 120,
+    });
+    res.json({
+      items: members.map((m) => ({
+        id: m.id,
+        status: m.status,
+        amountPaid: m.amountPaid,
+        settlementMode: m.settlementMode,
+        selectedMenuItems: m.selectedMenuItems,
+        userSpecs: m.userSpecs,
+        joinedAt: m.joinedAt,
+        paidAt: m.paidAt,
+        user: {
+          id: m.user.id,
+          username: m.user.userProfile?.username,
+          fullName: m.user.fullName,
+        },
+        table: {
+          id: m.venueTable.id,
+          tableName: m.venueTable.tableName,
+          minimumSpend: m.venueTable.minimumSpend,
+          isCustomListing: m.venueTable.isCustomListing,
+          event: m.venueTable.event,
+          venue: m.venueTable.venue,
+        },
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;

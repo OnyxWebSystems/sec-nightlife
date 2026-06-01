@@ -95,6 +95,9 @@ export default function MyJobApplications() {
     retry: false,
   });
 
+  const selectedApp = useMemo(() => apps.find((a) => a.id === selectedId), [apps, selectedId]);
+  const canMessageJob = selectedApp && ['SHORTLISTED', 'HIRED'].includes(selectedApp.status);
+
   const sendMessage = useMutation({
     mutationFn: async () => {
       const payload = { body: body.trim() };
@@ -203,17 +206,25 @@ export default function MyJobApplications() {
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-            <input className="sec-input" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Type message" />
-            <button
-              className="sec-btn sec-btn-primary"
-              style={{ height: 44, minWidth: 44 }}
-              disabled={!body.trim() || sendMessage.isPending}
-              onClick={() => sendMessage.mutate()}
-            >
-              {sendMessage.isPending ? 'Sending…' : 'Send'}
-            </button>
-          </div>
+          {canMessageJob ? (
+            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <input className="sec-input" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Type message" />
+              <button
+                className="sec-btn sec-btn-primary"
+                style={{ height: 44, minWidth: 44 }}
+                disabled={!body.trim() || sendMessage.isPending}
+                onClick={() => sendMessage.mutate()}
+              >
+                {sendMessage.isPending ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          ) : (
+            <p style={{ marginTop: 8, fontSize: 13, color: 'var(--sec-text-muted)' }}>
+              {selectedApp?.status === 'REJECTED'
+                ? 'Messaging is closed for rejected applications.'
+                : 'You can message the venue after you are waitlisted or hired.'}
+            </p>
+          )}
         </div>
       ) : null}
     </div>

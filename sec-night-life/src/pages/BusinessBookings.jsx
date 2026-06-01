@@ -54,6 +54,13 @@ export default function BusinessBookings() {
     },
     enabled: !!user,
   });
+
+  const { data: venueTableBookingsData, isLoading: venueBookingsLoading } = useQuery({
+    queryKey: ['biz-venue-table-bookings', user?.id],
+    queryFn: () => apiGet('/api/business/venue-table-bookings'),
+    enabled: !!user,
+  });
+  const venueTableBookings = venueTableBookingsData?.items || [];
   const tables = bookingsData?.items || [];
   const summary = bookingsData?.summary;
   const eventOptions = useMemo(() => {
@@ -337,6 +344,51 @@ export default function BusinessBookings() {
           )}
         </DialogContent>
       </Dialog>
+
+      <section style={{ marginTop: 40, paddingTop: 24, borderTop: '1px solid var(--sec-border)' }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Venue &amp; day table bookings</h2>
+        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
+          Paid bookings from Book on Sec and approved custom tables (event-linked or day bookings).
+        </p>
+        {venueBookingsLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="animate-spin" /></div>
+        ) : venueTableBookings.length === 0 ? (
+          <div className="sec-card p-6 text-center text-sm text-[var(--sec-text-muted)]">No venue table bookings yet.</div>
+        ) : (
+          <div className="space-y-2">
+            {venueTableBookings.map((row) => (
+              <div key={row.id} className="sec-card p-4 border border-[var(--sec-border)]">
+                <div className="flex justify-between gap-2 flex-wrap">
+                  <div>
+                    <p className="font-semibold">{row.table?.tableName}</p>
+                    <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+                      {row.table?.venue?.name}
+                      {row.table?.event?.title ? ` · ${row.table.event.title}` : ' · Day booking'}
+                    </p>
+                    <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+                      @{row.user?.username || row.user?.fullName || 'Guest'} · {row.status}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-[var(--sec-accent)]">R{Number(row.amountPaid || 0).toFixed(0)}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mt-1">
+                      {row.settlementMode || '—'}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => navigate(createPageUrl(`TableDetails?id=${row.table?.id}&source=venue`))}
+                >
+                  View table
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

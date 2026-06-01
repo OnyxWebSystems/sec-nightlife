@@ -18,6 +18,13 @@ const MAX_PUBLISH_D = 30;
 const MIN_BOOST_D = 0;
 const MAX_BOOST_D = 30;
 const SPECIAL_OFFER_EXP_PREFIX = '__SEC_SPECIAL_OFFER_EXP__:';
+const PROMO_MAX_MS = 30 * 24 * 60 * 60 * 1000;
+const PROMOTION_CROP_ASPECT = 16 / 10;
+const PROMOTION_CROP_DIALOG_PROPS = {
+  aspect: PROMOTION_CROP_ASPECT,
+  maxCropHeight: 'min(80vh, 520px)',
+  contentClassName: 'max-w-2xl',
+};
 
 async function checkoutPromotionPublish({ promotionId, publishDays, boostDays, email, onSuccess }) {
   const pay = await apiPost(`/api/promotions/${promotionId}/checkout`, {
@@ -96,6 +103,29 @@ function isoToDatetimeLocal(iso) {
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function buildDefaultPromotionSchedule(publishDays = 7) {
+  const start = new Date(Date.now() + 60 * 60 * 1000);
+  const end = new Date(start.getTime() + publishDays * 24 * 60 * 60 * 1000);
+  return {
+    startsAt: isoToDatetimeLocal(start.toISOString()),
+    endsAt: isoToDatetimeLocal(end.toISOString()),
+  };
+}
+
+function validatePromotionSchedule(startsAtLocal, endsAtLocal, publishDays) {
+  const start = new Date(startsAtLocal);
+  const end = new Date(endsAtLocal);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 'Invalid start or end date and time';
+  if (end <= start) return 'End must be after start';
+  const spanMs = end.getTime() - start.getTime();
+  if (spanMs > PROMO_MAX_MS) return 'Promotion duration cannot exceed 30 days';
+  const billedDays = Math.max(1, Math.ceil(spanMs / (24 * 60 * 60 * 1000)));
+  if (billedDays > publishDays) {
+    return `Increase run length to at least ${billedDays} day${billedDays === 1 ? '' : 's'} to cover your schedule`;
+  }
+  return null;
 }
 
 function PromotionStatusBadge({ status }) {
@@ -208,7 +238,7 @@ function extractErrorDetails(error) {
 }
 
 const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVenue, events, userEmail, onPublished }) {
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     promoteWhat: 'venue',
     eventId: '',
     promotionType: 'VENUE_PROMOTION',
@@ -217,7 +247,8 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
     imageUrl: '',
     imagePublicId: '',
     targetCity: '',
-  });
+    ...buildDefaultPromotionSchedule(7),
+  }));
   const [publishDays, setPublishDays] = useState(7);
   const [boostDays, setBoostDays] = useState(3);
   const [useBoost, setUseBoost] = useState(true);
@@ -240,6 +271,15 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
   const boostTotal = useBoost ? boostDays * BOOST_ZAR_PER_DAY : 0;
   const checkoutTotal = publishTotal + boostTotal;
 
+  const durationText = useMemo(() => {
+    if (!form.startsAt || !form.endsAt) return '';
+    const start = new Date(form.startsAt);
+    const end = new Date(form.endsAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
+    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
+    return `This promotion runs for ${days} day${days === 1 ? '' : 's'}`;
+  }, [form.startsAt, form.endsAt]);
+
   async function handlePayAndPublish() {
     setFormError('');
     if (!selectedVenue) return setFormError('Please select a venue.');
@@ -248,10 +288,18 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
     if (!form.body.trim()) return setFormError('Body is required.');
     if (!userEmail) return setFormError('Sign in with a verified email to pay.');
     if (useBoost && boostDays < 1) return setFormError('Choose at least 1 boost day or turn boost off.');
+    if (!form.startsAt || !form.endsAt) return setFormError('Start and end date/time are required.');
+    const scheduleErr = validatePromotionSchedule(form.startsAt, form.endsAt, publishDays);
+    if (scheduleErr) return setFormError(scheduleErr);
 
-    const now = new Date();
-    const startsAtIso = new Date(now.getTime() + 60_000).toISOString();
-    const endsAtIso = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000).toISOString();
+    let startsAtIso;
+    let endsAtIso;
+    try {
+      startsAtIso = localDateTimeToIso(form.startsAt);
+      endsAtIso = localDateTimeToIso(form.endsAt);
+    } catch {
+      return setFormError('Invalid start or end date and time');
+    }
 
     setSaving(true);
     try {
@@ -325,6 +373,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
           imageUrl: '',
           imagePublicId: '',
           targetCity: '',
+          ...buildDefaultPromotionSchedule(7),
         });
         setPublishDays(7);
         setBoostDays(3);
@@ -419,10 +468,10 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         open={imageCrop.cropOpen}
         onOpenChange={imageCrop.onCropOpenChange}
         imageSrc={imageCrop.cropSrc}
-        aspect={16 / 9}
         title="Crop promotion image"
         onCropped={imageCrop.handleCropped}
         outputFileName="promotion.jpg"
+        {...PROMOTION_CROP_DIALOG_PROPS}
       />
 
       <div style={{ marginTop: 14 }}>
@@ -436,6 +485,28 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
           ))}
         </select>
       </div>
+
+      <div style={{ marginTop: 14 }}>
+        <Label>Start Date + Time</Label>
+        <input
+          type="datetime-local"
+          className="sec-input-rect"
+          value={form.startsAt}
+          onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))}
+          style={{ marginTop: 6, height: 44, width: '100%' }}
+        />
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <Label>End Date + Time</Label>
+        <input
+          type="datetime-local"
+          className="sec-input-rect"
+          value={form.endsAt}
+          onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))}
+          style={{ marginTop: 6, height: 44, width: '100%' }}
+        />
+      </div>
+      {durationText && <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>{durationText}</p>}
 
       <div
         style={{
@@ -684,10 +755,10 @@ const PromotionEditModal = React.memo(function PromotionEditModal({ open, promot
           open={editImageCrop.cropOpen}
           onOpenChange={editImageCrop.onCropOpenChange}
           imageSrc={editImageCrop.cropSrc}
-          aspect={16 / 9}
           title="Crop promotion image"
           onCropped={editImageCrop.handleCropped}
           outputFileName="promotion.jpg"
+          {...PROMOTION_CROP_DIALOG_PROPS}
         />
 
         <div style={{ marginTop: 10 }}>

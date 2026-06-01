@@ -308,6 +308,7 @@ model User {
   housePartyJobApplications   HousePartyJobApplication[]
   housePartyJobMessagesSent   HousePartyJobMessage[]     @relation("HousePartyJobMessageSender")
   venueTableMemberships       VenueTableMember[]
+  venueTableMessages          VenueTableMessage[]
   hostedVenueTables           VenueTable[]               @relation("VenueTableHost")
   blocksInitiated             Block[]                    @relation("BlockInitiator")
   blocksReceived              Block[]                    @relation("BlockTarget")
@@ -1554,11 +1555,40 @@ model VenueTableMember {
   venueTable VenueTable        @relation(fields: [venueTableId], references: [id], onDelete: Cascade)
   user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   splitLogs  SplitPaymentLog[]
+  thread     VenueTableThread?
 
   @@unique([venueTableId, userId])
   @@index([venueTableId])
   @@index([userId])
   @@map("venue_table_members")
+}
+
+model VenueTableThread {
+  id                 String   @id @default(cuid())
+  venueTableMemberId String   @unique @map("venue_table_member_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  member   VenueTableMember    @relation(fields: [venueTableMemberId], references: [id], onDelete: Cascade)
+  messages VenueTableMessage[]
+
+  @@map("venue_table_threads")
+}
+
+model VenueTableMessage {
+  id           String    @id @default(cuid())
+  threadId     String    @map("thread_id")
+  senderUserId String    @map("sender_user_id")
+  templateKey  String    @map("template_key")
+  sentAt       DateTime  @default(now()) @map("sent_at")
+  readAt       DateTime? @map("read_at")
+
+  thread VenueTableThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender User             @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+  @@index([senderUserId])
+  @@map("venue_table_messages")
 }
 
 model VenueTableMenuItem {

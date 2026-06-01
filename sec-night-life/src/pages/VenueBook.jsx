@@ -97,12 +97,8 @@ export default function VenueBook() {
           ) : (
             <div className="space-y-3 mb-6">
               {bookableTables.map((t) => (
-                <Link
-                  key={t.id}
-                  to={createPageUrl(`TableDetails?id=${t.id}&source=venue`)}
-                  className="sec-card block p-4 border border-[var(--sec-border)] no-underline"
-                >
-                  <div className="flex justify-between gap-2">
+                <div key={t.id} className="sec-card p-4 border border-[var(--sec-border)]">
+                  <div className="flex justify-between gap-2 mb-3">
                     <div>
                       <p className="font-semibold text-[var(--sec-text-primary)]">{t.tableName}</p>
                       <p className="text-xs text-[var(--sec-text-muted)] mt-1">
@@ -111,7 +107,25 @@ export default function VenueBook() {
                     </div>
                     <span className="text-xs text-[var(--sec-accent)] font-semibold">{t.spotsRemaining} left</span>
                   </div>
-                </Link>
+                  <div className="grid gap-2">
+                    <Link
+                      to={createPageUrl(`TableDetails?id=${t.id}&source=venue&settlement=PREPAY_MENU`)}
+                      className="sec-btn sec-btn-primary sec-btn-sm w-full text-center no-underline"
+                      style={{ display: 'block', textDecoration: 'none' }}
+                    >
+                      Order from menu (meet min spend)
+                    </Link>
+                    {Number(t.minimumSpend) > 0 ? (
+                      <Link
+                        to={createPageUrl(`TableDetails?id=${t.id}&source=venue&settlement=PREPAY_LUMP`)}
+                        className="sec-btn sec-btn-secondary sec-btn-sm w-full text-center no-underline"
+                        style={{ display: 'block', textDecoration: 'none' }}
+                      >
+                        Pay minimum spend upfront
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
               ))}
             </div>
           )}

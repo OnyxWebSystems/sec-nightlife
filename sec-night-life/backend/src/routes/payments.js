@@ -191,7 +191,34 @@ async function applyReferenceSideEffects(reference, paystackData) {
     const publishDays = Math.min(30, Math.max(1, parseInt(String(metadata.publishDays ?? metadata.publish_days ?? '1'), 10) || 1));
     const boostDays = Math.min(30, Math.max(0, parseInt(String(metadata.boostDays ?? metadata.boost_days ?? '0'), 10) || 0));
     const now = new Date();
-    const endAt = new Date(now.getTime() + publishDays * PROMO_MS_DAY);
+    const existingPromo = await prisma.promotion.findFirst({
+      where: { id: String(promoId), deletedAt: null },
+      select: { startAt: true, endAt: true },
+    });
+
+    let startAt = existingPromo?.startAt ? new Date(existingPromo.startAt) : now;
+    let endAt = existingPromo?.endAt ? new Date(existingPromo.endAt) : new Date(now.getTime() + publishDays * PROMO_MS_DAY);
+
+    const scheduleValid =
+      !Number.isNaN(startAt.getTime()) &&
+      !Number.isNaN(endAt.getTime()) &&
+      endAt > startAt &&
+      endAt.getTime() - startAt.getTime() <= 30 * PROMO_MS_DAY &&
+      endAt > now;
+
+    if (!scheduleValid) {
+      console.warn('PROMOTION_PUBLISH: invalid saved schedule, using publishDays fallback', {
+        reference,
+        promoId,
+        startAt: existingPromo?.startAt,
+        endAt: existingPromo?.endAt,
+      });
+      startAt = now;
+      endAt = new Date(now.getTime() + publishDays * PROMO_MS_DAY);
+    } else if (startAt.getTime() < now.getTime()) {
+      startAt = now;
+    }
+
     const boostData =
       boostDays > 0
         ? {
@@ -211,7 +238,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
       where: { id: String(promoId), deletedAt: null },
       data: {
         status: 'ACTIVE',
-        startAt: now,
+        startAt,
         endAt,
         ...boostData,
       },
@@ -521,6 +548,12 @@ async function applyReferenceSideEffects(reference, paystackData) {
           paystackReference: reference,
         },
       });
+      try {
+        const { ensureVenueTableThread } = await import('./venueTableMessages.js');
+        await ensureVenueTableThread(member.id);
+      } catch (threadErr) {
+        console.warn('ensureVenueTableThread after payment failed', threadErr?.message);
+      }
       await tx.venueTable.update({
         where: { id: table.id },
         data: {

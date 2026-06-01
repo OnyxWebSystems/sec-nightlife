@@ -474,6 +474,16 @@ router.post('/:id/custom-table-request', authenticateToken, async (req, res, nex
       },
     });
 
+    await prisma.notification.create({
+      data: {
+        userId: venue.ownerUserId,
+        type: 'TABLE_REQUEST',
+        title: 'New table request',
+        body: `A guest submitted a custom table request. Review in Tables & day bookings.`,
+        actionUrl: '/BusinessVenueTables',
+      },
+    });
+
     res.status(201).json({
       customListingId: listing.id,
       tableId: listing.id,

@@ -104,7 +104,7 @@ export default function ImageCropDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`bg-[var(--sec-bg-card)] border-[var(--sec-border)] max-w-md ${contentClassName}`.trim()}>
+      <DialogContent className={`bg-[var(--sec-bg-card)] border-[var(--sec-border)] ${contentClassName || 'max-w-md'}`.trim()}>
         <DialogHeader>
           <DialogTitle style={{ color: 'var(--sec-text-primary)' }}>{title}</DialogTitle>
         </DialogHeader>

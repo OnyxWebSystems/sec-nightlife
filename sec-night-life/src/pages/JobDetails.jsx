@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -41,6 +42,7 @@ export default function JobDetails() {
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const jobId = urlParams.get('id');
+  const highlightApplicationId = urlParams.get('application');
 
   const [user, setUser] = useState(null);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
@@ -49,9 +51,8 @@ export default function JobDetails() {
   const [cvUrl, setCvUrl] = useState('');
   const [cvFileName, setCvFileName] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [selectedApplication, setSelectedApplication] = useState(null);
-  const [messageBody, setMessageBody] = useState('');
   const [showEditForm, setShowEditForm] = useState(false);
+  const applicantCardRefs = useRef({});
   const [statusConfirm, setStatusConfirm] = useState({ open: false, applicationId: null, status: null, applicantName: '' });
   const [rateTarget, setRateTarget] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -97,14 +98,6 @@ export default function JobDetails() {
   });
 
   const selectedMyApplication = useMemo(() => myApplications.find((x) => x.jobPostingId === jobId), [myApplications, jobId]);
-  const activeApplicationId = selectedApplication?.id || selectedMyApplication?.id || null;
-
-  const { data: messages = [] } = useQuery({
-    queryKey: ['job-messages', activeApplicationId],
-    queryFn: () => apiGet(`/api/jobs/applications/${activeApplicationId}/messages`),
-    enabled: !!activeApplicationId,
-    refetchInterval: 30000,
-  });
 
   const submitApplication = useMutation({
     mutationFn: () => apiPost(`/api/jobs/${jobId}/apply`, { coverMessage, cvUrl: cvUrl || null, cvFileName: cvFileName || null, portfolioUrl: portfolioUrl || null }),
@@ -125,16 +118,6 @@ export default function JobDetails() {
       toast.success('Application updated');
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update status'),
-  });
-
-  const sendMessage = useMutation({
-    mutationFn: () => apiPost(`/api/jobs/applications/${activeApplicationId}/messages`, { body: messageBody }),
-    onSuccess: () => {
-      setMessageBody('');
-      queryClient.invalidateQueries({ queryKey: ['job-messages', activeApplicationId] });
-      queryClient.invalidateQueries({ queryKey: ['my-apps'] });
-    },
-    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to send message'),
   });
 
   const completeApplication = useMutation({
@@ -188,6 +171,24 @@ export default function JobDetails() {
     if (!ownerJob || showEditForm) return;
     setEditForm(jobPostingToEditForm(ownerJob));
   }, [ownerJob, showEditForm]);
+
+  useEffect(() => {
+    if (!highlightApplicationId || !ownerJob?.applications?.length) return;
+    const el = applicantCardRefs.current[highlightApplicationId];
+    if (el?.scrollIntoView) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightApplicationId, ownerJob?.applications]);
+
+  function openBusinessMessages(application) {
+    const tab = application.status === 'HIRED' ? 'promoters' : 'jobs';
+    navigate(createPageUrl(`BusinessMessages?tab=${tab}&application=${application.id}`));
+  }
+
+  function openApplicantProfile(applicant) {
+    if (!applicant?.id) return;
+    navigate(createPageUrl(`Profile?id=${applicant.id}`));
+  }
 
   async function uploadCv(file) {
     if (!file) return;
@@ -269,6 +270,21 @@ export default function JobDetails() {
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div className="sec-badge sec-badge-success">Applied</div>
           <div className="sec-badge sec-badge-muted">Status: {selectedMyApplication.status}</div>
+          {['SHORTLISTED', 'HIRED'].includes(selectedMyApplication.status) ? (
+            <button
+              type="button"
+              className="sec-btn sec-btn-secondary sec-btn-sm"
+              onClick={() =>
+                navigate(
+                  createPageUrl(
+                    `MyJobApplications?applicationId=${selectedMyApplication.id}&jobId=${jobId}`,
+                  ),
+                )
+              }
+            >
+              Open messages
+            </button>
+          ) : null}
         </div>
       ) : myAppsError ? (
         <p style={{ marginTop: 14, fontSize: 13, color: 'var(--sec-text-muted)' }}>
@@ -438,13 +454,43 @@ export default function JobDetails() {
             </div>
           ) : null}
           {ownerJob.applications?.length ? ownerJob.applications.map((a) => (
-            <div key={a.id} className="sec-card" style={{ padding: 16, borderRadius: 14, display: 'grid', gap: 10 }}>
+            <div
+              key={a.id}
+              ref={(el) => {
+                if (el) applicantCardRefs.current[a.id] = el;
+              }}
+              className="sec-card"
+              style={{
+                padding: 16,
+                borderRadius: 14,
+                display: 'grid',
+                gap: 10,
+                border:
+                  highlightApplicationId === a.id
+                    ? '1px solid var(--sec-accent-border)'
+                    : '1px solid var(--sec-border)',
+                boxShadow: highlightApplicationId === a.id ? 'var(--shadow-card)' : undefined,
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
                 <div>
                   <p style={{ fontWeight: 700, margin: 0, fontSize: 16 }}>{a.applicant?.fullName || 'Applicant'}</p>
-                  <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>{a.applicant?.email}</p>
+                  <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                    {a.applicant?.userProfile?.username ? `@${a.applicant.userProfile.username} · ` : ''}
+                    {a.applicant?.email}
+                  </p>
+                  {a.applicant?.userProfile?.isVerifiedPromoter ? (
+                    <span className="sec-badge sec-badge-gold" style={{ marginTop: 6, display: 'inline-block' }}>
+                      Verified promoter
+                    </span>
+                  ) : null}
+                  {a.appliedAt ? (
+                    <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 6, marginBottom: 0 }}>
+                      Applied {new Date(a.appliedAt).toLocaleString()}
+                    </p>
+                  ) : null}
                 </div>
-                <span className="sec-badge sec-badge-muted">{a.status}</span>
+                <span className="sec-badge sec-badge-muted">{a.status === 'SHORTLISTED' ? 'WAITLISTED' : a.status}</span>
               </div>
               <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.5, color: 'var(--sec-text-secondary)' }}>{a.coverMessage}</p>
               {a.portfolioUrl ? (
@@ -458,8 +504,9 @@ export default function JobDetails() {
                 </a>
               ) : null}
               <div style={{ marginTop: 4, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }}>
+                <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => openApplicantProfile(a.applicant)}>View profile</button>
                 <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => viewCv(a.id)}>View CV</button>
-                {a.status !== 'SHORTLISTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'SHORTLISTED' })}>Shortlist</button> : null}
+                {a.status !== 'SHORTLISTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => updateStatus.mutate({ applicationId: a.id, status: 'SHORTLISTED' })}>Add to waitlist</button> : null}
                 {a.status !== 'REJECTED' ? <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => openStatusConfirm({ applicationId: a.id, status: 'REJECTED', applicantName: a.applicant?.fullName })}>Reject</button> : null}
                 {a.status !== 'HIRED' ? <button type="button" className="sec-btn sec-btn-primary sec-btn-sm" style={{ width: '100%' }} onClick={() => openStatusConfirm({ applicationId: a.id, status: 'HIRED', applicantName: a.applicant?.fullName })}>Hire</button> : null}
                 {a.status === 'HIRED' ? (
@@ -482,7 +529,9 @@ export default function JobDetails() {
                     Rate Promoter
                   </button>
                 ) : null}
-                <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => setSelectedApplication(a)}>Message</button>
+                {['SHORTLISTED', 'HIRED'].includes(a.status) ? (
+                  <button type="button" className="sec-btn sec-btn-secondary sec-btn-sm" style={{ width: '100%' }} onClick={() => openBusinessMessages(a)}>Open messages</button>
+                ) : null}
               </div>
             </div>
           )) : (
@@ -490,27 +539,6 @@ export default function JobDetails() {
               No applicants yet.
             </div>
           )}
-        </div>
-      ) : null}
-
-      {activeApplicationId ? (
-        <div className="sec-card" style={{ marginTop: 20, padding: 16, borderRadius: 14 }}>
-          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Messages</h3>
-          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'grid', gap: 8, marginTop: 12 }}>
-            {messages.map((m) => (
-              <div key={m.id} style={{ justifySelf: m.senderUserId === user?.id ? 'end' : 'start', maxWidth: '90%', background: m.senderUserId === user?.id ? 'var(--sec-accent-muted)' : 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)', borderRadius: 12, padding: '10px 12px' }}>
-                <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>{m.sender?.fullName || 'User'} · {new Date(m.sentAt).toLocaleString()}</div>
-                <div style={{ marginTop: 4, fontSize: 14 }}>{m.body}</div>
-                <div style={{ fontSize: 10, color: 'var(--sec-text-muted)', marginTop: 4 }}>{m.readAt ? 'Read' : 'Sent'}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input className="sec-input" value={messageBody} onChange={(e) => setMessageBody(e.target.value)} placeholder="Type a message..." style={{ minHeight: 44 }} />
-            <button type="button" className="sec-btn sec-btn-primary" style={{ height: 44, width: '100%' }} disabled={!messageBody.trim() || sendMessage.isPending} onClick={() => sendMessage.mutate()}>
-              {sendMessage.isPending ? 'Sending...' : 'Send'}
-            </button>
-          </div>
         </div>
       ) : null}
 

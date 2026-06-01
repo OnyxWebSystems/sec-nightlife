@@ -36,6 +36,25 @@ function formatHost(user) {
   };
 }
 
+/** Whether an event has finished for home/table listings (mirrors frontend eventLifecycle). */
+function isEventEndedForListing(event) {
+  if (!event) return true;
+  if (event.status && event.status !== 'published') return true;
+  const endsAtRaw = event.endsAt;
+  if (endsAtRaw) {
+    const t = endsAtRaw instanceof Date ? endsAtRaw : new Date(endsAtRaw);
+    if (!Number.isNaN(t.getTime())) return t.getTime() < Date.now();
+  }
+  const dateStr = event.date;
+  if (dateStr) {
+    const d = dateStr instanceof Date
+      ? new Date(dateStr)
+      : new Date(`${String(dateStr).slice(0, 10)}T23:59:59.999Z`);
+    if (!Number.isNaN(d.getTime())) return d.getTime() < Date.now();
+  }
+  return false;
+}
+
 function sortOfferings(list, friendIds) {
   list.sort((a, b) => {
     if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
@@ -80,6 +99,7 @@ export async function buildTableOfferings({ userId, limit = 40 } = {}) {
           title: true,
           date: true,
           startTime: true,
+          endsAt: true,
           city: true,
           coverImageUrl: true,
           status: true,
@@ -164,6 +184,7 @@ export async function buildTableOfferings({ userId, limit = 40 } = {}) {
     };
 
     if (t.eventId && t.event) {
+      if (isEventEndedForListing(t.event)) continue;
       const key = t.eventId;
       if (!venueEventMap.has(key)) {
         venueEventMap.set(key, {
@@ -176,6 +197,7 @@ export async function buildTableOfferings({ userId, limit = 40 } = {}) {
           imageUrl: t.event.coverImageUrl || t.venue?.coverImageUrl || null,
           city: t.event.city || t.venue?.city || null,
           eventDate: t.event.date,
+          eventEndsAt: t.event.endsAt,
           startTime: t.event.startTime,
           tiers: [],
           totalSpots: 0,
@@ -217,7 +239,9 @@ export async function buildTableOfferings({ userId, limit = 40 } = {}) {
       }
       const g = venueDayMap.get(key);
       g.tiers.push(tier);
-      g.totalSpots += spots;
+      if (!t.isCustomListing) {
+        g.totalSpots += spots;
+      }
       g.tableCount += 1;
       const bf = Number(t.bookingFeeZar || 0);
       if (bf > 0 && (g.minBookingFeeZar == null || bf < g.minBookingFeeZar)) {
