@@ -26,36 +26,59 @@ function isVenueOwnedImageUrl(url) {
   return t.startsWith('https://') || t.startsWith('http://');
 }
 
-const SPECIAL_OFFER_EXP_PREFIX = '__SEC_SPECIAL_OFFER_EXP__:';
+export const SPECIAL_OFFER_EXP_PREFIX = '__SEC_SPECIAL_OFFER_EXP__:';
 
-function parseSpecialOfferExpiry(rawSubCategory) {
+/** @returns {{ startsAt: Date | null, endsAt: Date } | null} */
+export function parseSpecialOfferWindow(rawSubCategory) {
   if (!rawSubCategory || typeof rawSubCategory !== 'string') return null;
   const val = rawSubCategory.trim();
   if (!val.startsWith(SPECIAL_OFFER_EXP_PREFIX)) return null;
-  const iso = val.slice(SPECIAL_OFFER_EXP_PREFIX.length).trim();
-  if (!iso) return null;
-  const dt = new Date(iso);
-  return Number.isNaN(dt.getTime()) ? null : dt;
+  const rest = val.slice(SPECIAL_OFFER_EXP_PREFIX.length).trim();
+  if (!rest) return null;
+  const parts = rest.split('|');
+  if (parts.length === 2) {
+    const startsAt = new Date(parts[0]);
+    const endsAt = new Date(parts[1]);
+    if (!Number.isNaN(startsAt.getTime()) && !Number.isNaN(endsAt.getTime())) {
+      return { startsAt, endsAt };
+    }
+    return null;
+  }
+  const endsAt = new Date(rest);
+  if (Number.isNaN(endsAt.getTime())) return null;
+  return { startsAt: null, endsAt };
+}
+
+export function encodeSpecialOfferWindow(startsAtIso, endsAtIso) {
+  const start = new Date(startsAtIso);
+  const end = new Date(endsAtIso);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return `${SPECIAL_OFFER_EXP_PREFIX}${start.toISOString()}|${end.toISOString()}`;
 }
 
 function formatMenuItem(row) {
   const imageUrl = isVenueOwnedImageUrl(row.imageUrl) ? row.imageUrl : null;
-  const specialOfferExpiry = parseSpecialOfferExpiry(row.subCategory);
-  const isExpired = specialOfferExpiry ? specialOfferExpiry.getTime() <= Date.now() : false;
+  const specialWindow = parseSpecialOfferWindow(row.subCategory);
+  const now = Date.now();
+  const isExpired = specialWindow ? specialWindow.endsAt.getTime() <= now : false;
+  const notStarted = specialWindow?.startsAt ? specialWindow.startsAt.getTime() > now : false;
+  const inSpecialWindow = specialWindow && !isExpired && !notStarted;
   return {
     id: row.id,
     venue_id: row.venueId,
     catalog_item_id: row.catalogItemId,
     name: row.name,
     category: row.category,
-    sub_category: specialOfferExpiry ? null : row.subCategory,
+    sub_category: specialWindow ? null : row.subCategory,
     price: row.price,
     image_url: imageUrl,
-    is_available: row.isAvailable && !!imageUrl && !isExpired,
+    is_available: row.isAvailable && !!imageUrl && !isExpired && !notStarted,
     sort_order: row.sortOrder,
     needs_photo: !imageUrl,
-    special_offer_expires_at: specialOfferExpiry ? specialOfferExpiry.toISOString() : null,
+    special_offer_starts_at: specialWindow?.startsAt ? specialWindow.startsAt.toISOString() : null,
+    special_offer_expires_at: specialWindow ? specialWindow.endsAt.toISOString() : null,
     is_expired: isExpired,
+    is_special_offer: !!inSpecialWindow,
   };
 }
 

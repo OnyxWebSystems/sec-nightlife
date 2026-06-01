@@ -5,6 +5,7 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { createPageUrl } from '@/utils';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
@@ -18,6 +19,78 @@ const MAX_PUBLISH_D = 30;
 const MIN_BOOST_D = 0;
 const MAX_BOOST_D = 30;
 const SPECIAL_OFFER_EXP_PREFIX = '__SEC_SPECIAL_OFFER_EXP__:';
+
+function encodeSpecialOfferSubCategory(startsAtIso, endsAtIso) {
+  const start = new Date(startsAtIso);
+  const end = new Date(endsAtIso);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return `${SPECIAL_OFFER_EXP_PREFIX}${start.toISOString()}|${end.toISOString()}`;
+}
+
+function validatePromotionScheduleForDraft(startsAtLocal, endsAtLocal) {
+  const start = new Date(startsAtLocal);
+  const end = new Date(endsAtLocal);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 'Invalid start or end date and time';
+  if (end <= start) return 'End must be after start';
+  if (end.getTime() - start.getTime() > PROMO_MAX_MS) return 'Promotion duration cannot exceed 30 days';
+  return null;
+}
+
+async function createPromotionRecord(form, selectedVenue) {
+  let startsAtIso;
+  let endsAtIso;
+  startsAtIso = localDateTimeToIso(form.startsAt);
+  endsAtIso = localDateTimeToIso(form.endsAt);
+
+  const payload = {
+    venueId: selectedVenue.trim(),
+    eventId: form.promoteWhat === 'event' ? form.eventId.trim() : null,
+    promotionType: form.promotionType,
+    type: form.promotionType,
+    title: form.title.trim(),
+    body: form.body.trim(),
+    description: form.body.trim(),
+    imageUrl: form.imageUrl ? form.imageUrl.trim() : null,
+    imagePublicId: form.imagePublicId ? form.imagePublicId.trim() : null,
+    targetCity: form.targetCity ? form.targetCity.trim() : null,
+    startsAt: startsAtIso,
+    endsAt: endsAtIso,
+    startAt: startsAtIso,
+    endAt: endsAtIso,
+    starts_at: startsAtIso,
+    ends_at: endsAtIso,
+    venue_id: selectedVenue.trim(),
+    event_id: form.promoteWhat === 'event' ? form.eventId.trim() : null,
+    promotion_type: form.promotionType,
+    image_url: form.imageUrl ? form.imageUrl.trim() : null,
+    image_public_id: form.imagePublicId ? form.imagePublicId.trim() : null,
+    target_city: form.targetCity ? form.targetCity.trim() : null,
+  };
+
+  try {
+    return await apiPost('/api/promotions', payload);
+  } catch (error) {
+    if (!isInvalidInputError(error)) throw error;
+    return apiPost('/api/promotions', {
+      venue_id: payload.venueId,
+      event_id: payload.eventId,
+      promotion_type: payload.promotionType,
+      type: payload.promotionType,
+      title: payload.title,
+      body: payload.body,
+      description: payload.body,
+      image_url: payload.imageUrl,
+      image_public_id: payload.imagePublicId,
+      target_city: payload.targetCity,
+      starts_at: payload.startsAt,
+      ends_at: payload.endsAt,
+      startsAt: payload.startsAt,
+      endsAt: payload.endsAt,
+      startAt: payload.startsAt,
+      endAt: payload.endsAt,
+    });
+  }
+}
 const PROMO_MAX_MS = 30 * 24 * 60 * 60 * 1000;
 const PROMOTION_CROP_ASPECT = 16 / 10;
 const PROMOTION_CROP_DIALOG_PROPS = {
@@ -237,16 +310,20 @@ function extractErrorDetails(error) {
   return '';
 }
 
+const EMPTY_PROMOTION_FORM = {
+  promoteWhat: 'venue',
+  eventId: '',
+  promotionType: 'VENUE_PROMOTION',
+  title: '',
+  body: '',
+  imageUrl: '',
+  imagePublicId: '',
+  targetCity: '',
+};
+
 const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVenue, events, userEmail, onPublished }) {
   const [form, setForm] = useState(() => ({
-    promoteWhat: 'venue',
-    eventId: '',
-    promotionType: 'VENUE_PROMOTION',
-    title: '',
-    body: '',
-    imageUrl: '',
-    imagePublicId: '',
-    targetCity: '',
+    ...EMPTY_PROMOTION_FORM,
     ...buildDefaultPromotionSchedule(7),
   }));
   const [publishDays, setPublishDays] = useState(7);
@@ -254,6 +331,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
   const [useBoost, setUseBoost] = useState(true);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   const imageCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -280,78 +358,53 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
     return `This promotion runs for ${days} day${days === 1 ? '' : 's'}`;
   }, [form.startsAt, form.endsAt]);
 
+  function validateCommonFields({ requirePaymentEmail = false } = {}) {
+    if (!selectedVenue) return 'Please select a venue.';
+    if (form.promoteWhat === 'event' && !form.eventId) return 'Choose an event to promote.';
+    if (!form.title.trim()) return 'Title is required.';
+    if (!form.body.trim()) return 'Body is required.';
+    if (requirePaymentEmail && !userEmail) return 'Sign in with a verified email to pay.';
+    if (!form.startsAt || !form.endsAt) return 'Start and end date/time are required.';
+    return validatePromotionScheduleForDraft(form.startsAt, form.endsAt);
+  }
+
+  function resetCreateForm() {
+    setForm({ ...EMPTY_PROMOTION_FORM, ...buildDefaultPromotionSchedule(7) });
+    setPublishDays(7);
+    setBoostDays(3);
+    setUseBoost(true);
+  }
+
+  async function handleSaveDraft() {
+    setFormError('');
+    const err = validateCommonFields();
+    if (err) return setFormError(err);
+
+    setSavingDraft(true);
+    try {
+      await createPromotionRecord(form, selectedVenue);
+      await onPublished();
+      resetCreateForm();
+      toast.success('Draft saved — pay when you are ready to publish.');
+    } catch (e) {
+      const extra = extractErrorDetails(e);
+      setFormError(extra ? `${formatApiError(e, 'Could not save draft')} — ${extra}` : formatApiError(e, 'Could not save draft'));
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
   async function handlePayAndPublish() {
     setFormError('');
-    if (!selectedVenue) return setFormError('Please select a venue.');
-    if (form.promoteWhat === 'event' && !form.eventId) return setFormError('Choose an event to promote.');
-    if (!form.title.trim()) return setFormError('Title is required.');
-    if (!form.body.trim()) return setFormError('Body is required.');
-    if (!userEmail) return setFormError('Sign in with a verified email to pay.');
+    const commonErr = validateCommonFields({ requirePaymentEmail: true });
+    if (commonErr) return setFormError(commonErr);
     if (useBoost && boostDays < 1) return setFormError('Choose at least 1 boost day or turn boost off.');
-    if (!form.startsAt || !form.endsAt) return setFormError('Start and end date/time are required.');
     const scheduleErr = validatePromotionSchedule(form.startsAt, form.endsAt, publishDays);
     if (scheduleErr) return setFormError(scheduleErr);
 
-    let startsAtIso;
-    let endsAtIso;
-    try {
-      startsAtIso = localDateTimeToIso(form.startsAt);
-      endsAtIso = localDateTimeToIso(form.endsAt);
-    } catch {
-      return setFormError('Invalid start or end date and time');
-    }
-
     setSaving(true);
     try {
-      const payload = {
-        venueId: selectedVenue.trim(),
-        eventId: form.promoteWhat === 'event' ? form.eventId.trim() : null,
-        promotionType: form.promotionType,
-        type: form.promotionType,
-        title: form.title.trim(),
-        body: form.body.trim(),
-        description: form.body.trim(),
-        imageUrl: form.imageUrl ? form.imageUrl.trim() : null,
-        imagePublicId: form.imagePublicId ? form.imagePublicId.trim() : null,
-        targetCity: form.targetCity ? form.targetCity.trim() : null,
-        startsAt: startsAtIso,
-        endsAt: endsAtIso,
-        startAt: startsAtIso,
-        endAt: endsAtIso,
-        starts_at: startsAtIso,
-        ends_at: endsAtIso,
-        venue_id: selectedVenue.trim(),
-        event_id: form.promoteWhat === 'event' ? form.eventId.trim() : null,
-        promotion_type: form.promotionType,
-        image_url: form.imageUrl ? form.imageUrl.trim() : null,
-        image_public_id: form.imagePublicId ? form.imagePublicId.trim() : null,
-        target_city: form.targetCity ? form.targetCity.trim() : null,
-      };
-
-      let created;
-      try {
-        created = await apiPost('/api/promotions', payload);
-      } catch (error) {
-        if (!isInvalidInputError(error)) throw error;
-        created = await apiPost('/api/promotions', {
-          venue_id: payload.venueId,
-          event_id: payload.eventId,
-          promotion_type: payload.promotionType,
-          type: payload.promotionType,
-          title: payload.title,
-          body: payload.body,
-          description: payload.body,
-          image_url: payload.imageUrl,
-          image_public_id: payload.imagePublicId,
-          target_city: payload.targetCity,
-          starts_at: payload.startsAt,
-          ends_at: payload.endsAt,
-          startsAt: payload.startsAt,
-          endsAt: payload.endsAt,
-          startAt: payload.startsAt,
-          endAt: payload.endsAt,
-        });
-      }
+      const created = await createPromotionRecord(form, selectedVenue);
 
       const ok = await checkoutPromotionPublish({
         promotionId: created.id,
@@ -363,22 +416,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         },
       });
 
-      if (ok) {
-        setForm({
-          promoteWhat: 'venue',
-          eventId: '',
-          promotionType: 'VENUE_PROMOTION',
-          title: '',
-          body: '',
-          imageUrl: '',
-          imagePublicId: '',
-          targetCity: '',
-          ...buildDefaultPromotionSchedule(7),
-        });
-        setPublishDays(7);
-        setBoostDays(3);
-        setUseBoost(true);
-      }
+      if (ok) resetCreateForm();
     } catch (e) {
       const extra = extractErrorDetails(e);
       setFormError(extra ? `${formatApiError(e, 'Could not create or pay')} — ${extra}` : formatApiError(e, 'Could not create or pay'));
@@ -402,10 +440,10 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         New campaign
       </span>
       <h2 className="sec-page-title" style={{ fontSize: 'var(--text-2xl)', marginBottom: 6 }}>
-        Create & publish
+        Create promotion
       </h2>
       <p className="sec-page-subtitle" style={{ fontSize: 'var(--text-sm)', marginTop: 0, marginBottom: 18 }}>
-        Save a draft, then pay R{PUBLISH_ZAR_PER_DAY}/day to go live. Optional boost R{BOOST_ZAR_PER_DAY}/day for priority in the home feed — all in one checkout.
+        Save as a draft and pay later, or pay R{PUBLISH_ZAR_PER_DAY}/day now to publish immediately. Optional boost R{BOOST_ZAR_PER_DAY}/day for priority in the home feed.
       </p>
 
       <Label>What are you promoting?</Label>
@@ -550,10 +588,184 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
 
       {formError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 12 }}>{formError}</p>}
 
-      <button type="button" className="sec-btn sec-btn-primary sec-btn-full" disabled={saving || !selectedVenue} style={{ marginTop: 16, height: 50, fontWeight: 700 }} onClick={() => void handlePayAndPublish()}>
-        {saving ? 'Processing…' : 'Pay & publish with Paystack'}
-      </button>
+      <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+        <button
+          type="button"
+          className="sec-btn sec-btn-primary sec-btn-full"
+          disabled={saving || savingDraft || !selectedVenue}
+          style={{ height: 50, fontWeight: 700 }}
+          onClick={() => void handlePayAndPublish()}
+        >
+          {saving ? 'Processing…' : 'Pay & publish with Paystack'}
+        </button>
+        <button
+          type="button"
+          className="sec-btn sec-btn-secondary sec-btn-full"
+          disabled={saving || savingDraft || !selectedVenue}
+          style={{ height: 46 }}
+          onClick={() => void handleSaveDraft()}
+        >
+          {savingDraft ? 'Saving…' : 'Save as draft — pay later'}
+        </button>
+      </div>
     </div>
+  );
+});
+
+const MenuSpecialOfferModal = React.memo(function MenuSpecialOfferModal({ open, promotion, venueId, onClose, onApplied }) {
+  const [menuItems, setMenuItems] = useState([]);
+  const [loadingMenu, setLoadingMenu] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [specialPrice, setSpecialPrice] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const scheduleLabel = useMemo(() => {
+    if (!promotion?.startsAt || !promotion?.endsAt) return '';
+    const start = new Date(promotion.startsAt);
+    const end = new Date(promotion.endsAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
+    return `${start.toLocaleString()} → ${end.toLocaleString()}`;
+  }, [promotion?.startsAt, promotion?.endsAt]);
+
+  useEffect(() => {
+    if (!open || !venueId) return;
+    setSelectedItemId('');
+    setSpecialPrice('');
+    setError('');
+    setLoadingMenu(true);
+    apiGet(`/api/business/venues/${venueId}/menu-items`)
+      .then((rows) => setMenuItems(Array.isArray(rows) ? rows : []))
+      .catch((e) => {
+        setMenuItems([]);
+        toast.error(e?.data?.error || e.message || 'Could not load venue menu');
+      })
+      .finally(() => setLoadingMenu(false));
+  }, [open, venueId]);
+
+  const selectableItems = useMemo(
+    () =>
+      menuItems.filter((item) => item.image_url && !item.needs_photo && item.category !== 'Special Offers'),
+    [menuItems],
+  );
+
+  const selectedItem = useMemo(
+    () => selectableItems.find((item) => String(item.id) === String(selectedItemId)) || null,
+    [selectableItems, selectedItemId],
+  );
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    setSpecialPrice(String(selectedItem.price ?? ''));
+  }, [selectedItem]);
+
+  async function handleApply() {
+    setError('');
+    if (!promotion?.startsAt || !promotion?.endsAt) {
+      return setError('This promotion needs a start and end date/time first.');
+    }
+    if (!selectedItem) return setError('Choose a menu item for this special.');
+    const price = Number(String(specialPrice).replace(',', '.'));
+    if (!Number.isFinite(price) || price <= 0) return setError('Enter a valid special price.');
+
+    const subCategory = encodeSpecialOfferSubCategory(promotion.startsAt, promotion.endsAt);
+    if (!subCategory) return setError('Promotion schedule is invalid.');
+
+    setSaving(true);
+    try {
+      await apiPatch(`/api/business/venues/${venueId}/menu-items/${selectedItem.id}`, {
+        price,
+        sub_category: subCategory,
+        is_available: true,
+      });
+      toast.success(`${selectedItem.name} is on special for this promotion’s schedule.`);
+      if (onApplied) await onApplied();
+      onClose();
+    } catch (e) {
+      setError(e?.data?.error || e.message || 'Could not apply menu special');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-lg gap-4 p-6">
+        <DialogHeader>
+          <DialogTitle>Add menu special</DialogTitle>
+          <DialogDescription style={{ color: 'var(--sec-text-muted)' }}>
+            Pick an item from your venue menu. The special price runs for the same window as this promotion.
+          </DialogDescription>
+        </DialogHeader>
+
+        {promotion?.title ? (
+          <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)' }}>
+            Promotion: <strong style={{ color: 'var(--sec-text-primary)' }}>{promotion.title}</strong>
+          </p>
+        ) : null}
+        {scheduleLabel ? (
+          <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Active: {scheduleLabel}</p>
+        ) : (
+          <p style={{ fontSize: 12, color: '#ef4444' }}>Set start and end on the promotion before adding a menu special.</p>
+        )}
+
+        {loadingMenu ? (
+          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Loading menu…</p>
+        ) : selectableItems.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
+            No menu items with photos yet. Add items with your own photos in your venue menu first.
+          </p>
+        ) : (
+          <>
+            <div>
+              <Label>Menu item</Label>
+              <select
+                className="sec-input-rect"
+                value={selectedItemId}
+                onChange={(e) => setSelectedItemId(e.target.value)}
+                style={{ marginTop: 6, height: 44, width: '100%' }}
+              >
+                <option value="">Select item</option>
+                {selectableItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} — R{Number(item.price).toLocaleString('en-ZA')}
+                    {item.category ? ` (${item.category})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Special price (ZAR)</Label>
+              <input
+                className="sec-input-rect"
+                type="number"
+                min={1}
+                step="0.01"
+                value={specialPrice}
+                onChange={(e) => setSpecialPrice(e.target.value)}
+                style={{ marginTop: 6, height: 44, width: '100%' }}
+              />
+            </div>
+          </>
+        )}
+
+        {error ? <p style={{ fontSize: 12, color: '#ef4444' }}>{error}</p> : null}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button type="button" className="sec-btn sec-btn-ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="sec-btn sec-btn-primary"
+            disabled={saving || loadingMenu || !selectedItem || !promotion?.startsAt || !promotion?.endsAt}
+            onClick={() => void handleApply()}
+          >
+            {saving ? 'Applying…' : 'Apply special'}
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 });
 
@@ -1034,6 +1246,7 @@ export default function BusinessPromotions() {
   const [loadingList, setLoadingList] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState(null);
   const [publishModal, setPublishModal] = useState(null);
+  const [menuSpecialPromotion, setMenuSpecialPromotion] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -1135,57 +1348,19 @@ export default function BusinessPromotions() {
     [user?.email, handlePromotionPublished],
   );
 
-  const addSpecialOfferToMenu = useCallback(
-    async (promotion) => {
+  const openMenuSpecialOffer = useCallback(
+    (promotion) => {
       if (!selectedVenue) {
         toast.error('No venue selected.');
         return;
       }
-      if (!promotion?.title) {
-        toast.error('Promotion title is required.');
+      if (!promotion?.startsAt || !promotion?.endsAt) {
+        toast.error('Set promotion start and end dates before adding a menu special.');
         return;
       }
-      if (!promotion?.imageUrl) {
-        toast.error('Add an image to this promotion first so the menu special can be visible.');
-        return;
-      }
-      const expiryInput =
-        typeof window !== 'undefined'
-          ? window.prompt('Special offer expiry date/time (YYYY-MM-DD HH:mm)', '')
-          : '';
-      if (expiryInput == null) return;
-      const normalized = String(expiryInput).trim().replace(' ', 'T');
-      const expiryDate = normalized ? new Date(normalized) : null;
-      if (!expiryDate || Number.isNaN(expiryDate.getTime())) {
-        toast.error('Enter a valid expiry date/time, e.g. 2026-05-30 23:00');
-        return;
-      }
-      if (expiryDate.getTime() <= Date.now()) {
-        toast.error('Expiry must be in the future.');
-        return;
-      }
-      const priceInput = typeof window !== 'undefined' ? window.prompt('Special offer price (ZAR)', '99') : '99';
-      if (priceInput == null) return;
-      const price = Number(String(priceInput).replace(',', '.'));
-      if (!Number.isFinite(price) || price <= 0) {
-        toast.error('Enter a valid positive price.');
-        return;
-      }
-      try {
-        await apiPost(`/api/business/venues/${selectedVenue}/menu-items`, {
-          name: promotion.title,
-          category: 'Special Offers',
-          sub_category: `${SPECIAL_OFFER_EXP_PREFIX}${expiryDate.toISOString()}`,
-          price,
-          image_url: promotion.imageUrl,
-          is_available: true,
-        });
-        toast.success('Special offer added to menu');
-      } catch (e) {
-        toast.error(e?.data?.error || e.message || 'Could not add special offer to menu');
-      }
+      setMenuSpecialPromotion(promotion);
     },
-    [selectedVenue]
+    [selectedVenue],
   );
 
   const patchPromotion = useCallback(async (id, payload) => {
@@ -1281,6 +1456,14 @@ export default function BusinessPromotions() {
         onSave={saveEditedPromotion}
       />
 
+      <MenuSpecialOfferModal
+        open={!!menuSpecialPromotion}
+        promotion={menuSpecialPromotion}
+        venueId={selectedVenue}
+        onClose={() => setMenuSpecialPromotion(null)}
+        onApplied={handlePromotionPublished}
+      />
+
       <div style={{ display: 'grid', gap: 20, gridTemplateColumns: 'minmax(0, 1fr)' }}>
         <PromotionCardsList
           promotions={livePromotions}
@@ -1291,7 +1474,7 @@ export default function BusinessPromotions() {
           onEditOpen={(p) => setEditingPromotion(p)}
           onPublishOpen={(p) => setPublishModal(p)}
           onBoostPay={runBoostPayment}
-          onAddToMenuSpecial={addSpecialOfferToMenu}
+          onAddToMenuSpecial={openMenuSpecialOffer}
         />
         <PromotionCardsList
           promotions={pastPromotions}
@@ -1302,7 +1485,7 @@ export default function BusinessPromotions() {
           onEditOpen={(p) => setEditingPromotion(p)}
           onPublishOpen={(p) => setPublishModal(p)}
           onBoostPay={runBoostPayment}
-          onAddToMenuSpecial={addSpecialOfferToMenu}
+          onAddToMenuSpecial={openMenuSpecialOffer}
         />
       </div>
     </div>
