@@ -439,7 +439,9 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
           guestCount: z.number().int().min(1).max(500).optional(),
           proposedMinimumSpend: z.number().min(0).optional(),
           notes: z.string().max(2000).optional(),
+          preferredDate: z.string().optional(),
           preferredTime: z.string().optional(),
+          minSpendMode: z.enum(['menu', 'manual']).optional(),
           selectedMenuItems: z
             .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(0) }))
             .optional(),
@@ -476,7 +478,7 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
         type: 'TABLE_REQUEST',
         title: 'New table request',
         body: `A guest requested ${table.tableName}. Review in Tables & day bookings.`,
-        actionUrl: '/BusinessVenueTables',
+        actionUrl: '/BusinessVenueTables?tab=requests',
       },
     });
     res.status(201).json({ member, status: 'PENDING_VENUE_REVIEW' });
@@ -489,10 +491,17 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
 router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, res, next) => {
   try {
     if (!requireVenueOwner(req, res)) return;
+    const { VENUE_DECLINE_TEMPLATE_KEYS, getTemplateLabel } = await import(
+      '../lib/venueTableMessageTemplates.js'
+    );
     const payload = z
       .object({
         action: z.enum(['approve', 'decline']),
         declineReason: z.string().trim().min(1).max(500).optional(),
+        declineTemplateKey: z
+          .string()
+          .optional()
+          .refine((k) => !k || VENUE_DECLINE_TEMPLATE_KEYS.includes(k), { message: 'Invalid decline template' }),
       })
       .parse(req.body || {});
     const member = await prisma.venueTableMember.findFirst({
@@ -508,23 +517,40 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
     const tableLabel = member.venueTable.tableName;
     const payUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/TableDetails?id=${member.venueTableId}&source=venue`;
     if (payload.action === 'decline') {
-      if (!payload.declineReason?.trim()) return res.status(400).json({ error: 'Decline reason is required' });
+      const declineLabel = payload.declineTemplateKey
+        ? getTemplateLabel(payload.declineTemplateKey)
+        : payload.declineReason?.trim();
+      if (!declineLabel) {
+        return res.status(400).json({ error: 'Select a decline reason' });
+      }
       await prisma.venueTableMember.update({
         where: { id: member.id },
         data: {
           status: 'DECLINED',
-          declineReason: payload.declineReason.trim(),
+          declineReason: declineLabel,
           reviewedAt: new Date(),
           reviewedByUserId: req.userId,
         },
       });
+      const { ensureVenueTableThread } = await import('./venueTableMessages.js');
+      const thread = await ensureVenueTableThread(member.id);
+      if (payload.declineTemplateKey) {
+        await prisma.venueTableMessage.create({
+          data: {
+            threadId: thread.id,
+            senderUserId: req.userId,
+            templateKey: payload.declineTemplateKey,
+          },
+        });
+      }
+      const threadUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/Messages?venueTableThread=${thread.id}`;
       await prisma.notification.create({
         data: {
           userId: member.userId,
           type: 'TABLE_DECLINED',
           title: 'Table request declined',
-          body: payload.declineReason.trim(),
-          actionUrl: '/Notifications',
+          body: declineLabel,
+          actionUrl: `/Messages?venueTableThread=${thread.id}`,
         },
       });
       if (guestEmail) {
@@ -532,14 +558,14 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
           await sendEmail({
             to: guestEmail,
             subject: `Table request declined — ${tableLabel}`,
-            text: `Your custom table request for ${tableLabel} was declined.\n\nReason: ${payload.declineReason.trim()}\n\nOpen SEC: ${payUrl}`,
-            html: `<p>Your custom table request for <strong>${tableLabel}</strong> was declined.</p><p><strong>Reason:</strong> ${payload.declineReason.trim()}</p><p><a href="${payUrl}">View in SEC</a></p>`,
+            text: `Your custom table request for ${tableLabel} was declined.\n\n${declineLabel}\n\nReply in SEC: ${threadUrl}`,
+            html: `<p>Your custom table request for <strong>${tableLabel}</strong> was declined.</p><p>${declineLabel}</p><p><a href="${threadUrl}">Open conversation in SEC</a></p>`,
           });
         } catch (err) {
           logger?.warn?.('custom table decline email failed', { err: String(err?.message || err) });
         }
       }
-      return res.json({ status: 'DECLINED' });
+      return res.json({ status: 'DECLINED', threadId: thread.id });
     }
     await prisma.venueTableMember.update({
       where: { id: member.id },

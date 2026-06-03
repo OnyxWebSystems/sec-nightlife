@@ -90,30 +90,144 @@ export default function Notifications() {
   const archivedKey = user?.id ? `sec_notifications_archived_${user.id}` : null;
   const deletedKey = user?.id ? `sec_notifications_deleted_${user.id}` : null;
 
-  const resolveActionUrl = (notification) => {
-    const raw = notification?.action_url;
-    if (!raw) return raw;
-    if (notification?.type !== 'message') return raw;
+  const isBusinessViewer = () => {
+    try {
+      const mode = localStorage.getItem('sec_active_mode');
+      return user?.role === 'VENUE' || mode === 'business';
+    } catch {
+      return user?.role === 'VENUE';
+    }
+  };
 
-    const mode = (() => {
-      try {
-        return localStorage.getItem('sec_active_mode');
-      } catch {
-        return null;
-      }
-    })();
-    const isBusinessViewer = user?.role === 'VENUE' || mode === 'business';
-    if (!isBusinessViewer) return raw;
+  const normalizeActionUrl = (notification) => {
+    const fromField = notification?.action_url ?? notification?.actionUrl;
+    if (fromField) return fromField;
+    if (notification?.referenceType === 'ROUTE' || notification?.referenceType === 'LEGACY') {
+      const ref = notification?.referenceId;
+      if (typeof ref === 'string' && ref.startsWith('/')) return ref;
+    }
+    return null;
+  };
+
+  const resolveActionUrl = (notification) => {
+    const raw = normalizeActionUrl(notification);
+    if (!raw) return raw;
+    if (notification?.type !== 'message' && notification?.type !== 'job_application') return raw;
+
+    if (!isBusinessViewer()) return raw;
 
     try {
       const parsed = new URL(raw, window.location.origin);
-      if (parsed.pathname !== '/MyJobApplications') return raw;
-      const jobId = parsed.searchParams.get('jobId');
-      return jobId ? `/JobDetails?id=${jobId}` : raw;
+      if (parsed.pathname === '/MyJobApplications') {
+        const jobId = parsed.searchParams.get('jobId');
+        return jobId ? `/JobDetails?id=${jobId}` : raw;
+      }
+      if (parsed.pathname.includes('MyJobApplications') && parsed.searchParams.get('applicationId')) {
+        return `/BusinessJobs?application=${parsed.searchParams.get('applicationId')}`;
+      }
+      return raw;
     } catch {
       return raw;
     }
   };
+
+  const resolveNotificationDestination = (n) => {
+    const t = n.type;
+    const actionUrl = resolveActionUrl(n);
+    const business = isBusinessViewer();
+
+    if (t === 'FRIEND_REQUEST' || t === 'friend_request') {
+      return `${createPageUrl('Friends')}?tab=requests`;
+    }
+    if (t === 'FRIEND_ACCEPTED') return `${createPageUrl('Friends')}?tab=all`;
+
+    if (t === 'TABLE_REQUEST' || t === 'table_request') {
+      return business ? `${createPageUrl('BusinessVenueTables')}?tab=requests` : null;
+    }
+    if (t === 'TABLE_APPROVED' || t === 'table_approved') {
+      const tableId = n.referenceId || extractQueryParam(actionUrl, 'id');
+      return tableId ? `${createPageUrl('TableDetails')}?id=${tableId}&source=venue` : actionUrl;
+    }
+    if (t === 'TABLE_DECLINED') {
+      const threadId = n.referenceId || extractQueryParam(actionUrl, 'venueTableThread');
+      if (threadId) return `${createPageUrl('Messages')}?venueTableThread=${encodeURIComponent(threadId)}`;
+      const tableId = extractQueryParam(actionUrl, 'id');
+      return tableId ? `${createPageUrl('TableDetails')}?id=${tableId}&source=venue` : actionUrl;
+    }
+    if (t === 'TABLE_MESSAGE') {
+      const threadId = n.referenceId || extractQueryParam(actionUrl, 'venueTableThread');
+      if (!threadId) return actionUrl;
+      return business
+        ? `${createPageUrl('BusinessMessages')}?tab=tables&thread=${encodeURIComponent(threadId)}`
+        : `${createPageUrl('Messages')}?venueTableThread=${encodeURIComponent(threadId)}`;
+    }
+
+    if (t === 'DIRECT_MESSAGE' && n.referenceId) {
+      return `${createPageUrl('Messages')}?dm=${n.referenceId}`;
+    }
+    if ((t === 'GROUP_MESSAGE' || t === 'JOIN_REQUEST_ACCEPTED') && n.referenceId) {
+      if (n.referenceType === 'HOSTED_TABLE_GROUP_CHAT') {
+        return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}&gk=HOSTED_TABLE`;
+      }
+      return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}`;
+    }
+
+    if (t === 'IDENTITY_VERIFICATION_REMINDER') {
+      if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
+        return n.referenceId;
+      }
+      return createPageUrl('EditProfile');
+    }
+
+    if ((t === 'TABLE_INVITE' || t === 'table_invite') && (n.referenceId || extractQueryParam(actionUrl, 'id'))) {
+      const id = n.referenceId || extractQueryParam(actionUrl, 'id');
+      return `${createPageUrl('TableDetails')}?id=${id}`;
+    }
+    if (t === 'EVENT_INTEREST_REMINDER' && n.referenceId) {
+      return `${createPageUrl('EventDetails')}?id=${n.referenceId}`;
+    }
+    if (t === 'event_reminder' && n.referenceId) {
+      return `${createPageUrl('EventDetails')}?id=${n.referenceId}`;
+    }
+
+    if (t === 'message' || t === 'job_application') {
+      if (actionUrl) return actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
+      return business ? createPageUrl('BusinessJobs') : createPageUrl('MyJobApplications');
+    }
+
+    if (t === 'payment' || t === 'system' || t === 'table_update' || t === 'table_full') {
+      if (actionUrl) {
+        if (actionUrl.includes('Profile') || actionUrl.includes('Tickets')) {
+          return `${createPageUrl('Profile')}?tab=tickets`;
+        }
+        return actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
+      }
+    }
+
+    if (t === 'TABLE_JOINED' || t === 'EVENT_JOINED') {
+      if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
+        return n.referenceId;
+      }
+      if (actionUrl) return actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
+    }
+
+    if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
+      return n.referenceId;
+    }
+
+    return actionUrl ? (actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`) : null;
+  };
+
+  function extractQueryParam(url, key) {
+    if (!url || typeof url !== 'string') return null;
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return parsed.searchParams.get(key);
+    } catch {
+      const m = url.match(new RegExp(`[?&]${key}=([^&]+)`));
+      return m ? decodeURIComponent(m[1]) : null;
+    }
+  }
 
   useEffect(() => {
     loadUser();
@@ -160,13 +274,21 @@ export default function Notifications() {
     queryKey: ['notifications', user?.id],
     queryFn: () =>
       apiGet('/api/notifications?limit=100').then((rows) =>
-        (Array.isArray(rows) ? rows : []).map((n) => ({
-          ...n,
-          message: n.body ?? n.message,
-          action_url: n.action_url ?? n.actionUrl ?? null,
-          is_read: n.read === true || n.is_read === true,
-          created_date: n.createdAt ?? n.created_at ?? n.created_date,
-        })),
+        (Array.isArray(rows) ? rows : []).map((n) => {
+          const actionFromRef =
+            (n.referenceType === 'ROUTE' || n.referenceType === 'LEGACY') &&
+            typeof n.referenceId === 'string' &&
+            n.referenceId.startsWith('/')
+              ? n.referenceId
+              : null;
+          return {
+            ...n,
+            message: n.body ?? n.message,
+            action_url: n.action_url ?? n.actionUrl ?? actionFromRef ?? null,
+            is_read: n.read === true || n.is_read === true,
+            created_date: n.createdAt ?? n.created_at ?? n.created_date,
+          };
+        }),
       ),
     enabled: !!user?.id,
     refetchInterval: 30000,
@@ -212,29 +334,12 @@ export default function Notifications() {
 
   const openNotification = async (n) => {
     await markAsReadMutation.mutateAsync(n.id);
-    const t = n.type;
-    const actionUrl = resolveActionUrl(n);
-    if (t === 'FRIEND_REQUEST' || t === 'friend_request') navigate(`${createPageUrl('Friends')}?tab=requests`);
-    else if (t === 'FRIEND_ACCEPTED') navigate(`${createPageUrl('Friends')}?tab=all`);
-    else if (t === 'DIRECT_MESSAGE' && n.referenceId) navigate(`${createPageUrl('Messages')}?dm=${n.referenceId}`);
-    else if ((t === 'GROUP_MESSAGE' || t === 'JOIN_REQUEST_ACCEPTED') && n.referenceId) {
-      if (n.referenceType === 'HOSTED_TABLE_GROUP_CHAT') {
-        navigate(
-          `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}&gk=HOSTED_TABLE`,
-        );
-      } else {
-        navigate(`${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}`);
+    const dest = resolveNotificationDestination(n);
+    if (dest) {
+      if (isBusinessViewer() && dest.includes('/Messages') && !dest.includes('BusinessMessages')) {
+        toast.message('Switch to Party Goer mode to view this message', { duration: 4000 });
       }
-    } else if (t === 'IDENTITY_VERIFICATION_REMINDER') {
-      navigate(createPageUrl('EditProfile'));
-    }     else if (t === 'TABLE_INVITE' && n.referenceId) {
-      navigate(`${createPageUrl('TableDetails')}?id=${n.referenceId}`);
-    } else if (t === 'EVENT_INTEREST_REMINDER' && n.referenceId) {
-      navigate(`${createPageUrl('EventDetails')}?id=${n.referenceId}`);
-    } else if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
-      navigate(n.referenceId);
-    } else if (actionUrl) {
-      navigate(actionUrl);
+      navigate(dest);
     }
   };
 

@@ -38,6 +38,19 @@ export async function buildVenueTableMemberTicketSummary(prisma, {
     lines.push(table.tableName);
   }
 
+  const specs = member?.userSpecs && typeof member.userSpecs === 'object' ? member.userSpecs : null;
+  if (specs?.guestCount != null) {
+    lines.push(`Guests: ${specs.guestCount}`);
+  }
+  if (specs?.preferredDate || specs?.preferredTime) {
+    lines.push(`When: ${[specs.preferredDate, specs.preferredTime].filter(Boolean).join(' · ')}`);
+  }
+  if (specs?.minSpendMode === 'manual' && specs?.proposedMinimumSpend != null) {
+    lines.push(`Requested min spend ${formatZar(specs.proposedMinimumSpend)} (manual)`);
+  } else if (specs?.minSpendMode === 'menu') {
+    lines.push('Minimum spend from menu selection');
+  }
+
   if (!isHost) {
     let hostUser = null;
     if (table?.hostedTableId) {

@@ -168,6 +168,7 @@ const eventFields = {
   has_entrance_fee: z.boolean().optional(),
   entrance_fee_amount: z.number().min(0).optional().nullable(),
   hosting_config: hostingConfigSchema.optional(),
+  event_format: z.enum(['TABLE_HOSTING', 'TICKETING_ONLY']).optional(),
 };
 
 const eventSchema = z.object(eventFields);
@@ -194,7 +195,29 @@ function mapEventRow(e) {
     has_entrance_fee: e.hasEntranceFee,
     entrance_fee_amount: e.entranceFeeAmount,
     hosting_config: normalizeHostingConfig(e.hostingConfig),
+    event_format: e.eventFormat || 'TABLE_HOSTING',
   };
+}
+
+function validateTicketTiersForPublish(ticketTiers) {
+  const tiers = Array.isArray(ticketTiers) ? ticketTiers : [];
+  if (tiers.length === 0) {
+    return { ok: false, error: 'Add at least one ticket tier to publish a ticketed event.' };
+  }
+  for (const t of tiers) {
+    if (!String(t?.name || '').trim()) {
+      return { ok: false, error: 'Each ticket tier needs a name.' };
+    }
+    const price = Number(t?.price);
+    const qty = Number(t?.quantity);
+    if (!Number.isFinite(price) || price < 0) {
+      return { ok: false, error: 'Each ticket tier needs a valid price.' };
+    }
+    if (!Number.isFinite(qty) || qty < 1) {
+      return { ok: false, error: 'Each ticket tier needs available quantity of at least 1.' };
+    }
+  }
+  return { ok: true };
 }
 
 async function followedVenueIdSet(userId) {
@@ -454,6 +477,7 @@ function mapEventDetail(event, stats = null) {
     has_entrance_fee: event.hasEntranceFee,
     entrance_fee_amount: event.entranceFeeAmount,
     hosting_config: normalizeHostingConfig(event.hostingConfig),
+    event_format: event.eventFormat || 'TABLE_HOSTING',
     venue_name: v?.name ?? null,
     venue_address: v?.address ?? null,
     venue_city: v?.city ?? null,
@@ -675,12 +699,18 @@ router.post('/', authenticateToken, async (req, res, next) => {
       }
     }
 
-    const normalizedHosting = normalizeHostingConfig(d.hosting_config ?? null);
-    if (d.hosting_config) {
+    const eventFormat = d.event_format === 'TICKETING_ONLY' ? 'TICKETING_ONLY' : 'TABLE_HOSTING';
+    const normalizedHosting =
+      eventFormat === 'TICKETING_ONLY' ? null : normalizeHostingConfig(d.hosting_config ?? null);
+    if (eventFormat === 'TABLE_HOSTING' && d.hosting_config) {
       const hostCfgCheck = validateHostingTierSlotsConfig(normalizedHosting);
       if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
       const menuCheck = await validateHostingMenuItems(d.venue_id, normalizedHosting);
       if (!menuCheck.ok) return res.status(400).json({ error: menuCheck.error });
+    }
+    if (d.status === 'published' && eventFormat === 'TICKETING_ONLY') {
+      const tierCheck = validateTicketTiersForPublish(d.ticket_tiers);
+      if (!tierCheck.ok) return res.status(400).json({ error: tierCheck.error });
     }
 
     const event = await prisma.event.create({
@@ -704,12 +734,13 @@ router.post('/', authenticateToken, async (req, res, next) => {
         hasEntranceFee: hasFee,
         entranceFeeAmount: hasFee ? d.entrance_fee_amount : null,
         hostingConfig: normalizedHosting,
+        eventFormat,
       },
     });
-    if (d.status === 'published') {
+    if (d.status === 'published' && eventFormat === 'TABLE_HOSTING') {
       await syncEventVenueTables(event.id);
     }
-    ensureGroupChatForEvent(event.id, event.title, req.userId).catch((e) => {
+    ensureGroupChatForEvent(event.id, event.title).catch((e) => {
       logger.error('Group chat creation after event failed', { eventId: event.id, message: e?.message });
     });
     res.status(201).json({ id: event.id, title: event.title, venue_id: event.venueId });
@@ -773,7 +804,11 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       updates.hasEntranceFee = nextHasFee;
       updates.entranceFeeAmount = nextHasFee ? nextAmount : null;
     }
-    if (d.hosting_config !== undefined) {
+    const nextFormat =
+      d.event_format != null ? d.event_format : event.eventFormat || 'TABLE_HOSTING';
+    if (d.event_format != null) updates.eventFormat = nextFormat;
+
+    if (d.hosting_config !== undefined && nextFormat !== 'TICKETING_ONLY') {
       const mergedHosting = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);
       const hostCfgCheck = validateHostingTierSlotsConfig(mergedHosting);
       if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
@@ -782,6 +817,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       const tierSlotsCheck = await assertTierSlotsNotBelowCurrentHostedTables(event.id, mergedHosting);
       if (!tierSlotsCheck.ok) return res.status(400).json({ error: tierSlotsCheck.error });
       updates.hostingConfig = mergedHosting;
+    }
+    if (nextFormat === 'TICKETING_ONLY') {
+      updates.hostingConfig = null;
     }
 
     const mergedDate = updates.date ?? event.date;
@@ -801,11 +839,23 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       if (st && en && en.getTime() < st.getTime()) {
         return res.status(400).json({ error: 'Event end must be after start.' });
       }
+      if (nextFormat === 'TICKETING_ONLY') {
+        const mergedTiers = updates.ticketTiers !== undefined ? updates.ticketTiers : event.ticketTiers;
+        const tierCheck = validateTicketTiersForPublish(mergedTiers);
+        if (!tierCheck.ok) return res.status(400).json({ error: tierCheck.error });
+      }
     }
 
     const updated = await prisma.event.update({ where: { id: event.id }, data: updates });
+    if (updated.status === 'published') {
+      ensureGroupChatForEvent(updated.id, updated.title).catch((e) => {
+        logger.error('Group chat creation on publish failed', { eventId: updated.id, message: e?.message });
+      });
+    }
+    const isTicketingOnly = updated.eventFormat === 'TICKETING_ONLY';
     const shouldSync =
       updated.status === 'published' &&
+      !isTicketingOnly &&
       (updates.hostingConfig !== undefined || d.status === 'published');
     if (shouldSync) {
       await syncEventVenueTables(updated.id);

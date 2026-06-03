@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiPatch } from '@/api/client';
@@ -13,11 +13,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TableTierEditor from '@/components/business/TableTierEditor';
 import { resolveTierFeesForSave } from '@/lib/tierBookingFees';
 import { resolveTierMinSpends } from '@/lib/tierMinSpend';
+import { VENUE_DECLINE_TEMPLATES, formatMenuLines } from '@/lib/venueTableMessageTemplates';
 
 export default function BusinessVenueTables() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
-  const [tab, setTab] = useState('listings');
+  const initialTab = searchParams.get('tab');
+  const [tab, setTab] = useState(
+    ['listings', 'requests', 'settings'].includes(initialTab) ? initialTab : 'listings',
+  );
+
+  useEffect(() => {
+    const q = searchParams.get('tab');
+    if (q && ['listings', 'requests', 'settings'].includes(q) && q !== tab) setTab(q);
+  }, [searchParams]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     description: '',
@@ -26,7 +36,7 @@ export default function BusinessVenueTables() {
     allowsCustomRequests: false,
     tiers: [{ tier_name: 'Standard', max_guests: '6', min_spend: '2000', booking_fee_zar: '200', included_items: [] }],
   });
-  const [declineDraft, setDeclineDraft] = useState({});
+  const [declineTemplateByMember, setDeclineTemplateByMember] = useState({});
   const [venueFees, setVenueFees] = useState({ host_table_fee_zar: '', custom_table_booking_fee_zar: '' });
 
   const { data: venues = [] } = useQuery({
@@ -92,8 +102,11 @@ export default function BusinessVenueTables() {
   });
 
   const reviewMutation = useMutation({
-    mutationFn: ({ tableId, memberId, action, declineReason }) =>
-      apiPatch(`/api/venue-tables/${tableId}/reservations/${memberId}`, { action, declineReason }),
+    mutationFn: ({ tableId, memberId, action, declineTemplateKey }) =>
+      apiPatch(`/api/venue-tables/${tableId}/reservations/${memberId}`, {
+        action,
+        declineTemplateKey: action === 'decline' ? declineTemplateKey : undefined,
+      }),
     onSuccess: () => {
       toast.success('Updated');
       qc.invalidateQueries({ queryKey: ['biz-venue-reservations'] });
@@ -156,7 +169,13 @@ export default function BusinessVenueTables() {
         </p>
       </header>
 
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => {
+          setTab(v);
+          setSearchParams({ tab: v });
+        }}
+      >
         <TabsList className="grid w-full grid-cols-3 mb-6">
           <TabsTrigger value="listings">Listings</TabsTrigger>
           <TabsTrigger value="requests">Requests{pending.length > 0 ? ` (${pending.length})` : ''}</TabsTrigger>
@@ -230,38 +249,137 @@ export default function BusinessVenueTables() {
             <p className="text-sm text-center text-[var(--sec-text-muted)] py-8">No pending table requests.</p>
           ) : (
             <div className="space-y-3">
-              {pending.map((r) => (
-                <div key={r.id} className="sec-card p-4 border border-[var(--sec-border)]">
-                  <p className="font-medium">{r.table?.tableName}</p>
-                  <p className="text-xs opacity-70">@{r.user?.username || r.user?.fullName}</p>
-                  {r.userSpecs?.notes ? <p className="text-sm mt-2">{r.userSpecs.notes}</p> : null}
-                  <textarea
-                    className="w-full mt-3 text-sm rounded-xl border p-2 bg-[var(--sec-bg-elevated)]"
-                    placeholder="Decline reason (if declining)"
-                    value={declineDraft[r.id] || ''}
-                    onChange={(e) => setDeclineDraft((d) => ({ ...d, [r.id]: e.target.value }))}
-                  />
-                  <div className="flex gap-2 mt-3">
-                    <Button size="sm" onClick={() => reviewMutation.mutate({ tableId: r.table.id, memberId: r.id, action: 'approve' })}>
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() =>
-                        reviewMutation.mutate({
-                          tableId: r.table.id,
-                          memberId: r.id,
-                          action: 'decline',
-                          declineReason: declineDraft[r.id],
-                        })
-                      }
-                    >
-                      Decline
-                    </Button>
+              {pending.map((r) => {
+                const specs = r.userSpecs || {};
+                const menuLines = formatMenuLines(
+                  specs.selectedMenuItems || r.selectedMenuItems,
+                  menuItems,
+                );
+                const menuTotal = menuLines.reduce((s, l) => s + l.lineTotal, 0);
+                const minSpend =
+                  specs.proposedMinimumSpend != null
+                    ? Number(specs.proposedMinimumSpend)
+                    : menuTotal > 0
+                      ? menuTotal
+                      : null;
+                return (
+                  <div
+                    key={r.id}
+                    className="sec-card p-5 border border-[var(--sec-border)]"
+                    style={{ background: 'linear-gradient(180deg, #121214 0%, #0a0a0b 100%)' }}
+                  >
+                    <div className="flex justify-between items-start gap-3 mb-3">
+                      <div>
+                        <p className="font-semibold text-base">{r.table?.tableName || 'Custom table request'}</p>
+                        <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
+                          @{r.user?.username || r.user?.fullName || 'guest'}
+                        </p>
+                      </div>
+                      {r.table?.event?.title ? (
+                        <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full border border-[var(--sec-border)]">
+                          {r.table.event.title}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      {specs.guestCount != null ? (
+                        <div className="rounded-xl p-2.5 border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)]">
+                          <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)]">Guests</p>
+                          <p className="text-sm font-medium mt-0.5">{specs.guestCount}</p>
+                        </div>
+                      ) : null}
+                      {specs.preferredDate || specs.preferredTime ? (
+                        <div className="rounded-xl p-2.5 border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)]">
+                          <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)]">When</p>
+                          <p className="text-sm font-medium mt-0.5">
+                            {[specs.preferredDate, specs.preferredTime].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                      ) : null}
+                      {minSpend != null && minSpend > 0 ? (
+                        <div className="rounded-xl p-2.5 border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)]">
+                          <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)]">Min spend</p>
+                          <p className="text-sm font-medium mt-0.5">
+                            R{minSpend.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}
+                            {specs.minSpendMode === 'menu' ? ' (menu)' : specs.minSpendMode === 'manual' ? ' (manual)' : ''}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                    {menuLines.length > 0 ? (
+                      <div className="mb-3">
+                        <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mb-2">Menu selection</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {menuLines.map((line, i) => (
+                            <span
+                              key={i}
+                              className="text-xs px-2 py-1 rounded-full border border-[var(--sec-border)]"
+                            >
+                              {line.qty}× {line.label}
+                              {line.lineTotal > 0 ? ` · R${line.lineTotal.toFixed(0)}` : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {specs.notes ? (
+                      <p className="text-sm text-[var(--sec-text-secondary)] mb-3 italic">&ldquo;{specs.notes}&rdquo;</p>
+                    ) : null}
+                    <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mb-2">Decline reason (pick one)</p>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {VENUE_DECLINE_TEMPLATES.map((t) => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          className="text-xs px-2.5 py-1.5 rounded-full border transition-colors"
+                          style={{
+                            borderColor:
+                              declineTemplateByMember[r.id] === t.key
+                                ? 'var(--sec-accent-border)'
+                                : 'var(--sec-border)',
+                            background:
+                              declineTemplateByMember[r.id] === t.key
+                                ? 'var(--sec-accent-muted)'
+                                : 'transparent',
+                          }}
+                          onClick={() =>
+                            setDeclineTemplateByMember((d) => ({
+                              ...d,
+                              [r.id]: declineTemplateByMember[r.id] === t.key ? null : t.key,
+                            }))
+                          }
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="sec-btn-primary"
+                        onClick={() => reviewMutation.mutate({ tableId: r.table.id, memberId: r.id, action: 'approve' })}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={!declineTemplateByMember[r.id]}
+                        onClick={() =>
+                          reviewMutation.mutate({
+                            tableId: r.table.id,
+                            memberId: r.id,
+                            action: 'decline',
+                            declineTemplateKey: declineTemplateByMember[r.id],
+                          })
+                        }
+                      >
+                        Decline
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </TabsContent>

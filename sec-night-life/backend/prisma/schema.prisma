@@ -43,6 +43,11 @@ enum EventStatus {
   cancelled
 }
 
+enum EventFormat {
+  TABLE_HOSTING
+  TICKETING_ONLY
+}
+
 enum TableStatus {
   open
   full
@@ -683,6 +688,7 @@ model Event {
   hasEntranceFee    Boolean     @default(false) @map("has_entrance_fee")
   entranceFeeAmount Float?      @map("entrance_fee_amount")
   hostingConfig     Json?       @map("hosting_config")
+  eventFormat       EventFormat @default(TABLE_HOSTING) @map("event_format")
   /// Optional bcrypt hash for venue door staff when recording ticket admits (4–8 digits).
   doorCheckPinHash   String?     @map("door_check_pin_hash")
   createdAt         DateTime    @default(now()) @map("created_at")

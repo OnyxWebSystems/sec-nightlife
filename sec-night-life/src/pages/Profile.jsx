@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -37,6 +37,10 @@ import InterestsEditor from '@/components/profile/InterestsEditor';
 
 export default function Profile() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const profileTab = ['activity', 'tickets', 'reviews', 'interests'].includes(searchParams.get('tab'))
+    ? searchParams.get('tab')
+    : 'activity';
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -577,7 +581,7 @@ export default function Profile() {
         {/* Profile Content Tabs - Only for own profile */}
         {isOwnProfile && (
           <div className="glass-card rounded-2xl p-4 mb-6">
-            <Tabs defaultValue="activity" className="w-full">
+            <Tabs value={profileTab} className="w-full">
               <TabsList className="w-full bg-[#0A0A0B] border border-[#262629]">
                 <TabsTrigger value="activity" className="flex-1">Activity</TabsTrigger>
                 <TabsTrigger value="tickets" className="flex-1">Tickets</TabsTrigger>

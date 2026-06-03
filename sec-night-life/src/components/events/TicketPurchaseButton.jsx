@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { apiPost } from '@/api/client';
 import * as authService from '@/services/authService';
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,15 +15,40 @@ export default function TicketPurchaseButton({ event }) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState('');
   const [quantity, setQuantity] = useState(1);
+  const [holderNames, setHolderNames] = useState(['']);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  useEffect(() => {
+    setHolderNames((prev) => {
+      const next = [...prev];
+      while (next.length < quantity) next.push('');
+      return next.slice(0, quantity);
+    });
+  }, [quantity]);
+
+  const availableTickets = event.ticket_tiers?.filter(t =>
+    (t.quantity - (t.sold || 0)) > 0
+  ) || [];
+
+  const selectedTierData = event.ticket_tiers?.find(t => t.name === selectedTier);
+  const maxQuantity = selectedTierData ? Math.min(selectedTierData.quantity - (selectedTierData.sold || 0), 10) : 1;
+  const totalPrice = selectedTierData ? selectedTierData.price * quantity : 0;
 
   const handlePurchase = async () => {
     if (!selectedTier) {
       toast.error('Please select a ticket type');
       return;
     }
+    if (quantity > 1) {
+      for (let i = 0; i < quantity; i++) {
+        const parts = String(holderNames[i] || '').trim().split(/\s+/).filter(Boolean);
+        if (parts.length < 2) {
+          toast.error(`Enter first and surname for ticket ${i + 1}`);
+          return;
+        }
+      }
+    }
 
-    // Check if running in iframe
     if (window.self !== window.top) {
       toast.error('Checkout only works from the published app, not in preview mode');
       return;
@@ -31,6 +57,10 @@ export default function TicketPurchaseButton({ event }) {
     setIsProcessing(true);
     try {
       const user = await authService.getCurrentUser();
+      const names =
+        quantity > 1
+          ? holderNames.map((n) => String(n).trim())
+          : [holderDisplayNameFromUser(user)];
       const res = await apiPost('/api/payments/initialize', {
         amount: totalPrice,
         email: user?.email,
@@ -41,6 +71,7 @@ export default function TicketPurchaseButton({ event }) {
           event_id: event.id,
           ticket_tier_name: selectedTier,
           quantity: String(quantity),
+          holder_names: JSON.stringify(names),
         },
       });
       if (res?.reference && res?.access_code) {
@@ -51,7 +82,7 @@ export default function TicketPurchaseButton({ event }) {
           accessCode: res.access_code,
           onSuccess: async (payload) => {
             await verifyPaystackReference(payload?.reference || res.reference);
-            toast.success('Payment successful');
+            toast.success('Payment successful — your tickets are in Profile');
             setIsOpen(false);
           },
           onCancel: () => toast.message('Checkout cancelled'),
@@ -67,13 +98,10 @@ export default function TicketPurchaseButton({ event }) {
     }
   };
 
-  const availableTickets = event.ticket_tiers?.filter(t => 
-    (t.quantity - (t.sold || 0)) > 0
-  ) || [];
-
-  const selectedTierData = event.ticket_tiers?.find(t => t.name === selectedTier);
-  const maxQuantity = selectedTierData ? Math.min(selectedTierData.quantity - (selectedTierData.sold || 0), 10) : 1;
-  const totalPrice = selectedTierData ? selectedTierData.price * quantity : 0;
+  function holderDisplayNameFromUser(u) {
+    const n = u?.fullName || u?.username || u?.userProfile?.username;
+    return n ? String(n).trim() : 'Guest';
+  }
 
   return (
     <>
@@ -123,9 +151,9 @@ export default function TicketPurchaseButton({ event }) {
                   <>
                     <div>
                       <Label className="text-gray-400 text-sm mb-2 block">Quantity</Label>
-                      <Select 
-                        value={quantity.toString()} 
-                        onValueChange={(val) => setQuantity(parseInt(val))}
+                      <Select
+                        value={quantity.toString()}
+                        onValueChange={(val) => setQuantity(parseInt(val, 10))}
                       >
                         <SelectTrigger className="bg-[#0A0A0B] border-[#262629]">
                           <SelectValue />
@@ -139,6 +167,25 @@ export default function TicketPurchaseButton({ event }) {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {quantity > 1 ? (
+                      <div className="space-y-2">
+                        <Label className="text-gray-400 text-sm">Guest name per ticket</Label>
+                        {Array.from({ length: quantity }, (_, i) => (
+                          <Input
+                            key={i}
+                            placeholder={`Ticket ${i + 1}: First name & surname`}
+                            value={holderNames[i] || ''}
+                            onChange={(e) => {
+                              const next = [...holderNames];
+                              next[i] = e.target.value;
+                              setHolderNames(next);
+                            }}
+                            className="bg-[#0A0A0B] border-[#262629]"
+                          />
+                        ))}
+                      </div>
+                    ) : null}
 
                     {selectedTierData?.description && (
                       <div className="p-3 rounded-lg bg-[#0A0A0B]">

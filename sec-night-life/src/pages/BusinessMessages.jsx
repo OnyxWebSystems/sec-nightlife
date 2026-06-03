@@ -8,13 +8,10 @@ import { Loader2, MessageCircle, Briefcase, Armchair, Star } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 
-const VENUE_TABLE_TEMPLATES = [
-  { key: 'confirm_arrival_time', label: 'Confirm arrival time' },
-  { key: 'running_late', label: 'Running late' },
-  { key: 'need_guest_count', label: 'Confirm guest count' },
-  { key: 'menu_question', label: 'Menu question' },
-  { key: 'see_you_tonight', label: 'See you tonight' },
-];
+import {
+  VENUE_ARRIVAL_TEMPLATES,
+  VENUE_DECLINE_TEMPLATES,
+} from '@/lib/venueTableMessageTemplates';
 
 export default function BusinessMessages() {
   const navigate = useNavigate();
@@ -25,7 +22,7 @@ export default function BusinessMessages() {
     ['jobs', 'promoters', 'tables'].includes(initialTab) ? initialTab : 'jobs',
   );
   const [selectedJobAppId, setSelectedJobAppId] = useState(searchParams.get('application') || null);
-  const [selectedTableThreadId, setSelectedTableThreadId] = useState(null);
+  const [selectedTableThreadId, setSelectedTableThreadId] = useState(searchParams.get('thread') || null);
   const [jobMessageBody, setJobMessageBody] = useState('');
   const [jobSending, setJobSending] = useState(false);
   const [tableSending, setTableSending] = useState(false);
@@ -35,6 +32,11 @@ export default function BusinessMessages() {
     if (tab && ['jobs', 'promoters', 'tables'].includes(tab)) setFilter(tab);
     const app = searchParams.get('application');
     if (app) setSelectedJobAppId(app);
+    const thread = searchParams.get('thread');
+    if (thread) {
+      setSelectedTableThreadId(thread);
+      if (!tab || tab === 'jobs') setFilter('tables');
+    }
   }, [searchParams]);
 
   const inboxType = filter === 'tables' ? 'tables' : filter === 'promoters' ? 'promoters' : 'jobs';
@@ -153,7 +155,10 @@ export default function BusinessMessages() {
                       }}
                       onClick={() => {
                         if (isJob) selectJobItem(item);
-                        else if (isTable) setSelectedTableThreadId(item.threadId);
+                        else if (isTable) {
+                          setSelectedTableThreadId(item.threadId);
+                          setSearchParams({ tab: 'tables', thread: item.threadId });
+                        }
                       }}
                     >
                       <div className="flex gap-3">
@@ -216,7 +221,7 @@ export default function BusinessMessages() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {VENUE_TABLE_TEMPLATES.map((t) => (
+                        {[...VENUE_DECLINE_TEMPLATES, ...VENUE_ARRIVAL_TEMPLATES].map((t) => (
                         <Button
                           key={t.key}
                           size="sm"

@@ -5,7 +5,8 @@ import { createInAppNotification } from './inAppNotifications.js';
 /**
  * Create group chat for a venue event (best-effort; logs on failure).
  */
-export async function ensureGroupChatForEvent(eventId, eventName, creatorUserId) {
+/** Event attendee group — created empty; guests join when they buy tickets or join tables. */
+export async function ensureGroupChatForEvent(eventId, eventName) {
   try {
     const existing = await prisma.groupChat.findUnique({ where: { eventId } });
     if (existing) return existing;
@@ -13,7 +14,6 @@ export async function ensureGroupChatForEvent(eventId, eventName, creatorUserId)
       data: {
         eventId,
         name: eventName,
-        members: { create: { userId: creatorUserId } },
       },
     });
   } catch (e) {

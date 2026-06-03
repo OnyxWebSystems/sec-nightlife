@@ -349,7 +349,7 @@ export default function EventDetails() {
           </div>
         </div>
 
-        {event.stats && (
+        {event.stats && event.event_format !== 'TICKETING_ONLY' && (
           <div className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Tables & attendance</h2>
             <div style={{ display: 'grid', gap: 10, fontSize: 13, color: 'var(--sec-text-muted)' }}>
@@ -495,6 +495,7 @@ export default function EventDetails() {
           </div>
         )}
 
+        {event.event_format !== 'TICKETING_ONLY' ? (
         <div data-tables-section style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -526,12 +527,15 @@ export default function EventDetails() {
             </p>
           ) : null}
         </div>
+        ) : null}
 
+        {event.event_format !== 'TICKETING_ONLY' ? (
         <EventTableTierSheet
           tier={selectedTier}
           open={Boolean(selectedTier)}
           onClose={() => setSelectedTier(null)}
         />
+        ) : null}
 
         {/* ── Location / directions ── */}
         {mapQuery && (
@@ -563,7 +567,25 @@ export default function EventDetails() {
       {/* ── Sticky bottom bar — price left / CTA right ── */}
       <div className="sec-bottom-bar sec-bottom-bar--responsive">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 960, margin: '0 auto' }}>
-          {tableTiers.length > 0 ? (
+          {event.event_format === 'TICKETING_ONLY' || (event.ticket_tiers?.length > 0 && tableTiers.length === 0) ? (
+            <>
+              {lowestTicketPrice > 0 && (
+                <div className="sec-bottom-bar__price">
+                  <div className="sec-bottom-bar__price-label">From</div>
+                  <div className="sec-bottom-bar__price-value">R{lowestTicketPrice}</div>
+                </div>
+              )}
+              <div className="sec-bottom-bar__cta">
+                {event.ticket_tiers?.length > 0 ? (
+                  <TicketPurchaseButton event={event} />
+                ) : (
+                  <button type="button" className="sec-btn sec-btn-primary sec-btn-full" disabled>
+                    Tickets unavailable
+                  </button>
+                )}
+              </div>
+            </>
+          ) : tableTiers.length > 0 ? (
             <>
               <div className="sec-bottom-bar__price">
                 <div className="sec-bottom-bar__price-label">Spots left</div>

@@ -26,6 +26,13 @@ function StatusBadge({ status }) {
   );
 }
 
+function venueBookingStatusLabel(status) {
+  if (status === 'APPROVED') return 'Approved — awaiting payment';
+  if (status === 'PENDING_PAYMENT') return 'Awaiting payment';
+  if (status === 'CONFIRMED') return 'Confirmed & paid';
+  return status;
+}
+
 export default function BusinessBookings() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -348,7 +355,7 @@ export default function BusinessBookings() {
       <section style={{ marginTop: 40, paddingTop: 24, borderTop: '1px solid var(--sec-border)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Venue &amp; day table bookings</h2>
         <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
-          Paid bookings from Book on Sec and approved custom tables (event-linked or day bookings).
+          Approved custom tables awaiting guest checkout, plus paid Book on Sec and day bookings.
         </p>
         {venueBookingsLoading ? (
           <div className="flex justify-center py-8"><Loader2 className="animate-spin" /></div>
@@ -356,36 +363,83 @@ export default function BusinessBookings() {
           <div className="sec-card p-6 text-center text-sm text-[var(--sec-text-muted)]">No venue table bookings yet.</div>
         ) : (
           <div className="space-y-2">
-            {venueTableBookings.map((row) => (
+            {venueTableBookings.map((row) => {
+              const specs = row.userSpecs || {};
+              const minSpend =
+                specs.proposedMinimumSpend != null
+                  ? Number(specs.proposedMinimumSpend)
+                  : null;
+              const isApproved = row.status === 'APPROVED';
+              return (
               <div key={row.id} className="sec-card p-4 border border-[var(--sec-border)]">
                 <div className="flex justify-between gap-2 flex-wrap">
                   <div>
-                    <p className="font-semibold">{row.table?.tableName}</p>
+                    <p className="font-semibold">
+                      {row.table?.tableName}
+                      {row.table?.isCustomListing ? (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide opacity-60">Custom</span>
+                      ) : null}
+                    </p>
                     <p className="text-xs text-[var(--sec-text-muted)] mt-1">
                       {row.table?.venue?.name}
                       {row.table?.event?.title ? ` · ${row.table.event.title}` : ' · Day booking'}
                     </p>
                     <p className="text-xs text-[var(--sec-text-muted)] mt-1">
-                      @{row.user?.username || row.user?.fullName || 'Guest'} · {row.status}
+                      @{row.user?.username || row.user?.fullName || 'Guest'}
                     </p>
+                    <span
+                      className={`inline-block mt-2 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${
+                        isApproved ? 'sec-badge-gold' : row.status === 'CONFIRMED' ? 'sec-badge-success' : 'sec-badge-silver'
+                      }`}
+                    >
+                      {venueBookingStatusLabel(row.status)}
+                    </span>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-[var(--sec-accent)]">R{Number(row.amountPaid || 0).toFixed(0)}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mt-1">
-                      {row.settlementMode || '—'}
-                    </p>
+                    {row.amountPaid > 0 ? (
+                      <p className="font-semibold text-[var(--sec-accent)]">R{Number(row.amountPaid).toFixed(0)}</p>
+                    ) : minSpend != null && minSpend > 0 ? (
+                      <p className="font-semibold text-[var(--sec-text-secondary)]">
+                        R{minSpend.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}
+                        <span className="block text-[10px] font-normal text-[var(--sec-text-muted)]">proposed min</span>
+                      </p>
+                    ) : (
+                      <p className="text-sm text-[var(--sec-text-muted)]">—</p>
+                    )}
+                    {row.settlementMode ? (
+                      <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mt-1">
+                        {row.settlementMode}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
+                {(specs.guestCount || specs.preferredDate || specs.preferredTime || specs.notes) ? (
+                  <div className="mt-3 pt-3 border-t border-[var(--sec-border)] grid grid-cols-2 gap-2 text-xs">
+                    {specs.guestCount != null ? (
+                      <div><span className="text-[var(--sec-text-muted)]">Guests </span>{specs.guestCount}</div>
+                    ) : null}
+                    {(specs.preferredDate || specs.preferredTime) ? (
+                      <div>
+                        <span className="text-[var(--sec-text-muted)]">When </span>
+                        {[specs.preferredDate, specs.preferredTime].filter(Boolean).join(' · ')}
+                      </div>
+                    ) : null}
+                    {specs.notes ? (
+                      <div className="col-span-2 italic text-[var(--sec-text-secondary)]">&ldquo;{specs.notes}&rdquo;</div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <Button
                   variant="outline"
                   size="sm"
                   className="mt-3"
                   onClick={() => navigate(createPageUrl(`TableDetails?id=${row.table?.id}&source=venue`))}
                 >
-                  View table
+                  {isApproved ? 'View booking' : 'View table'}
                 </Button>
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </section>

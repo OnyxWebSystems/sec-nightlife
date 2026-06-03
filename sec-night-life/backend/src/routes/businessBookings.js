@@ -408,6 +408,7 @@ router.get('/venue-table-reservations', authenticateToken, async (req, res, next
         id: m.id,
         status: m.status,
         userSpecs: m.userSpecs,
+        selectedMenuItems: m.selectedMenuItems,
         declineReason: m.declineReason,
         amountPaid: m.amountPaid,
         joinedAt: m.joinedAt,
@@ -432,7 +433,7 @@ router.get('/venue-table-reservations', authenticateToken, async (req, res, next
   }
 });
 
-/** Confirmed / paid venue & day table bookings (incl. custom tables after checkout). */
+/** Approved, awaiting payment, and confirmed venue & day table bookings (incl. custom tables). */
 router.get('/venue-table-bookings', authenticateToken, async (req, res, next) => {
   try {
     const ownedVenues = await prisma.venue.findMany({
@@ -443,7 +444,7 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
     const venueIds = ownedVenues.map((v) => v.id);
     const members = await prisma.venueTableMember.findMany({
       where: {
-        status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] },
+        status: { in: ['APPROVED', 'PENDING_PAYMENT', 'CONFIRMED'] },
         venueTable: { venueId: { in: venueIds } },
       },
       include: {
@@ -455,11 +456,20 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
           },
         },
       },
-      orderBy: { paidAt: 'desc' },
+      orderBy: { joinedAt: 'desc' },
       take: 120,
     });
+    const statusRank = { APPROVED: 0, PENDING_PAYMENT: 1, CONFIRMED: 2 };
+    const sorted = [...members].sort((a, b) => {
+      const ra = statusRank[a.status] ?? 9;
+      const rb = statusRank[b.status] ?? 9;
+      if (ra !== rb) return ra - rb;
+      const ta = (b.reviewedAt || b.paidAt || b.joinedAt)?.getTime?.() ?? 0;
+      const tb = (a.reviewedAt || a.paidAt || a.joinedAt)?.getTime?.() ?? 0;
+      return ta - tb;
+    });
     res.json({
-      items: members.map((m) => ({
+      items: sorted.map((m) => ({
         id: m.id,
         status: m.status,
         amountPaid: m.amountPaid,
@@ -468,6 +478,7 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
         userSpecs: m.userSpecs,
         joinedAt: m.joinedAt,
         paidAt: m.paidAt,
+        reviewedAt: m.reviewedAt,
         user: {
           id: m.user.id,
           username: m.user.userProfile?.username,

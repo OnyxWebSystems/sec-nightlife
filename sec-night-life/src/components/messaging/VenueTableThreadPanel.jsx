@@ -3,16 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  GUEST_REPLY_TEMPLATES,
+  VENUE_ARRIVAL_TEMPLATES,
+} from '@/lib/venueTableMessageTemplates';
 
-const TEMPLATES = [
-  { key: 'confirm_arrival_time', label: 'Confirm arrival time' },
-  { key: 'running_late', label: 'Running late' },
-  { key: 'need_guest_count', label: 'Confirm guest count' },
-  { key: 'menu_question', label: 'Menu question' },
-  { key: 'see_you_tonight', label: 'See you tonight' },
-];
-
-export default function VenueTableThreadPanel({ threadId, onClose }) {
+export default function VenueTableThreadPanel({ threadId, onClose, memberStatus = 'APPROVED' }) {
   const [sending, setSending] = useState(false);
 
   const { data: messages = [], refetch } = useQuery({
@@ -21,6 +17,9 @@ export default function VenueTableThreadPanel({ threadId, onClose }) {
     enabled: !!threadId,
     refetchInterval: 15000,
   });
+
+  const templates =
+    memberStatus === 'DECLINED' ? GUEST_REPLY_TEMPLATES : [];
 
   async function sendTemplate(templateKey) {
     setSending(true);
@@ -44,7 +43,11 @@ export default function VenueTableThreadPanel({ threadId, onClose }) {
       </header>
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {messages.length === 0 ? (
-          <p className="text-sm text-[var(--sec-text-muted)]">No messages yet. Tap a quick reply below.</p>
+          <p className="text-sm text-[var(--sec-text-muted)]">
+            {memberStatus === 'DECLINED'
+              ? 'Your request was declined. Tap a quick reply below.'
+              : 'No messages yet.'}
+          </p>
         ) : (
           messages.map((m) => (
             <div
@@ -62,13 +65,19 @@ export default function VenueTableThreadPanel({ threadId, onClose }) {
           ))
         )}
       </div>
-      <div className="p-4 border-t border-[var(--sec-border)] flex flex-wrap gap-2">
-        {TEMPLATES.map((t) => (
-          <Button key={t.key} size="sm" variant="outline" disabled={sending} onClick={() => sendTemplate(t.key)}>
-            {t.label}
-          </Button>
-        ))}
-      </div>
+      {templates.length > 0 ? (
+        <div className="p-4 border-t border-[var(--sec-border)] flex flex-wrap gap-2">
+          {templates.map((t) => (
+            <Button key={t.key} size="sm" variant="outline" disabled={sending} onClick={() => sendTemplate(t.key)}>
+              {t.label}
+            </Button>
+          ))}
+        </div>
+      ) : memberStatus !== 'DECLINED' ? (
+        <div className="p-4 border-t border-[var(--sec-border)]">
+          <p className="text-xs text-[var(--sec-text-muted)]">Quick replies are available after your request is approved.</p>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,22 +1,62 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import SecLogo from '@/components/ui/SecLogo';
+import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
 
 export default function CustomTableRequestModal({
   open,
   onClose,
   onSubmit,
   submitting = false,
+  venueMenuItems = [],
 }) {
+  const [minSpendMode, setMinSpendMode] = useState('manual');
   const [form, setForm] = useState({
     guestCount: 4,
+    preferredDate: '',
     preferredTime: '',
     proposedMinimumSpend: '',
     notes: '',
+    selectedMenuItems: [],
   });
 
+  const menuTotal = useMemo(() => {
+    if (minSpendMode !== 'menu') return 0;
+    return (form.selectedMenuItems || []).reduce((sum, inc) => {
+      const row = venueMenuItems.find((m) => m.id === inc.menu_item_id);
+      const qty = parseInt(inc.quantity, 10) || 1;
+      return sum + (Number(row?.price) || 0) * qty;
+    }, 0);
+  }, [form.selectedMenuItems, venueMenuItems, minSpendMode]);
+
+  const today = new Date().toISOString().slice(0, 10);
+
   if (!open) return null;
+
+  const handleSubmit = () => {
+    const selectedMenuItems =
+      minSpendMode === 'menu'
+        ? (form.selectedMenuItems || []).map((x) => ({
+            menuItemId: x.menu_item_id,
+            quantity: parseInt(x.quantity, 10) || 1,
+          }))
+        : undefined;
+    onSubmit?.({
+      guestCount: form.guestCount,
+      preferredDate: form.preferredDate || undefined,
+      proposedMinimumSpend:
+        minSpendMode === 'manual' && form.proposedMinimumSpend
+          ? parseFloat(form.proposedMinimumSpend)
+          : minSpendMode === 'menu' && menuTotal > 0
+            ? menuTotal
+            : undefined,
+      notes: form.notes,
+      preferredTime: form.preferredTime,
+      minSpendMode,
+      selectedMenuItems,
+    });
+  };
 
   return (
     <>
@@ -78,12 +118,7 @@ export default function CustomTableRequestModal({
             <X size={16} />
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-            <SecLogo
-              size={44}
-              variant="mark"
-              asset="transparent"
-              className="custom-table-request-modal__logo"
-            />
+            <SecLogo size={44} variant="mark" asset="transparent" className="custom-table-request-modal__logo" />
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111', margin: 0 }}>Custom table request</h2>
           </div>
           <p style={{ fontSize: 13, color: 'rgba(0,0,0,0.65)', margin: 0 }}>
@@ -119,7 +154,28 @@ export default function CustomTableRequestModal({
                 fontSize: 14,
               }}
             />
-            <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 6 }}>Up to 500 guests</p>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
+              Preferred date
+            </label>
+            <input
+              type="date"
+              min={today}
+              value={form.preferredDate}
+              onChange={(e) => setForm((f) => ({ ...f, preferredDate: e.target.value }))}
+              className="w-full"
+              style={{
+                height: 44,
+                padding: '0 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--sec-border)',
+                backgroundColor: 'var(--sec-bg-card)',
+                color: 'var(--sec-text-primary)',
+                fontSize: 14,
+              }}
+            />
           </div>
 
           <div>
@@ -144,29 +200,66 @@ export default function CustomTableRequestModal({
           </div>
 
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
-              Your minimum spend (ZAR)
-            </label>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)', fontSize: 14 }}>R</span>
-              <input
-                type="number"
-                min={0}
-                value={form.proposedMinimumSpend}
-                onChange={(e) => setForm((f) => ({ ...f, proposedMinimumSpend: e.target.value }))}
-                placeholder="e.g. 5000"
+            <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', marginBottom: 8 }}>Minimum spend</p>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                className="flex-1 text-xs py-2 rounded-full border"
                 style={{
-                  width: '100%',
-                  height: 44,
-                  padding: '0 14px 0 28px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--sec-border)',
-                  backgroundColor: 'var(--sec-bg-card)',
-                  color: 'var(--sec-text-primary)',
-                  fontSize: 14,
+                  borderColor: minSpendMode === 'menu' ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                  background: minSpendMode === 'menu' ? 'var(--sec-accent-muted)' : 'transparent',
                 }}
-              />
+                onClick={() => setMinSpendMode('menu')}
+              >
+                From menu
+              </button>
+              <button
+                type="button"
+                className="flex-1 text-xs py-2 rounded-full border"
+                style={{
+                  borderColor: minSpendMode === 'manual' ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                  background: minSpendMode === 'manual' ? 'var(--sec-accent-muted)' : 'transparent',
+                }}
+                onClick={() => setMinSpendMode('manual')}
+              >
+                Type amount
+              </button>
             </div>
+            {minSpendMode === 'menu' ? (
+              <div>
+                <TierIncludedItemsEditor
+                  includedItems={form.selectedMenuItems}
+                  venueMenuItems={venueMenuItems}
+                  onChange={(items) => setForm((f) => ({ ...f, selectedMenuItems: items }))}
+                />
+                {menuTotal > 0 ? (
+                  <p className="text-sm mt-2" style={{ color: 'var(--sec-accent)' }}>
+                    Estimated total: R{menuTotal.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)', fontSize: 14 }}>R</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.proposedMinimumSpend}
+                  onChange={(e) => setForm((f) => ({ ...f, proposedMinimumSpend: e.target.value }))}
+                  placeholder="e.g. 5000"
+                  style={{
+                    width: '100%',
+                    height: 44,
+                    padding: '0 14px 0 28px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--sec-border)',
+                    backgroundColor: 'var(--sec-bg-card)',
+                    color: 'var(--sec-text-primary)',
+                    fontSize: 14,
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           <div>
@@ -189,17 +282,10 @@ export default function CustomTableRequestModal({
 
           <button
             type="button"
-            disabled={submitting}
+            disabled={submitting || (minSpendMode === 'menu' && menuTotal <= 0 && !form.proposedMinimumSpend)}
             className="sec-btn sec-btn-primary sec-btn-full"
             style={{ height: 48, marginTop: 4 }}
-            onClick={() =>
-              onSubmit?.({
-                guestCount: form.guestCount,
-                proposedMinimumSpend: form.proposedMinimumSpend ? parseFloat(form.proposedMinimumSpend) : undefined,
-                notes: form.notes,
-                preferredTime: form.preferredTime,
-              })
-            }
+            onClick={handleSubmit}
           >
             {submitting ? 'Submitting…' : 'Submit request for review'}
           </button>

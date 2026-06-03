@@ -10,13 +10,16 @@ const router = Router();
 const EXCLUDED_IN_APP_TYPES = ['DIRECT_MESSAGE', 'GROUP_MESSAGE'];
 
 function mapLegacy(n) {
+  const path = n.actionUrl?.trim() || null;
+  const isRoute = path && path.startsWith('/');
   return {
     id: n.id,
     type: n.type,
     title: n.title,
     body: n.body ?? '',
-    referenceId: n.actionUrl || null,
-    referenceType: n.actionUrl ? 'LEGACY' : null,
+    referenceId: path,
+    referenceType: isRoute ? 'ROUTE' : path ? 'LEGACY' : null,
+    actionUrl: path,
     read: n.isRead,
     createdAt: n.createdAt,
     _source: 'legacy',
@@ -239,10 +242,15 @@ router.patch('/:notificationId/unread', authenticateToken, async (req, res, next
 
 router.delete('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const deleted = await prisma.notification.deleteMany({
-      where: { id: req.params.id, userId: req.userId },
-    });
-    if (deleted.count === 0) return res.status(404).json({ error: 'Not found' });
+    const [legacy, inApp] = await Promise.all([
+      prisma.notification.deleteMany({
+        where: { id: req.params.id, userId: req.userId },
+      }),
+      prisma.inAppNotification.deleteMany({
+        where: { id: req.params.id, userId: req.userId },
+      }),
+    ]);
+    if (legacy.count === 0 && inApp.count === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });
   } catch (err) {
     next(err);

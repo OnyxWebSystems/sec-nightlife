@@ -85,9 +85,12 @@ function parseTierSlotsTotal(tiers = []) {
   return tiers.reduce((acc, t) => acc + (parseInt(String(t?.tier_table_slots || ''), 10) || 0), 0);
 }
 
+const EMPTY_TICKET_TIER = { name: '', price: '', quantity: '', description: '', sold: 0 };
+
 const EMPTY_EVENT = {
   title: '', description: '', date: '', city: '', location_address: '', location_city: '', location_suburb: '', location_province: '', status: 'draft',
   cover_image_url: '', ticket_tiers: [],
+  event_format: 'TABLE_HOSTING',
   start_time: '',
   ends_at: '',
   has_entrance_fee: false,
@@ -107,6 +110,7 @@ export default function BusinessEvents() {
   const [lifecycleTab, setLifecycleTab] = useState('upcoming');
   const [deleteId, setDeleteId] = useState(null);
   const [coverUploading, setCoverUploading] = useState(false);
+  const [createMode, setCreateMode] = useState('tables');
 
   const coverCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -182,6 +186,7 @@ export default function BusinessEvents() {
 
   const openCreate = () => {
     setEditingEvent(null);
+    setCreateMode('tables');
     setForm({ ...EMPTY_EVENT });
     setDialogOpen(true);
   };
@@ -211,7 +216,9 @@ export default function BusinessEvents() {
         ? String(evt.entrance_fee_amount)
         : '',
       hosting_config: hostingFromApi(evt.hosting_config),
+      event_format: evt.event_format || 'TABLE_HOSTING',
     });
+    setCreateMode(evt.event_format === 'TICKETING_ONLY' ? 'ticketing' : 'tables');
     setDialogOpen(true);
   };
 
@@ -261,6 +268,36 @@ export default function BusinessEvents() {
       if (!Number.isNaN(end.getTime())) payload.ends_at = end.toISOString();
     }
 
+    const isTicketing = createMode === 'ticketing';
+    payload.event_format = isTicketing ? 'TICKETING_ONLY' : 'TABLE_HOSTING';
+
+    if (isTicketing) {
+      const tiers = (form.ticket_tiers || []).map((t) => ({
+        name: String(t.name || '').trim(),
+        price: Number(t.price),
+        quantity: parseInt(String(t.quantity), 10) || 0,
+        description: String(t.description || '').trim(),
+        sold: Number(t.sold) || 0,
+      })).filter((t) => t.name);
+      if (form.status === 'published' && tiers.length === 0) {
+        toast.error('Add at least one ticket tier to publish');
+        return;
+      }
+      for (const t of tiers) {
+        if (!Number.isFinite(t.price) || t.price < 0) {
+          toast.error('Each ticket tier needs a valid price');
+          return;
+        }
+        if (t.quantity < 1) {
+          toast.error('Each ticket tier needs quantity of at least 1');
+          return;
+        }
+      }
+      payload.ticket_tiers = tiers;
+      saveMutation.mutate(payload);
+      return;
+    }
+
     const hostingPayload = {
       general: { max_tables: null, tiers: [], host_table_fee_zar: null, allows_custom_requests: false },
       vip: { max_tables: null, tiers: [], host_table_fee_zar: null, allows_custom_requests: false },
@@ -288,14 +325,16 @@ export default function BusinessEvents() {
       hostingPayload[cat].allows_custom_requests = Boolean(sec?.allows_custom_requests);
       const rawTiers = sec?.tiers || [];
       const hasPartialTier = rawTiers.some((t) => {
-        const vals = [
-          String(t?.tier_name || '').trim(),
-          String(t?.max_guests || '').trim(),
-          String(t?.min_spend ?? '').trim(),
-          String(t?.tier_table_slots ?? '').trim(),
-        ];
-        const filled = vals.filter((v) => v !== '').length;
-        return filled > 0 && filled < vals.length;
+        const name = String(t?.tier_name || '').trim();
+        const guests = String(t?.max_guests || '').trim();
+        const slots = String(t?.tier_table_slots ?? '').trim();
+        const minJoin = String(t?.min_spend_join ?? t?.min_spend ?? '').trim();
+        const minHost = String(t?.min_spend_host ?? '').trim();
+        const hasMinSpend = minJoin !== '' || minHost !== '';
+        const fields = [name, guests, slots, hasMinSpend ? 'spend' : ''];
+        const filled = fields.filter((v) => v !== '').length;
+        const complete = name && guests && slots && hasMinSpend;
+        return filled > 0 && !complete;
       });
       if (hasPartialTier) {
         toast.error(
@@ -565,6 +604,36 @@ export default function BusinessEvents() {
         >
           <DialogHeader className="px-6 pt-6 pb-3 shrink-0 border-b border-[var(--sec-border)]">
             <DialogTitle>{editingEvent ? 'Edit Event' : 'Create Event'}</DialogTitle>
+            {!editingEvent ? (
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  className="flex-1 text-xs py-2 rounded-full border transition-colors"
+                  style={{
+                    borderColor: createMode === 'tables' ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                    background: createMode === 'tables' ? 'var(--sec-accent-muted)' : 'transparent',
+                  }}
+                  onClick={() => setCreateMode('tables')}
+                >
+                  Tables &amp; hosting
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 text-xs py-2 rounded-full border transition-colors"
+                  style={{
+                    borderColor: createMode === 'ticketing' ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                    background: createMode === 'ticketing' ? 'var(--sec-accent-muted)' : 'transparent',
+                  }}
+                  onClick={() => setCreateMode('ticketing')}
+                >
+                  Ticketed entry
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500 mt-2">
+                {createMode === 'ticketing' ? 'Ticketed event' : 'Table hosting event'}
+              </p>
+            )}
           </DialogHeader>
           <div className="overflow-y-auto overscroll-contain px-6 py-4 flex-1 min-h-0">
           <div className="space-y-4">
@@ -699,7 +768,100 @@ export default function BusinessEvents() {
                 </div>
               )}
             </div>
-            {(['general', 'vip']).map((cat) => {
+            {createMode === 'ticketing' ? (
+              <div
+                className="space-y-3 rounded-xl border p-4"
+                style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-elevated)' }}
+              >
+                <h3 className="text-sm font-semibold">Ticket tiers</h3>
+                <p className="text-xs text-gray-500">
+                  Guests buy tickets only — no table hosting. Each ticket gets its own QR with tier details.
+                </p>
+                {(form.ticket_tiers || []).map((tier, idx) => (
+                  <div
+                    key={idx}
+                    className="space-y-2 p-3 rounded-xl border"
+                    style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-card)' }}
+                  >
+                    <Input
+                      placeholder="Tier name (e.g. VIP)"
+                      value={tier.name}
+                      onChange={(e) => {
+                        const next = [...(form.ticket_tiers || [])];
+                        next[idx] = { ...next[idx], name: e.target.value };
+                        setForm((p) => ({ ...p, ticket_tiers: next }));
+                      }}
+                      className="h-10 rounded-xl"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        placeholder="Price (ZAR)"
+                        value={tier.price}
+                        onChange={(e) => {
+                          const next = [...(form.ticket_tiers || [])];
+                          next[idx] = { ...next[idx], price: e.target.value };
+                          setForm((p) => ({ ...p, ticket_tiers: next }));
+                        }}
+                        className="h-10 rounded-xl"
+                      />
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="Available qty"
+                        value={tier.quantity}
+                        onChange={(e) => {
+                          const next = [...(form.ticket_tiers || [])];
+                          next[idx] = { ...next[idx], quantity: e.target.value };
+                          setForm((p) => ({ ...p, ticket_tiers: next }));
+                        }}
+                        className="h-10 rounded-xl"
+                      />
+                    </div>
+                    <Textarea
+                      rows={2}
+                      placeholder="What this ticket includes"
+                      value={tier.description || ''}
+                      onChange={(e) => {
+                        const next = [...(form.ticket_tiers || [])];
+                        next[idx] = { ...next[idx], description: e.target.value };
+                        setForm((p) => ({ ...p, ticket_tiers: next }));
+                      }}
+                      className="rounded-xl text-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-400"
+                      onClick={() =>
+                        setForm((p) => ({
+                          ...p,
+                          ticket_tiers: (p.ticket_tiers || []).filter((_, i) => i !== idx),
+                        }))
+                      }
+                    >
+                      Remove tier
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setForm((p) => ({
+                      ...p,
+                      ticket_tiers: [...(p.ticket_tiers || []), { ...EMPTY_TICKET_TIER }],
+                    }))
+                  }
+                >
+                  <Plus size={14} className="mr-1" /> Add ticket tier
+                </Button>
+              </div>
+            ) : null}
+            {createMode === 'tables' && (['general', 'vip']).map((cat) => {
               const label = cat === 'vip' ? 'VIP' : 'General';
               const sec = form.hosting_config?.[cat] || emptyHostingSection();
               const tiers = sec.tiers || [];

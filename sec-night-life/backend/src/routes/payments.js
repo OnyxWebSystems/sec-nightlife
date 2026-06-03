@@ -1299,7 +1299,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
   if (eventId && ticketTier && qty > 0) {
     const event = await prisma.event.findFirst({
       where: { id: eventId, deletedAt: null },
-      include: { venue: { select: { ownerUserId: true, name: true } } },
+      include: {
+        venue: { select: { ownerUserId: true, name: true, address: true, city: true } },
+      },
     });
     if (event?.ticketTiers && Array.isArray(event.ticketTiers)) {
       const tiers = event.ticketTiers.map((t) =>
@@ -1316,7 +1318,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           type: 'payment',
           title: 'Tickets confirmed',
           body: `Your ticket purchase for "${event.title}" was confirmed.`,
-          actionUrl: `/EventDetails?id=${eventId}`,
+          actionUrl: `/Profile?tab=tickets`,
         });
         logFriendActivity({
           userId,
@@ -1326,6 +1328,8 @@ async function applyReferenceSideEffects(reference, paystackData) {
           description: 'joined an event',
         });
         await upsertConfirmedAttendance(userId, eventId);
+        const { addUserToEventGroupChat } = await import('../lib/groupChatHelpers.js');
+        await addUserToEventGroupChat(eventId, userId, event.title);
       }
 
       await createNotification({
@@ -1356,21 +1360,45 @@ async function applyReferenceSideEffects(reference, paystackData) {
         const visEv = eventEndsAtFromEvent(event) || visibleUntilAfterEventDate(event.date);
         const eventStartsAt = eventStartsAtFromEvent(event);
         const eventEndsAt = eventEndsAtFromEvent(event);
-        await issueTicketAndNotify(prisma, {
-          userId: String(userId),
-          email: payerEv?.email || email,
-          paystackReference: reference,
-          kind: 'EVENT_TICKET',
-          title: event.title,
-          subtitle: `${ticketTier} ×${qty}`,
-          visibleUntil: visEv,
-          eventId,
-          quantity: qty,
-          holderDisplayName: holderDisplayNameFromUser(payerEv),
-          tableSpecsSummary: `${ticketTier} ×${qty}`,
-          eventStartsAt,
-          eventEndsAt,
-        });
+        const tierRow = event.ticketTiers.find((t) => t.name === ticketTier) || {};
+        let holderNames = [];
+        try {
+          const raw = metadata.holder_names;
+          holderNames = typeof raw === 'string' ? JSON.parse(raw) : Array.isArray(raw) ? raw : [];
+        } catch {
+          holderNames = [];
+        }
+        const locParts = [
+          event.locationAddress || event.venue?.address,
+          event.locationCity || event.city,
+        ].filter(Boolean);
+        for (let i = 0; i < qty; i++) {
+          const holder =
+            String(holderNames[i] || '').trim() || holderDisplayNameFromUser(payerEv);
+          const summaryLines = [
+            ticketTier,
+            tierRow.description ? String(tierRow.description) : null,
+            `R${Number(tierRow.price || 0).toLocaleString('en-ZA')}`,
+            holder ? `Guest: ${holder}` : null,
+            event.title,
+            locParts.length ? locParts.join(', ') : null,
+          ].filter(Boolean);
+          await issueTicketAndNotify(prisma, {
+            userId: String(userId),
+            email: i === 0 ? payerEv?.email || email : null,
+            paystackReference: qty > 1 ? `${reference}-${i + 1}` : reference,
+            kind: 'EVENT_TICKET',
+            title: event.title,
+            subtitle: ticketTier,
+            visibleUntil: visEv,
+            eventId,
+            quantity: 1,
+            holderDisplayName: holder,
+            tableSpecsSummary: summaryLines.join('\n'),
+            eventStartsAt,
+            eventEndsAt,
+          });
+        }
       }
     }
   }

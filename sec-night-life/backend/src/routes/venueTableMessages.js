@@ -38,7 +38,7 @@ async function getThreadAccess(threadId, userId) {
   const isGuest = thread.member.userId === userId;
   if (!isOwner && !isGuest) return null;
   if (!MESSAGABLE_VENUE_MEMBER_STATUSES.includes(thread.member.status)) {
-    return { forbidden: true, reason: 'Messaging is available after your table request is approved.' };
+    return { forbidden: true, reason: 'Messaging is not available for this request.' };
   }
   return { thread, isOwner, isGuest };
 }
@@ -57,7 +57,7 @@ router.get('/mine', authenticateToken, async (req, res, next) => {
       where: {
         member: {
           userId: req.userId,
-          status: { in: MESSAGABLE_VENUE_MEMBER_STATUSES },
+          status: { in: ['APPROVED', 'PENDING_PAYMENT', 'CONFIRMED', 'DECLINED'] },
         },
       },
       include: {
@@ -170,7 +170,7 @@ router.post('/:threadId/messages', authenticateToken, async (req, res, next) => 
         body: label,
         actionUrl: access.isOwner
           ? `/Messages?venueTableThread=${access.thread.id}`
-          : '/BusinessMessages?tab=tables',
+          : `/BusinessMessages?tab=tables&thread=${access.thread.id}`,
       },
     });
 

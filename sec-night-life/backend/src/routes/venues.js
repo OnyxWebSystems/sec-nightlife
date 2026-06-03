@@ -440,7 +440,9 @@ router.post('/:id/custom-table-request', authenticateToken, async (req, res, nex
       body.guestCount != null ||
       body.notes ||
       body.preferredTime ||
-      body.proposedMinimumSpend != null;
+      body.preferredDate ||
+      body.proposedMinimumSpend != null ||
+      (Array.isArray(body.selectedMenuItems) && body.selectedMenuItems.length > 0);
 
     if (!hasSpecs) {
       return res.json({
@@ -455,7 +457,9 @@ router.post('/:id/custom-table-request', authenticateToken, async (req, res, nex
       proposedMinimumSpend:
         body.proposedMinimumSpend != null ? Number(body.proposedMinimumSpend) : undefined,
       notes: typeof body.notes === 'string' ? body.notes : undefined,
+      preferredDate: typeof body.preferredDate === 'string' ? body.preferredDate : undefined,
       preferredTime: typeof body.preferredTime === 'string' ? body.preferredTime : undefined,
+      minSpendMode: body.minSpendMode === 'menu' || body.minSpendMode === 'manual' ? body.minSpendMode : undefined,
       selectedMenuItems: body.selectedMenuItems,
     };
 
@@ -480,7 +484,7 @@ router.post('/:id/custom-table-request', authenticateToken, async (req, res, nex
         type: 'TABLE_REQUEST',
         title: 'New table request',
         body: `A guest submitted a custom table request. Review in Tables & day bookings.`,
-        actionUrl: '/BusinessVenueTables',
+        actionUrl: '/BusinessVenueTables?tab=requests',
       },
     });
 

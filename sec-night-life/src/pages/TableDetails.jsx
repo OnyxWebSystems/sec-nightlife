@@ -589,18 +589,17 @@ export default function TableDetails() {
           open={customRequestOpen}
           onClose={() => setCustomRequestOpen(false)}
           submitting={customSubmitting}
+          venueMenuItems={(venueTable?.menuItems || []).map((item) => ({
+            id: item.menuItemId || item.id,
+            name: item.name,
+            price: item.price,
+          }))}
           onSubmit={async (specs) => {
             setCustomSubmitting(true);
             try {
-              const selected = Object.entries(selectedMenuItems)
-                .filter(([, qty]) => Number(qty) > 0)
-                .map(([menuItemId, quantity]) => ({ menuItemId, quantity: Number(quantity) }));
               await apiPost(`/api/venue-tables/${tableId}/request`, {
                 isCustom: true,
-                userSpecs: {
-                  ...specs,
-                  selectedMenuItems: selected.length ? selected : undefined,
-                },
+                userSpecs: specs,
               });
               toast.success('Request sent — venue will review');
               setCustomRequestOpen(false);
