@@ -665,7 +665,7 @@ export default function TableDetails() {
             </p>
             <RefundPolicyNote />
           </TableCheckoutFooter>
-        )}
+        ) : null}
       </div>
     );
   }
