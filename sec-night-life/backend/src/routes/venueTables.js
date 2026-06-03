@@ -280,60 +280,9 @@ router.get('/available', optionalAuth, async (req, res, next) => {
 });
 
 async function hydrateTableMenu(table) {
-  const { formatVenueMenuItemForGuestMenu } = await import('../lib/menuSpecials.js');
-  if (table.menuItems?.length) {
-    const ids = table.menuItems.map((m) => m.venueMenuItemId).filter(Boolean);
-    const catalogRows =
-      ids.length > 0
-        ? await prisma.venueMenuItem.findMany({
-            where: { id: { in: ids } },
-            include: { catalogItem: { select: { imageUrl: true } } },
-          })
-        : [];
-    const byId = new Map(catalogRows.map((r) => [r.id, r]));
-    return table.menuItems
-      .map((m) => {
-        const src = m.venueMenuItemId ? byId.get(m.venueMenuItemId) : null;
-        if (src) {
-          const formatted = formatVenueMenuItemForGuestMenu(src, src.catalogItem);
-          if (!formatted.is_available) return null;
-          return {
-            id: formatted.id,
-            venueTableId: table.id,
-            venueMenuItemId: formatted.id,
-            name: formatted.name,
-            category: formatted.category,
-            sub_category: formatted.sub_category,
-            price: formatted.price,
-            original_price: formatted.original_price,
-            imageUrl: formatted.image_url,
-            isAvailable: true,
-          };
-        }
-        return m;
-      })
-      .filter(Boolean);
-  }
-  const catalog = await prisma.venueMenuItem.findMany({
-    where: { venueId: table.venueId, isAvailable: true },
-    include: { catalogItem: { select: { imageUrl: true } } },
-    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-  });
-  return catalog
-    .map((row) => formatVenueMenuItemForGuestMenu(row, row.catalogItem))
-    .filter((item) => item.is_available)
-    .map((item) => ({
-      id: item.id,
-      venueTableId: table.id,
-      venueMenuItemId: item.id,
-      name: item.name,
-      category: item.category,
-      sub_category: item.sub_category,
-      price: item.price,
-      original_price: item.original_price,
-      imageUrl: item.image_url,
-      isAvailable: true,
-    }));
+  const { fetchGuestVenueMenuItems, guestMenuItemToTableShape } = await import('../lib/menuHelpers.js');
+  const items = await fetchGuestVenueMenuItems(table.venueId);
+  return items.map((item) => guestMenuItemToTableShape(item, table.id));
 }
 
 function resolveBookingMode(raw, table, specs) {

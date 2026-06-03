@@ -325,20 +325,8 @@ router.get('/venues/:venueId/menu-items/public', async (req, res, next) => {
       select: { id: true },
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
-    const rows = await prisma.venueMenuItem.findMany({
-      where: {
-        venueId: venue.id,
-        isAvailable: true,
-      },
-      include: { catalogItem: { select: { imageUrl: true } } },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    });
-    const { formatVenueMenuItemForGuestMenu } = await import('../lib/menuSpecials.js');
-    res.json(
-      rows
-        .map((row) => formatVenueMenuItemForGuestMenu(row, row.catalogItem))
-        .filter((item) => item.is_available),
-    );
+    const { fetchGuestVenueMenuItems } = await import('../lib/menuHelpers.js');
+    res.json(await fetchGuestVenueMenuItems(venue.id));
   } catch (e) {
     next(e);
   }

@@ -1,4 +1,36 @@
 import { prisma } from './prisma.js';
+import { formatVenueMenuItemForGuestMenu } from './menuSpecials.js';
+
+/** Live venue menu for guest browse/checkout (full catalog, not table-scoped subsets). */
+export async function fetchGuestVenueMenuItems(venueId) {
+  const rows = await prisma.venueMenuItem.findMany({
+    where: { venueId, isAvailable: true },
+    include: { catalogItem: { select: { imageUrl: true } } },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+  });
+  return rows
+    .map((row) => formatVenueMenuItemForGuestMenu(row, row.catalogItem))
+    .filter((item) => item.is_available);
+}
+
+/** Shape guest menu rows for venue table API responses. */
+export function guestMenuItemToTableShape(item, venueTableId) {
+  return {
+    id: item.id,
+    venueTableId,
+    venueMenuItemId: item.id,
+    menuItemId: item.id,
+    name: item.name,
+    category: item.category,
+    sub_category: item.sub_category,
+    subCategory: item.sub_category,
+    price: item.price,
+    original_price: item.original_price,
+    imageUrl: item.image_url,
+    image_url: item.image_url,
+    isAvailable: true,
+  };
+}
 
 /**
  * @param {Array<{ menuItemId: string, quantity: number }>} selections

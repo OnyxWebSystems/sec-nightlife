@@ -99,8 +99,12 @@ export default function VenueMenuNavigator({
     subcategories[0];
   const displayItems = useMemo(() => {
     if (search.trim()) return filtered;
-    return activeSub?.items || [];
-  }, [search, filtered, activeSub]);
+    const subItems = activeSub?.items || [];
+    if (subItems.length > 0) return subItems;
+    const allSub = subcategories.find((s) => s.name === 'All');
+    if (allSub?.items?.length) return allSub.items;
+    return subItems;
+  }, [search, filtered, activeSub, subcategories]);
 
   if (!normalized.length) {
     return (

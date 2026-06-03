@@ -28,6 +28,7 @@ import {
   resolveTierIncludedItems,
   includedItemsTotalZar,
   mergeMemberMenuItems,
+  fetchGuestVenueMenuItems,
 } from '../lib/menuHelpers.js';
 import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
@@ -378,10 +379,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     const venueId = t.event?.venueId || t.event?.venue?.id;
     let venueMenu = [];
     if (venueId) {
-      venueMenu = await prisma.venueMenuItem.findMany({
-        where: { venueId, isAvailable: true },
-        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      });
+      venueMenu = await fetchGuestVenueMenuItems(venueId);
     }
     const tierIncludedRaw = t.tierIncludedItems;
     const tierIncludedItems = Array.isArray(tierIncludedRaw?.items) ? tierIncludedRaw.items : [];
@@ -436,8 +434,9 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
         id: m.id,
         name: m.name,
         category: m.category,
+        sub_category: m.sub_category,
         price: m.price,
-        image_url: m.imageUrl,
+        image_url: m.image_url,
       })),
       members: t.members.map((m) => ({
         userId: m.userId,
