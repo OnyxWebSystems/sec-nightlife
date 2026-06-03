@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { apiPost } from '@/api/client';
+import { useQuery } from '@tanstack/react-query';
+import { apiGet, apiPost } from '@/api/client';
 import * as authService from '@/services/authService';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,13 +11,24 @@ import { Loader2, Ticket, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 
 export default function TicketPurchaseButton({ event }) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [holderNames, setHolderNames] = useState(['']);
+  const [menuSelected, setMenuSelected] = useState({});
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const menuEnabled = Boolean(event.allows_ticket_menu_addons);
+  const venueId = event.venue_id;
+
+  const { data: venueMenu = [], isLoading: menuLoading } = useQuery({
+    queryKey: ['venue-menu-public', venueId],
+    queryFn: () => apiGet(`/api/business/venues/${venueId}/menu-items/public`),
+    enabled: menuEnabled && !!venueId && isOpen,
+  });
 
   useEffect(() => {
     setHolderNames((prev) => {
@@ -26,13 +38,19 @@ export default function TicketPurchaseButton({ event }) {
     });
   }, [quantity]);
 
+  useEffect(() => {
+    if (!isOpen) setMenuSelected({});
+  }, [isOpen]);
+
   const availableTickets = event.ticket_tiers?.filter(t =>
     (t.quantity - (t.sold || 0)) > 0
   ) || [];
 
   const selectedTierData = event.ticket_tiers?.find(t => t.name === selectedTier);
   const maxQuantity = selectedTierData ? Math.min(selectedTierData.quantity - (selectedTierData.sold || 0), 10) : 1;
-  const totalPrice = selectedTierData ? selectedTierData.price * quantity : 0;
+  const ticketSubtotal = selectedTierData ? selectedTierData.price * quantity : 0;
+  const menuSubtotal = menuEnabled ? menuSelectionTotal(venueMenu, menuSelected) : 0;
+  const totalPrice = Math.round((ticketSubtotal + menuSubtotal) * 100) / 100;
 
   const handlePurchase = async () => {
     if (!selectedTier) {
@@ -61,18 +79,23 @@ export default function TicketPurchaseButton({ event }) {
         quantity > 1
           ? holderNames.map((n) => String(n).trim())
           : [holderDisplayNameFromUser(user)];
+      const menuPayload = menuEnabled ? menuSelectionToPayload(venueMenu, menuSelected) : [];
+      const metadata = {
+        type: 'ticket',
+        event_id: event.id,
+        ticket_tier_name: selectedTier,
+        quantity: String(quantity),
+        holder_names: JSON.stringify(names),
+      };
+      if (menuPayload.length > 0) {
+        metadata.selected_menu_items = menuPayload;
+      }
       const res = await apiPost('/api/payments/initialize', {
         amount: totalPrice,
         email: user?.email,
         description: `${event.title} - ${selectedTier} x${quantity}`,
         event_id: event.id,
-        metadata: {
-          type: 'ticket',
-          event_id: event.id,
-          ticket_tier_name: selectedTier,
-          quantity: String(quantity),
-          holder_names: JSON.stringify(names),
-        },
+        metadata,
       });
       if (res?.reference && res?.access_code) {
         await launchPaystackInline({
@@ -193,7 +216,38 @@ export default function TicketPurchaseButton({ event }) {
                       </div>
                     )}
 
+                    {menuEnabled && (
+                      <div className="pt-2 border-t border-[#262629]">
+                        <Label className="text-gray-400 text-sm mb-2 block">Optional menu add-ons</Label>
+                        {menuLoading ? (
+                          <p className="text-xs text-gray-500 flex items-center gap-2">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Loading menu…
+                          </p>
+                        ) : venueMenu.length === 0 ? (
+                          <p className="text-xs text-gray-500">No menu items available right now.</p>
+                        ) : (
+                          <MenuPicker
+                            items={venueMenu}
+                            selected={menuSelected}
+                            onChange={(id, qty) => setMenuSelected((s) => ({ ...s, [id]: qty }))}
+                          />
+                        )}
+                      </div>
+                    )}
+
                     <div className="pt-4 border-t border-[#262629]">
+                      {menuSubtotal > 0 && (
+                        <>
+                          <div className="flex items-center justify-between text-sm mb-1">
+                            <span className="text-gray-400">Tickets</span>
+                            <span className="text-white">R{ticketSubtotal.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm mb-3">
+                            <span className="text-gray-400">Menu</span>
+                            <span className="text-white">R{menuSubtotal.toLocaleString()}</span>
+                          </div>
+                        </>
+                      )}
                       <div className="flex items-center justify-between mb-4">
                         <span className="text-gray-400">Total</span>
                         <span className="text-2xl font-bold text-white">R{totalPrice.toLocaleString()}</span>

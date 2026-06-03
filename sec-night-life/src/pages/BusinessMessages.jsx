@@ -12,6 +12,7 @@ import {
   VENUE_ARRIVAL_TEMPLATES,
   VENUE_DECLINE_TEMPLATES,
 } from '@/lib/venueTableMessageTemplates';
+import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 
 export default function BusinessMessages() {
   const navigate = useNavigate();
@@ -53,19 +54,27 @@ export default function BusinessMessages() {
     [items, selectedJobAppId],
   );
 
-  const { data: jobMessages = [], refetch: refetchJobMessages } = useQuery({
+  const { data: jobMessages = [], refetch: refetchJobMessages, isSuccess: jobMessagesLoaded } = useQuery({
     queryKey: ['job-messages', selectedJobAppId],
     queryFn: () => apiGet(`/api/jobs/applications/${selectedJobAppId}/messages`),
     enabled: !!selectedJobAppId && (filter === 'jobs' || filter === 'promoters'),
     refetchInterval: 20000,
   });
 
-  const { data: tableMessages = [], refetch: refetchTableMessages } = useQuery({
+  const { data: tableMessages = [], refetch: refetchTableMessages, isSuccess: tableMessagesLoaded } = useQuery({
     queryKey: ['venue-table-thread-messages', selectedTableThreadId],
     queryFn: () => apiGet(`/api/venue-table-threads/${selectedTableThreadId}/messages`),
     enabled: !!selectedTableThreadId && filter === 'tables',
     refetchInterval: 20000,
   });
+
+  useEffect(() => {
+    if (jobMessagesLoaded && selectedJobAppId) dispatchMessagesRefresh();
+  }, [jobMessagesLoaded, selectedJobAppId, jobMessages.length]);
+
+  useEffect(() => {
+    if (tableMessagesLoaded && selectedTableThreadId) dispatchMessagesRefresh();
+  }, [tableMessagesLoaded, selectedTableThreadId, tableMessages.length]);
 
   async function sendJobMessage() {
     if (!selectedJobAppId || !jobMessageBody.trim()) return;

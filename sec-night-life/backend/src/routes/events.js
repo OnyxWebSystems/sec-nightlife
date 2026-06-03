@@ -169,6 +169,7 @@ const eventFields = {
   entrance_fee_amount: z.number().min(0).optional().nullable(),
   hosting_config: hostingConfigSchema.optional(),
   event_format: z.enum(['TABLE_HOSTING', 'TICKETING_ONLY']).optional(),
+  allows_ticket_menu_addons: z.boolean().optional(),
 };
 
 const eventSchema = z.object(eventFields);
@@ -196,6 +197,7 @@ function mapEventRow(e) {
     entrance_fee_amount: e.entranceFeeAmount,
     hosting_config: normalizeHostingConfig(e.hostingConfig),
     event_format: e.eventFormat || 'TABLE_HOSTING',
+    allows_ticket_menu_addons: Boolean(e.allowsTicketMenuAddons),
   };
 }
 
@@ -478,6 +480,7 @@ function mapEventDetail(event, stats = null) {
     entrance_fee_amount: event.entranceFeeAmount,
     hosting_config: normalizeHostingConfig(event.hostingConfig),
     event_format: event.eventFormat || 'TABLE_HOSTING',
+    allows_ticket_menu_addons: Boolean(event.allowsTicketMenuAddons),
     venue_name: v?.name ?? null,
     venue_address: v?.address ?? null,
     venue_city: v?.city ?? null,
@@ -731,10 +734,12 @@ router.post('/', authenticateToken, async (req, res, next) => {
         ticketTiers: d.ticket_tiers,
         startTime: d.start_time ?? null,
         endsAt: endsAtResolved,
-        hasEntranceFee: hasFee,
-        entranceFeeAmount: hasFee ? d.entrance_fee_amount : null,
+        hasEntranceFee: eventFormat === 'TICKETING_ONLY' ? false : hasFee,
+        entranceFeeAmount: eventFormat === 'TICKETING_ONLY' ? null : hasFee ? d.entrance_fee_amount : null,
         hostingConfig: normalizedHosting,
         eventFormat,
+        allowsTicketMenuAddons:
+          eventFormat === 'TICKETING_ONLY' ? Boolean(d.allows_ticket_menu_addons) : false,
       },
     });
     if (d.status === 'published' && eventFormat === 'TABLE_HOSTING') {
@@ -793,7 +798,14 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (d.ticket_tiers != null) updates.ticketTiers = d.ticket_tiers;
     if (d.start_time !== undefined) updates.startTime = d.start_time;
     if (d.ends_at !== undefined) updates.endsAt = d.ends_at ? new Date(d.ends_at) : null;
-    if (d.has_entrance_fee !== undefined || d.entrance_fee_amount !== undefined) {
+    const nextFormat =
+      d.event_format != null ? d.event_format : event.eventFormat || 'TABLE_HOSTING';
+    if (d.event_format != null) updates.eventFormat = nextFormat;
+
+    if (nextFormat === 'TICKETING_ONLY') {
+      updates.hasEntranceFee = false;
+      updates.entranceFeeAmount = null;
+    } else if (d.has_entrance_fee !== undefined || d.entrance_fee_amount !== undefined) {
       const nextHasFee = d.has_entrance_fee !== undefined ? d.has_entrance_fee : event.hasEntranceFee;
       let nextAmount =
         d.entrance_fee_amount !== undefined ? d.entrance_fee_amount : event.entranceFeeAmount;
@@ -804,9 +816,13 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       updates.hasEntranceFee = nextHasFee;
       updates.entranceFeeAmount = nextHasFee ? nextAmount : null;
     }
-    const nextFormat =
-      d.event_format != null ? d.event_format : event.eventFormat || 'TABLE_HOSTING';
-    if (d.event_format != null) updates.eventFormat = nextFormat;
+
+    if (d.allows_ticket_menu_addons !== undefined) {
+      updates.allowsTicketMenuAddons =
+        nextFormat === 'TICKETING_ONLY' ? Boolean(d.allows_ticket_menu_addons) : false;
+    } else if (nextFormat === 'TICKETING_ONLY' && d.event_format != null) {
+      updates.allowsTicketMenuAddons = false;
+    }
 
     if (d.hosting_config !== undefined && nextFormat !== 'TICKETING_ONLY') {
       const mergedHosting = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);

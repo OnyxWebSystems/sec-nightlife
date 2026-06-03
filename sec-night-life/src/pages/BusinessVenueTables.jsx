@@ -36,7 +36,8 @@ export default function BusinessVenueTables() {
     allowsCustomRequests: false,
     tiers: [{ tier_name: 'Standard', max_guests: '6', min_spend: '2000', booking_fee_zar: '200', included_items: [] }],
   });
-  const [declineTemplateByMember, setDeclineTemplateByMember] = useState({});
+  const [declineTemplatesByMember, setDeclineTemplatesByMember] = useState({});
+  const [declineParamsByMember, setDeclineParamsByMember] = useState({});
   const [venueFees, setVenueFees] = useState({ host_table_fee_zar: '', custom_table_booking_fee_zar: '' });
 
   const { data: venues = [] } = useQuery({
@@ -102,10 +103,11 @@ export default function BusinessVenueTables() {
   });
 
   const reviewMutation = useMutation({
-    mutationFn: ({ tableId, memberId, action, declineTemplateKey }) =>
+    mutationFn: ({ tableId, memberId, action, declineTemplateKeys, declineParams }) =>
       apiPatch(`/api/venue-tables/${tableId}/reservations/${memberId}`, {
         action,
-        declineTemplateKey: action === 'decline' ? declineTemplateKey : undefined,
+        declineTemplateKeys: action === 'decline' ? declineTemplateKeys : undefined,
+        declineParams: action === 'decline' ? declineParams : undefined,
       }),
     onSuccess: () => {
       toast.success('Updated');
@@ -325,34 +327,70 @@ export default function BusinessVenueTables() {
                     {specs.notes ? (
                       <p className="text-sm text-[var(--sec-text-secondary)] mb-3 italic">&ldquo;{specs.notes}&rdquo;</p>
                     ) : null}
-                    <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mb-2">Decline reason (pick one)</p>
+                    <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mb-2">Decline reasons (pick one or more)</p>
                     <div className="flex flex-wrap gap-1.5 mb-3">
-                      {VENUE_DECLINE_TEMPLATES.map((t) => (
+                      {VENUE_DECLINE_TEMPLATES.map((t) => {
+                        const selected = (declineTemplatesByMember[r.id] || []).includes(t.key);
+                        return (
                         <button
                           key={t.key}
                           type="button"
                           className="text-xs px-2.5 py-1.5 rounded-full border transition-colors"
                           style={{
-                            borderColor:
-                              declineTemplateByMember[r.id] === t.key
-                                ? 'var(--sec-accent-border)'
-                                : 'var(--sec-border)',
-                            background:
-                              declineTemplateByMember[r.id] === t.key
-                                ? 'var(--sec-accent-muted)'
-                                : 'transparent',
+                            borderColor: selected ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                            background: selected ? 'var(--sec-accent-muted)' : 'transparent',
                           }}
-                          onClick={() =>
-                            setDeclineTemplateByMember((d) => ({
-                              ...d,
-                              [r.id]: declineTemplateByMember[r.id] === t.key ? null : t.key,
-                            }))
-                          }
+                          onClick={() => {
+                            setDeclineTemplatesByMember((d) => {
+                              const cur = d[r.id] || [];
+                              const next = cur.includes(t.key)
+                                ? cur.filter((k) => k !== t.key)
+                                : [...cur, t.key];
+                              return { ...d, [r.id]: next };
+                            });
+                          }}
                         >
                           {t.label}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
+                    {(declineTemplatesByMember[r.id] || []).includes('decline_increase_min_spend') ? (
+                      <div className="mb-3">
+                        <Label className="text-xs text-[var(--sec-text-muted)]">Preferred minimum spend (ZAR)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          className="mt-1 h-9 max-w-[200px]"
+                          placeholder="e.g. 8000"
+                          value={declineParamsByMember[r.id]?.preferredMinimumSpend ?? ''}
+                          onChange={(e) =>
+                            setDeclineParamsByMember((p) => ({
+                              ...p,
+                              [r.id]: { ...p[r.id], preferredMinimumSpend: e.target.value },
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : null}
+                    {(declineTemplatesByMember[r.id] || []).includes('decline_add_menu_items') ? (
+                      <div className="mb-3">
+                        <Label className="text-xs text-[var(--sec-text-muted)]">Menu items should total at least (ZAR)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          className="mt-1 h-9 max-w-[200px]"
+                          placeholder="e.g. 4500"
+                          value={declineParamsByMember[r.id]?.preferredMenuTotal ?? ''}
+                          onChange={(e) =>
+                            setDeclineParamsByMember((p) => ({
+                              ...p,
+                              [r.id]: { ...p[r.id], preferredMenuTotal: e.target.value },
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : null}
                     <div className="flex gap-2">
                       <Button
                         size="sm"
@@ -364,15 +402,36 @@ export default function BusinessVenueTables() {
                       <Button
                         size="sm"
                         variant="destructive"
-                        disabled={!declineTemplateByMember[r.id]}
-                        onClick={() =>
+                        disabled={(() => {
+                          const keys = declineTemplatesByMember[r.id] || [];
+                          if (!keys.length) return true;
+                          if (keys.includes('decline_increase_min_spend')) {
+                            const n = parseFloat(declineParamsByMember[r.id]?.preferredMinimumSpend);
+                            if (!Number.isFinite(n) || n < 0) return true;
+                          }
+                          if (keys.includes('decline_add_menu_items')) {
+                            const n = parseFloat(declineParamsByMember[r.id]?.preferredMenuTotal);
+                            if (!Number.isFinite(n) || n < 0) return true;
+                          }
+                          return false;
+                        })()}
+                        onClick={() => {
+                          const keys = declineTemplatesByMember[r.id] || [];
+                          const params = {};
+                          if (keys.includes('decline_increase_min_spend')) {
+                            params.preferredMinimumSpend = parseFloat(declineParamsByMember[r.id]?.preferredMinimumSpend);
+                          }
+                          if (keys.includes('decline_add_menu_items')) {
+                            params.preferredMenuTotal = parseFloat(declineParamsByMember[r.id]?.preferredMenuTotal);
+                          }
                           reviewMutation.mutate({
                             tableId: r.table.id,
                             memberId: r.id,
                             action: 'decline',
-                            declineTemplateKey: declineTemplateByMember[r.id],
-                          })
-                        }
+                            declineTemplateKeys: keys,
+                            declineParams: params,
+                          });
+                        }}
                       >
                         Decline
                       </Button>

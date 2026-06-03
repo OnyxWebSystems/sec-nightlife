@@ -46,6 +46,63 @@ export function getTemplateLabel(templateKey) {
   return VENUE_TABLE_MESSAGE_TEMPLATES[templateKey] || null;
 }
 
+const MAX_DECLINE_AMOUNT_ZAR = 500_000;
+
+export function formatZarAmount(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n.toLocaleString('en-ZA', { maximumFractionDigits: 0 });
+}
+
+/** Build decline copy with optional venue-specified amounts. */
+export function formatDeclineMessage(templateKey, params = {}) {
+  const spend = formatZarAmount(params.preferredMinimumSpend);
+  const menuTotal = formatZarAmount(params.preferredMenuTotal);
+  if (templateKey === 'decline_increase_min_spend' && spend != null) {
+    return `We need a minimum spend of R${spend} to accept this request.`;
+  }
+  if (templateKey === 'decline_add_menu_items' && menuTotal != null) {
+    return `Please add menu items totaling at least R${menuTotal}.`;
+  }
+  return getTemplateLabel(templateKey);
+}
+
+export function validateDeclinePayload({ templateKeys, params = {} }) {
+  const keys = Array.isArray(templateKeys) ? templateKeys : [];
+  if (!keys.length) return { ok: false, error: 'Select at least one decline reason' };
+  for (const key of keys) {
+    if (!VENUE_DECLINE_TEMPLATE_KEYS.includes(key)) {
+      return { ok: false, error: 'Invalid decline template' };
+    }
+  }
+  const spend = params.preferredMinimumSpend;
+  const menuTotal = params.preferredMenuTotal;
+  if (keys.includes('decline_increase_min_spend')) {
+    const n = Number(spend);
+    if (!Number.isFinite(n) || n < 0 || n > MAX_DECLINE_AMOUNT_ZAR) {
+      return { ok: false, error: 'Enter a valid preferred minimum spend' };
+    }
+  }
+  if (keys.includes('decline_add_menu_items')) {
+    const n = Number(menuTotal);
+    if (!Number.isFinite(n) || n < 0 || n > MAX_DECLINE_AMOUNT_ZAR) {
+      return { ok: false, error: 'Enter a valid menu items total' };
+    }
+  }
+  const messages = keys.map((key) =>
+    formatDeclineMessage(key, {
+      preferredMinimumSpend: keys.includes('decline_increase_min_spend') ? spend : undefined,
+      preferredMenuTotal: keys.includes('decline_add_menu_items') ? menuTotal : undefined,
+    }),
+  );
+  for (const msg of messages) {
+    if (!msg || !assertSafeDisplayText(msg)) {
+      return { ok: false, error: 'Decline message contains disallowed wording' };
+    }
+  }
+  return { ok: true, messages, combinedLabel: messages.join(' ') };
+}
+
 export function getTemplatesForSender({ isOwner, memberStatus }) {
   if (isOwner) {
     if (memberStatus === 'DECLINED') return VENUE_DECLINE_TEMPLATE_KEYS;

@@ -1,22 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 import {
   GUEST_REPLY_TEMPLATES,
-  VENUE_ARRIVAL_TEMPLATES,
 } from '@/lib/venueTableMessageTemplates';
 
 export default function VenueTableThreadPanel({ threadId, onClose, memberStatus = 'APPROVED' }) {
   const [sending, setSending] = useState(false);
 
-  const { data: messages = [], refetch } = useQuery({
+  const { data: messages = [], refetch, isSuccess } = useQuery({
     queryKey: ['venue-table-thread-messages', threadId],
     queryFn: () => apiGet(`/api/venue-table-threads/${threadId}/messages`),
     enabled: !!threadId,
     refetchInterval: 15000,
   });
+
+  useEffect(() => {
+    if (isSuccess && threadId) dispatchMessagesRefresh();
+  }, [isSuccess, threadId, messages.length]);
 
   const templates =
     memberStatus === 'DECLINED' ? GUEST_REPLY_TEMPLATES : [];

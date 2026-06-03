@@ -89,7 +89,8 @@ export default function Messages() {
       sub: `${t.venueName}${t.eventTitle ? ` · ${t.eventTitle}` : ''}`,
       preview: t.lastMessage?.label || 'Table booking',
       at: t.lastMessage?.sentAt ? new Date(t.lastMessage.sentAt) : null,
-      unread: 0,
+      unread: t.unreadCount || 0,
+      memberStatus: t.memberStatus,
     }));
     return [...a, ...b, ...c].sort((x, y) => (y.at?.getTime() || 0) - (x.at?.getTime() || 0));
   }, [dms, groups, venueThreads]);
@@ -112,6 +113,12 @@ export default function Messages() {
   const closeThread = () => {
     setSearchParams({});
   };
+
+  const selectedVenueMemberStatus = useMemo(() => {
+    if (!venueTableThread) return 'APPROVED';
+    const row = venueThreads.find((t) => t.threadId === venueTableThread);
+    return row?.memberStatus || 'APPROVED';
+  }, [venueTableThread, venueThreads]);
 
   const selectedConversation = useMemo(() => {
     if (dm) return combined.find((c) => c.kind === 'dm' && c.id === dm) || null;
@@ -228,7 +235,11 @@ export default function Messages() {
           </section>
           <section className="rounded-2xl border border-[#262629] overflow-hidden bg-[#0A0A0B] min-h-[78vh]">
             {venueTableThread ? (
-              <VenueTableThreadPanel threadId={venueTableThread} onClose={closeThread} />
+              <VenueTableThreadPanel
+                threadId={venueTableThread}
+                onClose={closeThread}
+                memberStatus={selectedVenueMemberStatus}
+              />
             ) : dm ? (
               <div className="px-2 py-2">
                 <DMThread conversationId={dm} onBack={closeThread} />
@@ -253,7 +264,11 @@ export default function Messages() {
   if (venueTableThread) {
     return (
       <div className="max-w-[1100px] mx-auto px-2 md:px-4 py-4 min-h-screen">
-        <VenueTableThreadPanel threadId={venueTableThread} onClose={closeThread} />
+        <VenueTableThreadPanel
+          threadId={venueTableThread}
+          onClose={closeThread}
+          memberStatus={selectedVenueMemberStatus}
+        />
       </div>
     );
   }

@@ -95,6 +95,7 @@ const EMPTY_EVENT = {
   ends_at: '',
   has_entrance_fee: false,
   entrance_fee_amount: '',
+  allows_ticket_menu_addons: false,
   hosting_config: emptyHostingForm(),
 };
 
@@ -217,6 +218,7 @@ export default function BusinessEvents() {
         : '',
       hosting_config: hostingFromApi(evt.hosting_config),
       event_format: evt.event_format || 'TABLE_HOSTING',
+      allows_ticket_menu_addons: Boolean(evt.allows_ticket_menu_addons),
     });
     setCreateMode(evt.event_format === 'TICKETING_ONLY' ? 'ticketing' : 'tables');
     setDialogOpen(true);
@@ -237,7 +239,7 @@ export default function BusinessEvents() {
       toast.error('Please fill in title and date');
       return;
     }
-    if (form.has_entrance_fee) {
+    if (createMode !== 'ticketing' && form.has_entrance_fee) {
       const amt = parseFloat(String(form.entrance_fee_amount).replace(',', '.'));
       if (Number.isNaN(amt) || amt < 0) {
         toast.error('Please enter a valid entrance fee amount');
@@ -294,6 +296,9 @@ export default function BusinessEvents() {
         }
       }
       payload.ticket_tiers = tiers;
+      payload.has_entrance_fee = false;
+      payload.entrance_fee_amount = null;
+      payload.allows_ticket_menu_addons = Boolean(form.allows_ticket_menu_addons);
       saveMutation.mutate(payload);
       return;
     }
@@ -741,33 +746,35 @@ export default function BusinessEvents() {
               />
               <p className="text-xs text-gray-500 mt-1">Required when publishing. Feeds and tickets use this as the event end.</p>
             </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="entrance-fee"
-                  checked={form.has_entrance_fee}
-                  onCheckedChange={(v) => setForm((p) => ({ ...p, has_entrance_fee: v === true }))}
-                />
-                <Label htmlFor="entrance-fee" className="text-gray-300 text-sm cursor-pointer">
-                  Entrance fee
-                </Label>
-              </div>
-              {form.has_entrance_fee && (
-                <div>
-                  <Label className="text-gray-400 text-sm">Entrance fee (ZAR) *</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={form.entrance_fee_amount}
-                    onChange={e => setForm(p => ({ ...p, entrance_fee_amount: e.target.value }))}
-                    placeholder="0.00"
-                    className="mt-1.5 h-11 rounded-xl max-w-[200px]"
-                    style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+            {createMode !== 'ticketing' && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="entrance-fee"
+                    checked={form.has_entrance_fee}
+                    onCheckedChange={(v) => setForm((p) => ({ ...p, has_entrance_fee: v === true }))}
                   />
+                  <Label htmlFor="entrance-fee" className="text-gray-300 text-sm cursor-pointer">
+                    Entrance fee
+                  </Label>
                 </div>
-              )}
-            </div>
+                {form.has_entrance_fee && (
+                  <div>
+                    <Label className="text-gray-400 text-sm">Entrance fee (ZAR) *</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={form.entrance_fee_amount}
+                      onChange={e => setForm(p => ({ ...p, entrance_fee_amount: e.target.value }))}
+                      placeholder="0.00"
+                      className="mt-1.5 h-11 rounded-xl max-w-[200px]"
+                      style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {createMode === 'ticketing' ? (
               <div
                 className="space-y-3 rounded-xl border p-4"
@@ -775,8 +782,22 @@ export default function BusinessEvents() {
               >
                 <h3 className="text-sm font-semibold">Ticket tiers</h3>
                 <p className="text-xs text-gray-500">
-                  Guests buy tickets only — no table hosting. Each ticket gets its own QR with tier details.
+                  Guests buy tickets only — no table hosting or entrance fee. Each ticket gets its own QR with tier details.
                 </p>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={Boolean(form.allows_ticket_menu_addons)}
+                    onCheckedChange={(v) =>
+                      setForm((p) => ({ ...p, allows_ticket_menu_addons: v === true }))
+                    }
+                  />
+                  <span>
+                    <span className="text-gray-200">Allow menu add-ons at ticket checkout</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      When off, buyers pay for tickets only. When on, they can add items from your venue menu; SEC takes 15% of the full checkout total.
+                    </span>
+                  </span>
+                </label>
                 {(form.ticket_tiers || []).map((tier, idx) => (
                   <div
                     key={idx}

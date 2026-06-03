@@ -689,6 +689,8 @@ model Event {
   entranceFeeAmount Float?      @map("entrance_fee_amount")
   hostingConfig     Json?       @map("hosting_config")
   eventFormat       EventFormat @default(TABLE_HOSTING) @map("event_format")
+  /// When true, ticket buyers can add venue menu items at checkout (ticketed events only).
+  allowsTicketMenuAddons Boolean @default(false) @map("allows_ticket_menu_addons")
   /// Optional bcrypt hash for venue door staff when recording ticket admits (4–8 digits).
   doorCheckPinHash   String?     @map("door_check_pin_hash")
   createdAt         DateTime    @default(now()) @map("created_at")
@@ -1590,6 +1592,7 @@ model VenueTableMessage {
   threadId     String    @map("thread_id")
   senderUserId String    @map("sender_user_id")
   templateKey  String    @map("template_key")
+  displayLabel String?   @map("display_label")
   sentAt       DateTime  @default(now()) @map("sent_at")
   readAt       DateTime? @map("read_at")
 

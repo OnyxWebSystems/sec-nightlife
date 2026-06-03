@@ -403,7 +403,7 @@ export default function EventDetails() {
           </div>
         )}
 
-        {event.has_entrance_fee && event.entrance_fee_amount != null && (
+        {event.event_format !== 'TICKETING_ONLY' && event.has_entrance_fee && event.entrance_fee_amount != null && (
           <div className="sec-card" style={{
             padding: '12px 16px', marginBottom: 20,
             display: 'flex', alignItems: 'center', gap: 10,

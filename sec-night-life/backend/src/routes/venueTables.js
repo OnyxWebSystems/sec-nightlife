@@ -491,9 +491,8 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
 router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, res, next) => {
   try {
     if (!requireVenueOwner(req, res)) return;
-    const { VENUE_DECLINE_TEMPLATE_KEYS, getTemplateLabel } = await import(
-      '../lib/venueTableMessageTemplates.js'
-    );
+    const { VENUE_DECLINE_TEMPLATE_KEYS, validateDeclinePayload } =
+      await import('../lib/venueTableMessageTemplates.js');
     const payload = z
       .object({
         action: z.enum(['approve', 'decline']),
@@ -502,6 +501,13 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
           .string()
           .optional()
           .refine((k) => !k || VENUE_DECLINE_TEMPLATE_KEYS.includes(k), { message: 'Invalid decline template' }),
+        declineTemplateKeys: z.array(z.string()).optional(),
+        declineParams: z
+          .object({
+            preferredMinimumSpend: z.number().optional(),
+            preferredMenuTotal: z.number().optional(),
+          })
+          .optional(),
       })
       .parse(req.body || {});
     const member = await prisma.venueTableMember.findFirst({
@@ -517,9 +523,26 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
     const tableLabel = member.venueTable.tableName;
     const payUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/TableDetails?id=${member.venueTableId}&source=venue`;
     if (payload.action === 'decline') {
-      const declineLabel = payload.declineTemplateKey
-        ? getTemplateLabel(payload.declineTemplateKey)
-        : payload.declineReason?.trim();
+      const templateKeys =
+        payload.declineTemplateKeys?.length
+          ? payload.declineTemplateKeys
+          : payload.declineTemplateKey
+            ? [payload.declineTemplateKey]
+            : [];
+      let declineLabel = payload.declineReason?.trim() || null;
+      let declineMessages = [];
+      if (templateKeys.length) {
+        const validated = validateDeclinePayload({
+          templateKeys,
+          params: payload.declineParams || {},
+        });
+        if (!validated.ok) return res.status(400).json({ error: validated.error });
+        declineMessages = templateKeys.map((key, i) => ({
+          templateKey: key,
+          displayLabel: validated.messages[i],
+        }));
+        declineLabel = validated.combinedLabel;
+      }
       if (!declineLabel) {
         return res.status(400).json({ error: 'Select a decline reason' });
       }
@@ -534,12 +557,13 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
       });
       const { ensureVenueTableThread } = await import('./venueTableMessages.js');
       const thread = await ensureVenueTableThread(member.id);
-      if (payload.declineTemplateKey) {
+      for (const msg of declineMessages) {
         await prisma.venueTableMessage.create({
           data: {
             threadId: thread.id,
             senderUserId: req.userId,
-            templateKey: payload.declineTemplateKey,
+            templateKey: msg.templateKey,
+            displayLabel: msg.displayLabel,
           },
         });
       }

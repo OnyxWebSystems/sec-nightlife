@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { canAccessTable } from '../lib/access.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
+import { MESSAGABLE_VENUE_MEMBER_STATUSES } from '../lib/venueTableMessageTemplates.js';
 const router = Router();
 const DIRECT_PREFIX = 'direct:';
 
@@ -208,7 +209,20 @@ router.get('/unread-total', authenticateToken, async (req, res, next) => {
       });
     }
 
-    res.json({ total: dmUnread + groupUnread });
+    const tableThreadUnread = await prisma.venueTableMessage.count({
+      where: {
+        readAt: null,
+        senderUserId: { not: me },
+        thread: {
+          member: {
+            userId: me,
+            status: { in: MESSAGABLE_VENUE_MEMBER_STATUSES },
+          },
+        },
+      },
+    });
+
+    res.json({ total: dmUnread + groupUnread + tableThreadUnread });
   } catch (err) {
     next(err);
   }

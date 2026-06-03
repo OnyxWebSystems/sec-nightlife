@@ -72,17 +72,30 @@ router.get('/mine', authenticateToken, async (req, res, next) => {
       },
       orderBy: { updatedAt: 'desc' },
     });
+    const unreadCounts = await Promise.all(
+      threads.map((t) =>
+        prisma.venueTableMessage.count({
+          where: {
+            threadId: t.id,
+            readAt: null,
+            senderUserId: { not: req.userId },
+          },
+        }),
+      ),
+    );
     res.json(
-      threads.map((t) => ({
+      threads.map((t, i) => ({
         threadId: t.id,
         memberId: t.venueTableMemberId,
+        memberStatus: t.member.status,
+        unreadCount: unreadCounts[i] || 0,
         venueName: t.member.venueTable.venue.name,
         tableName: t.member.venueTable.tableName,
         eventTitle: t.member.venueTable.event?.title || null,
         lastMessage: t.messages[0]
           ? {
               templateKey: t.messages[0].templateKey,
-              label: getTemplateLabel(t.messages[0].templateKey),
+              label: t.messages[0].displayLabel || getTemplateLabel(t.messages[0].templateKey),
               sentAt: t.messages[0].sentAt,
             }
           : null,
@@ -118,7 +131,7 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
       messages.map((m) => ({
         id: m.id,
         templateKey: m.templateKey,
-        label: getTemplateLabel(m.templateKey),
+        label: m.displayLabel || getTemplateLabel(m.templateKey),
         sentAt: m.sentAt,
         readAt: m.readAt,
         senderUserId: m.senderUserId,

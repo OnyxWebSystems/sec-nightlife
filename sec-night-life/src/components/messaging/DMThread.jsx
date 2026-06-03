@@ -8,6 +8,7 @@ import { apiGet, apiPost } from '@/api/client';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
 import { createPageUrl } from '@/utils';
+import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 
 const URL_IN_TEXT = /(https?:\/\/[^\s]+)/gi;
 
@@ -78,6 +79,7 @@ export default function DMThread({ conversationId, onBack }) {
     const rows = await apiGet(`/api/messages/conversations/${conversationId}`);
     setMessages(rows || []);
     if (rows?.length) lastPollRef.current = rows[rows.length - 1]?.sentAt;
+    dispatchMessagesRefresh();
   };
 
   const loadMeta = async () => {

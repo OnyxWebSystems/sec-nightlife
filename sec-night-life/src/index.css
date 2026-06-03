@@ -290,7 +290,7 @@
   .sec-btn-full { width: 100%; padding: 14px 24px; }
 
   .sec-btn-primary {
-    background-color: var(--sec-text-primary);
+    background: var(--sec-gradient-silver);
     color: var(--sec-bg-base);
   }
   .sec-btn-primary:hover { opacity: 0.88; }

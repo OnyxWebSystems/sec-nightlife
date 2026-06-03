@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import SecLogo from '@/components/ui/SecLogo';
-import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
+import { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 
 export default function CustomTableRequestModal({
   open,
@@ -10,6 +10,7 @@ export default function CustomTableRequestModal({
   onSubmit,
   submitting = false,
   venueMenuItems = [],
+  selectedMenuItems = {},
 }) {
   const [minSpendMode, setMinSpendMode] = useState('manual');
   const [form, setForm] = useState({
@@ -18,29 +19,26 @@ export default function CustomTableRequestModal({
     preferredTime: '',
     proposedMinimumSpend: '',
     notes: '',
-    selectedMenuItems: [],
   });
+
+  const menuPayload = useMemo(
+    () => menuSelectionToPayload(venueMenuItems, selectedMenuItems),
+    [venueMenuItems, selectedMenuItems],
+  );
 
   const menuTotal = useMemo(() => {
     if (minSpendMode !== 'menu') return 0;
-    return (form.selectedMenuItems || []).reduce((sum, inc) => {
-      const row = venueMenuItems.find((m) => m.id === inc.menu_item_id);
-      const qty = parseInt(inc.quantity, 10) || 1;
-      return sum + (Number(row?.price) || 0) * qty;
-    }, 0);
-  }, [form.selectedMenuItems, venueMenuItems, minSpendMode]);
+    return menuSelectionTotal(venueMenuItems, selectedMenuItems);
+  }, [venueMenuItems, selectedMenuItems, minSpendMode]);
 
   const today = new Date().toISOString().slice(0, 10);
 
   if (!open) return null;
 
   const handleSubmit = () => {
-    const selectedMenuItems =
-      minSpendMode === 'menu'
-        ? (form.selectedMenuItems || []).map((x) => ({
-            menuItemId: x.menu_item_id,
-            quantity: parseInt(x.quantity, 10) || 1,
-          }))
+    const selectedItems =
+      minSpendMode === 'menu' && menuPayload.length > 0
+        ? menuPayload.map(({ menuItemId, quantity }) => ({ menuItemId, quantity }))
         : undefined;
     onSubmit?.({
       guestCount: form.guestCount,
@@ -54,16 +52,27 @@ export default function CustomTableRequestModal({
       notes: form.notes,
       preferredTime: form.preferredTime,
       minSpendMode,
-      selectedMenuItems,
+      selectedMenuItems: selectedItems,
     });
   };
+
+  const canSubmit =
+    !submitting &&
+    (minSpendMode === 'manual'
+      ? Boolean(form.proposedMinimumSpend)
+      : menuTotal > 0);
 
   return (
     <>
       <div
         role="presentation"
-        onClick={onClose}
-        style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 300 }}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0,0,0,0.35)',
+          zIndex: 300,
+          pointerEvents: 'none',
+        }}
       />
       <div
         role="dialog"
@@ -81,9 +90,11 @@ export default function CustomTableRequestModal({
           background: 'linear-gradient(180deg, #161616 0%, #000 100%)',
           border: '1px solid var(--sec-border)',
           borderBottom: 'none',
-          padding: '24px 20px 32px',
-          maxHeight: '90vh',
+          padding: '20px 20px calc(20px + env(safe-area-inset-bottom))',
+          maxHeight: 'min(52vh, 480px)',
           overflowY: 'auto',
+          pointerEvents: 'auto',
+          boxShadow: '0 -8px 32px rgba(0,0,0,0.5)',
         }}
       >
         <div
@@ -91,7 +102,7 @@ export default function CustomTableRequestModal({
             background: 'var(--sec-gradient-silver)',
             borderRadius: 'var(--radius-lg)',
             padding: '16px 18px',
-            marginBottom: 20,
+            marginBottom: 16,
             position: 'relative',
           }}
         >
@@ -126,7 +137,7 @@ export default function CustomTableRequestModal({
           </p>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
               Guest count
@@ -156,47 +167,48 @@ export default function CustomTableRequestModal({
             />
           </div>
 
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
-              Preferred date
-            </label>
-            <input
-              type="date"
-              min={today}
-              value={form.preferredDate}
-              onChange={(e) => setForm((f) => ({ ...f, preferredDate: e.target.value }))}
-              className="w-full"
-              style={{
-                height: 44,
-                padding: '0 14px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--sec-border)',
-                backgroundColor: 'var(--sec-bg-card)',
-                color: 'var(--sec-text-primary)',
-                fontSize: 14,
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
-              Preferred time
-            </label>
-            <input
-              type="time"
-              value={form.preferredTime}
-              onChange={(e) => setForm((f) => ({ ...f, preferredTime: e.target.value }))}
-              className="w-full"
-              style={{
-                height: 44,
-                padding: '0 14px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--sec-border)',
-                backgroundColor: 'var(--sec-bg-card)',
-                color: 'var(--sec-text-primary)',
-                fontSize: 14,
-              }}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
+                Preferred date
+              </label>
+              <input
+                type="date"
+                min={today}
+                value={form.preferredDate}
+                onChange={(e) => setForm((f) => ({ ...f, preferredDate: e.target.value }))}
+                className="w-full"
+                style={{
+                  height: 44,
+                  padding: '0 14px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--sec-border)',
+                  backgroundColor: 'var(--sec-bg-card)',
+                  color: 'var(--sec-text-primary)',
+                  fontSize: 14,
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
+                Preferred time
+              </label>
+              <input
+                type="time"
+                value={form.preferredTime}
+                onChange={(e) => setForm((f) => ({ ...f, preferredTime: e.target.value }))}
+                className="w-full"
+                style={{
+                  height: 44,
+                  padding: '0 14px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--sec-border)',
+                  backgroundColor: 'var(--sec-bg-card)',
+                  color: 'var(--sec-text-primary)',
+                  fontSize: 14,
+                }}
+              />
+            </div>
           </div>
 
           <div>
@@ -226,14 +238,27 @@ export default function CustomTableRequestModal({
               </button>
             </div>
             {minSpendMode === 'menu' ? (
-              <div>
-                <TierIncludedItemsEditor
-                  includedItems={form.selectedMenuItems}
-                  venueMenuItems={venueMenuItems}
-                  onChange={(items) => setForm((f) => ({ ...f, selectedMenuItems: items }))}
-                />
+              <div
+                className="rounded-xl border p-3"
+                style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-card)' }}
+              >
+                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 8 }}>
+                  Use the menu above to add or change items.
+                </p>
+                {menuPayload.length > 0 ? (
+                  <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: 13 }}>
+                    {menuPayload.map((line) => (
+                      <li key={line.menuItemId} style={{ marginBottom: 4 }}>
+                        {line.quantity}× {line.name}
+                        {line.unitPrice > 0 ? ` · R${(line.unitPrice * line.quantity).toLocaleString('en-ZA')}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', margin: 0 }}>No items selected yet.</p>
+                )}
                 {menuTotal > 0 ? (
-                  <p className="text-sm mt-2" style={{ color: 'var(--sec-accent)' }}>
+                  <p className="text-sm mt-2" style={{ color: 'var(--sec-accent)', fontWeight: 600, marginBottom: 0 }}>
                     Estimated total: R{menuTotal.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}
                   </p>
                 ) : null}
@@ -267,7 +292,7 @@ export default function CustomTableRequestModal({
               Notes for the venue
             </label>
             <Textarea
-              rows={3}
+              rows={2}
               value={form.notes}
               onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
               placeholder="Seating preferences, occasion, special requests…"
@@ -282,9 +307,9 @@ export default function CustomTableRequestModal({
 
           <button
             type="button"
-            disabled={submitting || (minSpendMode === 'menu' && menuTotal <= 0 && !form.proposedMinimumSpend)}
+            disabled={!canSubmit}
             className="sec-btn sec-btn-primary sec-btn-full"
-            style={{ height: 48, marginTop: 4 }}
+            style={{ height: 48 }}
             onClick={handleSubmit}
           >
             {submitting ? 'Submitting…' : 'Submit request for review'}

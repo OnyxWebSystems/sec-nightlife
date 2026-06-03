@@ -478,7 +478,12 @@ export default function TableDetails() {
     const showCustomRequest =
       (venueTable.allowsCustomRequests || venueTable.isCustomListing) &&
       membership?.status !== 'APPROVED';
-    const footerPad = venueCheckoutStep === 'menu' ? (minSpendZar > 0 ? 200 : 160) : 120;
+    const inRequestFlow = showCustomRequest && membership?.status !== 'APPROVED';
+    const footerPad = inRequestFlow && customRequestOpen
+      ? 'min(54vh, 500px)'
+      : venueCheckoutStep === 'menu'
+        ? (minSpendZar > 0 ? 200 : 160)
+        : 120;
     return (
       <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: 20, paddingBottom: footerPad }}>
         <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
@@ -516,11 +521,15 @@ export default function TableDetails() {
         ) : null}
         {venueCheckoutStep === 'menu' ? (
           <>
-            <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 16, marginBottom: 8 }}>Select your menu</h2>
+            <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 16, marginBottom: 8 }}>
+              {inRequestFlow ? 'Build your menu (optional)' : 'Select your menu'}
+            </h2>
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 12 }}>
-              {minSpendZar > 0
-                ? `Choose menu items worth at least R${minSpendZar.toFixed(0)}, or pay the minimum only and order on site (your QR is proof for staff).`
-                : 'Add items from the venue menu (optional).'}
+              {inRequestFlow
+                ? 'Add items from the venue menu to include in your request, or set a minimum spend amount in the form below.'
+                : minSpendZar > 0
+                  ? `Choose menu items worth at least R${minSpendZar.toFixed(0)}, or pay the minimum only and order on site (your QR is proof for staff).`
+                  : 'Add items from the venue menu (optional).'}
             </p>
             <VenueMenuBrowser
               items={venueMenuItems}
@@ -575,7 +584,7 @@ export default function TableDetails() {
               : 'Meet the minimum spend to continue checkout.'}
           </p>
         ) : null}
-        {showCustomRequest ? (
+        {showCustomRequest && membership?.status !== 'PENDING_VENUE_REVIEW' && !customRequestOpen ? (
           <button
             type="button"
             className="sec-btn sec-btn-ghost sec-btn-full mt-3"
@@ -589,11 +598,8 @@ export default function TableDetails() {
           open={customRequestOpen}
           onClose={() => setCustomRequestOpen(false)}
           submitting={customSubmitting}
-          venueMenuItems={(venueTable?.menuItems || []).map((item) => ({
-            id: item.menuItemId || item.id,
-            name: item.name,
-            price: item.price,
-          }))}
+          venueMenuItems={venueMenuItems}
+          selectedMenuItems={selectedMenuItems}
           onSubmit={async (specs) => {
             setCustomSubmitting(true);
             try {
@@ -611,7 +617,7 @@ export default function TableDetails() {
             }
           }}
         />
-        {venueCheckoutStep === 'menu' ? (
+        {!inRequestFlow && venueCheckoutStep === 'menu' ? (
           <TableCheckoutFooter
             itemCount={itemCount}
             cartTotalZar={chargeableTotal}
@@ -631,7 +637,7 @@ export default function TableDetails() {
             }
             continueLabel="Review order"
           />
-        ) : (
+        ) : !inRequestFlow ? (
           <TableCheckoutFooter
             itemCount={itemCount}
             cartTotalZar={checkoutTotal}

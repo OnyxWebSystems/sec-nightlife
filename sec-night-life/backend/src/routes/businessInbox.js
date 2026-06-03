@@ -18,13 +18,7 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
     const venueIds = await ownedVenueIds(req.userId);
     if (!venueIds.length) return res.json({ count: 0 });
 
-    const [tablePending, jobUnread, tableThreadUnread] = await Promise.all([
-      prisma.venueTableMember.count({
-        where: {
-          status: 'PENDING_VENUE_REVIEW',
-          venueTable: { venueId: { in: venueIds } },
-        },
-      }),
+    const [jobUnread, tableThreadUnread] = await Promise.all([
       prisma.jobMessage.count({
         where: {
           readAt: null,
@@ -49,7 +43,7 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
       }),
     ]);
 
-    res.json({ count: tablePending + jobUnread + tableThreadUnread });
+    res.json({ count: jobUnread + tableThreadUnread });
   } catch (e) {
     next(e);
   }
@@ -158,7 +152,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
           status: t.member.status,
           title: t.member.venueTable.tableName,
           subtitle: `${t.member.venueTable.venue.name}${t.member.venueTable.event?.title ? ` · ${t.member.venueTable.event.title}` : ''} · ${t.member.user.userProfile?.username || t.member.user.fullName || 'Guest'}`,
-          body: last ? getTemplateLabel(last.templateKey) : null,
+          body: last ? (last.displayLabel || getTemplateLabel(last.templateKey)) : null,
           referenceId: t.member.venueTableId,
           updatedAt: last?.sentAt || t.updatedAt,
           unread: Boolean(last && !last.readAt && last.senderUserId !== req.userId),
