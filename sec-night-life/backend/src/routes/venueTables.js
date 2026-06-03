@@ -280,15 +280,47 @@ router.get('/available', optionalAuth, async (req, res, next) => {
 });
 
 async function hydrateTableMenu(table) {
-  if (table.menuItems?.length) return table.menuItems;
-  const { formatVenueMenuItemForClient, isVenueOwnedImageUrl } = await import('../lib/menuSpecials.js');
+  const { formatVenueMenuItemForGuestMenu } = await import('../lib/menuSpecials.js');
+  if (table.menuItems?.length) {
+    const ids = table.menuItems.map((m) => m.venueMenuItemId).filter(Boolean);
+    const catalogRows =
+      ids.length > 0
+        ? await prisma.venueMenuItem.findMany({
+            where: { id: { in: ids } },
+            include: { catalogItem: { select: { imageUrl: true } } },
+          })
+        : [];
+    const byId = new Map(catalogRows.map((r) => [r.id, r]));
+    return table.menuItems
+      .map((m) => {
+        const src = m.venueMenuItemId ? byId.get(m.venueMenuItemId) : null;
+        if (src) {
+          const formatted = formatVenueMenuItemForGuestMenu(src, src.catalogItem);
+          if (!formatted.is_available) return null;
+          return {
+            id: formatted.id,
+            venueTableId: table.id,
+            venueMenuItemId: formatted.id,
+            name: formatted.name,
+            category: formatted.category,
+            sub_category: formatted.sub_category,
+            price: formatted.price,
+            original_price: formatted.original_price,
+            imageUrl: formatted.image_url,
+            isAvailable: true,
+          };
+        }
+        return m;
+      })
+      .filter(Boolean);
+  }
   const catalog = await prisma.venueMenuItem.findMany({
     where: { venueId: table.venueId, isAvailable: true },
-    orderBy: { category: 'asc' },
+    include: { catalogItem: { select: { imageUrl: true } } },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
   });
   return catalog
-    .filter((m) => isVenueOwnedImageUrl(m.imageUrl))
-    .map(formatVenueMenuItemForClient)
+    .map((row) => formatVenueMenuItemForGuestMenu(row, row.catalogItem))
     .filter((item) => item.is_available)
     .map((item) => ({
       id: item.id,
@@ -300,7 +332,7 @@ async function hydrateTableMenu(table) {
       price: item.price,
       original_price: item.original_price,
       imageUrl: item.image_url,
-      isAvailable: item.is_available,
+      isAvailable: true,
     }));
 }
 
@@ -506,6 +538,9 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
           .object({
             preferredMinimumSpend: z.number().optional(),
             preferredMenuTotal: z.number().optional(),
+            availableDate: z.string().optional(),
+            availableTime: z.string().optional(),
+            maxGuestCount: z.number().int().optional(),
           })
           .optional(),
       })

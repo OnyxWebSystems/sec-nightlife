@@ -28,7 +28,7 @@ import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from
 import VenueMenuBrowser, { getVenueMenuCartStats } from '@/components/menu/VenueMenuBrowser';
 import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
-import CustomTableRequestModal from '@/components/tables/CustomTableRequestModal';
+import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -145,7 +145,7 @@ export default function TableDetails() {
       setVenueCheckoutStep('menu');
     }
   }, [settlementParam]);
-  const [customRequestOpen, setCustomRequestOpen] = useState(false);
+  const [customRequestStep, setCustomRequestStep] = useState(null);
   const [customSubmitting, setCustomSubmitting] = useState(false);
 
   const venueMenuSelectionPayload = useMemo(
@@ -169,7 +169,7 @@ export default function TableDetails() {
 
   useEffect(() => {
     if (urlParams.get('request') === '1') {
-      setCustomRequestOpen(true);
+      setCustomRequestStep('menu');
     }
   }, []);
 
@@ -436,6 +436,7 @@ export default function TableDetails() {
 
     const venueMenuItems = (venueTable.menuItems || []).map((item) => ({
       ...item,
+      id: item.menuItemId || item.id,
       image_url: item.imageUrl || item.image_url,
       sub_category: item.sub_category || item.subCategory,
     }));
@@ -479,13 +480,17 @@ export default function TableDetails() {
       (venueTable.allowsCustomRequests || venueTable.isCustomListing) &&
       membership?.status !== 'APPROVED';
     const inRequestFlow = showCustomRequest && membership?.status !== 'APPROVED';
-    const footerPad = inRequestFlow && customRequestOpen
-      ? 'min(54vh, 500px)'
-      : venueCheckoutStep === 'menu'
-        ? (minSpendZar > 0 ? 200 : 160)
-        : 120;
+    const onRequestMenuStep = inRequestFlow && customRequestStep === 'menu';
+    const onRequestDetailsStep = inRequestFlow && customRequestStep === 'details';
+    const footerPad = onRequestMenuStep
+      ? 88
+      : onRequestDetailsStep
+        ? 24
+        : venueCheckoutStep === 'menu'
+          ? (minSpendZar > 0 ? 200 : 160)
+          : 120;
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: 20, paddingBottom: footerPad }}>
+      <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: '12px 16px max(12px, env(safe-area-inset-top))', paddingBottom: footerPad }}>
         <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
         <div className="sec-card" style={{ padding: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>{venueTable.tableName}</h1>
@@ -519,14 +524,55 @@ export default function TableDetails() {
             </button>
           </div>
         ) : null}
-        {venueCheckoutStep === 'menu' ? (
+        {onRequestDetailsStep ? (
+          <CustomTableRequestForm
+            compact
+            venueMenuItems={venueMenuItems}
+            selectedMenuItems={selectedMenuItems}
+            submitting={customSubmitting}
+            onBack={() => setCustomRequestStep('menu')}
+            onSubmit={async (specs) => {
+              setCustomSubmitting(true);
+              try {
+                await apiPost(`/api/venue-tables/${tableId}/request`, {
+                  isCustom: true,
+                  userSpecs: specs,
+                });
+                toast.success('Request sent — venue will review');
+                setCustomRequestStep(null);
+                queryClient.invalidateQueries(['venue-table', tableId]);
+              } catch (e) {
+                toast.error(e?.data?.error || e.message);
+              } finally {
+                setCustomSubmitting(false);
+              }
+            }}
+          />
+        ) : venueCheckoutStep === 'menu' ? (
           <>
-            <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 16, marginBottom: 8 }}>
+            {inRequestFlow ? (
+              <div
+                className="sec-card"
+                style={{
+                  padding: '10px 14px',
+                  marginBottom: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-accent)' }}>Step 1 of 2 · Choose menu</span>
+                <span style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>Optional — add items for your request</span>
+              </div>
+            ) : null}
+            <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: inRequestFlow ? 0 : 16, marginBottom: 8 }}>
               {inRequestFlow ? 'Build your menu (optional)' : 'Select your menu'}
             </h2>
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 12 }}>
               {inRequestFlow
-                ? 'Add items from the venue menu to include in your request, or set a minimum spend amount in the form below.'
+                ? 'Browse the full venue menu. When ready, continue to enter your table details.'
                 : minSpendZar > 0
                   ? `Choose menu items worth at least R${minSpendZar.toFixed(0)}, or pay the minimum only and order on site (your QR is proof for staff).`
                   : 'Add items from the venue menu (optional).'}
@@ -539,7 +585,7 @@ export default function TableDetails() {
                 setSelectedMenuItems((s) => ({ ...s, [id]: qty }));
               }}
               includedItems={includedForPicker}
-              minimumSpendZar={minSpendZar}
+              minimumSpendZar={inRequestFlow ? 0 : minSpendZar}
               venueLogoUrl={venueTable.venue?.logo_url || venueTable.venue?.logoUrl}
               hideStickyFooter
             />
@@ -584,39 +630,50 @@ export default function TableDetails() {
               : 'Meet the minimum spend to continue checkout.'}
           </p>
         ) : null}
-        {showCustomRequest && membership?.status !== 'PENDING_VENUE_REVIEW' && !customRequestOpen ? (
+        {showCustomRequest && membership?.status !== 'PENDING_VENUE_REVIEW' && !customRequestStep ? (
           <button
             type="button"
-            className="sec-btn sec-btn-ghost sec-btn-full mt-3"
-            style={{ height: 44 }}
-            onClick={() => setCustomRequestOpen(true)}
+            className="sec-btn sec-btn-primary sec-btn-full mt-3"
+            style={{ height: 48, minHeight: 44 }}
+            onClick={() => setCustomRequestStep('menu')}
           >
             Request custom table (venue reviews first)
           </button>
         ) : null}
-        <CustomTableRequestModal
-          open={customRequestOpen}
-          onClose={() => setCustomRequestOpen(false)}
-          submitting={customSubmitting}
-          venueMenuItems={venueMenuItems}
-          selectedMenuItems={selectedMenuItems}
-          onSubmit={async (specs) => {
-            setCustomSubmitting(true);
-            try {
-              await apiPost(`/api/venue-tables/${tableId}/request`, {
-                isCustom: true,
-                userSpecs: specs,
-              });
-              toast.success('Request sent — venue will review');
-              setCustomRequestOpen(false);
-              queryClient.invalidateQueries(['venue-table', tableId]);
-            } catch (e) {
-              toast.error(e?.data?.error || e.message);
-            } finally {
-              setCustomSubmitting(false);
-            }
-          }}
-        />
+        {onRequestMenuStep ? (
+          <div
+            className="table-checkout-footer sec-bottom-bar"
+            style={{
+              position: 'fixed',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
+              background: 'rgba(0,0,0,0.96)',
+              borderTop: '1px solid var(--sec-border)',
+              zIndex: 50,
+            }}
+          >
+            <div style={{ maxWidth: 960, margin: '0 auto', width: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: 13 }}>
+                <span style={{ color: 'var(--sec-text-muted)' }}>
+                  {itemCount} item{itemCount === 1 ? '' : 's'} selected
+                </span>
+                {chargeableTotal > 0 ? (
+                  <span style={{ fontWeight: 700 }}>R{Number(chargeableTotal).toFixed(0)}</span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="sec-btn sec-btn-primary sec-btn-full"
+                style={{ height: 48, minHeight: 44 }}
+                onClick={() => setCustomRequestStep('details')}
+              >
+                Continue to request details
+              </button>
+            </div>
+          </div>
+        ) : null}
         {!inRequestFlow && venueCheckoutStep === 'menu' ? (
           <TableCheckoutFooter
             itemCount={itemCount}

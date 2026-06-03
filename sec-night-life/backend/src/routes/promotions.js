@@ -347,7 +347,7 @@ router.patch('/:promotionId', authenticateToken, async (req, res, next) => {
     if (!existing) return res.status(404).json({ error: 'Promotion not found' });
     if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     if (existing.status === 'ENDED') {
-      return res.status(400).json({ error: 'Ended promotions cannot be edited. Republish or delete.' });
+      return res.status(400).json({ error: 'Ended promotions cannot be edited. Delete or create a new promotion.' });
     }
     if (parsed.data.status === 'ACTIVE' && existing.status === 'DRAFT') {
       return res.status(400).json({ error: 'Complete payment to publish your promotion.' });
@@ -589,7 +589,7 @@ router.post('/:promotionId/sync-publish', authenticateToken, async (req, res, ne
   }
 });
 
-/** Pay for publish days (R50/day) plus optional boost (R150/day). Eligible: DRAFT or ENDED (republish). */
+/** Pay for publish days (R50/day) plus optional boost (R150/day). Eligible: DRAFT only. */
 router.post('/:promotionId/checkout', authenticateToken, async (req, res, next) => {
   try {
     if (!(await assertPromotionsAccess(req, res))) return;
@@ -603,8 +603,8 @@ router.post('/:promotionId/checkout', authenticateToken, async (req, res, next) 
     });
     if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
     if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
-    if (!['DRAFT', 'ENDED'].includes(promotion.status)) {
-      return res.status(400).json({ error: 'Only drafts or ended promotions can be published from checkout' });
+    if (promotion.status !== 'DRAFT') {
+      return res.status(400).json({ error: 'Only draft promotions can be published from checkout. Create a new promotion to run again.' });
     }
 
     const key = process.env.PAYSTACK_SECRET_KEY;

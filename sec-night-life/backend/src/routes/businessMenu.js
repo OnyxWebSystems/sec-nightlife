@@ -329,15 +329,15 @@ router.get('/venues/:venueId/menu-items/public', async (req, res, next) => {
       where: {
         venueId: venue.id,
         isAvailable: true,
-        imageUrl: { not: null },
       },
+      include: { catalogItem: { select: { imageUrl: true } } },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
+    const { formatVenueMenuItemForGuestMenu } = await import('../lib/menuSpecials.js');
     res.json(
       rows
-        .filter((r) => isVenueOwnedImageUrl(r.imageUrl))
-        .map(formatVenueMenuItemForClient)
-        .filter((item) => item.is_available)
+        .map((row) => formatVenueMenuItemForGuestMenu(row, row.catalogItem))
+        .filter((item) => item.is_available),
     );
   } catch (e) {
     next(e);

@@ -794,7 +794,7 @@ export default function BusinessEvents() {
                   <span>
                     <span className="text-gray-200">Allow menu add-ons at ticket checkout</span>
                     <span className="block text-xs text-gray-500 mt-0.5">
-                      When off, buyers pay for tickets only. When on, they can add items from your venue menu; SEC takes 15% of the full checkout total.
+                      When off, buyers pay for tickets only. When on, they can add items from your venue menu at checkout.
                     </span>
                   </span>
                 </label>

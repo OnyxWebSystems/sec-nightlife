@@ -391,6 +391,57 @@ export default function BusinessVenueTables() {
                         />
                       </div>
                     ) : null}
+                    {(declineTemplatesByMember[r.id] || []).includes('decline_no_tables_datetime') ? (
+                      <div className="mb-3 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md">
+                        <div>
+                          <Label className="text-xs text-[var(--sec-text-muted)]">Available date</Label>
+                          <Input
+                            type="date"
+                            className="mt-1 h-9"
+                            value={declineParamsByMember[r.id]?.availableDate ?? ''}
+                            onChange={(e) =>
+                              setDeclineParamsByMember((p) => ({
+                                ...p,
+                                [r.id]: { ...p[r.id], availableDate: e.target.value },
+                              }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-[var(--sec-text-muted)]">Available time</Label>
+                          <Input
+                            type="time"
+                            className="mt-1 h-9"
+                            value={declineParamsByMember[r.id]?.availableTime ?? ''}
+                            onChange={(e) =>
+                              setDeclineParamsByMember((p) => ({
+                                ...p,
+                                [r.id]: { ...p[r.id], availableTime: e.target.value },
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    {(declineTemplatesByMember[r.id] || []).includes('decline_too_many_guests') ? (
+                      <div className="mb-3">
+                        <Label className="text-xs text-[var(--sec-text-muted)]">Maximum guests we can seat</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={500}
+                          className="mt-1 h-9 max-w-[200px]"
+                          placeholder="e.g. 6"
+                          value={declineParamsByMember[r.id]?.maxGuestCount ?? ''}
+                          onChange={(e) =>
+                            setDeclineParamsByMember((p) => ({
+                              ...p,
+                              [r.id]: { ...p[r.id], maxGuestCount: e.target.value },
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : null}
                     <div className="flex gap-2">
                       <Button
                         size="sm"
@@ -413,6 +464,14 @@ export default function BusinessVenueTables() {
                             const n = parseFloat(declineParamsByMember[r.id]?.preferredMenuTotal);
                             if (!Number.isFinite(n) || n < 0) return true;
                           }
+                          if (keys.includes('decline_no_tables_datetime')) {
+                            const p = declineParamsByMember[r.id] || {};
+                            if (!p.availableDate || !p.availableTime) return true;
+                          }
+                          if (keys.includes('decline_too_many_guests')) {
+                            const n = parseInt(declineParamsByMember[r.id]?.maxGuestCount, 10);
+                            if (!Number.isFinite(n) || n < 1) return true;
+                          }
                           return false;
                         })()}
                         onClick={() => {
@@ -423,6 +482,13 @@ export default function BusinessVenueTables() {
                           }
                           if (keys.includes('decline_add_menu_items')) {
                             params.preferredMenuTotal = parseFloat(declineParamsByMember[r.id]?.preferredMenuTotal);
+                          }
+                          if (keys.includes('decline_no_tables_datetime')) {
+                            params.availableDate = declineParamsByMember[r.id]?.availableDate;
+                            params.availableTime = declineParamsByMember[r.id]?.availableTime;
+                          }
+                          if (keys.includes('decline_too_many_guests')) {
+                            params.maxGuestCount = parseInt(declineParamsByMember[r.id]?.maxGuestCount, 10);
                           }
                           reviewMutation.mutate({
                             tableId: r.table.id,

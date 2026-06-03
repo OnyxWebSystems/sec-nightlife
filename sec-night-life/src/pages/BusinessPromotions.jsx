@@ -1169,7 +1169,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
     <div className="sec-card" style={{ padding: 18, border: '1px solid var(--sec-border-strong)', boxShadow: 'var(--shadow-sm)' }}>
       <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4, letterSpacing: '-0.02em' }}>{title}</h2>
       <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 12 }}>
-        {listMode === 'past' ? 'Republish to run again or remove permanently.' : 'Pause, boost, or finish edits before you pay drafts live.'}
+        {listMode === 'past' ? 'View ended promotions or remove them permanently.' : 'Pause, boost, or finish edits before you pay drafts live.'}
       </p>
       {loadingList && <p style={{ fontSize: 13 }}>Loading…</p>}
       {!loadingList && promotions.length === 0 && <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Nothing here yet.</p>}
@@ -1190,11 +1190,8 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
               {listMode === 'past' ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <button type="button" className="sec-btn sec-btn-primary" onClick={() => onPublishOpen(p)}>
-                    Republish
-                  </button>
-                  <button type="button" className="sec-btn sec-btn-ghost" onClick={() => onDelete(p.id)}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                  <button type="button" className="sec-btn sec-btn-ghost sec-btn-full" onClick={() => onDelete(p.id)}>
                     Delete
                   </button>
                 </div>

@@ -97,7 +97,10 @@ export default function VenueMenuNavigator({
     subcategories.find((s) => s.name === subCategory) ||
     subcategories.find((s) => s.name === 'All') ||
     subcategories[0];
-  const displayItems = activeSub?.items || [];
+  const displayItems = useMemo(() => {
+    if (search.trim()) return filtered;
+    return activeSub?.items || [];
+  }, [search, filtered, activeSub]);
 
   if (!normalized.length) {
     return (

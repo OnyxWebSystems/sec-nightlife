@@ -85,6 +85,45 @@ export function isVenueOwnedImageUrl(url) {
   return t.startsWith('https://') || t.startsWith('http://');
 }
 
+/** Resolve a display image for guest menu browsing (venue photo preferred, catalog fallback). */
+export function resolveGuestMenuDisplayImage(row, catalogItem = null) {
+  if (isVenueOwnedImageUrl(row?.imageUrl)) return row.imageUrl.trim();
+  const catUrl = catalogItem?.imageUrl || null;
+  if (catUrl && typeof catUrl === 'string' && catUrl.trim()) return catUrl.trim();
+  return null;
+}
+
+/** Guest checkout/browse listing — includes all venue-available items (not only venue-owned photos). */
+export function formatVenueMenuItemForGuestMenu(row, catalogItem = null) {
+  const displayImage = resolveGuestMenuDisplayImage(row, catalogItem);
+  const special = resolveMenuSpecialState(row);
+  const subCategoryRaw = row.subCategory;
+  const sub_category =
+    subCategoryRaw && String(subCategoryRaw).trim().startsWith(SPECIAL_OFFER_EXP_PREFIX)
+      ? null
+      : subCategoryRaw;
+
+  return {
+    id: row.id,
+    venue_id: row.venueId,
+    catalog_item_id: row.catalogItemId,
+    name: row.name,
+    category: row.category,
+    sub_category,
+    price: special.displayPrice,
+    original_price: special.originalPrice,
+    base_price: special.basePrice,
+    image_url: displayImage,
+    is_available: row.isAvailable && !special.isExpired && !special.notStarted,
+    sort_order: row.sortOrder,
+    needs_photo: !displayImage,
+    special_offer_starts_at: special.startsAt ? special.startsAt.toISOString() : null,
+    special_offer_expires_at: special.endsAt ? special.endsAt.toISOString() : null,
+    is_expired: special.isExpired,
+    is_special_offer: special.inSpecialWindow,
+  };
+}
+
 export function formatVenueMenuItemForClient(row) {
   const imageUrl = isVenueOwnedImageUrl(row.imageUrl) ? row.imageUrl : null;
   const special = resolveMenuSpecialState(row);
