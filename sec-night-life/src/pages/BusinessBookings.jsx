@@ -26,13 +26,6 @@ function StatusBadge({ status }) {
   );
 }
 
-function venueBookingStatusLabel(status) {
-  if (status === 'APPROVED') return 'Approved — awaiting payment';
-  if (status === 'PENDING_PAYMENT') return 'Awaiting payment';
-  if (status === 'CONFIRMED') return 'Confirmed & paid';
-  return status;
-}
-
 export default function BusinessBookings() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -355,7 +348,7 @@ export default function BusinessBookings() {
       <section style={{ marginTop: 40, paddingTop: 24, borderTop: '1px solid var(--sec-border)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Venue &amp; day table bookings</h2>
         <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
-          Approved custom tables awaiting guest checkout, plus paid Book on Sec and day bookings.
+          Paid bookings from Book on Sec and custom tables (shown after the guest completes checkout).
         </p>
         {venueBookingsLoading ? (
           <div className="flex justify-center py-8"><Loader2 className="animate-spin" /></div>
@@ -365,11 +358,6 @@ export default function BusinessBookings() {
           <div className="space-y-2">
             {venueTableBookings.map((row) => {
               const specs = row.userSpecs || {};
-              const minSpend =
-                specs.proposedMinimumSpend != null
-                  ? Number(specs.proposedMinimumSpend)
-                  : null;
-              const isApproved = row.status === 'APPROVED';
               return (
               <div key={row.id} className="sec-card p-4 border border-[var(--sec-border)]">
                 <div className="flex justify-between gap-2 flex-wrap">
@@ -385,32 +373,14 @@ export default function BusinessBookings() {
                       {row.table?.event?.title ? ` · ${row.table.event.title}` : ' · Day booking'}
                     </p>
                     <p className="text-xs text-[var(--sec-text-muted)] mt-1">
-                      @{row.user?.username || row.user?.fullName || 'Guest'}
+                      @{row.user?.username || row.user?.fullName || 'Guest'} · Paid
                     </p>
-                    <span
-                      className={`inline-block mt-2 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${
-                        isApproved ? 'sec-badge-gold' : row.status === 'CONFIRMED' ? 'sec-badge-success' : 'sec-badge-silver'
-                      }`}
-                    >
-                      {venueBookingStatusLabel(row.status)}
-                    </span>
                   </div>
                   <div className="text-right">
-                    {row.amountPaid > 0 ? (
-                      <p className="font-semibold text-[var(--sec-accent)]">R{Number(row.amountPaid).toFixed(0)}</p>
-                    ) : minSpend != null && minSpend > 0 ? (
-                      <p className="font-semibold text-[var(--sec-text-secondary)]">
-                        R{minSpend.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}
-                        <span className="block text-[10px] font-normal text-[var(--sec-text-muted)]">proposed min</span>
-                      </p>
-                    ) : (
-                      <p className="text-sm text-[var(--sec-text-muted)]">—</p>
-                    )}
-                    {row.settlementMode ? (
-                      <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mt-1">
-                        {row.settlementMode}
-                      </p>
-                    ) : null}
+                    <p className="font-semibold text-[var(--sec-accent)]">R{Number(row.amountPaid || 0).toFixed(0)}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-[var(--sec-text-muted)] mt-1">
+                      {row.settlementMode || '—'}
+                    </p>
                   </div>
                 </div>
                 {(specs.guestCount || specs.preferredDate || specs.preferredTime || specs.notes) ? (
@@ -435,7 +405,7 @@ export default function BusinessBookings() {
                   className="mt-3"
                   onClick={() => navigate(createPageUrl(`TableDetails?id=${row.table?.id}&source=venue`))}
                 >
-                  {isApproved ? 'View booking' : 'View table'}
+                  View table
                 </Button>
               </div>
             );
