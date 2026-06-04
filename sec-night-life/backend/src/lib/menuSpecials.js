@@ -114,7 +114,7 @@ export function formatVenueMenuItemForGuestMenu(row, catalogItem = null) {
     original_price: special.originalPrice,
     base_price: special.basePrice,
     image_url: displayImage,
-    is_available: row.isAvailable && !special.isExpired && !special.notStarted,
+    is_available: row.isAvailable && !special.isExpired,
     sort_order: row.sortOrder,
     needs_photo: !displayImage,
     special_offer_starts_at: special.startsAt ? special.startsAt.toISOString() : null,
@@ -164,8 +164,7 @@ export function formatVenueMenuItemForOwner(row, catalogItem = null) {
       ? null
       : subCategoryRaw;
   const hasVenuePhoto = isVenueOwnedImageUrl(row?.imageUrl);
-  const guest_visible =
-    row.isAvailable && !!displayImage && !special.isExpired && !special.notStarted;
+  const guest_visible = row.isAvailable && !!displayImage && !special.isExpired;
 
   return {
     id: row.id,

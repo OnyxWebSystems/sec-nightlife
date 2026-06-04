@@ -90,16 +90,18 @@ export default function BusinessMenu() {
   const invalidateMenu = () => queryClient.invalidateQueries({ queryKey: ['venue-menu', venueId] });
 
   const toggleAvailable = async (item) => {
-    if (item.needs_photo) {
+    const needsPhoto = item.needs_photo ?? !isVenuePhoto(item.image_url);
+    const isListed = Boolean(item.is_available);
+    const nextVisible = !isListed;
+    if (nextVisible && needsPhoto) {
       toast.error('Upload your own photo before showing this item to guests');
       return;
     }
-    const nextVisible = !item.is_available;
     try {
       await apiPatch(`/api/business/venues/${venueId}/menu-items/${item.id}`, {
         is_available: nextVisible,
       });
-      invalidateMenu();
+      await invalidateMenu();
       toast.success(nextVisible ? 'Item is live on your guest menu' : 'Item hidden from guests');
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Update failed');
@@ -213,7 +215,8 @@ export default function BusinessMenu() {
             venueLogoUrl={venueLogoUrl}
             renderManageActions={(item) => {
               const needsPhoto = item.needs_photo ?? !isVenuePhoto(item.image_url);
-              const published = item.guest_visible;
+              const isListed = Boolean(item.is_available);
+              const published = isListed && !needsPhoto;
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
                   <span style={{ fontSize: 10, color: published ? 'var(--sec-accent)' : '#f59e0b' }}>
@@ -307,7 +310,7 @@ export default function BusinessMenu() {
                       disabled={needsPhoto}
                       onClick={() => toggleAvailable(item)}
                     >
-                      {item.is_available ? 'Hide' : 'Show'}
+                      {isListed ? 'Hide' : 'Show'}
                     </button>
                     <button type="button" className="sec-btn sec-btn-ghost h-7 px-2" onClick={() => removeItem(item.id)} aria-label="Delete">
                       <Trash2 size={14} />
