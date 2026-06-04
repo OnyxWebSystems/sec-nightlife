@@ -329,7 +329,17 @@ export default function BusinessDashboard() {
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
           {venue.logo_url && (
-            <img src={venue.logo_url} alt="" style={{ width: 42, height: 42, borderRadius: 10, objectFit: 'cover', border: '1px solid var(--sec-border)' }} />
+            <img
+              src={venue.logo_url}
+              alt=""
+              style={{
+                width: 42,
+                height: 42,
+                objectFit: 'contain',
+                background: 'transparent',
+                display: 'block',
+              }}
+            />
           )}
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)' }}>

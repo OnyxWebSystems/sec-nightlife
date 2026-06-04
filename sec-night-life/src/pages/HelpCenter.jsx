@@ -15,9 +15,6 @@ import { usePreferences } from '@/context/PreferencesContext';
 import { getHelpCenterLegalNavItems } from '@/legal/legalNavItems';
 import { SUPPORT_EMAIL, ADMIN_EMAIL } from '@/constants/contactEmails';
 
-const SUPPORT_WHATSAPP_NUMBER = '+27 71 434 3982';
-const SUPPORT_WHATSAPP_LINK = 'https://wa.me/27714343982';
-
 function PlaceholderTopic({ icon: Icon, title, description }) {
   return (
     <div
@@ -111,12 +108,6 @@ export default function HelpCenter() {
             <Mail className="w-5 h-5" />
             {ADMIN_EMAIL}
           </a>
-          <p className="text-sm mt-3" style={{ color: 'var(--sec-text-secondary)' }}>
-            WhatsApp:{' '}
-            <a href={SUPPORT_WHATSAPP_LINK} target="_blank" rel="noreferrer" className="font-medium underline" style={{ color: 'var(--sec-accent)' }}>
-              {SUPPORT_WHATSAPP_NUMBER}
-            </a>
-          </p>
         </div>
 
         <div>

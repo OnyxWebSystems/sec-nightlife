@@ -5,6 +5,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import {
   clearExpiredMenuSpecials,
   formatVenueMenuItemForClient,
+  formatVenueMenuItemForOwner,
   isVenueOwnedImageUrl,
   parseLegacySpecialSubCategory,
   SPECIAL_OFFER_EXP_PREFIX,
@@ -28,9 +29,11 @@ async function assertVenueOwner(venueId, userId) {
 }
 
 function resolveAvailability(imageUrl, requestedAvailable) {
-  const owned = isVenueOwnedImageUrl(imageUrl);
   if (requestedAvailable === false) return false;
-  return owned;
+  if (requestedAvailable === true) {
+    return isVenueOwnedImageUrl(imageUrl);
+  }
+  return isVenueOwnedImageUrl(imageUrl);
 }
 
 const isoDateTime = z.union([z.string().datetime(), z.coerce.date()]);
@@ -123,9 +126,10 @@ router.get('/venues/:venueId/menu-items', authenticateToken, async (req, res, ne
     await assertVenueOwner(req.params.venueId, req.userId);
     const rows = await prisma.venueMenuItem.findMany({
       where: { venueId: req.params.venueId },
+      include: { catalogItem: { select: { imageUrl: true } } },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
-    res.json(rows.map(formatVenueMenuItemForClient));
+    res.json(rows.map((row) => formatVenueMenuItemForOwner(row, row.catalogItem)));
   } catch (e) {
     next(e);
   }
@@ -260,15 +264,17 @@ router.patch('/venues/:venueId/menu-items/:itemId', authenticateToken, async (re
           : null
         : existing.imageUrl;
 
-    if (patch.is_available === true && !isVenueOwnedImageUrl(nextImage)) {
-      return res.status(400).json({
-        error: 'Upload your own photo before making this item visible to guests.',
-      });
-    }
-
     let nextAvailable = existing.isAvailable;
     if (patch.is_available !== undefined) {
-      nextAvailable = resolveAvailability(nextImage, patch.is_available);
+      if (patch.is_available === false) {
+        nextAvailable = false;
+      } else if (!isVenueOwnedImageUrl(nextImage)) {
+        return res.status(400).json({
+          error: 'Upload your own photo before making this item visible to guests.',
+        });
+      } else {
+        nextAvailable = true;
+      }
     } else if (
       patch.image_url !== undefined &&
       isVenueOwnedImageUrl(nextImage) &&
@@ -294,7 +300,11 @@ router.patch('/venues/:venueId/menu-items/:itemId', authenticateToken, async (re
         ...specialData,
       },
     });
-    res.json(formatVenueMenuItemForClient(updated));
+    const withCatalog = await prisma.venueMenuItem.findUnique({
+      where: { id: itemId },
+      include: { catalogItem: { select: { imageUrl: true } } },
+    });
+    res.json(formatVenueMenuItemForOwner(withCatalog, withCatalog?.catalogItem));
   } catch (e) {
     next(e);
   }

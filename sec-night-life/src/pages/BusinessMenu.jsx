@@ -55,7 +55,7 @@ export default function BusinessMenu() {
   });
 
   const needsPhotoCount = useMemo(
-    () => items.filter((i) => !isVenuePhoto(i.image_url)).length,
+    () => items.filter((i) => i.needs_photo ?? !isVenuePhoto(i.image_url)).length,
     [items]
   );
 
@@ -90,15 +90,17 @@ export default function BusinessMenu() {
   const invalidateMenu = () => queryClient.invalidateQueries({ queryKey: ['venue-menu', venueId] });
 
   const toggleAvailable = async (item) => {
-    if (!isVenuePhoto(item.image_url)) {
+    if (item.needs_photo) {
       toast.error('Upload your own photo before showing this item to guests');
       return;
     }
+    const nextVisible = !item.is_available;
     try {
       await apiPatch(`/api/business/venues/${venueId}/menu-items/${item.id}`, {
-        is_available: !item.is_available,
+        is_available: nextVisible,
       });
       invalidateMenu();
+      toast.success(nextVisible ? 'Item is live on your guest menu' : 'Item hidden from guests');
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Update failed');
     }
@@ -210,12 +212,12 @@ export default function BusinessMenu() {
             mode="manage"
             venueLogoUrl={venueLogoUrl}
             renderManageActions={(item) => {
-              const hasPhoto = isVenuePhoto(item.image_url);
-              const published = hasPhoto && item.is_available;
+              const needsPhoto = item.needs_photo ?? !isVenuePhoto(item.image_url);
+              const published = item.guest_visible;
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
                   <span style={{ fontSize: 10, color: published ? 'var(--sec-accent)' : '#f59e0b' }}>
-                    {published ? 'Live' : hasPhoto ? 'Hidden' : 'Needs photo'}
+                    {published ? 'Live' : needsPhoto ? 'Needs photo' : 'Hidden'}
                   </span>
                   <button
                     type="button"
@@ -302,10 +304,10 @@ export default function BusinessMenu() {
                     <button
                       type="button"
                       className="sec-btn sec-btn-ghost text-xs h-7 flex-1"
-                      disabled={!hasPhoto}
+                      disabled={needsPhoto}
                       onClick={() => toggleAvailable(item)}
                     >
-                      {item.is_available && hasPhoto ? 'Hide' : 'Show'}
+                      {item.is_available ? 'Hide' : 'Show'}
                     </button>
                     <button type="button" className="sec-btn sec-btn-ghost h-7 px-2" onClick={() => removeItem(item.id)} aria-label="Delete">
                       <Trash2 size={14} />

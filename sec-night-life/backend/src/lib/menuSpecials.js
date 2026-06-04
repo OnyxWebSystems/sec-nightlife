@@ -154,6 +154,41 @@ export function formatVenueMenuItemForClient(row) {
   };
 }
 
+/** Business Menu Maker — preserves Hide/Show toggle separately from guest visibility. */
+export function formatVenueMenuItemForOwner(row, catalogItem = null) {
+  const displayImage = resolveGuestMenuDisplayImage(row, catalogItem);
+  const special = resolveMenuSpecialState(row);
+  const subCategoryRaw = row.subCategory;
+  const sub_category =
+    subCategoryRaw && String(subCategoryRaw).trim().startsWith(SPECIAL_OFFER_EXP_PREFIX)
+      ? null
+      : subCategoryRaw;
+  const hasVenuePhoto = isVenueOwnedImageUrl(row?.imageUrl);
+  const guest_visible =
+    row.isAvailable && !!displayImage && !special.isExpired && !special.notStarted;
+
+  return {
+    id: row.id,
+    venue_id: row.venueId,
+    catalog_item_id: row.catalogItemId,
+    name: row.name,
+    category: row.category,
+    sub_category,
+    price: special.displayPrice,
+    original_price: special.originalPrice,
+    base_price: special.basePrice,
+    image_url: displayImage,
+    is_available: row.isAvailable,
+    guest_visible,
+    sort_order: row.sortOrder,
+    needs_photo: !hasVenuePhoto,
+    special_offer_starts_at: special.startsAt ? special.startsAt.toISOString() : null,
+    special_offer_expires_at: special.endsAt ? special.endsAt.toISOString() : null,
+    is_expired: special.isExpired,
+    is_special_offer: special.inSpecialWindow,
+  };
+}
+
 /** Clear expired specials and restore normal prices. */
 export async function clearExpiredMenuSpecials() {
   const now = new Date();
