@@ -307,4 +307,35 @@ router.get('/followed-promoters', authenticateToken, async (req, res, next) => {
   }
 });
 
+/** Active platform announcements for every user's home feed */
+router.get('/announcements', optionalAuth, async (req, res, next) => {
+  try {
+    const rows = await prisma.platformAnnouncement.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        title: true,
+        message: true,
+        ctaUrl: true,
+        ctaLabel: true,
+        createdAt: true,
+      },
+    });
+    res.json({
+      announcements: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        message: r.message,
+        ctaUrl: r.ctaUrl,
+        ctaLabel: r.ctaLabel,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

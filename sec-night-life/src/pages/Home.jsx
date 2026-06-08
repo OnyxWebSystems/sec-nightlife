@@ -13,6 +13,7 @@ import FeaturedEventCard from '@/components/home/FeaturedEventCard';
 import VenueCard from '@/components/home/VenueCard';
 import TableOfferingCard from '@/components/home/TableOfferingCard';
 import QuickActions from '@/components/home/QuickActions';
+import PlatformAnnouncementBanner from '@/components/home/PlatformAnnouncementBanner';
 import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
 import { toast } from 'sonner';
@@ -231,6 +232,8 @@ export default function Home() {
         queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] }),
         queryClient.invalidateQueries({ queryKey: ['host-parties-public-home'] }),
         queryClient.invalidateQueries({ queryKey: ['all-venues'] }),
+        queryClient.invalidateQueries({ queryKey: ['home-platform-announcements'] }),
+        queryClient.invalidateQueries({ queryKey: ['home-followed-promoters'] }),
       ]);
       if (showToast) toast.success('Feed refreshed');
     },
@@ -376,6 +379,14 @@ export default function Home() {
     staleTime: 60_000,
   });
   const followedPromoterEvents = followedPromotersData?.items || [];
+
+  const { data: platformAnnouncementsData } = useQuery({
+    queryKey: ['home-platform-announcements'],
+    queryFn: () => apiGet('/api/home/announcements'),
+    enabled: !isLoadingAuth,
+    staleTime: 30_000,
+  });
+  const platformAnnouncements = platformAnnouncementsData?.announcements || [];
 
   const { data: promotionsFeedData, isLoading: promotionsFeedLoading } = useQuery({
     queryKey: ['home-promotions-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity],
@@ -596,6 +607,8 @@ export default function Home() {
         <div style={{ marginBottom: 32 }}>
           <QuickActions />
         </div>
+
+        <PlatformAnnouncementBanner announcements={platformAnnouncements} />
 
         {followedPromoterEvents.length > 0 && (
           <section style={{ marginBottom: 36 }}>

@@ -885,4 +885,118 @@ router.get('/dashboard', async (req, res, next) => {
   }
 });
 
+// ── Platform announcements (home feed) ───────────────────────────────────
+
+const announcementSchema = z.object({
+  title: z.string().min(1).max(100),
+  message: z.string().min(10).max(600),
+  ctaUrl: z
+    .string()
+    .max(2000)
+    .optional()
+    .nullable()
+    .refine((v) => v == null || v === '' || /^https?:\/\//i.test(v) || v.startsWith('/'), {
+      message: 'Invalid URL',
+    }),
+  ctaLabel: z.string().max(40).optional().nullable(),
+});
+
+router.get('/announcements', async (req, res, next) => {
+  try {
+    const rows = await prisma.platformAnnouncement.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        createdBy: { select: { id: true, username: true, fullName: true } },
+        removedBy: { select: { id: true, username: true, fullName: true } },
+      },
+    });
+    res.json({
+      announcements: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        message: r.message,
+        ctaUrl: r.ctaUrl,
+        ctaLabel: r.ctaLabel,
+        isActive: r.isActive,
+        createdAt: r.createdAt.toISOString(),
+        removedAt: r.removedAt?.toISOString() ?? null,
+        createdBy: r.createdBy
+          ? { id: r.createdBy.id, username: r.createdBy.username, fullName: r.createdBy.fullName }
+          : null,
+        removedBy: r.removedBy
+          ? { id: r.removedBy.id, username: r.removedBy.username, fullName: r.removedBy.fullName }
+          : null,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/announcements', async (req, res, next) => {
+  try {
+    const parsed = announcementSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    }
+    const d = parsed.data;
+    const row = await prisma.platformAnnouncement.create({
+      data: {
+        title: d.title.trim(),
+        message: d.message.trim(),
+        ctaUrl: d.ctaUrl?.trim() || null,
+        ctaLabel: d.ctaLabel?.trim() || null,
+        createdById: req.userId,
+        isActive: true,
+      },
+    });
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'PLATFORM_ANNOUNCEMENT_CREATED',
+      entityType: 'platform_announcement',
+      entityId: row.id,
+      metadata: { title: row.title },
+    });
+    res.status(201).json({
+      id: row.id,
+      title: row.title,
+      message: row.message,
+      ctaUrl: row.ctaUrl,
+      ctaLabel: row.ctaLabel,
+      isActive: row.isActive,
+      createdAt: row.createdAt.toISOString(),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/announcements/:id', async (req, res, next) => {
+  try {
+    const existing = await prisma.platformAnnouncement.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Announcement not found' });
+    if (!existing.isActive) {
+      return res.json({ ok: true, alreadyRemoved: true });
+    }
+    await prisma.platformAnnouncement.update({
+      where: { id: req.params.id },
+      data: {
+        isActive: false,
+        removedAt: new Date(),
+        removedById: req.userId,
+      },
+    });
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'PLATFORM_ANNOUNCEMENT_REMOVED',
+      entityType: 'platform_announcement',
+      entityId: req.params.id,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

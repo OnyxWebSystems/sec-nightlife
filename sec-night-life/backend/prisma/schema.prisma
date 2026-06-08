@@ -388,6 +388,8 @@ model User {
   eventPromoterAssignmentsBy  EventPromoterAssignment[]  @relation("EventPromoterAssignedBy")
   promoterConversions         PromoterConversion[]       @relation("PromoterConversionUser")
   promoterConversionsAsBuyer  PromoterConversion[]       @relation("PromoterConversionBuyer")
+  announcementsCreated        PlatformAnnouncement[]     @relation("AnnouncementsCreated")
+  announcementsRemoved        PlatformAnnouncement[]     @relation("AnnouncementsRemoved")
 
   @@unique([email, role])
   @@index([email])
@@ -1909,6 +1911,26 @@ model UserReview {
   @@index([reviewerId])
   @@index([flagged])
   @@map("user_reviews")
+}
+
+model PlatformAnnouncement {
+  id          String    @id @default(cuid())
+  title       String
+  message     String    @db.Text
+  ctaUrl      String?   @map("cta_url")
+  ctaLabel    String?   @map("cta_label")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdById String    @map("created_by_id")
+  removedById String?   @map("removed_by_id")
+  removedAt   DateTime? @map("removed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  createdBy User  @relation("AnnouncementsCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  removedBy User? @relation("AnnouncementsRemoved", fields: [removedById], references: [id], onDelete: SetNull)
+
+  @@index([isActive, createdAt])
+  @@map("platform_announcements")
 }
 
 // ─── Analytics ────────────────────────────────────────────────────────────
