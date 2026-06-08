@@ -169,6 +169,31 @@ export async function sendEmailChangeOtpEmail(to, otp, { target = 'current' } = 
   });
 }
 
+export async function sendAdminDashboardAlertEmail({
+  to,
+  subject,
+  body,
+  ctaLabel = 'Open Admin Dashboard',
+  dashboardPath = '/AdminDashboard',
+}) {
+  const baseUrl = getPublicAppBaseUrl();
+  const link = `${baseUrl}${dashboardPath.startsWith('/') ? dashboardPath : `/${dashboardPath}`}`;
+  const safeBody = escapeHtml(body);
+  await sendEmail({
+    to,
+    subject,
+    text: `${body}\n\n${ctaLabel}: ${link}`,
+    html: `
+      <p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#ffffff;">${escapeHtml(subject)}</p>
+      <p style="margin:0 0 16px;line-height:1.6;color:#e9ecef;white-space:pre-wrap;">${safeBody}</p>
+      <a href="${link}" style="display:inline-block;padding:12px 22px;background:linear-gradient(135deg,#A8A8A8 0%,#D8D8D8 40%,#A0A0A0 70%,#C8C8C8 100%);color:#0A0A0B;font-weight:700;border-radius:999px;text-decoration:none;">
+        ${escapeHtml(ctaLabel)}
+      </a>
+      <p style="font-size:12px;color:#9aa0a6;margin:16px 0 0;">${link}</p>
+    `,
+  });
+}
+
 export async function sendIdVerificationApprovedEmail(to, fullName) {
   const baseUrl = process.env.APP_URL || 'http://localhost:5173';
   const link = `${baseUrl}/EditProfile`;

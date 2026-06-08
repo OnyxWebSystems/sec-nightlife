@@ -11,6 +11,8 @@ import { validateUsernameFormat } from '../lib/username.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
 import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
 import { mapTableHistoryRow } from '../lib/tableHistory.js';
+import { idDocumentUrlChanged } from '../lib/idDocumentUrl.js';
+import { notifyAdmins } from '../lib/adminNotify.js';
 
 const router = Router();
 const PROFILE_GENDER_VALUES = ['male', 'female', 'other'];
@@ -131,6 +133,32 @@ function isMissingLeaderboardColumnsError(err) {
 /** Identity review finished — do not re-queue on later profile saves. */
 function isProfileVerificationSettled(status) {
   return status === 'verified' || status === 'approved' || status === 'rejected';
+}
+
+function shouldQueueIdVerification(prevStatus, prevIdUrl, nextIdUrl) {
+  const nextId = String(nextIdUrl || '').trim();
+  if (!nextId) return false;
+  if (!isProfileVerificationSettled(prevStatus)) return true;
+  if (isIdentityVerifiedStatus(prevStatus)) {
+    return idDocumentUrlChanged(prevIdUrl, nextId);
+  }
+  if (prevStatus === 'rejected') {
+    return idDocumentUrlChanged(prevIdUrl, nextId);
+  }
+  return false;
+}
+
+async function maybeNotifyIdVerificationSubmitted(prevStatus, profile, user) {
+  if (prevStatus === 'submitted') return;
+  if (profile?.verificationStatus !== 'submitted') return;
+  const name = user?.fullName || user?.username || profile?.username || 'A user';
+  const email = user?.email || '';
+  notifyAdmins({
+    subject: 'New ID verification pending review',
+    body: `${name}${email ? ` (${email})` : ''} submitted an identity document for admin review.`,
+    dashboardTab: 'users',
+    ctaLabel: 'Review ID verifications',
+  }).catch(() => {});
 }
 
 /** Single source of truth for API `age_verified`: status wins over a stale boolean column. */
@@ -1072,7 +1100,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
     }
     const beforePost = await prisma.userProfile.findUnique({
       where: { userId: req.userId },
-      select: { interestedEvents: true },
+      select: { interestedEvents: true, verificationStatus: true },
     });
     const profileData = {
       ...(canonicalUsername != null && { username: canonicalUsername }),
@@ -1121,6 +1149,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         profile.interestedEvents ?? []
       );
     }
+    await maybeNotifyIdVerificationSubmitted(beforePost?.verificationStatus ?? null, profile, user);
     const userFresh = await prisma.user.findUnique({
       where: { id: req.userId },
       select: { email: true, fullName: true, username: true }
@@ -1175,15 +1204,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       data.id_document_url !== undefined && data.id_document_url != null
         ? String(data.id_document_url).trim()
         : '';
-    let shouldQueueSubmitted = false;
-    if (nextId !== '') {
-      if (!isProfileVerificationSettled(prevStatus)) {
-        shouldQueueSubmitted = true;
-      } else if (isIdentityVerifiedStatus(prevStatus) && nextId !== prevId) {
-        shouldQueueSubmitted = true;
-      }
-    }
-    if (shouldQueueSubmitted) {
+    if (shouldQueueIdVerification(prevStatus, prevId, nextId)) {
       data.verification_status = 'submitted';
     }
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
@@ -1259,6 +1280,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
         profile.interestedEvents ?? []
       );
     }
+    await maybeNotifyIdVerificationSubmitted(prevStatus, profile, user);
     const userFresh = await prisma.user.findUnique({
       where: { id: req.userId },
       select: { email: true, fullName: true, username: true }
@@ -1338,15 +1360,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       data.id_document_url !== undefined && data.id_document_url != null
         ? String(data.id_document_url).trim()
         : '';
-    let shouldQueueSubmittedPatch = false;
-    if (nextIdDoc !== '') {
-      if (!isProfileVerificationSettled(prevStatus)) {
-        shouldQueueSubmittedPatch = true;
-      } else if (isIdentityVerifiedStatus(prevStatus) && nextIdDoc !== prevIdDoc) {
-        shouldQueueSubmittedPatch = true;
-      }
-    }
-    if (shouldQueueSubmittedPatch) {
+    if (shouldQueueIdVerification(prevStatus, prevIdDoc, nextIdDoc)) {
       data.verification_status = 'submitted';
     }
     const targetUserId = profile?.userId || id;
@@ -1420,6 +1434,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       where: { id: targetUserId },
       select: { email: true, fullName: true, username: true, paystackRecipientCode: true }
     });
+    await maybeNotifyIdVerificationSubmitted(prevStatus, updated, user);
     res.json({
       id: updated.id,
       created_by: user.email,

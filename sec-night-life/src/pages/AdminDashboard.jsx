@@ -157,6 +157,20 @@ export default function AdminDashboard() {
     }
   };
 
+  const handlePurgeAnnouncement = async (id) => {
+    if (!window.confirm('Permanently delete this announcement? This cannot be undone.')) return;
+    setActionLoading(`purge-${id}`);
+    try {
+      await apiDelete(`/api/admin/announcements/${id}/permanent`);
+      toast.success('Announcement deleted permanently');
+      await loadAnnouncements();
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Could not delete announcement');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const loadReports = async (filters = reportFilters) => {
     try {
       const qs = new URLSearchParams({ status: filters.status || 'pending', limit: '100' });
@@ -893,11 +907,22 @@ export default function AdminDashboard() {
                 <h3 className="font-semibold mb-3 text-[var(--sec-text-muted)]">Recently removed</h3>
                 <div className="space-y-2">
                   {announcements.filter((a) => !a.isActive).slice(0, 8).map((a) => (
-                    <div key={a.id} className="p-3 rounded-lg bg-[#0A0A0B] border border-[#262629] opacity-70">
-                      <p className="text-sm font-medium line-through">{a.title}</p>
-                      <p className="text-xs text-[var(--sec-text-muted)] mt-1">
-                        Removed {a.removedAt ? new Date(a.removedAt).toLocaleString() : ''}
-                      </p>
+                    <div key={a.id} className="p-3 rounded-lg bg-[#0A0A0B] border border-[#262629] opacity-70 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium line-through">{a.title}</p>
+                        <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+                          Removed {a.removedAt ? new Date(a.removedAt).toLocaleString() : ''}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-[44px] shrink-0 border-red-500/40 text-red-400"
+                        disabled={actionLoading === `purge-${a.id}`}
+                        onClick={() => handlePurgeAnnouncement(a.id)}
+                      >
+                        {actionLoading === `purge-${a.id}` ? 'Deleting…' : 'Delete permanently'}
+                      </Button>
                     </div>
                   ))}
                 </div>

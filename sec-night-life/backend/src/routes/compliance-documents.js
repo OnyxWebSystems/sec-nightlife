@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { sendBulkEmails, sendEmail } from '../lib/email.js';
+import { sendEmail } from '../lib/email.js';
+import { notifyAdmins } from '../lib/adminNotify.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireComplianceReviewer, requireSuperAdmin } from '../middleware/complianceReviewer.js';
 import { auditFromReq } from '../lib/audit.js';
@@ -79,20 +80,6 @@ function getAppReviewLink({ venueId }) {
   const appUrl = process.env.APP_URL;
   if (!appUrl) return `/AdminDashboard${query}`;
   return `${appUrl}/AdminDashboard${query}`;
-}
-
-async function sendComplianceUploadEmails({ superAdminEmail, reviewerEmails, emailPayload }) {
-  const uniqueTo = Array.from(
-    new Set([superAdminEmail, ...(reviewerEmails || [])].filter(Boolean).map(normalizeEmail))
-  );
-
-  if (uniqueTo.length === 0) return;
-
-  const subject = emailPayload.subject;
-  const html = emailPayload.html;
-  const text = emailPayload.text;
-
-  await sendBulkEmails(uniqueTo.map((to) => ({ to, subject, html, text })));
 }
 
 function fileUrlLooksLikeCloudinary(fileUrl, cloudName) {
@@ -211,46 +198,21 @@ router.post('/', authenticateToken, async (req, res, next) => {
 
     await recomputeVenueComplianceFromDocuments(venue.id);
 
-    // Email notifications (Super admin + active reviewers)
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    if (!superAdminEmail) {
-      // Still create record, but surface explicit failure
-      throw new Error('SUPER_ADMIN_EMAIL env var missing');
-    }
-
-    const activeReviewers = await prisma.adminReviewer.findMany({
-      where: { isActive: true },
-      select: { email: true }
-    });
-
-    const reviewerEmails = activeReviewers.map((r) => r.email);
-    const reviewLink = getAppReviewLink({ venueId: venue.id });
-
     const docLabel = documentType
       .replace(/_/g, ' ')
       .toLowerCase()
       .replace(/\b\w/g, (m) => m.toUpperCase());
 
-    await sendComplianceUploadEmails({
-      superAdminEmail,
-      reviewerEmails,
-      emailPayload: {
-        subject: `New compliance document pending review — ${venue.name}`,
-        text: `A new compliance document is pending review.\n\nVenue: ${venue.name}\nDocument: ${docLabel}\n\nReview here: ${reviewLink}`,
-        html: `
-          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
-            <h2 style="color:#000;background:#111;padding:16px;margin:0 0 12px;">SEC Nightlife</h2>
-            <div style="padding:16px;background:#1a1a1a;color:#e0e0e0;border-radius:12px;">
-              <p style="margin:0 0 8px;"><strong>New compliance document pending review</strong></p>
-              <p style="margin:0 0 8px;">Venue: <strong>${venue.name}</strong></p>
-              <p style="margin:0 0 8px;">Document: <strong>${docLabel}</strong></p>
-              <a href="${reviewLink}" style="display:inline-block;padding:12px 18px;background:#fff;color:#000;font-weight:700;border-radius:8px;text-decoration:none;">Review document</a>
-              <p style="font-size:12px;color:#aaa;margin:12px 0 0;">If the link doesn’t work, copy it from the email text.</p>
-            </div>
-          </div>
-        `
-      }
-    });
+    notifyAdmins({
+      subject: `New compliance document pending review — ${venue.name}`,
+      body: `A new compliance document is pending review.
+
+Venue: ${venue.name}
+Document: ${docLabel}`,
+      dashboardTab: 'compliance-documents',
+      ctaLabel: 'Review document',
+    }).catch(() => {});
+
 
     res.status(201).json({ success: true, complianceDocument: created });
   } catch (err) {

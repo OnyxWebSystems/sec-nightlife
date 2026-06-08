@@ -972,6 +972,27 @@ router.post('/announcements', async (req, res, next) => {
   }
 });
 
+router.delete('/announcements/:id/permanent', async (req, res, next) => {
+  try {
+    const existing = await prisma.platformAnnouncement.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Announcement not found' });
+    if (existing.isActive) {
+      return res.status(400).json({ error: 'Remove the announcement from the home feed before deleting permanently.' });
+    }
+    await prisma.platformAnnouncement.delete({ where: { id: req.params.id } });
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'PLATFORM_ANNOUNCEMENT_PURGED',
+      entityType: 'platform_announcement',
+      entityId: req.params.id,
+      metadata: { title: existing.title },
+    });
+    res.json({ ok: true, purged: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.delete('/announcements/:id', async (req, res, next) => {
   try {
     const existing = await prisma.platformAnnouncement.findUnique({ where: { id: req.params.id } });

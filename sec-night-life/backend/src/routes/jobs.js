@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { sendEmail } from '../lib/email.js';
+import { notifyAdmins } from '../lib/adminNotify.js';
 import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
 
@@ -399,6 +400,7 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
 
     const status = parsed.data.status;
     let becameFilled = false;
+    let promoterReadyForVerification = false;
     const txResult = await prisma.$transaction(async (tx) => {
       const updated = await tx.jobApplication.update({
         where: { id: application.id },
@@ -431,7 +433,12 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
           });
           const profile = await tx.userProfile.findUnique({
             where: { userId: application.applicant.id },
-            select: { promoterJobsAccepted: true, isPromoterStandard: true },
+            select: {
+              promoterJobsAccepted: true,
+              isPromoterStandard: true,
+              isVerifiedPromoter: true,
+              username: true,
+            },
           });
           if (profile) {
             const nextCount = profile.promoterJobsAccepted + 1;
@@ -451,6 +458,11 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
                 body: "You've been hired for 20 venue promoter jobs.",
                 actionUrl: '/Profile',
               });
+              if (!profile.isVerifiedPromoter) {
+                promoterReadyForVerification = {
+                  name: application.applicant.fullName || profile.username || 'A promoter',
+                };
+              }
             }
           }
         }
@@ -461,6 +473,15 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
       }
       return updated;
     });
+
+    if (promoterReadyForVerification) {
+      notifyAdmins({
+        subject: 'Promoter ready for admin verification',
+        body: `${promoterReadyForVerification.name} reached Promoter Standard (20 hires) and is ready for admin verification.`,
+        dashboardTab: 'promoters',
+        ctaLabel: 'Review promoters',
+      }).catch(() => {});
+    }
 
     const jobTitle = application.jobPosting.title;
     const venueName = application.jobPosting.venue.name;

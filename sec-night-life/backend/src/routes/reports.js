@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { notifyAdmins } from '../lib/adminNotify.js';
 
 const router = Router();
 const REPORT_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -70,6 +71,14 @@ router.post('/', authenticateToken, async (req, res, next) => {
         evidenceUrls: d.evidenceUrls ?? undefined,
       },
     });
+
+    notifyAdmins({
+      subject: 'New safety report submitted',
+      body: `A new ${d.category.replace(/_/g, ' ')} report was submitted (${d.target_type}).\n\nReason: ${d.reason}`,
+      dashboardTab: 'reports',
+      ctaLabel: 'Review reports',
+    }).catch(() => {});
+
     res.status(201).json({ success: true });
   } catch (err) {
     next(err);

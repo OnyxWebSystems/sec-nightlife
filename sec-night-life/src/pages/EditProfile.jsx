@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { idDocumentUrlChanged } from '@/lib/idDocumentUrl';
 
 const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
@@ -165,12 +166,14 @@ export default function EditProfile() {
       };
       const vs = userProfile?.verification_status;
       const alreadyVerified = vs === 'verified' || vs === 'approved';
-      const prevId = (userProfile?.id_document_url || '').trim();
-      const idDocumentChanged = Boolean(trimmedId && trimmedId !== prevId);
+      const prevId = userProfile?.id_document_url || '';
+      const idDocumentChanged = idDocumentUrlChanged(prevId, trimmedId);
       if (trimmedId && !alreadyVerified) {
-        if (vs === 'rejected' || vs === 'pending' || !vs || vs === 'submitted' || idDocumentChanged) {
+        if (vs === 'rejected' || vs === 'pending' || !vs || (vs === 'submitted' && idDocumentChanged)) {
           payload.verification_status = 'submitted';
         }
+      } else if (trimmedId && alreadyVerified && idDocumentChanged) {
+        payload.verification_status = 'submitted';
       }
       const updated = await apiPatch('/api/users/profile', payload);
       setUserProfile((prev) => (prev ? { ...prev, ...updated } : prev));

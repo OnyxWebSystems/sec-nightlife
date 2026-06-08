@@ -8,6 +8,7 @@ import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
 import { checkUserReviewEligibility } from '../lib/reviewEligibility.js';
 import { createInAppNotification, createInAppNotificationsForUsers } from '../lib/inAppNotifications.js';
+import { notifyAdmins } from '../lib/adminNotify.js';
 
 const router = Router();
 
@@ -722,6 +723,18 @@ router.post('/users/review/:reviewId/flag', authenticateToken, async (req, res, 
       referenceType: 'FLAGGED_REVIEW',
     });
 
+    const actor = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true },
+    });
+    notifyAdmins({
+      subject: 'Review flagged for admin review',
+      body: `@${subj} flagged a review by @${rev}.`,
+      dashboardTab: 'flagged-reviews',
+      ctaLabel: 'Review flagged reviews',
+      excludeEmail: actor?.email,
+    }).catch(() => {});
+
     res.json({ flagged: true });
   } catch (e) {
     next(e);
@@ -820,6 +833,18 @@ router.post('/venues/users/review/:reviewId/flag', authenticateToken, async (req
       referenceId: reviewId,
       referenceType: 'FLAGGED_VENUE_USER_REVIEW',
     });
+
+    const actor = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true },
+    });
+    notifyAdmins({
+      subject: 'Review flagged for admin review',
+      body: `@${subj} flagged a review from ${vname}.`,
+      dashboardTab: 'flagged-reviews',
+      ctaLabel: 'Review flagged reviews',
+      excludeEmail: actor?.email,
+    }).catch(() => {});
 
     res.json({ flagged: true });
   } catch (e) {
@@ -1033,6 +1058,18 @@ router.post('/venues/review/:reviewId/flag', authenticateToken, async (req, res,
       referenceId: reviewId,
       referenceType: 'FLAGGED_VENUE_REVIEW',
     });
+
+    const actor = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true },
+    });
+    notifyAdmins({
+      subject: 'Review flagged for admin review',
+      body: `${vname} flagged a review by @${run}.`,
+      dashboardTab: 'flagged-reviews',
+      ctaLabel: 'Review flagged reviews',
+      excludeEmail: actor?.email,
+    }).catch(() => {});
 
     res.json({ flagged: true });
   } catch (e) {
