@@ -22,6 +22,7 @@ import { tierFeeTogglesFromTier, resolveTierFeesForSave } from '@/lib/tierBookin
 import { tierMinSpendsFromApi, resolveTierMinSpends } from '@/lib/tierMinSpend';
 import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
 import { isEventEnded } from '@/lib/eventLifecycle';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 const EVENT_COVER_CROP_ASPECT = 16 / 9;
 const EVENT_COVER_CROP_DIALOG_PROPS = {
@@ -447,13 +448,10 @@ export default function BusinessEvents() {
   }
 
   return (
-    <div style={{ padding: '24px 20px', maxWidth: 900, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700 }}>Events Manager</h1>
-          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{venue.name} &middot; {events.length} events</p>
-        </div>
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      <PageBackHeader title="Events Manager" subtitle={`${venue.name} · ${events.length} events`} />
+      <div style={{ padding: '16px 20px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 20 }}>
         <Button onClick={openCreate} style={{ backgroundColor: 'var(--sec-accent)', color: '#000', fontWeight: 600 }} className="h-10 rounded-xl">
           <Plus size={16} className="mr-1.5" /> Create Event
         </Button>
@@ -1333,6 +1331,7 @@ export default function BusinessEvents() {
         outputFileName="event-cover.jpg"
         {...EVENT_COVER_CROP_DIALOG_PROPS}
       />
+      </div>
     </div>
   );
 }

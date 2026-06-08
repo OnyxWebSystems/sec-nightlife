@@ -27,6 +27,7 @@ import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInl
 import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import VenueMenuBrowser, { getVenueMenuCartStats } from '@/components/menu/VenueMenuBrowser';
 import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
+import { mobileFooterPadding, MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConstants';
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
 import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
 
@@ -483,12 +484,12 @@ export default function TableDetails() {
     const onRequestMenuStep = inRequestFlow && customRequestStep === 'menu';
     const onRequestDetailsStep = inRequestFlow && customRequestStep === 'details';
     const footerPad = onRequestMenuStep
-      ? 88
+      ? mobileFooterPadding(160)
       : onRequestDetailsStep
-        ? 24
+        ? mobileFooterPadding(24)
         : venueCheckoutStep === 'menu'
-          ? (minSpendZar > 0 ? 200 : 160)
-          : 120;
+          ? mobileFooterPadding(minSpendZar > 0 ? 200 : 160)
+          : mobileFooterPadding(120);
     return (
       <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: '12px 16px max(12px, env(safe-area-inset-top))', paddingBottom: footerPad }}>
         <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
@@ -644,14 +645,10 @@ export default function TableDetails() {
           <div
             className="table-checkout-footer sec-bottom-bar"
             style={{
-              position: 'fixed',
-              left: 0,
-              right: 0,
-              bottom: 0,
               padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
               background: 'rgba(0,0,0,0.96)',
               borderTop: '1px solid var(--sec-border)',
-              zIndex: 50,
+              bottom: MOBILE_NAV_BOTTOM_OFFSET,
             }}
           >
             <div style={{ maxWidth: 960, margin: '0 auto', width: '100%' }}>

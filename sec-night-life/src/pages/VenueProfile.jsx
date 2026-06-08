@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl, getVenueProfileShareUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -45,6 +45,55 @@ function compensationLine(job) {
     return `R${Number(job.compensationAmount).toFixed(0)} per ${String(job.compensationPer || 'MONTH').toLowerCase()}`;
   }
   return 'Compensation not specified';
+}
+
+function eventDateLabel(date) {
+  if (!date) return '';
+  const d = parseISO(date);
+  if (isToday(d)) return 'Tonight';
+  if (isTomorrow(d)) return 'Tomorrow';
+  return format(d, 'EEE, MMM d');
+}
+
+function VenueEventList({ events }) {
+  return (
+    <div className="space-y-4">
+      {events.map((event, index) => (
+        <motion.div
+          key={event.id}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.05 }}
+        >
+          <Link
+            to={createPageUrl(`EventDetails?id=${event.id}`)}
+            className="flex items-center gap-4 p-3 glass-card rounded-xl hover:bg-white/5 transition-colors"
+          >
+            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[var(--sec-accent)]/20 to-[var(--sec-accent)]/20 flex-shrink-0 overflow-hidden">
+              {event.cover_image_url ? (
+                <img src={event.cover_image_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Calendar className="w-6 h-6 text-[var(--sec-accent)]" />
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="font-semibold">{event.title}</h4>
+              <div className="flex items-center gap-3 mt-1 text-sm text-gray-400 flex-wrap">
+                <span>{eventDateLabel(event.date)}</span>
+                {event.start_time && <span>• {event.start_time}</span>}
+                {event.has_entrance_fee && event.entrance_fee_amount != null && (
+                  <span>• Entrance R{event.entrance_fee_amount}</span>
+                )}
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-600" />
+          </Link>
+        </motion.div>
+      ))}
+    </div>
+  );
 }
 
 function closingLabel(closingDate) {
@@ -153,6 +202,26 @@ export default function VenueProfile() {
     queryFn: () => dataService.Event.filter({ venue_id: resolvedVenueId, status: 'published' }, 'date'),
     enabled: !!resolvedVenueId,
   });
+
+  const { upcomingEvents, pastEvents } = useMemo(() => {
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const upcoming = [];
+    const past = [];
+    for (const event of events) {
+      const endsAtRaw = event.ends_at || event.endsAt;
+      let isPast = false;
+      if (endsAtRaw) {
+        const end = new Date(endsAtRaw);
+        if (!Number.isNaN(end.getTime())) isPast = end < now;
+      } else if (event.date) {
+        isPast = event.date < today;
+      }
+      if (isPast) past.push(event);
+      else upcoming.push(event);
+    }
+    return { upcomingEvents: upcoming, pastEvents: past };
+  }, [events]);
 
   const { data: jobs = [] } = useQuery({
     queryKey: ['venue-jobs', resolvedVenueId],
@@ -454,49 +523,36 @@ export default function VenueProfile() {
           </TabsList>
 
           <TabsContent value="events" className="mt-4">
-            {events.length > 0 ? (
-              <div className="space-y-4">
-                {events.map((event, index) => (
-                  <motion.div
-                    key={event.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <Link
-                      to={createPageUrl(`EventDetails?id=${event.id}`)}
-                      className="flex items-center gap-4 p-3 glass-card rounded-xl hover:bg-white/5 transition-colors"
-                    >
-                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[var(--sec-accent)]/20 to-[var(--sec-accent)]/20 flex-shrink-0 overflow-hidden">
-                        {event.cover_image_url ? (
-                          <img src={event.cover_image_url} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Calendar className="w-6 h-6 text-[var(--sec-accent)]" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold">{event.title}</h4>
-                        <div className="flex items-center gap-3 mt-1 text-sm text-gray-400 flex-wrap">
-                          <span>{getDateLabel(event.date)}</span>
-                          {event.start_time && <span>• {event.start_time}</span>}
-                          {event.has_entrance_fee && event.entrance_fee_amount != null && (
-                            <span>• Entrance R{event.entrance_fee_amount}</span>
-                          )}
-                        </div>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-gray-600" />
-                    </Link>
-                  </motion.div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <Calendar className="w-10 h-10 text-gray-600 mx-auto mb-2" />
-                <p className="text-gray-500">No upcoming events</p>
-              </div>
-            )}
+            <Tabs defaultValue="upcoming" className="w-full">
+              <TabsList className="w-full bg-[#0A0A0B] p-1 rounded-lg border border-[#262629]">
+                <TabsTrigger value="upcoming" className="flex-1 rounded-md text-xs data-[state=active]:bg-[#262629]">
+                  Upcoming ({upcomingEvents.length})
+                </TabsTrigger>
+                <TabsTrigger value="past" className="flex-1 rounded-md text-xs data-[state=active]:bg-[#262629]">
+                  Past ({pastEvents.length})
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="upcoming" className="mt-4">
+                {upcomingEvents.length > 0 ? (
+                  <VenueEventList events={upcomingEvents} />
+                ) : (
+                  <div className="text-center py-12">
+                    <Calendar className="w-10 h-10 text-gray-600 mx-auto mb-2" />
+                    <p className="text-gray-500">No upcoming events</p>
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="past" className="mt-4">
+                {pastEvents.length > 0 ? (
+                  <VenueEventList events={pastEvents} />
+                ) : (
+                  <div className="text-center py-12">
+                    <Calendar className="w-10 h-10 text-gray-600 mx-auto mb-2" />
+                    <p className="text-gray-500">No past events</p>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </TabsContent>
 
           <TabsContent value="jobs" className="mt-4">

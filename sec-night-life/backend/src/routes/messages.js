@@ -75,6 +75,18 @@ router.post('/conversations/find-or-create', authenticateToken, async (req, res,
       return res.status(403).json({ error: 'You can only message friends' });
     }
 
+    const targetProfile = await prisma.userProfile.findUnique({
+      where: { userId: participantId },
+      select: { privacySettings: true },
+    });
+    const allowMessages =
+      !targetProfile?.privacySettings ||
+      typeof targetProfile.privacySettings !== 'object' ||
+      targetProfile.privacySettings.allowMessages !== false;
+    if (!allowMessages) {
+      return res.status(403).json({ error: 'This user is not accepting new messages' });
+    }
+
     const parts = orderedParticipants(me, participantId);
     let conv = await prisma.conversation.findUnique({
       where: {

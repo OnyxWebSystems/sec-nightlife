@@ -18,6 +18,7 @@ import { getEventImage } from '@/lib/placeholders';
 import { toast } from 'sonner';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
 import { isEventEnded } from '@/lib/eventLifecycle';
+import { usePreferences } from '@/context/PreferencesContext';
 
 function getOrCreateSessionId() {
   try {
@@ -212,6 +213,7 @@ export default function Home() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, userProfile, isLoadingAuth, logout } = useAuth();
+  const { location: locPrefs, geoCoords } = usePreferences();
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCity, setSelectedCity] = useState('all');
@@ -267,13 +269,17 @@ export default function Home() {
     };
   }, [refreshHomeData]);
 
-  /** City for mixed home feed: explicit filter, else profile city, else nationwide. */
+  /** Feed scope: location off → nationwide; location on → geo radius; else city fallback. */
   const homeFeedCity = useMemo(() => {
+    if (locPrefs?.useLocation) return '';
     if (selectedCity && selectedCity !== 'all') return String(selectedCity).trim();
     if (userProfile?.city) return String(userProfile.city).trim();
     return '';
-  }, [selectedCity, userProfile?.city]);
-  const homeFeedScopeAll = !homeFeedCity;
+  }, [selectedCity, userProfile?.city, locPrefs?.useLocation]);
+  const homeFeedScopeAll = !locPrefs?.useLocation && !homeFeedCity;
+  const homeFeedGeoKey = locPrefs?.useLocation && geoCoords
+    ? `${geoCoords.lat.toFixed(3)},${geoCoords.lng.toFixed(3)},${locPrefs.radiusKm ?? 25}`
+    : null;
 
   const handlePromotionClick = async (promotion) => {
     void apiPost(`/api/promotions/${promotion.id}/track`, { type: 'CLICK', sessionId }).catch(() => {});
@@ -341,7 +347,7 @@ export default function Home() {
     isFetchingNextPage,
     isLoading: feedLoading,
   } = useInfiniteQuery({
-    queryKey: ['home-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedCity],
+    queryKey: ['home-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({
@@ -350,7 +356,12 @@ export default function Home() {
         sessionId,
       });
       if (homeFeedScopeAll) params.set('scope', 'all');
-      else params.set('city', homeFeedCity);
+      else if (homeFeedGeoKey && geoCoords) {
+        params.set('lat', String(geoCoords.lat));
+        params.set('lng', String(geoCoords.lng));
+        params.set('radius_km', String(locPrefs?.radiusKm ?? 25));
+      } else if (homeFeedCity) params.set('city', homeFeedCity);
+      else params.set('scope', 'all');
       return apiGet(`/api/home/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
     },
     getNextPageParam: (lastPage) => (lastPage?.nextCursor != null ? parseInt(lastPage.nextCursor, 10) : undefined),
@@ -359,11 +370,16 @@ export default function Home() {
   });
 
   const { data: promotionsFeedData, isLoading: promotionsFeedLoading } = useQuery({
-    queryKey: ['home-promotions-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedCity],
+    queryKey: ['home-promotions-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: '12', page: '1', sessionId });
       if (homeFeedScopeAll) params.set('scope', 'all');
-      else params.set('city', homeFeedCity);
+      else if (homeFeedGeoKey && geoCoords) {
+        params.set('lat', String(geoCoords.lat));
+        params.set('lng', String(geoCoords.lng));
+        params.set('radius_km', String(locPrefs?.radiusKm ?? 25));
+      } else if (homeFeedCity) params.set('city', homeFeedCity);
+      else params.set('scope', 'all');
       return apiGet(`/api/promotions/feed?${params.toString()}`, {
         headers: { 'x-session-id': sessionId },
         skipAuth: true,

@@ -14,6 +14,7 @@ import TableTierEditor from '@/components/business/TableTierEditor';
 import { resolveTierFeesForSave } from '@/lib/tierBookingFees';
 import { resolveTierMinSpends } from '@/lib/tierMinSpend';
 import { VENUE_DECLINE_TEMPLATES, formatMenuLines } from '@/lib/venueTableMessageTemplates';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 export default function BusinessVenueTables() {
   const navigate = useNavigate();
@@ -163,13 +164,11 @@ export default function BusinessVenueTables() {
 
   return (
     <div className="sec-page max-w-3xl mx-auto pb-28">
-      <header className="sec-page-header mb-6">
-        <span className="sec-label">Reservations</span>
-        <h1 className="sec-page-title">Tables & day bookings</h1>
-        <p className="sec-page-subtitle">
-          Venue-owned listings for any day or synced from published events. Guests book and pay on Sec.
-        </p>
-      </header>
+      <PageBackHeader
+        title="Tables & day bookings"
+        subtitle="Venue listings for any day or synced from published events"
+      />
+      <div className="px-4 pt-4">
 
       <Tabs
         value={tab}
@@ -557,6 +556,7 @@ export default function BusinessVenueTables() {
           </div>
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   );
 }

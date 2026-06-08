@@ -1,4 +1,5 @@
 import React from 'react';
+import { MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConstants';
 
 /**
  * Single sticky footer for venue table menu/checkout steps.
@@ -21,14 +22,10 @@ export default function TableCheckoutFooter({
     <div
       className="table-checkout-footer sec-bottom-bar"
       style={{
-        position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: 0,
         padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
         background: 'rgba(0,0,0,0.96)',
         borderTop: '1px solid var(--sec-border)',
-        zIndex: 50,
+        bottom: MOBILE_NAV_BOTTOM_OFFSET,
       }}
     >
       <div style={{ maxWidth: 960, margin: '0 auto', width: '100%' }}>

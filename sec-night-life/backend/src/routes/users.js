@@ -761,7 +761,10 @@ const profileUpdateSchema = z.object({
   friends: z.array(z.string()).optional().nullable(),
   followed_venues: z.array(z.string()).optional().nullable(),
   interested_events: z.array(z.string().uuid()).max(50).optional().nullable(),
-  onboarding_complete: z.boolean().optional().nullable()
+  onboarding_complete: z.boolean().optional().nullable(),
+  notification_prefs: z.record(z.unknown()).optional().nullable(),
+  privacy_settings: z.record(z.unknown()).optional().nullable(),
+  app_preferences: z.record(z.unknown()).optional().nullable(),
 });
 
 router.get('/profile', authenticateToken, async (req, res, next) => {
@@ -803,7 +806,10 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       friends: profile?.friends ?? [],
       followed_venues: profile?.followedVenues ?? [],
       interested_events: profile?.interestedEvents ?? [],
-      onboarding_complete: profile?.onboardingComplete ?? false
+      onboarding_complete: profile?.onboardingComplete ?? false,
+      notification_prefs: profile?.notificationPrefs ?? null,
+      privacy_settings: profile?.privacySettings ?? null,
+      app_preferences: profile?.appPreferences ?? null,
     };
     res.json(Array.isArray(result) ? result : [result]);
   } catch (err) {
@@ -1074,6 +1080,9 @@ router.post('/', authenticateToken, async (req, res, next) => {
         interestedEvents:
           data.interested_events === null ? [] : normalizeInterestedEvents(data.interested_events),
       }),
+      ...(data.notification_prefs !== undefined && { notificationPrefs: data.notification_prefs }),
+      ...(data.privacy_settings !== undefined && { privacySettings: data.privacy_settings }),
+      ...(data.app_preferences !== undefined && { appPreferences: data.app_preferences }),
     };
     let profile;
     try {
@@ -1209,6 +1218,9 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
         interestedEvents:
           data.interested_events === null ? [] : normalizeInterestedEvents(data.interested_events),
       }),
+      ...(data.notification_prefs !== undefined && { notificationPrefs: data.notification_prefs }),
+      ...(data.privacy_settings !== undefined && { privacySettings: data.privacy_settings }),
+      ...(data.app_preferences !== undefined && { appPreferences: data.app_preferences }),
     };
     let profile;
     try {

@@ -11,6 +11,7 @@ import { createPageUrl } from '@/utils';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { launchPaystackInline, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 const PUBLISH_ZAR_PER_DAY = 50;
 const BOOST_ZAR_PER_DAY = 150;
@@ -1320,12 +1321,12 @@ export default function BusinessPromotions() {
   if (!user) return null;
 
   return (
-    <div style={{ maxWidth: 920, margin: '0 auto', padding: '24px 16px 120px' }}>
-      <header className="sec-page-header" style={{ marginBottom: 24 }}>
-        <span className="sec-label">Business</span>
-        <h1 className="sec-page-title">Promotions</h1>
-        <p className="sec-page-subtitle">Premium placement for your venue, offers, and announcements — publish by the day and boost for the feed.</p>
-      </header>
+    <div style={{ maxWidth: 920, margin: '0 auto', paddingBottom: 120 }}>
+      <PageBackHeader
+        title="Promotions"
+        subtitle="Premium placement — publish by the day and boost for the feed"
+      />
+      <div style={{ padding: '16px 16px 0' }}>
       <div style={{ marginBottom: 16 }}>
         {!userProfile?.payment_setup_complete ? (
           <div className="sec-card" style={{ padding: 12, marginBottom: 10, border: '1px solid var(--sec-border)' }}>
@@ -1395,6 +1396,7 @@ export default function BusinessPromotions() {
           onSyncPublish={syncPromotionPublish}
           onBoostPay={runBoostPayment}
         />
+      </div>
       </div>
     </div>
   );

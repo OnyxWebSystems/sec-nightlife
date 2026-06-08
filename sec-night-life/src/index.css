@@ -322,6 +322,12 @@
     background-color: var(--sec-bg-card);
   }
 
+  .sec-btn--wrap {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+  }
+
   /* ─── Sticky bottom CTA bar — price left / button right ─── */
   .sec-bottom-bar {
     position: fixed;
@@ -361,8 +367,15 @@
 
   .venue-menu-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
     gap: 10px;
+  }
+
+  @media (max-width: 1023px) {
+    .sec-bottom-bar {
+      bottom: calc(64px + env(safe-area-inset-bottom));
+      z-index: 40;
+    }
   }
 
   @media (max-width: 480px) {

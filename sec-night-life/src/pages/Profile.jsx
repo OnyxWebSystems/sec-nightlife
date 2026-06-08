@@ -38,8 +38,10 @@ import UserSecWallet from '@/components/wallet/UserSecWallet';
 export default function Profile() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const profileTab = ['activity', 'tickets', 'reviews', 'interests', 'wallet'].includes(searchParams.get('tab'))
-    ? searchParams.get('tab')
+  const OWN_ONLY_TABS = ['tickets', 'reviews', 'interests', 'wallet'];
+  const rawTab = searchParams.get('tab');
+  const profileTab = ['activity', 'tickets', 'reviews', 'interests', 'wallet'].includes(rawTab)
+    ? rawTab
     : 'activity';
   const setProfileTab = (tab) => setSearchParams({ tab });
   const queryClient = useQueryClient();
@@ -78,6 +80,15 @@ export default function Profile() {
     !viewingUserId ||
     (user?.id && viewingUserId === user.id) ||
     (userProfile?.id && viewingUserId === userProfile.id);
+
+  useEffect(() => {
+    if (!isOwnProfile && rawTab && OWN_ONLY_TABS.includes(rawTab)) {
+      setSearchParams({ tab: 'activity' }, { replace: true });
+    }
+  }, [isOwnProfile, rawTab, setSearchParams]);
+
+  const activeProfileTab =
+    !isOwnProfile && OWN_ONLY_TABS.includes(profileTab) ? 'activity' : profileTab;
 
   const { data: viewedProfile } = useQuery({
     queryKey: ['viewed-profile', viewingUserId],
@@ -560,7 +571,7 @@ export default function Profile() {
         {/* Profile Content Tabs - Only for own profile */}
         {isOwnProfile && (
           <div className="glass-card rounded-2xl p-4 mb-6">
-            <Tabs value={profileTab} onValueChange={setProfileTab} className="w-full">
+            <Tabs value={activeProfileTab} onValueChange={setProfileTab} className="w-full">
               <TabsList className="w-full bg-[#0A0A0B] border border-[#262629]">
                 <TabsTrigger value="activity" className="flex-1">Activity</TabsTrigger>
                 <TabsTrigger value="tickets" className="flex-1">Tickets</TabsTrigger>

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Brain, TrendingUp, TrendingDown, Star, Loader2, Users } from 'lucide-react';
 import { toast } from 'sonner';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 export default function FeedbackInsights() {
   const [user, setUser] = useState(null);
@@ -62,18 +63,9 @@ export default function FeedbackInsights() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0B] p-6">
-      <div className="max-w-5xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold gradient-text">Feedback Insights</h1>
-            <p className="text-gray-500 mt-1">Analysis of customer reviews</p>
-          </div>
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
-            <Brain className="w-6 h-6 text-white" />
-          </div>
-        </div>
+    <div className="min-h-screen bg-[#0A0A0B]">
+      <PageBackHeader title="Feedback Insights" subtitle="Analysis of customer reviews" />
+      <div className="max-w-5xl mx-auto space-y-6 p-6">
 
         {/* Venue Selector */}
         <Card className="glass-card border-[#262629]">

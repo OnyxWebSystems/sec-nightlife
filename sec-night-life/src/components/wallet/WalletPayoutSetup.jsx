@@ -115,18 +115,25 @@ export function VenuePayoutSetup({ venues, selectedVenueId, onVenueChange, onVen
 
   return (
     <div className="rounded-xl border border-[#262629] bg-[#141416] p-4 space-y-3">
-      <label className="block">
-        <span className="text-xs text-gray-500">Venue</span>
-        <select
-          value={selectedVenueId}
-          onChange={(e) => onVenueChange?.(e.target.value)}
-          className="w-full mt-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white"
-        >
-          {venues.map((v) => (
-            <option key={v.id} value={v.id}>{v.name}</option>
-          ))}
-        </select>
-      </label>
+      {venues.length > 1 ? (
+        <label className="block">
+          <span className="text-xs text-gray-500">Venue</span>
+          <select
+            value={selectedVenueId}
+            onChange={(e) => onVenueChange?.(e.target.value)}
+            className="w-full mt-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white"
+          >
+            {venues.map((v) => (
+              <option key={v.id} value={v.id}>{v.name}</option>
+            ))}
+          </select>
+        </label>
+      ) : venue ? (
+        <div>
+          <p className="text-xs text-gray-500">Venue</p>
+          <p className="text-white font-medium mt-1">{venue.name}</p>
+        </div>
+      ) : null}
       <div className="flex items-center gap-2 text-xs">
         {complete ? (
           <>

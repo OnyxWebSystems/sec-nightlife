@@ -100,9 +100,17 @@ router.get('/search', authenticateToken, async (req, res, next) => {
       take: 40,
     });
 
+    const profileRows = await prisma.userProfile.findMany({
+      where: { userId: { in: users.map((u) => u.id) } },
+      select: { userId: true, privacySettings: true },
+    });
+    const privacyByUser = new Map(profileRows.map((p) => [p.userId, p.privacySettings]));
+
     const out = [];
     for (const u of users) {
       if (blockSet.has(u.id)) continue;
+      const priv = privacyByUser.get(u.id);
+      if (priv && typeof priv === 'object' && priv.searchVisible === false) continue;
       const fb = await isFriendshipBlockedBetween(me, u.id);
       if (fb) continue;
 
@@ -248,11 +256,18 @@ router.get('/suggestions', authenticateToken, async (req, res, next) => {
       select: publicUserSelect(),
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
+    const suggestPrivacy = await prisma.userProfile.findMany({
+      where: { userId: { in: sorted } },
+      select: { userId: true, privacySettings: true },
+    });
+    const suggestPrivacyMap = new Map(suggestPrivacy.map((p) => [p.userId, p.privacySettings]));
 
     const out = [];
     for (const uid of sorted) {
       const u = byId.get(uid);
       if (!u) continue;
+      const priv = suggestPrivacyMap.get(u.id);
+      if (priv && typeof priv === 'object' && priv.searchVisible === false) continue;
       if (await isFriendshipBlockedBetween(me, u.id)) continue;
       const st = await computeFriendshipStatus(me, u.id);
       if (st === 'BLOCKED') continue;

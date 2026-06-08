@@ -12,6 +12,7 @@ import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
 import VenueMenuNavigator from '@/components/menu/VenueMenuNavigator';
 import { formatMenuCategoryLabel } from '@/lib/groupMenuByCategory';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 export default function BusinessMenu() {
   const navigate = useNavigate();
@@ -174,8 +175,9 @@ export default function BusinessMenu() {
   }
 
   return (
-    <div style={{ padding: '24px 20px', maxWidth: 900, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Menu Maker</h1>
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      <PageBackHeader title="Menu Maker" subtitle="Photos, prices, and categories" />
+      <div style={{ padding: '16px 20px 24px' }}>
       <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
         Manage what guests see. Add items with your own photos, prices, and categories.
       </p>
@@ -303,7 +305,8 @@ export default function BusinessMenu() {
                   ) : (
                     <button
                       type="button"
-                      className="sec-btn sec-btn-ghost text-xs h-7"
+                      className="sec-btn sec-btn-ghost sec-btn--wrap text-xs h-7 max-w-full truncate"
+                      title={formatMenuCategoryLabel(item)}
                       onClick={() => {
                         setEditingCategoryItem(item);
                         setCategoryEdit(item.category || '');
@@ -311,7 +314,7 @@ export default function BusinessMenu() {
                         setEditingItem(null);
                       }}
                     >
-                      {formatMenuCategoryLabel(item)}
+                      {item.sub_category || item.category || 'Category'}
                     </button>
                   )}
                   <div className="flex gap-1">
@@ -344,6 +347,7 @@ export default function BusinessMenu() {
         title="Your menu item photo"
         outputFileName="menu-item.jpg"
       />
+      </div>
     </div>
   );
 }

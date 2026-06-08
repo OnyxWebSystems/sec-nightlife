@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../lib/prisma.js';
 import { audit } from '../lib/audit.js';
 import { logger } from '../lib/logger.js';
-import { sendVerificationEmail, sendPasswordResetEmail } from '../lib/email.js';
+import { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeOtpEmail } from '../lib/email.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
@@ -110,6 +110,9 @@ function formatUserProfileForMe(user, p) {
     followed_venues: p.followedVenues ?? [],
     interested_events: p.interestedEvents ?? [],
     onboarding_complete: p.onboardingComplete ?? false,
+    notification_prefs: p.notificationPrefs ?? null,
+    privacy_settings: p.privacySettings ?? null,
+    app_preferences: p.appPreferences ?? null,
   };
 }
 
@@ -272,6 +275,35 @@ const resetPasswordSchema = z.object({
 const verifyEmailSchema = z.object({
   token: z.string().min(1)
 });
+
+const changePasswordSchema = z.object({
+  current_password: z.string().min(1).max(128),
+  new_password: z.string().min(8).max(128),
+});
+
+const changeEmailOtpSchema = z.object({
+  otp: z.string().length(6).regex(/^\d{6}$/),
+});
+
+const changeEmailConfirmSchema = z.object({
+  new_email: emailSchemaField,
+  otp: z.string().length(6).regex(/^\d{6}$/).optional(),
+});
+
+function generateOtp6() {
+  return String(crypto.randomInt(100000, 1000000));
+}
+
+function clearEmailChangeState() {
+  return {
+    emailChangeCurrentOtpHash: null,
+    emailChangeCurrentOtpExpiry: null,
+    emailChangeCurrentVerified: false,
+    emailChangeNewEmail: null,
+    emailChangeNewOtpHash: null,
+    emailChangeNewOtpExpiry: null,
+  };
+}
 
 // ── Register ──────────────────────────────────────────────────────────────
 
@@ -809,6 +841,176 @@ router.post('/reset-password', async (req, res, next) => {
     });
 
     res.json({ message: 'Password reset successfully. Please sign in.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Change password (in-session) ──────────────────────────────────────────
+
+router.post('/change-password', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Current and new password required (min 8 characters)' });
+    }
+    const { current_password, new_password } = parsed.data;
+    const user = await prisma.user.findUnique({ where: { id: req.user.id, deletedAt: null } });
+    if (!user) return res.status(401).json({ error: 'User not found' });
+
+    const currentOk = await bcrypt.compare(current_password.trim(), user.passwordHash);
+    if (!currentOk) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    const passwordHash = await bcrypt.hash(new_password.trim(), SALT_ROUNDS);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+    });
+    await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+
+    await audit({
+      userId: user.id,
+      action: 'PASSWORD_CHANGED',
+      entityType: 'user',
+      entityId: user.id,
+      ipAddress: getIp(req),
+    });
+
+    res.json({ message: 'Password updated successfully. Please sign in again on other devices.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Change email (OTP) ────────────────────────────────────────────────────
+
+router.post('/change-email/request', authenticateToken, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id, deletedAt: null } });
+    if (!user) return res.status(401).json({ error: 'User not found' });
+
+    const otp = generateOtp6();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        ...clearEmailChangeState(),
+        emailChangeCurrentOtpHash: hashTokenSha256(otp),
+        emailChangeCurrentOtpExpiry: new Date(Date.now() + 10 * 60 * 1000),
+      },
+    });
+
+    sendEmailChangeOtpEmail(user.email, otp, { target: 'current' }).catch((err) => {
+      logger.error('Failed to send email change OTP', { userId: user.id, message: err.message });
+    });
+
+    res.json({ message: 'Verification code sent to your current email' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/change-email/verify-current', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = changeEmailOtpSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Valid 6-digit code required' });
+    }
+    const user = await prisma.user.findUnique({ where: { id: req.user.id, deletedAt: null } });
+    if (!user?.emailChangeCurrentOtpHash || !user.emailChangeCurrentOtpExpiry) {
+      return res.status(400).json({ error: 'Request a new code first' });
+    }
+    if (user.emailChangeCurrentOtpExpiry < new Date()) {
+      return res.status(400).json({ error: 'Code expired — request a new one' });
+    }
+    if (hashTokenSha256(parsed.data.otp) !== user.emailChangeCurrentOtpHash) {
+      return res.status(400).json({ error: 'Invalid verification code' });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailChangeCurrentVerified: true,
+        emailChangeCurrentOtpHash: null,
+        emailChangeCurrentOtpExpiry: null,
+      },
+    });
+
+    res.json({ message: 'Current email verified' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/change-email/confirm', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = changeEmailConfirmSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Valid new email required' });
+    }
+    const { new_email, otp } = parsed.data;
+    const user = await prisma.user.findUnique({ where: { id: req.user.id, deletedAt: null } });
+    if (!user) return res.status(401).json({ error: 'User not found' });
+    if (!user.emailChangeCurrentVerified) {
+      return res.status(400).json({ error: 'Verify your current email first' });
+    }
+    if (new_email.toLowerCase() === user.email.toLowerCase()) {
+      return res.status(400).json({ error: 'New email must differ from your current email' });
+    }
+
+    const existing = await prisma.user.findFirst({
+      where: { email: new_email, deletedAt: null, NOT: { id: user.id } },
+    });
+    if (existing) {
+      return res.status(400).json({ error: 'That email is already in use' });
+    }
+
+    if (!otp) {
+      const newOtp = generateOtp6();
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          emailChangeNewEmail: new_email,
+          emailChangeNewOtpHash: hashTokenSha256(newOtp),
+          emailChangeNewOtpExpiry: new Date(Date.now() + 10 * 60 * 1000),
+        },
+      });
+      sendEmailChangeOtpEmail(new_email, newOtp, { target: 'new' }).catch((err) => {
+        logger.error('Failed to send new email OTP', { userId: user.id, message: err.message });
+      });
+      return res.json({ message: 'Verification code sent to your new email' });
+    }
+
+    if (!user.emailChangeNewOtpHash || !user.emailChangeNewOtpExpiry || user.emailChangeNewEmail?.toLowerCase() !== new_email.toLowerCase()) {
+      return res.status(400).json({ error: 'Send a code to your new email first' });
+    }
+    if (user.emailChangeNewOtpExpiry < new Date()) {
+      return res.status(400).json({ error: 'Code expired — request a new one' });
+    }
+    if (hashTokenSha256(otp) !== user.emailChangeNewOtpHash) {
+      return res.status(400).json({ error: 'Invalid verification code' });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        email: new_email,
+        emailVerified: true,
+        ...clearEmailChangeState(),
+      },
+    });
+
+    await audit({
+      userId: user.id,
+      action: 'EMAIL_CHANGED',
+      entityType: 'user',
+      entityId: user.id,
+      metadata: { new_email },
+      ipAddress: getIp(req),
+    });
+
+    res.json({ message: 'Email updated successfully', email: new_email });
   } catch (err) {
     next(err);
   }

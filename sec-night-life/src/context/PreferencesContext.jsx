@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useEffect, useLayoutEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import { t } from '@/i18n/translations';
+import { useAuth } from '@/lib/AuthContext';
+import { apiPatch } from '@/api/client';
 
 const STORAGE_KEY = 'sec-preferences';
 const PRIVACY_KEY = 'sec-privacy-settings';
@@ -25,12 +27,7 @@ const defaultPrefs = {
   location: {
     useLocation: false,
     distanceUnit: 'km',
-  },
-  privacy: {
-    profilePublic: true,
-    searchVisible: true,
-    tablesVisible: true,
-    allowMessages: true,
+    radiusKm: 25,
   },
 };
 
@@ -56,7 +53,11 @@ function loadFromStorage() {
         push: { ...defaultPrefs.notifications.push, ...(notif.push && typeof notif.push === 'object' ? notif.push : {}) },
         email: { ...defaultPrefs.notifications.email, ...(notif.email && typeof notif.email === 'object' ? notif.email : {}) },
       },
-      location: { ...defaultPrefs.location, ...(loc && typeof loc === 'object' ? loc : {}) },
+      location: {
+        ...defaultPrefs.location,
+        ...(loc && typeof loc === 'object' ? loc : {}),
+        radiusKm: Number(loc?.radiusKm) > 0 ? Number(loc.radiusKm) : defaultPrefs.location.radiusKm,
+      },
     };
   } catch {
     return { ...defaultPrefs };
@@ -100,9 +101,13 @@ function applyThemeToDocument(theme) {
 const PreferencesContext = createContext(null);
 
 export function PreferencesProvider({ children }) {
+  const { isAuthenticated, userProfile } = useAuth();
   const [prefs, setPrefsState] = useState(loadFromStorage);
   const [privacy, setPrivacyState] = useState(loadPrivacyFromStorage);
+  const [geoCoords, setGeoCoords] = useState(null);
   const [hydrated, setHydrated] = useState(false);
+  const hydratedFromApi = useRef(false);
+  const skipNextSync = useRef(false);
 
   useLayoutEffect(() => {
     applyThemeToDocument('dark');
@@ -113,6 +118,32 @@ export function PreferencesProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    if (!userProfile || hydratedFromApi.current) return;
+    skipNextSync.current = true;
+    if (userProfile.notification_prefs && typeof userProfile.notification_prefs === 'object') {
+      const notif = userProfile.notification_prefs;
+      setPrefsState((p) => ({
+        ...p,
+        notifications: {
+          enabled: notif.enabled ?? p.notifications.enabled,
+          push: { ...p.notifications.push, ...(notif.push || {}) },
+          email: { ...p.notifications.email, ...(notif.email || {}) },
+        },
+      }));
+    }
+    if (userProfile.app_preferences?.location) {
+      setPrefsState((p) => ({
+        ...p,
+        location: { ...p.location, ...userProfile.app_preferences.location },
+      }));
+    }
+    if (userProfile.privacy_settings && typeof userProfile.privacy_settings === 'object') {
+      setPrivacyState({ ...defaultPrivacy, ...userProfile.privacy_settings });
+    }
+    hydratedFromApi.current = true;
+  }, [userProfile]);
+
+  useEffect(() => {
     if (!hydrated) return;
     saveToStorage(prefs);
   }, [prefs, hydrated]);
@@ -121,6 +152,49 @@ export function PreferencesProvider({ children }) {
     if (!hydrated) return;
     savePrivacyToStorage(privacy);
   }, [privacy, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || !isAuthenticated) return;
+    if (skipNextSync.current) {
+      skipNextSync.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      apiPatch('/api/users/profile', {
+        notification_prefs: prefs.notifications,
+        app_preferences: {
+          location: prefs.location,
+          language: prefs.language,
+          theme: prefs.theme,
+        },
+        privacy_settings: privacy,
+      }).catch(() => {});
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [prefs.notifications, prefs.location, prefs.language, privacy, hydrated, isAuthenticated]);
+
+  const requestGeoCoords = useCallback(() => {
+    if (!navigator.geolocation) return Promise.reject(new Error('Geolocation not supported'));
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setGeoCoords(next);
+          resolve(next);
+        },
+        (err) => reject(err),
+        { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 },
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!prefs.location?.useLocation) {
+      setGeoCoords(null);
+      return;
+    }
+    requestGeoCoords().catch(() => {});
+  }, [prefs.location?.useLocation, requestGeoCoords]);
 
   const setTheme = useCallback((theme) => {
     if (theme !== 'dark' && theme !== 'light') return;
@@ -169,6 +243,8 @@ export function PreferencesProvider({ children }) {
     notifications: prefs.notifications,
     location: prefs.location,
     privacy,
+    geoCoords,
+    requestGeoCoords,
     setTheme,
     toggleTheme,
     setLanguage,

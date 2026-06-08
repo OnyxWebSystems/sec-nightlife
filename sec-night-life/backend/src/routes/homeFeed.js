@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { buildTableOfferings } from '../lib/tableOfferings.js';
+import { parseGeoQuery, distanceKm } from '../lib/geo.js';
 
 const router = Router();
 
@@ -67,6 +68,7 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 24);
     const cursor = Math.max(parseInt(req.query.cursor, 10) || 0, 0);
     const scopeAll = req.query.scope === 'all' || req.query.all === '1' || req.query.all === 'true';
+    const geo = parseGeoQuery(req.query);
     const overrideCity = typeof req.query.city === 'string' ? req.query.city.trim() : '';
     const sessionId =
       (typeof req.headers['x-session-id'] === 'string' && req.headers['x-session-id'].trim()) ||
@@ -74,9 +76,9 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
       'anon-session';
 
     let city = '';
-    if (scopeAll) {
+    if (scopeAll && !geo) {
       city = '';
-    } else {
+    } else if (!geo) {
       city = overrideCity;
       if (!city && req.userId) {
         const profile = await prisma.userProfile.findUnique({
@@ -86,6 +88,12 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
         city = (profile?.city || '').trim();
       }
     }
+
+    const inGeoRange = (lat, lng) => {
+      if (!geo) return true;
+      if (lat == null || lng == null) return false;
+      return distanceKm(geo.lat, geo.lng, lat, lng) <= geo.radiusKm;
+    };
 
     const now = new Date();
 
@@ -114,19 +122,20 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
         take: 60,
         orderBy: [{ boosted: 'desc' }, { createdAt: 'desc' }],
         include: {
-          venue: { select: { id: true, name: true, city: true, venueType: true } },
+          venue: { select: { id: true, name: true, city: true, venueType: true, latitude: true, longitude: true } },
           event: { select: { id: true, title: true, date: true, endsAt: true } },
         },
       }),
       prisma.event.findMany({
         where: { deletedAt: null, status: 'published', endsAt: { gte: now } },
         orderBy: { date: 'asc' },
-        take: 40,
+        take: 80,
+        include: { venue: { select: { latitude: true, longitude: true } } },
       }),
       prisma.venue.findMany({
         where: { deletedAt: null, ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}) },
         orderBy: { rating: 'desc' },
-        take: 40,
+        take: 80,
       }),
       req.userId
         ? prisma.venueFollow.findMany({ where: { userId: req.userId }, select: { venueId: true } })
@@ -135,7 +144,17 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
 
     const followedSet = new Set(followedRows.map((r) => r.venueId));
 
-    const allProm = promotionRows.map(promotionItemFromRow);
+    const filteredPromotions = geo
+      ? promotionRows.filter((p) => inGeoRange(p.venue?.latitude, p.venue?.longitude))
+      : promotionRows;
+    const filteredEvents = geo
+      ? eventRows.filter((e) => inGeoRange(e.venue?.latitude, e.venue?.longitude))
+      : eventRows;
+    const filteredVenues = geo
+      ? venueRows.filter((v) => inGeoRange(v.latitude, v.longitude))
+      : venueRows;
+
+    const allProm = filteredPromotions.map(promotionItemFromRow);
     const boosted = allProm.filter((x) => x.data.boosted);
     const organic = allProm.filter((x) => !x.data.boosted);
     const promItems = [
@@ -144,7 +163,7 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     ];
 
     const eventItems = shuffleCopy(
-      eventRows.map((e) => ({
+      filteredEvents.map((e) => ({
         kind: 'event',
         data: {
           id: e.id,
@@ -159,7 +178,7 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     );
 
     const venueItems = shuffleCopy(
-      venueRows.map((v) => ({
+      filteredVenues.map((v) => ({
         kind: 'venue',
         data: {
           id: v.id,

@@ -149,6 +149,26 @@ export async function sendPasswordResetEmail(to, token) {
   });
 }
 
+export async function sendEmailChangeOtpEmail(to, otp, { target = 'current' } = {}) {
+  const label = target === 'new' ? 'new email address' : 'current email address';
+  await sendEmail({
+    to,
+    subject: 'SEC email change verification code',
+    text: `Your SEC email change verification code is: ${otp}\n\nThis code expires in 10 minutes and was requested for your ${label}.\n\nIf you did not request this, ignore this email.`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+        <h2 style="color:#fff;background:#111;padding:24px;margin:0;">SEC Nightlife</h2>
+        <div style="padding:24px;background:#1a1a1a;color:#e0e0e0;">
+          <h3>Email change verification</h3>
+          <p>Enter this code in the app to verify your ${label}:</p>
+          <p style="font-size:28px;font-weight:700;letter-spacing:0.2em;color:#fff;">${escapeHtml(otp)}</p>
+          <p style="font-size:12px;color:#888;">Expires in 10 minutes.</p>
+        </div>
+      </div>
+    `,
+  });
+}
+
 export async function sendIdVerificationApprovedEmail(to, fullName) {
   const baseUrl = process.env.APP_URL || 'http://localhost:5173';
   const link = `${baseUrl}/EditProfile`;

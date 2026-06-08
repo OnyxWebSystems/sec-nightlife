@@ -1,7 +1,6 @@
 import React from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
-  ChevronLeft,
   ChevronRight,
   Globe,
   Bell,
@@ -12,6 +11,8 @@ import {
 import { createPageUrl } from '@/utils';
 import { usePreferences } from '@/context/PreferencesContext';
 import { Switch } from '@/components/ui/switch';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import { toast } from 'sonner';
 
 function SectionCard({ title, children }) {
   return (
@@ -52,7 +53,6 @@ function SettingRow({ icon: Icon, label, description, children }) {
 }
 
 export default function AppPreferences() {
-  const navigate = useNavigate();
   const {
     language,
     setLanguage,
@@ -61,25 +61,27 @@ export default function AppPreferences() {
     setNotification,
     setLocation,
     location: loc,
+    requestGeoCoords,
   } = usePreferences();
+
+  const radiusKm = Number(loc?.radiusKm) || 25;
+  const radiusDisplay = loc?.distanceUnit === 'mi' ? Math.round(radiusKm * 0.621371) : radiusKm;
+  const radiusUnit = loc?.distanceUnit === 'mi' ? 'mi' : 'km';
+
+  const onLocationToggle = async (enabled) => {
+    setLocation('useLocation', enabled);
+    if (enabled) {
+      try {
+        await requestGeoCoords();
+      } catch {
+        toast.error('Could not access location — enable permission in your browser');
+      }
+    }
+  };
 
   return (
     <div className="min-h-screen pb-8" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <header
-        className="sticky top-0 z-40 border-b"
-        style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-      >
-        <div className="px-4 py-4 flex items-center gap-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'var(--sec-bg-card)' }}
-          >
-            <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
-          </button>
-          <h1 className="text-xl font-bold">{t('appPreferences')}</h1>
-        </div>
-      </header>
+      <PageBackHeader title={t('appPreferences')} fallbackTo="Settings" />
 
       <div className="px-4 py-6 max-w-xl mx-auto space-y-6">
         {/* Language */}
@@ -170,9 +172,33 @@ export default function AppPreferences() {
           >
             <Switch
               checked={loc?.useLocation ?? false}
-              onCheckedChange={(v) => setLocation('useLocation', v)}
+              onCheckedChange={(v) => void onLocationToggle(v)}
             />
           </SettingRow>
+          {loc?.useLocation ? (
+            <div className="px-4 pb-4" style={{ borderBottom: '1px solid var(--sec-border)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm" style={{ color: 'var(--sec-text-secondary)' }}>
+                  Nearby radius
+                </span>
+                <span className="text-sm font-semibold" style={{ color: 'var(--sec-accent)' }}>
+                  {radiusDisplay} {radiusUnit}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={100}
+                step={5}
+                value={radiusKm}
+                onChange={(e) => setLocation('radiusKm', Number(e.target.value))}
+                className="w-full accent-[var(--sec-accent)]"
+              />
+              <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)' }}>
+                Home and Map show venues and events within this distance when location is on.
+              </p>
+            </div>
+          ) : null}
           <SettingRow
             icon={Ruler}
             label={t('distanceUnit')}

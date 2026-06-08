@@ -80,8 +80,9 @@ export default function Settings() {
     setDeleting(true);
     try {
       await authService.deleteAccount();
-      // deleteAccount clears tokens and redirects on success
-    } catch {
+      toast.success('Your account has been deleted');
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Could not delete account');
       setDeleting(false);
       setDeleteDialogOpen(false);
     }
@@ -98,7 +99,7 @@ export default function Settings() {
       title: t('account'),
       items: [
         { icon: User, label: t('editProfile'), page: 'EditProfile' },
-        { icon: Bell, label: t('notifications'), description: t('managePushNotifications'), page: 'AppPreferences' },
+        { icon: Bell, label: t('notifications'), description: t('managePushNotifications'), page: 'Notifications' },
         { icon: Shield, label: t('privacySecurity'), page: 'Privacy' },
         { icon: Mail, label: t('changeEmail'), page: 'ChangeEmail' },
         { icon: Key, label: t('changePassword'), page: 'ChangePassword' },

@@ -1567,6 +1567,7 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             title: true,
             date: true,
             startTime: true,
+            endsAt: true,
             city: true,
             venue: {
               select: {
@@ -1607,9 +1608,9 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             _count: true,
           });
     const pendingInvitesByTable = Object.fromEntries(invitePendingRows.map((r) => [r.hostedTableId, r._count]));
-    const visibleTables = tables.filter((t) => shouldShowHostedTableOnHostDashboard(t, t.event));
-    const out = visibleTables.map((t) => ({
+    const out = tables.map((t) => ({
       ...t,
+      isPast: !shouldShowHostedTableOnHostDashboard(t, t.event),
       eventLocation: t.tableType === 'IN_APP_EVENT' && t.event ? buildEventLocationPayload(t.event) : null,
       pendingJoinCount: pendingByTable[t.id] ?? 0,
       pendingInviteCount: pendingInvitesByTable[t.id] ?? 0,

@@ -12,9 +12,19 @@ import {
   Calendar,
   Star,
   Clock,
-  PieChart
+  PieChart as PieChartIcon
 } from 'lucide-react';
 import { format, subDays } from 'date-fns';
+import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from 'recharts';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { Skeleton } from '@/components/ui/skeleton';
+
+const REVENUE_CHART_CONFIG = {
+  sales: { label: 'Revenue', color: '#d4af37' },
+};
+
+const EVENT_TYPE_COLORS = ['#d4af37', '#c0c0c0', '#a78bfa', '#64748b', '#22c55e'];
 
 export default function VenueAnalytics() {
   const [user, setUser] = useState(null);
@@ -43,7 +53,19 @@ export default function VenueAnalytics() {
     enabled: !!user,
   });
 
-  const { data: analytics } = useQuery({
+  useEffect(() => {
+    if (!venues.length) return;
+    if (!selectedVenue || !venues.some((v) => v.id === selectedVenue)) {
+      setSelectedVenue(venues[0].id);
+    }
+  }, [venues, selectedVenue]);
+
+  const selectedVenueRecord = useMemo(
+    () => venues.find((v) => v.id === selectedVenue) || null,
+    [venues, selectedVenue],
+  );
+
+  const { data: analytics, isLoading: analyticsLoading, isFetching: analyticsFetching } = useQuery({
     queryKey: ['venue-analytics', selectedVenue, dateRange, revenueScope, selectedEventId],
     queryFn: () => {
       const days = parseInt(dateRange, 10) || 30;
@@ -162,46 +184,92 @@ export default function VenueAnalytics() {
     });
   }, [analytics?.revenueByDay, analytics?.grossRevenueZar, analytics?.netRevenueZar, periodDays, revenueMode]);
 
-  const trendMax = useMemo(() => Math.max(...salesTrend.map((d) => d.sales), 1), [salesTrend]);
+  const eventTypeChartData = useMemo(() => {
+    if (!metrics?.eventTypeCounts) return [];
+    return Object.entries(metrics.eventTypeCounts).map(([name, value]) => ({ name, value }));
+  }, [metrics?.eventTypeCounts]);
+
+  const hasAnalyticsData =
+    Boolean(analytics) &&
+    (Number(analytics?.grossRevenueZar || 0) > 0 ||
+      Number(analytics?.ticketSalesCount || 0) > 0 ||
+      salesTrend.some((d) => d.sales > 0));
+
+  const chartsLoading = analyticsLoading || analyticsFetching;
 
   return (
-    <div className="min-h-screen bg-[#0A0A0B] p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold gradient-text">Analytics Dashboard</h1>
-            <p className="text-gray-500 mt-1">Business insights and performance metrics</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-40 bg-[#141416] border-[#262629]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-[#141416] border-[#262629] text-white">
-                <SelectItem value="7">Last 7 days</SelectItem>
-                <SelectItem value="30">Last 30 days</SelectItem>
-                <SelectItem value="90">Last 90 days</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+    <div className="min-h-screen bg-[#0A0A0B]">
+      <PageBackHeader title="Analytics Dashboard" subtitle="Business insights and performance metrics" />
+      <div className="max-w-7xl mx-auto space-y-6 p-6">
+        <div className="flex items-center justify-end">
+          <Select value={dateRange} onValueChange={setDateRange}>
+            <SelectTrigger className="w-40 bg-[#141416] border-[#262629]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[#141416] border-[#262629] text-white">
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Venue Selector */}
         <Card className="glass-card border-[#262629]">
           <CardContent className="pt-6">
-            <Select value={selectedVenue} onValueChange={setSelectedVenue}>
-              <SelectTrigger className="bg-[#141416] border-[#262629]">
-                <SelectValue placeholder="Select a venue to view analytics" />
-              </SelectTrigger>
-              <SelectContent className="bg-[#141416] border-[#262629] text-white">
-                {venues.map((venue) => (
-                  <SelectItem key={venue.id} value={venue.id}>{venue.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {venues.length === 0 ? (
+              <p className="text-sm text-gray-500">No venues linked to this account yet.</p>
+            ) : venues.length === 1 && selectedVenueRecord ? (
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Venue</p>
+                <p className="text-white font-medium">{selectedVenueRecord.name}</p>
+              </div>
+            ) : (
+              <Select value={selectedVenue} onValueChange={setSelectedVenue}>
+                <SelectTrigger className="bg-[#141416] border-[#262629]">
+                  <SelectValue placeholder="Select a venue to view analytics" />
+                </SelectTrigger>
+                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                  {venues.map((venue) => (
+                    <SelectItem key={venue.id} value={venue.id}>{venue.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </CardContent>
         </Card>
+
+        {selectedVenue && chartsLoading && !metrics ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i} className="glass-card border-[#262629]">
+                  <CardContent className="pt-6 space-y-3">
+                    <Skeleton className="h-4 w-24 bg-[#262629]" />
+                    <Skeleton className="h-8 w-32 bg-[#262629]" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <Card className="glass-card border-[#262629]">
+              <CardContent className="pt-6">
+                <Skeleton className="h-64 w-full bg-[#262629]" />
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+
+        {selectedVenue && metrics && !hasAnalyticsData && !chartsLoading ? (
+          <Card className="glass-card border-[#262629]">
+            <CardContent className="py-16 text-center">
+              <TrendingUp className="w-10 h-10 mx-auto mb-3 text-gray-600" />
+              <p className="text-white font-medium">No revenue data yet</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Analytics will appear after ticket sales or table payments in the last {dateRange} days.
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {metrics && (
           <>
@@ -264,14 +332,18 @@ export default function VenueAnalytics() {
 
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[#262629] border-l-2 border-l-[var(--sec-success)]">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-gray-500 text-sm">Total Revenue</p>
+                      {chartsLoading ? (
+                        <Skeleton className="h-9 w-28 mt-1 bg-[#262629]" />
+                      ) : (
                       <p className="text-3xl font-bold text-white mt-1">
                         R{metrics.totalRevenue.toLocaleString()}
                       </p>
+                      )}
                       <p className="text-xs mt-1" style={{ color: 'var(--sec-success)' }}>
                         {revenueScope === 'per_event' ? 'Selected event' : 'All hosted events'} - {revenueMode === 'net' ? 'Net' : 'Gross'} - Last {dateRange} days
                       </p>
@@ -281,12 +353,16 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[#262629] border-l-2 border-l-[var(--sec-accent)]">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-gray-500 text-sm">Ticket Sales</p>
+                      {chartsLoading ? (
+                        <Skeleton className="h-9 w-16 mt-1 bg-[#262629]" />
+                      ) : (
                       <p className="text-3xl font-bold text-white mt-1">{metrics.ticketSales}</p>
+                      )}
                       <p className="text-xs text-gray-500 mt-1">Tickets issued in period</p>
                     </div>
                     <Users className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
@@ -294,14 +370,18 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[#262629] border-l-2 border-l-[var(--sec-warning)]">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-gray-500 text-sm">Average Rating</p>
+                      {chartsLoading ? (
+                        <Skeleton className="h-9 w-16 mt-1 bg-[#262629]" />
+                      ) : (
                       <p className="text-3xl font-bold text-white mt-1">
                         {metrics.avgRating.toFixed(1)}
                       </p>
+                      )}
                       <p className="text-xs text-gray-500 mt-1">{reviews.length} reviews</p>
                     </div>
                     <Star className="w-8 h-8" style={{ color: 'var(--sec-warning)' }} />
@@ -309,12 +389,16 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[#262629] border-l-2 border-l-[var(--sec-accent)]">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-gray-500 text-sm">Total Events</p>
+                      {chartsLoading ? (
+                        <Skeleton className="h-9 w-12 mt-1 bg-[#262629]" />
+                      ) : (
                       <p className="text-3xl font-bold text-white mt-1">{metrics.totalEvents}</p>
+                      )}
                       <p className="text-xs mt-1" style={{ color: 'var(--sec-accent)' }}>{metrics.upcomingEvents} upcoming</p>
                     </div>
                     <Calendar className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
@@ -332,36 +416,50 @@ export default function VenueAnalytics() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-64 overflow-x-auto pb-1">
-                  <div
-                    className="flex h-full items-end gap-1"
-                    style={{ minWidth: `${Math.max(280, periodDays * (periodDays <= 14 ? 28 : 10))}px` }}
-                  >
-                    {salesTrend.map((day) => {
-                      const height = (day.sales / trendMax) * 100;
-                      return (
-                        <div key={day.key} className="flex min-w-0 flex-1 flex-col items-center gap-2" style={{ flex: '1 1 0' }}>
-                          <div
-                            className="relative w-full max-w-[36px] mx-auto rounded-t-lg bg-[#141416]"
-                            style={{ height: `${height}%`, minHeight: day.sales > 0 ? '12px' : '3px' }}
-                          >
-                            <div className="absolute inset-0 rounded-t-lg" style={{ background: 'var(--sec-gradient-silver)' }} />
-                            {day.sales > 0 && periodDays <= 14 && (
-                              <span className="absolute -top-6 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[10px] text-gray-400">
-                                R{Math.round(day.sales).toLocaleString()}
-                              </span>
-                            )}
-                          </div>
-                          <span className="max-w-full truncate text-[10px] text-gray-500 sm:text-xs" title={`${day.key}: R${Math.round(day.sales).toLocaleString()}`}>
-                            {day.date}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                {periodDays > 14 && (
-                  <p className="mt-2 text-xs text-gray-500">Scroll horizontally to see all days. Hover a label for the exact amount.</p>
+                {chartsLoading ? (
+                  <Skeleton className="h-64 w-full bg-[#262629]" />
+                ) : salesTrend.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-12 text-center">No revenue in this period.</p>
+                ) : (
+                  <ChartContainer config={REVENUE_CHART_CONFIG} className="h-64 w-full aspect-auto">
+                    <AreaChart data={salesTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#d4af37" stopOpacity={0.45} />
+                          <stop offset="100%" stopColor="#d4af37" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#262629" vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fill: '#6b7280', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval={periodDays <= 14 ? 0 : Math.floor(periodDays / 8)}
+                      />
+                      <YAxis
+                        tick={{ fill: '#6b7280', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v) => `R${Math.round(v / 1000)}k`}
+                        width={48}
+                      />
+                      <ChartTooltip
+                        content={
+                          <ChartTooltipContent
+                            formatter={(value) => [`R${Math.round(Number(value)).toLocaleString()}`, 'Revenue']}
+                          />
+                        }
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="sales"
+                        stroke="#d4af37"
+                        strokeWidth={2}
+                        fill="url(#revenueFill)"
+                      />
+                    </AreaChart>
+                  </ChartContainer>
                 )}
               </CardContent>
             </Card>
@@ -371,31 +469,56 @@ export default function VenueAnalytics() {
               <Card className="glass-card border-[#262629]">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
-                    <PieChart className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
+                    <PieChartIcon className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
                     Popular Event Types
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {Object.entries(metrics.eventTypeCounts).map(([type, count]) => {
-                      const total = Object.values(metrics.eventTypeCounts).reduce((a, b) => a + b, 0);
-                      const percentage = (count / total) * 100;
-                      return (
-                        <div key={type}>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-sm text-gray-400">{type}</span>
-                            <span className="text-sm text-white font-semibold">{count}</span>
+                  {eventTypeChartData.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-8 text-center">No events to classify yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                      <ChartContainer
+                        config={Object.fromEntries(
+                          eventTypeChartData.map((d, i) => [
+                            d.name,
+                            { label: d.name, color: EVENT_TYPE_COLORS[i % EVENT_TYPE_COLORS.length] },
+                          ]),
+                        )}
+                        className="h-48 w-full aspect-auto mx-auto max-w-[220px]"
+                      >
+                        <PieChart>
+                          <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                          <Pie
+                            data={eventTypeChartData}
+                            dataKey="value"
+                            nameKey="name"
+                            innerRadius={42}
+                            outerRadius={72}
+                            paddingAngle={2}
+                          >
+                            {eventTypeChartData.map((entry, index) => (
+                              <Cell key={entry.name} fill={EVENT_TYPE_COLORS[index % EVENT_TYPE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                        </PieChart>
+                      </ChartContainer>
+                      <div className="space-y-2">
+                        {eventTypeChartData.map((entry, index) => (
+                          <div key={entry.name} className="flex items-center justify-between text-sm">
+                            <span className="flex items-center gap-2 text-gray-400">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: EVENT_TYPE_COLORS[index % EVENT_TYPE_COLORS.length] }}
+                              />
+                              {entry.name}
+                            </span>
+                            <span className="text-white font-semibold">{entry.value}</span>
                           </div>
-                          <div className="h-2 bg-[#141416] rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-[var(--sec-accent)] to-[var(--sec-accent)]"
-                              style={{ width: `${percentage}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

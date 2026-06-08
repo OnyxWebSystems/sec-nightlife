@@ -19,10 +19,10 @@ import { format, parseISO } from 'date-fns';
 import { useGoogleMaps } from '@/lib/GoogleMapsProvider';
 import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
+import { usePreferences } from '@/context/PreferencesContext';
 
 // Johannesburg coordinates as default
 const DEFAULT_CENTER = { lat: -26.2041, lng: 28.0473 };
-const NEARBY_RADIUS_KM = 60;
 
 function parseCoord(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -55,6 +55,8 @@ function distanceKm(a, b) {
 }
 
 export default function Map() {
+  const { location: locPrefs, geoCoords, requestGeoCoords } = usePreferences();
+  const nearbyRadiusKm = Number(locPrefs?.radiusKm) > 0 ? Number(locPrefs.radiusKm) : 25;
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [viewMode, setViewMode] = useState('venues'); // 'venues' | 'events' | 'tables'
@@ -191,7 +193,7 @@ export default function Map() {
   const isInUserArea = (mapPos, cityCandidates = []) => {
     if (areaMode === 'all') return true;
     if (userLocation?.lat != null && userLocation?.lng != null && mapPos) {
-      return distanceKm(userLocation, mapPos) <= NEARBY_RADIUS_KM;
+      return distanceKm(userLocation, mapPos) <= nearbyRadiusKm;
     }
     if (!profileCity) return true;
     return cityCandidates.some((v) => String(v || '').trim().toLowerCase() === profileCity);

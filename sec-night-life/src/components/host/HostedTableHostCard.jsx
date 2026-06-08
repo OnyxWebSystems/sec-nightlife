@@ -37,9 +37,12 @@ export default function HostedTableHostCard({
   photoPreviewUrl,
   childrenPending,
   childrenInvite,
+  isPast = false,
 }) {
-  const badge = hostStatusBadge || TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
-  const isManaging = manageTableId === t.id;
+  const badge = isPast
+    ? { label: 'Past', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' }
+    : hostStatusBadge || TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
+  const isManaging = !isPast && manageTableId === t.id;
 
   return (
     <article
@@ -105,7 +108,7 @@ export default function HostedTableHostCard({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {t.status === 'DRAFT' && (
+          {!isPast && t.status === 'DRAFT' && (
             <button type="button" className="sec-btn sec-btn-primary text-xs py-2 px-3 rounded-xl" onClick={() => onPayListing?.(t.id)}>
               Pay listing & go live
             </button>
@@ -120,7 +123,7 @@ export default function HostedTableHostCard({
               Group chat
             </Link>
           )}
-          {t.status === 'ACTIVE' && (
+          {!isPast && t.status === 'ACTIVE' && (
             <>
               <button
                 type="button"
@@ -158,13 +161,13 @@ export default function HostedTableHostCard({
           )}
         </div>
 
-        {t.status === 'DRAFT' && (
+        {!isPast && t.status === 'DRAFT' && (
           <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
             Not visible until listing payment succeeds. Then your group chat opens and you can invite guests.
           </p>
         )}
 
-        {t.status === 'ACTIVE' && isManaging && (
+        {!isPast && t.status === 'ACTIVE' && isManaging && (
           <div className="rounded-xl border border-[var(--sec-accent-border)] bg-[var(--sec-bg-elevated)] p-4 space-y-4">
             <p className="text-sm font-semibold">Table settings</p>
             <div>
@@ -231,7 +234,7 @@ export default function HostedTableHostCard({
         {childrenInvite}
         {childrenPending}
 
-        {!t.boosted && t.status === 'ACTIVE' ? (
+        {!isPast && !t.boosted && t.status === 'ACTIVE' ? (
           <button type="button" className="sec-btn sec-btn-secondary text-xs w-full py-2.5 rounded-xl" onClick={() => onBoost?.(t.id)}>
             Boost visibility on Home (R200 / 7 days)
           </button>

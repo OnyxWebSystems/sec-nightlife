@@ -65,6 +65,16 @@ const AuthenticatedApp = () => {
           </LayoutWrapper>
         }
       />
+      <Route
+        path="/reset-password"
+        element={
+          <LayoutWrapper currentPageName="ResetPassword">
+            <Suspense fallback={<RoutePageFallback />}>
+              {Pages.ResetPassword ? <Pages.ResetPassword /> : null}
+            </Suspense>
+          </LayoutWrapper>
+        }
+      />
       {Object.entries(Pages)
         .filter(([path]) => path !== 'FeedbackInsights')
         .map(([path, Page]) => (

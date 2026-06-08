@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiGet, apiPost, apiDelete } from '@/api/client';
 import { format, parseISO } from 'date-fns';
@@ -25,6 +25,15 @@ async function copyText(label, value) {
 export default function VenueSecWallet({ venues, onVenuesUpdated }) {
   const [selectedVenueId, setSelectedVenueId] = useState(venues[0]?.id || '');
   const [lookupCode, setLookupCode] = useState('');
+
+  useEffect(() => {
+    if (!venues.length) return;
+    if (!selectedVenueId || !venues.some((v) => v.id === selectedVenueId)) {
+      setSelectedVenueId(venues[0].id);
+    }
+  }, [venues, selectedVenueId]);
+
+  const selectedVenue = venues.find((v) => v.id === selectedVenueId);
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupLoading, setLookupLoading] = useState(false);
 
@@ -85,21 +94,28 @@ export default function VenueSecWallet({ venues, onVenuesUpdated }) {
 
   return (
     <div className="space-y-4">
-      <label className="block">
-        <span className="text-xs text-gray-500">Venue</span>
-        <select
-          value={selectedVenueId}
-          onChange={(e) => {
-            setSelectedVenueId(e.target.value);
-            setLookupResult(null);
-          }}
-          className="w-full mt-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white"
-        >
-          {venues.map((v) => (
-            <option key={v.id} value={v.id}>{v.name}</option>
-          ))}
-        </select>
-      </label>
+      {venues.length > 1 ? (
+        <label className="block">
+          <span className="text-xs text-gray-500">Venue</span>
+          <select
+            value={selectedVenueId}
+            onChange={(e) => {
+              setSelectedVenueId(e.target.value);
+              setLookupResult(null);
+            }}
+            className="w-full mt-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white"
+          >
+            {venues.map((v) => (
+              <option key={v.id} value={v.id}>{v.name}</option>
+            ))}
+          </select>
+        </label>
+      ) : selectedVenue ? (
+        <div>
+          <p className="text-xs text-gray-500">Venue</p>
+          <p className="text-white font-medium mt-1">{selectedVenue.name}</p>
+        </div>
+      ) : null}
 
       {isLoading ? (
         <div className="flex justify-center py-8">

@@ -18,6 +18,7 @@ import {
   validateJobEditForm,
   buildJobPatchBody,
 } from '@/constants/jobPostingForm';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 function compensationText(job) {
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
@@ -166,9 +167,10 @@ export default function BusinessJobs() {
   }
 
   return (
-    <div style={{ padding: 16, maxWidth: 560, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Jobs</h1>
+    <div style={{ maxWidth: 560, margin: '0 auto' }}>
+      <PageBackHeader title="Jobs" subtitle="Manage venue job postings" />
+      <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 12, gap: 12 }}>
         <Link to={createPageUrl('CreateJob')} className="sec-btn sec-btn-primary sec-btn-md" style={{ textDecoration: 'none', flexShrink: 0 }}>
           Post Job
         </Link>
@@ -430,6 +432,7 @@ export default function BusinessJobs() {
           </div>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

@@ -230,21 +230,36 @@ export default function Friends() {
                       key={u.id}
                       className="flex-shrink-0 w-36 rounded-xl bg-[#141416] border border-[#262629] p-3"
                     >
-                      <div className="w-12 h-12 rounded-full bg-[#262629] mx-auto mb-2 overflow-hidden">
-                        {u.avatarUrl ? (
-                          <img src={u.avatarUrl} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-sm">
-                            {(u.username || u.fullName || '?')[0].toUpperCase()}
-                          </div>
+                      <Link
+                        to={`${createPageUrl('UserProfile')}?id=${u.id}`}
+                        className="block text-center"
+                      >
+                        <div className="w-12 h-12 rounded-full bg-[#262629] mx-auto mb-2 overflow-hidden">
+                          {u.avatarUrl ? (
+                            <img src={u.avatarUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-sm">
+                              {(u.username || u.fullName || '?')[0].toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-xs font-medium truncate">{u.fullName || u.username}</p>
+                        <p className="text-[10px] text-gray-500 truncate">@{u.username || 'user'}</p>
+                        {genderLabel(u.gender) && (
+                          <p className="text-[10px] text-gray-500 truncate">{genderLabel(u.gender)}</p>
                         )}
-                      </div>
-                      <p className="text-xs font-medium truncate text-center">{u.fullName || u.username}</p>
-                      <p className="text-[10px] text-gray-500 truncate text-center">@{u.username || 'user'}</p>
-                      {genderLabel(u.gender) && <p className="text-[10px] text-gray-500 truncate text-center">{genderLabel(u.gender)}</p>}
+                      </Link>
                       <Button
                         size="sm"
-                        className="w-full mt-2 min-h-[44px]"
+                        variant="outline"
+                        className="w-full mt-2 min-h-[40px] text-xs"
+                        asChild
+                      >
+                        <Link to={`${createPageUrl('UserProfile')}?id=${u.id}`}>View profile</Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="w-full mt-1 min-h-[44px]"
                         onClick={() => onAddFriend(u.id)}
                         disabled={u.friendshipStatus === 'PENDING_SENT'}
                       >
@@ -289,6 +304,16 @@ export default function Friends() {
                         {f.city && <p className="text-xs text-gray-600">{f.city}</p>}
                       </div>
                       <div className="flex flex-col gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="min-h-[40px]"
+                          onClick={() =>
+                            navigate(`${createPageUrl('UserProfile')}?id=${f.id}`)
+                          }
+                        >
+                          Profile
+                        </Button>
                         {debouncedSearch.trim() && f.friendshipStatus === 'ACCEPTED' && (f.conversationId || friendMeta[f.id]?.conversationId) && (
                           <Button
                             size="sm"
@@ -414,16 +439,24 @@ export default function Friends() {
                   {sent.map((row) => (
                     <li
                       key={row.friendshipId}
-                      className="p-3 rounded-xl bg-[#141416] border border-[#262629] flex items-center justify-between gap-2"
+                      className="p-3 rounded-xl bg-[#141416] border border-[#262629] flex flex-col gap-2"
                     >
-                      <div>
-                        <p className="font-medium">{row.user.fullName}</p>
-                        <p className="text-xs text-gray-500">@{row.user.username}</p>
-                        {genderLabel(row.user.gender) && <p className="text-xs text-gray-600">{genderLabel(row.user.gender)}</p>}
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-medium">{row.user.fullName}</p>
+                          <p className="text-xs text-gray-500">@{row.user.username}</p>
+                          {genderLabel(row.user.gender) && <p className="text-xs text-gray-600">{genderLabel(row.user.gender)}</p>}
+                        </div>
+                        <Button variant="outline" className="min-h-[44px] shrink-0" onClick={() => onCancelRequest(row.friendshipId)}>
+                          Cancel
+                        </Button>
                       </div>
-                      <Button variant="outline" className="min-h-[44px]" onClick={() => onCancelRequest(row.friendshipId)}>
-                        Cancel
-                      </Button>
+                      <Link
+                        to={`${createPageUrl('UserProfile')}?id=${row.user.id}`}
+                        className="text-xs text-[var(--sec-accent)]"
+                      >
+                        View profile
+                      </Link>
                     </li>
                   ))}
                 </ul>

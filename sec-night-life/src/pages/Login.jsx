@@ -122,6 +122,11 @@ export default function Login() {
               placeholder="••••••••"
             />
             <p className="mt-1 text-xs text-gray-500">Tip: avoid accidental spaces before or after your password.</p>
+            <p className="mt-2 text-right">
+              <Link to={createPageUrl('ChangePassword')} className="text-xs text-[var(--sec-accent)] hover:underline">
+                Forgot password?
+              </Link>
+            </p>
           </div>
           <Button type="submit" disabled={loading} className="w-full">
             {loading ? 'Signing in...' : 'Sign In'}

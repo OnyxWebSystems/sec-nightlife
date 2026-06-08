@@ -11,6 +11,7 @@ import { apiGet } from '@/api/client';
 import {
   BookOpen, Users, Search, Loader2, ChevronRight, Eye
 } from 'lucide-react';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 function StatusBadge({ status }) {
   const classMap = {
@@ -124,11 +125,15 @@ export default function BusinessBookings() {
   if (!user) return null;
 
   return (
-    <div style={{ padding: '24px 20px', maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      <PageBackHeader
+        title="Table Bookings"
+        subtitle={`${stats.bookingRows} booking line${stats.bookingRows === 1 ? '' : 's'} in view`}
+      />
+      <div style={{ padding: '16px 20px 24px' }}>
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Table Bookings</h1>
         <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
-          {stats.bookingRows} booking line{stats.bookingRows === 1 ? '' : 's'} in view · SEC hosted tables
+          SEC hosted tables
         </p>
         <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8, maxWidth: 560 }}>
           Showing{' '}
@@ -413,6 +418,7 @@ export default function BusinessBookings() {
           </div>
         )}
       </section>
+      </div>
     </div>
   );
 }

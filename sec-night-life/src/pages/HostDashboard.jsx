@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { createPageUrl, getPublicAppOrigin } from '@/utils';
 import * as authService from '@/services/authService';
@@ -18,6 +18,7 @@ import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { uploadHostedTablePhotoFile } from '@/lib/uploadHostedTablePhoto';
 import HostedTableHostCard from '@/components/host/HostedTableHostCard';
+import { splitHostDashboardTables } from '@/lib/hostTableDashboard';
 const STATUS_BADGE = {
   DRAFT: { label: 'Draft', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
   PENDING_PAYMENT: { label: 'Pending payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
@@ -41,6 +42,7 @@ export default function HostDashboard() {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [tab, setTab] = useState('parties');
+  const [tablesSubTab, setTablesSubTab] = useState('upcoming');
   const [showPartyModal, setShowPartyModal] = useState(false);
   const [showTableModal, setShowTableModal] = useState(false);
   const [partyStep, setPartyStep] = useState(1);
@@ -181,9 +183,14 @@ export default function HostDashboard() {
     enabled: !!user?.id,
   });
 
+  const { upcoming: upcomingTables, past: pastTables } = useMemo(
+    () => splitHostDashboardTables(tables),
+    [tables],
+  );
+
   useEffect(() => {
-    if (searchParams.get('manage') !== '1' || !tables.length) return;
-    const firstInApp = tables.find((t) => t.tableType === 'IN_APP_EVENT' && t.status === 'ACTIVE');
+    if (searchParams.get('manage') !== '1' || !upcomingTables.length) return;
+    const firstInApp = upcomingTables.find((t) => t.tableType === 'IN_APP_EVENT' && t.status === 'ACTIVE');
     if (!firstInApp) return;
     setTab('tables');
     setManageTableId(firstInApp.id);
@@ -198,7 +205,7 @@ export default function HostDashboard() {
       next.delete('manage');
       return next;
     }, { replace: true });
-  }, [searchParams, tables, setSearchParams]);
+  }, [searchParams, upcomingTables, setSearchParams]);
 
   const { data: jobs = [], isLoading: loadJ } = useQuery({
     queryKey: ['host-jobs', user?.id],
@@ -449,6 +456,260 @@ export default function HostDashboard() {
     }
   };
 
+  const renderHostedTableCard = (t, { isPast = false } = {}) => {
+    const loc =
+      t.eventLocation?.displayLabel ||
+      [t.venueAddress, t.venueName].filter(Boolean).join(' · ') ||
+      t.venueName;
+    const hostStatusBadge = TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
+    return (
+      <HostedTableHostCard
+        key={t.id}
+        table={t}
+        isPast={isPast}
+        hostStatusBadge={hostStatusBadge}
+        loc={loc}
+        manageTableId={manageTableId}
+        inviteOpenTableId={inviteOpenTableId}
+        pendingTableId={pendingTableId}
+        rulesForm={rulesForm}
+        setRulesForm={setRulesForm}
+        savingRules={savingRules}
+        photoPreviewUrl={manageTableId === t.id ? rulesPhotoPreview : ''}
+        onPayListing={startRetryListingPayment}
+        onCopyLink={copyHostedTableLink}
+        onBoost={boostTable}
+        onManageToggle={(row) => {
+          const opening = manageTableId !== row.id;
+          setManageTableId(opening ? row.id : null);
+          setRulesPhotoPreview('');
+          if (opening) {
+            setRulesForm({
+              tableName: row.tableName || '',
+              isPublic: row.isPublic !== false,
+              hasJoiningFee: Boolean(row.hasJoiningFee),
+              joiningFee: row.joiningFee ? String(row.joiningFee) : '',
+              photo: row.photo || '',
+              photoPublicId: row.photoPublicId || '',
+            });
+          }
+        }}
+        onInviteToggle={(id) => setInviteOpenTableId((cur) => (cur === id ? null : id))}
+        onReviewToggle={(id) => setPendingTableId((cur) => (cur === id ? null : id))}
+        onPhotoInputChange={manageTablePhotoCrop.handleInputChange}
+        onSaveRules={async (row) => {
+          setSavingRules(true);
+          try {
+            const payload = {
+              ...(rulesForm.photo ? { photo: rulesForm.photo, photoPublicId: rulesForm.photoPublicId || null } : {}),
+            };
+            if (row.tableType === 'IN_APP_EVENT') {
+              Object.assign(payload, {
+                tableName: rulesForm.tableName.trim(),
+                isPublic: rulesForm.isPublic,
+                hasJoiningFee: rulesForm.hasJoiningFee,
+                joiningFee: rulesForm.hasJoiningFee ? Number(rulesForm.joiningFee) || 10 : null,
+              });
+            } else if (rulesForm.photo) {
+              Object.assign(payload, { tableName: rulesForm.tableName.trim() || row.tableName });
+            }
+            await apiPatch(`/api/host/tables/${row.id}`, payload);
+            toast.success('Table settings updated');
+            setRulesPhotoPreview('');
+            queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+            queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+          } catch (err) {
+            toast.error(err?.message || 'Could not save settings');
+          } finally {
+            setSavingRules(false);
+          }
+        }}
+        childrenInvite={
+          !isPast && t.status === 'ACTIVE' && inviteOpenTableId === t.id ? (
+            <div className="mt-3 rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] p-3 space-y-2">
+              <p className="text-[11px] text-[var(--sec-text-muted)]">
+                Search by username or name. Only people with an SEC account receive the in-app invite. Private
+                tables: you can invite anyone registered — they do not need to be friends with you.
+              </p>
+              <Input
+                placeholder="Type at least 2 characters…"
+                value={inviteSearch}
+                onChange={(e) => setInviteSearch(e.target.value)}
+                className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+              />
+              {inviteUserSearchQ.isFetching ? (
+                <p className="text-xs text-[var(--sec-text-muted)] flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Searching…
+                </p>
+              ) : inviteSearch.trim().length >= 2 ? (
+                <ul className="max-h-40 overflow-y-auto space-y-1">
+                  {(inviteUserSearchQ.data || []).length === 0 ? (
+                    <li className="text-xs text-[var(--sec-text-muted)] px-1 py-2">No matches</li>
+                  ) : (
+                    (inviteUserSearchQ.data || []).map((u) => (
+                      <li
+                        key={u.id}
+                        className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--sec-bg-hover)]"
+                      >
+                        <div className="min-w-0 text-sm">
+                          <span className="font-medium text-white">@{u.username || 'user'}</span>
+                          {u.fullName ? (
+                            <span className="text-[var(--sec-text-muted)] text-xs ml-1 truncate">{u.fullName}</span>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="text-[10px] sec-btn sec-btn-primary py-1 px-2 rounded-lg shrink-0"
+                          onClick={async () => {
+                            try {
+                              await apiPost(`/api/host/tables/${t.id}/invite`, { inviteeUserId: u.id });
+                              toast.success('Invite sent');
+                              setInviteOpenTableId(null);
+                              setInviteSearch('');
+                              queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                            } catch (err) {
+                              toast.error(err?.message || 'Could not send invite');
+                            }
+                          }}
+                        >
+                          Invite
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              ) : (
+                <p className="text-[11px] text-[var(--sec-text-muted)]">Enter 2+ characters to search.</p>
+              )}
+            </div>
+          ) : null
+        }
+        childrenPending={
+          !isPast && pendingTableId === t.id ? (
+            <div className="mt-3 space-y-2 border-t border-[var(--sec-border)] pt-3">
+              {pendingLoading ? (
+                <p className="text-xs text-[var(--sec-text-muted)]">Loading…</p>
+              ) : (pendingRequests || []).length === 0 ? (
+                <p className="text-xs text-[var(--sec-text-muted)]">No pending requests.</p>
+              ) : (
+                (pendingRequests || []).map((pr) => (
+                  <div
+                    key={pr.id}
+                    className="flex items-center justify-between gap-2 p-2 rounded-xl bg-[var(--sec-bg-elevated)]"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {pr.user?.avatarUrl ? (
+                        <img src={pr.user.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-[var(--sec-border)] flex items-center justify-center text-xs">
+                          {(pr.user?.username || '?')[0]}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">@{pr.user?.username}</div>
+                        <div className="text-[10px] text-[var(--sec-text-muted)] truncate">{pr.user?.fullName}</div>
+                        {pr.user?.gender && (
+                          <div className="text-[10px] text-[var(--sec-text-muted)] mt-0.5">Gender: {pr.user.gender}</div>
+                        )}
+                        {pr.user?.city && (
+                          <div className="text-[10px] text-[var(--sec-text-muted)]">City: {pr.user.city}</div>
+                        )}
+                        {pr.user?.bio && (
+                          <div className="text-[10px] text-[var(--sec-text-muted)] line-clamp-2 mt-1">{pr.user.bio}</div>
+                        )}
+                        {pr.decisionLabel && (
+                          <div className="text-[10px] text-amber-200/90 mt-1">{pr.decisionLabel}</div>
+                        )}
+                        {(pr.user?.date_of_birth || pr.user?.verification_status) && (
+                          <div className="text-[10px] text-[var(--sec-text-muted)] mt-0.5">
+                            {pr.user?.date_of_birth ? `DOB: ${String(pr.user.date_of_birth).slice(0, 10)}` : ''}
+                            {pr.user?.date_of_birth && pr.user?.verification_status ? ' · ' : ''}
+                            {pr.user?.verification_status ? `ID: ${pr.user.verification_status}` : ''}
+                          </div>
+                        )}
+                        {pr.user?.id && (
+                          <Link
+                            to={createPageUrl(`Profile?id=${pr.user.id}`)}
+                            className="text-[10px] text-[var(--sec-accent)] underline mt-1 inline-block"
+                          >
+                            View profile
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      {pr.reviewStatus === 'pending' && (
+                        <>
+                          <button
+                            type="button"
+                            className="text-xs px-2 py-1.5 rounded-lg bg-[var(--sec-success-muted)] text-black"
+                            onClick={async () => {
+                              try {
+                                await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                  action: 'approve',
+                                });
+                                toast.success('Approved');
+                                queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                                refetchPending();
+                              } catch (e) {
+                                toast.error(e?.message || 'Could not approve');
+                              }
+                            }}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs px-2 py-1.5 rounded-lg border border-[var(--sec-border)]"
+                            onClick={async () => {
+                              try {
+                                await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                  action: 'reject',
+                                });
+                                toast.success('Declined');
+                                queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                                refetchPending();
+                              } catch (e) {
+                                toast.error(e?.message || 'Could not decline');
+                              }
+                            }}
+                          >
+                            Decline
+                          </button>
+                        </>
+                      )}
+                      {pr.reviewStatus === 'awaiting_payment' && (
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1.5 rounded-lg border border-[var(--sec-border)]"
+                          onClick={async () => {
+                            try {
+                              await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                action: 'reject',
+                              });
+                              toast.success('Cancelled');
+                              queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+                              refetchPending();
+                            } catch (e) {
+                              toast.error(e?.message || 'Could not cancel');
+                            }
+                          }}
+                        >
+                          Cancel approval
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : null
+        }
+      />
+    );
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -564,7 +825,8 @@ export default function HostDashboard() {
             <div>
               <h2 className="font-semibold text-lg">My tables</h2>
               <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
-                Each live table has a group chat. Drafts stay off Home and the Tables tab until listing payment succeeds.
+                Live and upcoming tables stay here. After an SEC event ends, or 24 hours after a private meet-up starts,
+                the table moves to Past tables.
               </p>
             </div>
             <button
@@ -575,264 +837,43 @@ export default function HostDashboard() {
               <Plus size={16} /> Host table
             </button>
           </div>
-          {loadT ? <Loader2 className="animate-spin" /> : null}
-          <div className="grid gap-4 xl:grid-cols-2">
-            {tables.map((t) => {
-              const loc =
-                t.eventLocation?.displayLabel ||
-                [t.venueAddress, t.venueName].filter(Boolean).join(' · ') ||
-                t.venueName;
-              const hostStatusBadge = TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
-              return (
-                <HostedTableHostCard
-                  key={t.id}
-                  table={t}
-                  hostStatusBadge={hostStatusBadge}
-                  loc={loc}
-                  manageTableId={manageTableId}
-                  inviteOpenTableId={inviteOpenTableId}
-                  pendingTableId={pendingTableId}
-                  rulesForm={rulesForm}
-                  setRulesForm={setRulesForm}
-                  savingRules={savingRules}
-                  photoPreviewUrl={manageTableId === t.id ? rulesPhotoPreview : ''}
-                  onPayListing={startRetryListingPayment}
-                  onCopyLink={copyHostedTableLink}
-                  onBoost={boostTable}
-                  onManageToggle={(row) => {
-                    const opening = manageTableId !== row.id;
-                    setManageTableId(opening ? row.id : null);
-                    setRulesPhotoPreview('');
-                    if (opening) {
-                      setRulesForm({
-                        tableName: row.tableName || '',
-                        isPublic: row.isPublic !== false,
-                        hasJoiningFee: Boolean(row.hasJoiningFee),
-                        joiningFee: row.joiningFee ? String(row.joiningFee) : '',
-                        photo: row.photo || '',
-                        photoPublicId: row.photoPublicId || '',
-                      });
-                    }
-                  }}
-                  onInviteToggle={(id) => setInviteOpenTableId((cur) => (cur === id ? null : id))}
-                  onReviewToggle={(id) => setPendingTableId((cur) => (cur === id ? null : id))}
-                  onPhotoInputChange={manageTablePhotoCrop.handleInputChange}
-                  onSaveRules={async (row) => {
-                    setSavingRules(true);
-                    try {
-                      const payload = {
-                        ...(rulesForm.photo ? { photo: rulesForm.photo, photoPublicId: rulesForm.photoPublicId || null } : {}),
-                      };
-                      if (row.tableType === 'IN_APP_EVENT') {
-                        Object.assign(payload, {
-                          tableName: rulesForm.tableName.trim(),
-                          isPublic: rulesForm.isPublic,
-                          hasJoiningFee: rulesForm.hasJoiningFee,
-                          joiningFee: rulesForm.hasJoiningFee ? Number(rulesForm.joiningFee) || 10 : null,
-                        });
-                      } else if (rulesForm.photo) {
-                        Object.assign(payload, { tableName: rulesForm.tableName.trim() || row.tableName });
-                      }
-                      await apiPatch(`/api/host/tables/${row.id}`, payload);
-                      toast.success('Table settings updated');
-                      setRulesPhotoPreview('');
-                      queryClient.invalidateQueries({ queryKey: ['host-tables'] });
-                      queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
-                    } catch (err) {
-                      toast.error(err?.message || 'Could not save settings');
-                    } finally {
-                      setSavingRules(false);
-                    }
-                  }}
-                  childrenInvite={
-                    t.status === 'ACTIVE' && inviteOpenTableId === t.id ? (
-                    <div className="mt-3 rounded-xl border border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] p-3 space-y-2">
-                      <p className="text-[11px] text-[var(--sec-text-muted)]">
-                        Search by username or name. Only people with an SEC account receive the in-app invite. Private
-                        tables: you can invite anyone registered — they do not need to be friends with you.
-                      </p>
-                      <Input
-                        placeholder="Type at least 2 characters…"
-                        value={inviteSearch}
-                        onChange={(e) => setInviteSearch(e.target.value)}
-                        className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
-                      />
-                      {inviteUserSearchQ.isFetching ? (
-                        <p className="text-xs text-[var(--sec-text-muted)] flex items-center gap-2">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Searching…
-                        </p>
-                      ) : inviteSearch.trim().length >= 2 ? (
-                        <ul className="max-h-40 overflow-y-auto space-y-1">
-                          {(inviteUserSearchQ.data || []).length === 0 ? (
-                            <li className="text-xs text-[var(--sec-text-muted)] px-1 py-2">No matches</li>
-                          ) : (
-                            (inviteUserSearchQ.data || []).map((u) => (
-                              <li
-                                key={u.id}
-                                className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--sec-bg-hover)]"
-                              >
-                                <div className="min-w-0 text-sm">
-                                  <span className="font-medium text-white">@{u.username || 'user'}</span>
-                                  {u.fullName ? (
-                                    <span className="text-[var(--sec-text-muted)] text-xs ml-1 truncate">{u.fullName}</span>
-                                  ) : null}
-                                </div>
-                                <button
-                                  type="button"
-                                  className="text-[10px] sec-btn sec-btn-primary py-1 px-2 rounded-lg shrink-0"
-                                  onClick={async () => {
-                                    try {
-                                      await apiPost(`/api/host/tables/${t.id}/invite`, { inviteeUserId: u.id });
-                                      toast.success('Invite sent');
-                                      setInviteOpenTableId(null);
-                                      setInviteSearch('');
-                                      queryClient.invalidateQueries({ queryKey: ['host-tables'] });
-                                    } catch (err) {
-                                      toast.error(err?.message || 'Could not send invite');
-                                    }
-                                  }}
-                                >
-                                  Invite
-                                </button>
-                              </li>
-                            ))
-                          )}
-                        </ul>
-                      ) : (
-                        <p className="text-[11px] text-[var(--sec-text-muted)]">Enter 2+ characters to search.</p>
-                      )}
-                    </div>
-                    ) : null
-                  }
-                  childrenPending={
-                    pendingTableId === t.id ? (
-                    <div className="mt-3 space-y-2 border-t border-[var(--sec-border)] pt-3">
-                      {pendingLoading ? (
-                        <p className="text-xs text-[var(--sec-text-muted)]">Loading…</p>
-                      ) : (pendingRequests || []).length === 0 ? (
-                        <p className="text-xs text-[var(--sec-text-muted)]">No pending requests.</p>
-                      ) : (
-                        (pendingRequests || []).map((pr) => (
-                          <div
-                            key={pr.id}
-                            className="flex items-center justify-between gap-2 p-2 rounded-xl bg-[var(--sec-bg-elevated)]"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              {pr.user?.avatarUrl ? (
-                                <img src={pr.user.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
-                              ) : (
-                                <div className="w-9 h-9 rounded-full bg-[var(--sec-border)] flex items-center justify-center text-xs">
-                                  {(pr.user?.username || '?')[0]}
-                                </div>
-                              )}
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium truncate">@{pr.user?.username}</div>
-                                <div className="text-[10px] text-[var(--sec-text-muted)] truncate">{pr.user?.fullName}</div>
-                                {pr.user?.gender && (
-                                  <div className="text-[10px] text-[var(--sec-text-muted)] mt-0.5">Gender: {pr.user.gender}</div>
-                                )}
-                                {pr.user?.city && (
-                                  <div className="text-[10px] text-[var(--sec-text-muted)]">City: {pr.user.city}</div>
-                                )}
-                                {pr.user?.bio && (
-                                  <div className="text-[10px] text-[var(--sec-text-muted)] line-clamp-2 mt-1">{pr.user.bio}</div>
-                                )}
-                                {pr.decisionLabel && (
-                                  <div className="text-[10px] text-amber-200/90 mt-1">{pr.decisionLabel}</div>
-                                )}
-                                {(pr.user?.date_of_birth || pr.user?.verification_status) && (
-                                  <div className="text-[10px] text-[var(--sec-text-muted)] mt-0.5">
-                                    {pr.user?.date_of_birth ? `DOB: ${String(pr.user.date_of_birth).slice(0, 10)}` : ''}
-                                    {pr.user?.date_of_birth && pr.user?.verification_status ? ' · ' : ''}
-                                    {pr.user?.verification_status ? `ID: ${pr.user.verification_status}` : ''}
-                                  </div>
-                                )}
-                                {pr.user?.id && (
-                                  <Link
-                                    to={createPageUrl(`Profile?id=${pr.user.id}`)}
-                                    className="text-[10px] text-[var(--sec-accent)] underline mt-1 inline-block"
-                                  >
-                                    View profile
-                                  </Link>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex gap-1 shrink-0">
-                              {pr.reviewStatus === 'pending' && (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="text-xs px-2 py-1.5 rounded-lg bg-[var(--sec-success-muted)] text-black"
-                                    onClick={async () => {
-                                      try {
-                                        await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
-                                          action: 'approve',
-                                        });
-                                        toast.success('Approved');
-                                        queryClient.invalidateQueries({ queryKey: ['host-tables'] });
-                                        refetchPending();
-                                      } catch (e) {
-                                        toast.error(e?.message || 'Could not approve');
-                                      }
-                                    }}
-                                  >
-                                    Approve
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="text-xs px-2 py-1.5 rounded-lg border border-[var(--sec-border)]"
-                                    onClick={async () => {
-                                      try {
-                                        await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
-                                          action: 'reject',
-                                        });
-                                        toast.success('Declined');
-                                        queryClient.invalidateQueries({ queryKey: ['host-tables'] });
-                                        refetchPending();
-                                      } catch (e) {
-                                        toast.error(e?.message || 'Could not decline');
-                                      }
-                                    }}
-                                  >
-                                    Decline
-                                  </button>
-                                </>
-                              )}
-                              {pr.reviewStatus === 'awaiting_payment' && (
-                                <button
-                                  type="button"
-                                  className="text-xs px-2 py-1.5 rounded-lg border border-[var(--sec-border)]"
-                                  onClick={async () => {
-                                    try {
-                                      await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
-                                        action: 'reject',
-                                      });
-                                      toast.success('Cancelled');
-                                      queryClient.invalidateQueries({ queryKey: ['host-tables'] });
-                                      refetchPending();
-                                    } catch (e) {
-                                      toast.error(e?.message || 'Could not cancel');
-                                    }
-                                  }}
-                                >
-                                  Cancel approval
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    ) : null
-                  }
-                />
-              );
-            })}
-            {tables.length === 0 && !loadT && (
-              <p className="text-sm text-[var(--sec-text-muted)] text-center py-10">No tables yet. Host one to start a group chat.</p>
-            )}
-          </div>
+          {loadT ? <Loader2 className="animate-spin mb-4" /> : null}
+          <Tabs value={tablesSubTab} onValueChange={setTablesSubTab} className="w-full">
+            <TabsList className="w-full bg-[var(--sec-bg-elevated)] p-1 rounded-lg border border-[var(--sec-border)] mb-4">
+              <TabsTrigger
+                value="upcoming"
+                className="flex-1 rounded-md text-xs data-[state=active]:bg-[var(--sec-bg-card)]"
+              >
+                Upcoming tables ({upcomingTables.length})
+              </TabsTrigger>
+              <TabsTrigger
+                value="past"
+                className="flex-1 rounded-md text-xs data-[state=active]:bg-[var(--sec-bg-card)]"
+              >
+                Past tables ({pastTables.length})
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="upcoming">
+              <div className="grid gap-4 xl:grid-cols-2">
+                {upcomingTables.map((t) => renderHostedTableCard(t))}
+                {upcomingTables.length === 0 && !loadT && (
+                  <p className="text-sm text-[var(--sec-text-muted)] text-center py-10 col-span-full">
+                    No upcoming tables. Host one to start a group chat.
+                  </p>
+                )}
+              </div>
+            </TabsContent>
+            <TabsContent value="past">
+              <div className="grid gap-4 xl:grid-cols-2">
+                {pastTables.map((t) => renderHostedTableCard(t, { isPast: true }))}
+                {pastTables.length === 0 && !loadT && (
+                  <p className="text-sm text-[var(--sec-text-muted)] text-center py-10 col-span-full">
+                    No past tables yet. Finished SEC event tables and private meet-ups (after 24 hours) appear here.
+                  </p>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="jobs">

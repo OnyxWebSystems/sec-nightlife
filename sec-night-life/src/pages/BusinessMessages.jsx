@@ -13,6 +13,7 @@ import {
   VENUE_DECLINE_TEMPLATES,
 } from '@/lib/venueTableMessageTemplates';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 export default function BusinessMessages() {
   const navigate = useNavigate();
@@ -113,14 +114,11 @@ export default function BusinessMessages() {
 
   return (
     <div className="sec-page max-w-3xl mx-auto pb-24">
-      <header className="sec-page-header mb-4">
-        <h1 className="sec-page-title flex items-center gap-2">
-          <MessageCircle size={22} /> Business messages
-        </h1>
-        <p className="sec-page-subtitle">
-          Job and promoter threads live here. Review new table requests under Tables &amp; day bookings.
-        </p>
-      </header>
+      <PageBackHeader
+        title="Business messages"
+        subtitle="Job and promoter threads — table requests are under Tables & day bookings"
+      />
+      <div className="px-4 pt-4">
 
       <Tabs
         value={filter}
@@ -296,6 +294,7 @@ export default function BusinessMessages() {
           </div>
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   );
 }
