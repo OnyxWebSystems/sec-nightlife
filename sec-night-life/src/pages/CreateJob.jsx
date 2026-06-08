@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ChevronLeft, Briefcase, Loader2 } from 'lucide-react';
+import { ChevronLeft, Briefcase, Loader2, Star } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { apiPost } from '@/api/client';
 import { JOB_TYPES, COMPENSATION_TYPES, COMPENSATION_PER } from '@/constants/jobPostingForm';
@@ -32,6 +33,7 @@ export default function CreateJob() {
     totalSpots: 1,
     closingDate: '',
     currency: 'ZAR',
+    isPromoterRole: false,
   });
 
   const [errors, setErrors] = useState({
@@ -112,6 +114,7 @@ export default function CreateJob() {
       currency: form.currency || 'ZAR',
       totalSpots: Number(form.totalSpots || 1),
       closingDate: form.closingDate || null,
+      positionRole: form.isPromoterRole ? 'PROMOTER' : 'VENUE_STAFF',
     };
     createMutation.mutate(payload);
   };
@@ -143,6 +146,27 @@ export default function CreateJob() {
       </header>
 
       <div style={{ padding: 20, maxWidth: 480, margin: '0 auto' }}>
+        <div className="sec-card" style={{ padding: 20, marginBottom: 16, borderColor: form.isPromoterRole ? 'var(--sec-accent-border)' : undefined }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Star size={16} style={{ color: form.isPromoterRole ? 'var(--sec-accent)' : 'var(--sec-text-muted)' }} />
+                <h3 style={{ fontSize: 15, fontWeight: 600 }}>Promoter role</h3>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
+                Promoter hires appear in your Promoters inbox, can be assigned events to promote, and earn leaderboard points from referral links.
+              </p>
+            </div>
+            <Switch
+              checked={form.isPromoterRole}
+              onCheckedChange={(v) => setForm((p) => ({
+                ...p,
+                isPromoterRole: v,
+                title: v && !p.title ? 'Event Promoter' : p.title,
+              }))}
+            />
+          </div>
+        </div>
         <div className="sec-card" style={{ padding: 20, marginBottom: 16 }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Job Details</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

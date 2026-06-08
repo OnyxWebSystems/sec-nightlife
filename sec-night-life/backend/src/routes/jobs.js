@@ -22,6 +22,7 @@ const postingSchema = z.object({
   totalSpots: z.number().int().min(1).default(1),
   closingDate: z.coerce.date().optional().nullable(),
   venueId: z.string().min(1),
+  positionRole: z.enum(['PROMOTER', 'VENUE_STAFF']).default('VENUE_STAFF'),
 });
 
 const optionalUrlField = z.preprocess(
@@ -116,9 +117,13 @@ function ownerJobDetailsPath(jobPostingId) {
   return `/JobDetails?id=${jobPostingId}`;
 }
 
-function ownerBusinessMessagesPath(applicationId, hired = false) {
-  const tab = hired ? 'promoters' : 'jobs';
+function ownerBusinessMessagesPath(applicationId, hired = false, isPromoterRole = false) {
+  const tab = hired && isPromoterRole ? 'promoters' : 'jobs';
   return `/BusinessMessages?tab=${tab}&application=${applicationId}`;
+}
+
+function isPromoterJobPosting(jobPosting) {
+  return jobPosting?.positionRole === 'PROMOTER';
 }
 
 function applicantMayMessage(status) {
@@ -149,6 +154,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         currency: payload.currency,
         totalSpots: payload.totalSpots,
         filledSpots: 0,
+        positionRole: payload.positionRole,
         closingDate: payload.closingDate ?? null,
         status: 'OPEN',
       },
@@ -403,29 +409,49 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
           where: { id: application.jobPostingId },
           data: { filledSpots: { increment: 1 } },
         });
-        const profile = await tx.userProfile.findUnique({
-          where: { userId: application.applicant.id },
-          select: { promoterJobsAccepted: true, isPromoterStandard: true },
-        });
-        if (profile) {
-          const nextCount = profile.promoterJobsAccepted + 1;
-          const nextStandard = nextCount >= 20;
-          await tx.userProfile.update({
-            where: { userId: application.applicant.id },
-            data: {
-              promoterJobsAccepted: { increment: 1 },
-              ...(nextStandard ? { isPromoterStandard: true } : {}),
+        if (isPromoterJobPosting(application.jobPosting)) {
+          await tx.venuePromoter.upsert({
+            where: {
+              venueId_promoterUserId: {
+                venueId: application.jobPosting.venueId,
+                promoterUserId: application.applicant.id,
+              },
+            },
+            create: {
+              venueId: application.jobPosting.venueId,
+              promoterUserId: application.applicant.id,
+              jobApplicationId: application.id,
+              status: 'ACTIVE',
+            },
+            update: {
+              jobApplicationId: application.id,
+              status: 'ACTIVE',
+              hiredAt: new Date(),
             },
           });
-          if (!profile.isPromoterStandard && nextStandard) {
-            // TODO: Add Promoter Standard badge to user profile and unlock promoter features when isPromoterStandard = true.
-            await createJobNotification({
-              userId: application.applicant.id,
-              type: 'job_application',
-              title: "You've reached Promoter Standard!",
-              body: "You've been hired for 20 venue promoter jobs.",
-              actionUrl: '/Profile',
+          const profile = await tx.userProfile.findUnique({
+            where: { userId: application.applicant.id },
+            select: { promoterJobsAccepted: true, isPromoterStandard: true },
+          });
+          if (profile) {
+            const nextCount = profile.promoterJobsAccepted + 1;
+            const nextStandard = nextCount >= 20;
+            await tx.userProfile.update({
+              where: { userId: application.applicant.id },
+              data: {
+                promoterJobsAccepted: { increment: 1 },
+                ...(nextStandard ? { isPromoterStandard: true } : {}),
+              },
             });
+            if (!profile.isPromoterStandard && nextStandard) {
+              await createJobNotification({
+                userId: application.applicant.id,
+                type: 'job_application',
+                title: "You've reached Promoter Standard!",
+                body: "You've been hired for 20 venue promoter jobs.",
+                actionUrl: '/Profile',
+              });
+            }
           }
         }
         if (posting.filledSpots >= posting.totalSpots) {
@@ -466,6 +492,10 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
       HIRED: `Congratulations, you've been hired for ${jobTitle} at ${venueName}.`,
     };
     const applicantThreadPath = myApplicationThreadPath(application.id, application.jobPostingId);
+    const isPromoterRole = isPromoterJobPosting(application.jobPosting);
+    const ownerThreadPath = status === 'HIRED'
+      ? ownerBusinessMessagesPath(application.id, true, isPromoterRole)
+      : ownerBusinessMessagesPath(application.id, false, false);
     await createJobNotification({
       userId: application.applicant.id,
       type: 'job_application',
@@ -473,6 +503,22 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
       body: statusBodies[status] || `${jobTitle} at ${venueName}: your application was updated.`,
       actionUrl: applicantThreadPath,
     });
+    if (status === 'HIRED' && isPromoterRole) {
+      await createJobNotification({
+        userId: application.applicant.id,
+        type: 'job_application',
+        title: 'Welcome to the Promoters team!',
+        body: `Accept the Promoter Code of Conduct in Settings to qualify for the leaderboard. ${venueName} can assign you events to promote.`,
+        actionUrl: '/Settings',
+      });
+      await createJobNotification({
+        userId: application.jobPosting.venue.ownerUserId,
+        type: 'job_application',
+        title: 'Promoter hired',
+        body: `${application.applicant.fullName || 'Your new promoter'} is ready in your Promoters inbox.`,
+        actionUrl: ownerThreadPath,
+      });
+    }
 
     if (status === 'HIRED' && becameFilled) {
       // Notify owner
@@ -621,7 +667,11 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
     const recipient = senderIsOwner ? application.applicant : application.jobPosting.venue.owner;
     const recipientActionPath = senderIsOwner
       ? myApplicationThreadPath(application.id, application.jobPostingId)
-      : ownerBusinessMessagesPath(application.id, application.status === 'HIRED');
+      : ownerBusinessMessagesPath(
+        application.id,
+        application.status === 'HIRED',
+        isPromoterJobPosting(application.jobPosting),
+      );
     if (recipient?.email) {
       const appBase = (process.env.APP_URL || '').replace(/\/+$/, '');
       const appUrl = appBase ? `${appBase}${recipientActionPath}` : '';

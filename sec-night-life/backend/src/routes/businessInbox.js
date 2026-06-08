@@ -24,8 +24,10 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
           readAt: null,
           senderUserId: { not: req.userId },
           application: {
-            status: { in: ['SHORTLISTED', 'HIRED'] },
-            jobPosting: { venueId: { in: venueIds } },
+            OR: [
+              { status: 'SHORTLISTED', jobPosting: { venueId: { in: venueIds } } },
+              { status: 'HIRED', jobPosting: { venueId: { in: venueIds }, positionRole: 'PROMOTER' } },
+            ],
           },
         },
       }),
@@ -92,11 +94,11 @@ router.get('/', authenticateToken, async (req, res, next) => {
     if (filter === 'promoters') {
       const apps = await prisma.jobApplication.findMany({
         where: {
-          jobPosting: { venueId: { in: venueIds } },
+          jobPosting: { venueId: { in: venueIds }, positionRole: 'PROMOTER' },
           status: 'HIRED',
         },
         include: {
-          jobPosting: { select: { id: true, title: true, jobType: true } },
+          jobPosting: { select: { id: true, title: true, jobType: true, venueId: true } },
           applicant: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
           messages: { orderBy: { sentAt: 'desc' }, take: 1 },
         },
@@ -111,6 +113,8 @@ router.get('/', authenticateToken, async (req, res, next) => {
           status: app.status,
           title: app.jobPosting.title,
           subtitle: app.applicant.userProfile?.username || app.applicant.fullName || 'Promoter',
+          applicantUserId: app.applicant.id,
+          venueId: app.jobPosting.venueId,
           body: last?.body || null,
           referenceId: app.jobPostingId,
           applicationId: app.id,

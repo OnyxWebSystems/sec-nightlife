@@ -34,6 +34,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { getSettingsLegalNavItems } from '@/legal/legalNavItems';
+import { useQuery } from '@tanstack/react-query';
+import { Star } from 'lucide-react';
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -75,6 +77,12 @@ export default function Settings() {
   };
 
   const languageLabel = language === 'en' ? 'English' : language;
+
+  const { data: promoterStatus } = useQuery({
+    queryKey: ['promoter-me-status'],
+    queryFn: () => dataService.Promoters.myStatus(),
+    enabled: !!user,
+  });
 
   const handleDeleteAccount = async () => {
     setDeleting(true);
@@ -149,6 +157,29 @@ export default function Settings() {
       </header>
 
       <div className="px-4 lg:px-8 py-6 space-y-6">
+        {promoterStatus?.isHiredPromoter && !promoterStatus?.hasAcceptedCodeOfConduct ? (
+          <Link
+            to={createPageUrl('PromoterCodeOfConduct')}
+            className="block p-4 rounded-xl border"
+            style={{
+              backgroundColor: 'rgba(234, 179, 8, 0.12)',
+              borderColor: 'rgba(234, 179, 8, 0.35)',
+              textDecoration: 'none',
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <Star size={18} style={{ color: 'var(--sec-accent)', marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <p style={{ fontWeight: 600, color: 'var(--sec-text-primary)', fontSize: 14, marginBottom: 4 }}>
+                  Accept the Promoter Code of Conduct
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
+                  You were hired as a promoter. Accept the code of conduct to qualify for the leaderboard and verified promoter status.
+                </p>
+              </div>
+            </div>
+          </Link>
+        ) : null}
         {/* Profile Summary — SEC logo colors: black + metallic silver */}
         <Link
           to={createPageUrl('Profile')}

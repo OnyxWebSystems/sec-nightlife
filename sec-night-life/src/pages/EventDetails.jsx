@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { createPageUrl, storePromoterRef } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPatch } from '@/api/client';
@@ -26,9 +26,11 @@ export default function EventDetails() {
   const [isInterested, setIsInterested] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState(null);
+  const [promoterBanner, setPromoterBanner] = useState(null);
 
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
+  const refPromoterId = urlParams.get('ref');
 
   useEffect(() => {
     loadUser();
@@ -72,6 +74,22 @@ export default function EventDetails() {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
+
+  useEffect(() => {
+    if (!eventId || !refPromoterId) return;
+    (async () => {
+      try {
+        const assigned = await apiGet(`/api/events/${eventId}/promoters`);
+        const match = (assigned?.data || []).find((p) => p.promoterUserId === refPromoterId);
+        if (match) {
+          storePromoterRef(eventId, refPromoterId);
+          setPromoterBanner(match);
+        }
+      } catch {
+        /* ignore invalid ref */
+      }
+    })();
+  }, [eventId, refPromoterId]);
 
   const { data: venue } = useQuery({
     queryKey: ['venue', event?.venue_id],
@@ -286,6 +304,26 @@ export default function EventDetails() {
 
         {/* Title + venue */}
         <div style={{ marginBottom: 20 }}>
+          {promoterBanner ? (
+            <div
+              className="sec-card"
+              style={{
+                padding: '10px 14px',
+                marginBottom: 12,
+                fontSize: 13,
+                color: 'var(--sec-text-muted)',
+                borderColor: 'var(--sec-accent-border)',
+              }}
+            >
+              Promoted by{' '}
+              <Link
+                to={createPageUrl(`Profile?id=${promoterBanner.promoterUserId}`)}
+                style={{ color: 'var(--sec-accent)', fontWeight: 600, textDecoration: 'none' }}
+              >
+                @{promoterBanner.username || promoterBanner.fullName || 'promoter'}
+              </Link>
+            </div>
+          ) : null}
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, letterSpacing: '-0.02em', color: 'var(--sec-text-primary)' }}>
             {event.title}
           </h1>

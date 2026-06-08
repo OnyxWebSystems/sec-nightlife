@@ -3,11 +3,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiDelete } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, UserPlus, MessageCircle, Ban } from 'lucide-react';
+import { ChevronLeft, UserPlus, UserCheck, MessageCircle, Ban, BadgeCheck } from 'lucide-react';
+import { dataService } from '@/services/dataService';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
 import UserProfileReviewsSection from '@/components/reviews/UserProfileReviewsSection';
+import { StarRatingDisplay } from '@/components/reviews/StarRating';
 import ReportDialog from '@/components/moderation/ReportDialog';
 import TableHistorySection from '@/components/profile/TableHistorySection';
 
@@ -23,6 +25,13 @@ export default function UserProfile() {
   });
 
   const isSelf = profile?.isSelf;
+  const isVerifiedPromoter = !!profile?.is_verified_promoter;
+
+  const { data: promoterFollowStatus } = useQuery({
+    queryKey: ['promoter-follow-status', userId],
+    queryFn: () => dataService.Promoters.followingStatus(userId),
+    enabled: !!userId && !isSelf && isVerifiedPromoter,
+  });
 
   const onAddFriend = async () => {
     try {
@@ -117,8 +126,18 @@ export default function UserProfile() {
             </div>
           )}
         </div>
-        <h2 className="text-xl font-bold">{profile.fullName || profile.username}</h2>
+        <h2 className="text-xl font-bold flex items-center justify-center gap-2">
+          {profile.fullName || profile.username}
+          {isVerifiedPromoter ? <BadgeCheck className="w-5 h-5 text-[var(--sec-accent)]" /> : null}
+        </h2>
         <p className="text-gray-500 text-sm">@{profile.username || 'user'}</p>
+        {profile.reviewCount > 0 && (
+          <div className="flex items-center justify-center gap-2 mt-2">
+            <StarRatingDisplay value={profile.reviewAverage} size={16} />
+            <span className="text-sm font-medium">{Number(profile.reviewAverage).toFixed(1)}</span>
+            <span className="text-xs text-gray-500">({profile.reviewCount} reviews)</span>
+          </div>
+        )}
         {genderLabel && <p className="text-sm text-gray-400 mt-1">{genderLabel}</p>}
         {profile.city && <p className="text-sm text-gray-400 mt-1">{profile.city}</p>}
         <p className="text-sm mt-3 text-left w-full text-gray-300">{profile.bio || ''}</p>
@@ -127,6 +146,32 @@ export default function UserProfile() {
 
         {!isSelf && (
           <div className="w-full mt-6 space-y-2">
+            {isVerifiedPromoter ? (
+              <Button
+                variant={promoterFollowStatus?.following ? 'outline' : 'default'}
+                className="w-full min-h-[44px]"
+                onClick={async () => {
+                  try {
+                    if (promoterFollowStatus?.following) {
+                      await dataService.Promoters.unfollow(userId);
+                      toast.success('Unfollowed promoter');
+                    } else {
+                      await dataService.Promoters.follow(userId);
+                      toast.success('Following promoter');
+                    }
+                    queryClient.invalidateQueries({ queryKey: ['promoter-follow-status', userId] });
+                  } catch (e) {
+                    toast.error(e?.data?.error || 'Could not update follow');
+                  }
+                }}
+              >
+                {promoterFollowStatus?.following ? (
+                  <><UserCheck className="w-4 h-4 mr-2" />Following</>
+                ) : (
+                  <><UserPlus className="w-4 h-4 mr-2" />Follow promoter</>
+                )}
+              </Button>
+            ) : null}
             {st === 'NONE' && (
               <Button className="w-full min-h-[44px]" onClick={onAddFriend}>
                 <UserPlus className="w-4 h-4 mr-2" />

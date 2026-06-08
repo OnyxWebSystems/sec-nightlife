@@ -117,6 +117,28 @@ enum ApplicationStatus {
   HIRED
 }
 
+enum PositionRole {
+  PROMOTER
+  VENUE_STAFF
+}
+
+enum VenuePromoterStatus {
+  ACTIVE
+  RELEASED
+}
+
+enum EventPromoterAssignmentStatus {
+  ACTIVE
+  COMPLETED
+  REVOKED
+}
+
+enum PromoterConversionType {
+  TICKET_PURCHASE
+  TABLE_HOST
+  TABLE_JOIN
+}
+
 enum PromotionType {
   VENUE_PROMOTION
   EVENT_PROMOTION
@@ -158,6 +180,7 @@ enum NotificationType {
   TABLE_INVITE
   IDENTITY_VERIFICATION_REMINDER
   EVENT_INTEREST_REMINDER
+  PROMOTER_EVENT_ASSIGNED
 }
 
 enum LegalDocumentType {
@@ -344,6 +367,8 @@ model User {
   friendActivities            FriendActivity[]
   reviewsGiven                UserReview[]               @relation("ReviewsGiven")
   reviewsReceived             UserReview[]               @relation("ReviewsReceived")
+  venueUserReviewsAuthored    VenueUserReview[]          @relation("VenueUserReviewsAuthored")
+  venueUserReviewsReceived    VenueUserReview[]          @relation("VenueUserReviewsReceived")
   venueReviewsGiven           VenueReview[]              @relation("VenueReviewsGiven")
   venueFollows                VenueFollow[]
   legalAcceptances            LegalDocumentAcceptance[]
@@ -358,6 +383,11 @@ model User {
   tableHistoryEntries         UserTableHistory[]
   secWallet                   SecWallet?                 @relation("UserSecWallet")
   walletLookupsAsTarget       WalletLookupLog[]          @relation("WalletLookupTarget")
+  venuePromoterRoster         VenuePromoter[]            @relation("VenuePromoterUser")
+  eventPromoterAssignments    EventPromoterAssignment[]  @relation("EventPromoterUser")
+  eventPromoterAssignmentsBy  EventPromoterAssignment[]  @relation("EventPromoterAssignedBy")
+  promoterConversions         PromoterConversion[]       @relation("PromoterConversionUser")
+  promoterConversionsAsBuyer  PromoterConversion[]       @relation("PromoterConversionBuyer")
 
   @@unique([email, role])
   @@index([email])
@@ -506,6 +536,7 @@ model Venue {
   jobPostings         JobPosting[]
   promotedPosts       Promotion[]
   reviews             VenueReview[]
+  userReviewsGiven    VenueUserReview[]
   blockedUsers        VenueBlockedUser[]
   popularity          VenuePopularity[]
   complianceDocuments ComplianceDocument[]
@@ -517,6 +548,7 @@ model Venue {
   secWallet           SecWallet?         @relation("VenueSecWallet")
   walletRecipients    WalletRecipient[]
   walletLookupLogs    WalletLookupLog[]  @relation("WalletLookupVenue")
+  venuePromoters      VenuePromoter[]
 
   @@index([ownerUserId])
   @@index([city])
@@ -666,6 +698,30 @@ model VenueReview {
   @@map("venue_reviews")
 }
 
+model VenueUserReview {
+  id            String    @id @default(cuid())
+  venueId       String    @map("venue_id")
+  subjectUserId String    @map("subject_user_id")
+  authorUserId  String    @map("author_user_id")
+  rating        Int
+  comment       String    @db.Text
+  flagged       Boolean   @default(false)
+  flagReason    String?   @map("flag_reason") @db.Text
+  flaggedAt     DateTime? @map("flagged_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  venue   Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  subject User  @relation("VenueUserReviewsReceived", fields: [subjectUserId], references: [id], onDelete: Cascade)
+  author  User  @relation("VenueUserReviewsAuthored", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, subjectUserId])
+  @@index([subjectUserId])
+  @@index([authorUserId])
+  @@index([flagged])
+  @@map("venue_user_reviews")
+}
+
 model VenueBlockedUser {
   id        String   @id @default(uuid())
   venueId   String   @map("venue_id")
@@ -723,6 +779,8 @@ model Event {
   userReviews   UserReview[]
   eventInterestRemindersSent EventInterestReminderSent[]
   eventVenueTableBookings    EventVenueTableBooking[]
+  promoterAssignments        EventPromoterAssignment[]
+  promoterConversions        PromoterConversion[]
 
   @@index([venueId])
   @@index([date])
@@ -830,6 +888,7 @@ model JobPosting {
   currency           String           @default("ZAR")
   totalSpots         Int              @default(1) @map("total_spots")
   filledSpots        Int              @default(0) @map("filled_spots")
+  positionRole       PositionRole     @default(VENUE_STAFF) @map("position_role")
   closingDate        DateTime?        @map("closing_date")
   status             JobStatus        @default(OPEN)
   createdAt          DateTime         @default(now()) @map("created_at")
@@ -842,7 +901,66 @@ model JobPosting {
   @@index([venueId])
   @@index([status])
   @@index([createdAt])
+  @@index([positionRole])
   @@map("job_postings")
+}
+
+model VenuePromoter {
+  id              String              @id @default(cuid())
+  venueId         String              @map("venue_id")
+  promoterUserId  String              @map("promoter_user_id")
+  jobApplicationId String?            @map("job_application_id")
+  hiredAt         DateTime            @default(now()) @map("hired_at")
+  status          VenuePromoterStatus @default(ACTIVE)
+
+  venue          Venue           @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  promoter       User            @relation("VenuePromoterUser", fields: [promoterUserId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, promoterUserId])
+  @@index([venueId, status])
+  @@index([promoterUserId])
+  @@map("venue_promoters")
+}
+
+model EventPromoterAssignment {
+  id               String                        @id @default(cuid())
+  eventId          String                        @map("event_id")
+  promoterUserId   String                        @map("promoter_user_id")
+  venueId          String                        @map("venue_id")
+  assignedByUserId String                        @map("assigned_by_user_id")
+  assignedAt       DateTime                      @default(now()) @map("assigned_at")
+  status           EventPromoterAssignmentStatus @default(ACTIVE)
+
+  event        Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  promoter     User  @relation("EventPromoterUser", fields: [promoterUserId], references: [id], onDelete: Cascade)
+  assignedBy   User  @relation("EventPromoterAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, promoterUserId])
+  @@index([eventId, status])
+  @@index([promoterUserId, status])
+  @@index([venueId])
+  @@map("event_promoter_assignments")
+}
+
+model PromoterConversion {
+  id                String                 @id @default(cuid())
+  eventId           String                 @map("event_id")
+  promoterUserId    String                 @map("promoter_user_id")
+  conversionType    PromoterConversionType @map("conversion_type")
+  buyerUserId       String                 @map("buyer_user_id")
+  amountZar         Float?                 @map("amount_zar")
+  pointsAwarded     Int                    @map("points_awarded")
+  paystackReference String?                @map("paystack_reference")
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  event    Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  promoter User  @relation("PromoterConversionUser", fields: [promoterUserId], references: [id], onDelete: Cascade)
+  buyer    User  @relation("PromoterConversionBuyer", fields: [buyerUserId], references: [id], onDelete: Cascade)
+
+  @@index([promoterUserId, createdAt])
+  @@index([eventId])
+  @@index([paystackReference])
+  @@map("promoter_conversions")
 }
 
 model JobApplication {
@@ -1116,11 +1234,13 @@ model Ticket {
   hiddenFromHistoryAt DateTime? @map("hidden_from_history_at")
   admittedAt          DateTime? @map("admitted_at")
   admittedByUserId    String?   @map("admitted_by_user_id")
+  promoterUserId      String?   @map("promoter_user_id")
 
   user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   admittedBy User? @relation("TicketAdmittedBy", fields: [admittedByUserId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([promoterUserId])
   @@index([visibleUntil])
   @@index([eventStartsAt])
   @@index([admittedAt])
@@ -1460,6 +1580,7 @@ model EventVenueTableBooking {
   platformFeeZar    Float?   @map("platform_fee_zar")
   settlementMode    String?  @map("settlement_mode")
   declineReason     String?  @map("decline_reason") @db.Text
+  promoterUserId    String?  @map("promoter_user_id")
   createdAt         DateTime @default(now()) @map("created_at")
 
   venue       Venue       @relation(fields: [venueId], references: [id], onDelete: Cascade)
@@ -1471,6 +1592,7 @@ model EventVenueTableBooking {
   @@index([eventId])
   @@index([hostedTableId])
   @@index([userId])
+  @@index([promoterUserId])
   @@map("event_venue_table_bookings")
 }
 
@@ -1767,7 +1889,7 @@ model UserReview {
   id            String    @id @default(cuid())
   reviewerId    String    @map("reviewer_id")
   subjectUserId String    @map("subject_user_id")
-  eventId       String    @map("event_id")
+  eventId       String?   @map("event_id")
   tableId       String?   @map("table_id")
   rating        Int
   comment       String    @db.Text
@@ -1779,10 +1901,10 @@ model UserReview {
 
   reviewer User   @relation("ReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
   subject  User   @relation("ReviewsReceived", fields: [subjectUserId], references: [id], onDelete: Cascade)
-  event    Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event    Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
   table    Table? @relation(fields: [tableId], references: [id], onDelete: SetNull)
 
-  @@unique([reviewerId, subjectUserId, eventId])
+  @@unique([reviewerId, subjectUserId])
   @@index([subjectUserId])
   @@index([reviewerId])
   @@index([flagged])

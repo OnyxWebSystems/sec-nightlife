@@ -620,7 +620,9 @@ export default function AdminDashboard() {
             : ['promoters', 'compliance-documents']
           ).map((t) => {
             const flaggedCount =
-              (flaggedReviews.userReviews?.length || 0) + (flaggedReviews.venueReviews?.length || 0);
+              (flaggedReviews.userReviews?.length || 0)
+              + (flaggedReviews.venueReviews?.length || 0)
+              + (flaggedReviews.venueUserReviews?.length || 0);
             return (
               <button
                 key={t}
@@ -1038,7 +1040,9 @@ export default function AdminDashboard() {
         {tab === 'flagged-reviews' && (
           <div className="space-y-6">
             <h3 className="font-semibold">Flagged reviews</h3>
-            {flaggedReviews.userReviews?.length === 0 && flaggedReviews.venueReviews?.length === 0 ? (
+            {flaggedReviews.userReviews?.length === 0
+              && flaggedReviews.venueReviews?.length === 0
+              && flaggedReviews.venueUserReviews?.length === 0 ? (
               <p className="text-sm text-[var(--sec-text-muted)]">No flagged reviews at this time.</p>
             ) : (
               <>
@@ -1095,7 +1099,7 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-[var(--sec-text-muted)] mb-2">Venue reviews</h4>
+                  <h4 className="text-sm font-medium text-[var(--sec-text-muted)] mb-2">Venue reviews (user → venue)</h4>
                   <div className="space-y-3">
                     {(flaggedReviews.venueReviews || []).length === 0 ? (
                       <p className="text-xs text-[var(--sec-text-muted)]">None</p>
@@ -1133,6 +1137,54 @@ export default function AdminDashboard() {
                               className="min-h-[44px] flex-1 border-red-500/40 text-red-400"
                               disabled={actionLoading === `remove-${r.id}`}
                               onClick={() => handleRemoveFlagged('venue', r.id)}
+                            >
+                              Remove Review
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-[var(--sec-text-muted)] mb-2">Venue reviews (venue → user)</h4>
+                  <div className="space-y-3">
+                    {(flaggedReviews.venueUserReviews || []).length === 0 ? (
+                      <p className="text-xs text-[var(--sec-text-muted)]">None</p>
+                    ) : (
+                      flaggedReviews.venueUserReviews.map((r) => (
+                        <div
+                          key={r.id}
+                          className="p-4 rounded-xl bg-[#141416] border border-[#262629] space-y-2"
+                        >
+                          <p className="text-sm">
+                            <span className="font-medium">{r.venue?.name}</span>
+                            {' → '}
+                            <span className="font-medium">{r.subject?.fullName || r.subject?.username}</span>
+                            <span className="text-[var(--sec-text-muted)]"> @{r.subject?.username}</span>
+                          </p>
+                          <p className="text-sm">Rating: {r.rating}/5</p>
+                          <p className="text-sm text-gray-300 whitespace-pre-wrap">{r.comment}</p>
+                          <p className="text-xs text-amber-500">Flag: {r.flagReason}</p>
+                          <p className="text-xs text-[var(--sec-text-muted)]">
+                            {r.flaggedAt ? new Date(r.flaggedAt).toLocaleString() : ''}
+                          </p>
+                          <div className="flex gap-2 pt-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="min-h-[44px] flex-1"
+                              disabled={actionLoading === `dismiss-${r.id}`}
+                              onClick={() => handleDismissFlagged('venue_user', r.id)}
+                            >
+                              Dismiss Flag
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="min-h-[44px] flex-1 border-red-500/40 text-red-400"
+                              disabled={actionLoading === `remove-${r.id}`}
+                              onClick={() => handleRemoveFlagged('venue_user', r.id)}
                             >
                               Remove Review
                             </Button>

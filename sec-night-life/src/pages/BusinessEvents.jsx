@@ -15,7 +15,7 @@ import {
   Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiGet, uploadFile } from '@/api/client';
+import { apiGet, apiPut, uploadFile } from '@/api/client';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { tierFeeTogglesFromTier, resolveTierFeesForSave } from '@/lib/tierBookingFees';
@@ -113,6 +113,7 @@ export default function BusinessEvents() {
   const [deleteId, setDeleteId] = useState(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [createMode, setCreateMode] = useState('tables');
+  const [selectedPromoterIds, setSelectedPromoterIds] = useState([]);
 
   const coverCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -161,12 +162,25 @@ export default function BusinessEvents() {
     enabled: !!venue,
   });
 
+  const { data: venuePromoters = [] } = useQuery({
+    queryKey: ['venue-promoters', venue?.id],
+    queryFn: () => apiGet(`/api/events/venue/${venue.id}/promoters`).then((r) => r?.data || []),
+    enabled: !!venue?.id,
+  });
+
   const saveMutation = useMutation({
     mutationFn: async (data) => {
+      let saved;
       if (editingEvent) {
-        return dataService.Event.update(editingEvent.id, data);
+        saved = await dataService.Event.update(editingEvent.id, data);
+      } else {
+        saved = await dataService.Event.create({ ...data, venue_id: venue.id });
       }
-      return dataService.Event.create({ ...data, venue_id: venue.id });
+      const eventId = editingEvent?.id || saved?.id;
+      if (eventId && selectedPromoterIds.length >= 0) {
+        await apiPut(`/api/events/${eventId}/promoters`, { promoterUserIds: selectedPromoterIds });
+      }
+      return saved;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['biz-events'] });
@@ -190,10 +204,11 @@ export default function BusinessEvents() {
     setEditingEvent(null);
     setCreateMode('tables');
     setForm({ ...EMPTY_EVENT });
+    setSelectedPromoterIds([]);
     setDialogOpen(true);
   };
 
-  const openEdit = (evt) => {
+  const openEdit = async (evt) => {
     if (isEventEnded(evt)) {
       toast.error('Past events cannot be edited. View or delete only.');
       return;
@@ -222,6 +237,12 @@ export default function BusinessEvents() {
       allows_ticket_menu_addons: Boolean(evt.allows_ticket_menu_addons),
     });
     setCreateMode(evt.event_format === 'TICKETING_ONLY' ? 'ticketing' : 'tables');
+    try {
+      const assigned = await apiGet(`/api/events/${evt.id}/promoters`);
+      setSelectedPromoterIds((assigned?.data || []).map((p) => p.promoterUserId));
+    } catch {
+      setSelectedPromoterIds([]);
+    }
     setDialogOpen(true);
   };
 
@@ -229,6 +250,15 @@ export default function BusinessEvents() {
     setDialogOpen(false);
     setEditingEvent(null);
     setForm({ ...EMPTY_EVENT });
+    setSelectedPromoterIds([]);
+  };
+
+  const togglePromoter = (promoterUserId) => {
+    setSelectedPromoterIds((prev) =>
+      prev.includes(promoterUserId)
+        ? prev.filter((id) => id !== promoterUserId)
+        : [...prev, promoterUserId],
+    );
   };
 
   const handleSave = () => {
@@ -1267,6 +1297,33 @@ export default function BusinessEvents() {
                 onChange={coverCrop.handleInputChange}
               />
               <p className="text-xs text-gray-500 mt-1">Upload a file (required to publish).</p>
+            </div>
+            <div>
+              <Label className="text-gray-400 text-sm">Assign promoters</Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                Choose hired promoters to promote this event with their personal referral links.
+              </p>
+              {venuePromoters.length === 0 ? (
+                <p className="text-xs text-gray-500 p-3 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
+                  Hire promoters from Jobs first — they will appear here.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2 max-h-40 overflow-y-auto">
+                  {venuePromoters.map((p) => (
+                    <label
+                      key={p.promoterUserId}
+                      className="flex items-center gap-3 p-2 rounded-xl cursor-pointer"
+                      style={{ backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}
+                    >
+                      <Checkbox
+                        checked={selectedPromoterIds.includes(p.promoterUserId)}
+                        onCheckedChange={() => togglePromoter(p.promoterUserId)}
+                      />
+                      <span className="text-sm">{p.username || p.fullName || 'Promoter'}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <Label className="text-gray-400 text-sm">Status</Label>

@@ -48,6 +48,21 @@ import {
   buildHostedTableHostTicketSummary,
 } from '../lib/ticketMemberSummary.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
+import { promoterUserIdFromMetadata, recordPromoterConversion } from '../lib/promoterAttribution.js';
+
+async function applyPromoterAttribution({ metadata, eventId, buyerUserId, conversionType, amountZar, reference, quantity = 1 }) {
+  const promoterUserId = promoterUserIdFromMetadata(metadata);
+  if (!promoterUserId || !eventId || !buyerUserId) return null;
+  return recordPromoterConversion({
+    eventId,
+    promoterUserId,
+    conversionType,
+    buyerUserId: String(buyerUserId),
+    amountZar,
+    paystackReference: reference,
+    quantity,
+  });
+}
 
 function parseTicketMenuItems(meta) {
   const raw = meta?.selected_menu_items;
@@ -787,6 +802,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
             minSpendPrepaidZar: minSpendZar,
             settlementMode,
           });
+          const hostPromoterId = promoterUserIdFromMetadata(metadata);
           await issueTicketAndNotify(prisma, {
             userId: String(userId),
             email: payer?.email || email,
@@ -802,6 +818,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
             tableSpecsSummary: hostTicketSummary,
             eventStartsAt,
             eventEndsAt,
+            promoterUserId: hostPromoterId,
           });
           await notifyPaymentSuccess({
             userId: String(userId),
@@ -828,6 +845,15 @@ async function applyReferenceSideEffects(reference, paystackData) {
               hostingTierName: metadata.hosting_tier_name || tierIncludedItems?.tier_name || null,
               hostingCategory: metadata.hosting_category || hosted.hostingCategory || null,
               menuTotalZar: menuZar || null,
+              promoterUserId: hostPromoterId,
+            });
+            await applyPromoterAttribution({
+              metadata,
+              eventId: hosted.eventId,
+              buyerUserId: userId,
+              conversionType: 'TABLE_HOST',
+              amountZar: totalZar,
+              reference,
             });
           }
           await refreshHostedTableTickets(prisma, hosted.id);
@@ -1179,6 +1205,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
               entranceZar,
               joinZar,
             });
+            const joinPromoterId = promoterUserIdFromMetadata(metadata);
             await issueTicketAndNotify(prisma, {
               userId: String(userId),
               email: payer?.email || email,
@@ -1188,11 +1215,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
               subtitle: htFinal.venueName,
               visibleUntil: vis,
               hostedTableId: htFinal.id,
+              eventId: htEvent?.id || null,
               quantity: 1,
               holderDisplayName: holderDisplayNameFromUser(payer),
               tableSpecsSummary: joinSummary,
               eventStartsAt,
               eventEndsAt,
+              promoterUserId: joinPromoterId,
             });
             if (htEvent?.venueId && htEvent?.id) {
               await recordEventVenueTableBooking({
@@ -1205,6 +1234,15 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 amountTotal: Number(amount || 0),
                 entranceZar,
                 componentZar: joinZar,
+                promoterUserId: joinPromoterId,
+              });
+              await applyPromoterAttribution({
+                metadata,
+                eventId: htEvent.id,
+                buyerUserId: userId,
+                conversionType: 'TABLE_JOIN',
+                amountZar: amount,
+                reference,
               });
             }
             const payerName = payer?.fullName || payer?.username || 'A guest';
@@ -1453,6 +1491,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           holderNames = [];
         }
         const menuItems = parseTicketMenuItems(metadata);
+        const ticketPromoterId = promoterUserIdFromMetadata(metadata);
         const locParts = [
           event.locationAddress || event.venue?.address,
           event.locationCity || event.city,
@@ -1489,8 +1528,18 @@ async function applyReferenceSideEffects(reference, paystackData) {
             tableSpecsSummary: filteredSummary.join('\n'),
             eventStartsAt,
             eventEndsAt,
+            promoterUserId: ticketPromoterId,
           });
         }
+        await applyPromoterAttribution({
+          metadata,
+          eventId,
+          buyerUserId: userId,
+          conversionType: 'TICKET_PURCHASE',
+          amountZar: amount,
+          reference,
+          quantity: qty,
+        });
       }
     }
   }

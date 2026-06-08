@@ -34,6 +34,7 @@ export async function issueTicketAndNotify(db, params) {
     tableSpecsSummary = null,
     eventStartsAt: eventStartsAtParam = null,
     eventEndsAt: eventEndsAtParam = null,
+    promoterUserId = null,
   } = params;
 
   const existing = await db.ticket.findUnique({
@@ -90,6 +91,7 @@ export async function issueTicketAndNotify(db, params) {
       holderDisplayName,
       tableSpecsSummary: tableSpecsSummary ?? null,
       eventStartsAt,
+      promoterUserId: promoterUserId || null,
     },
   });
 

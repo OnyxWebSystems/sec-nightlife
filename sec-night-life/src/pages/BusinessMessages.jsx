@@ -55,6 +55,15 @@ export default function BusinessMessages() {
     [items, selectedJobAppId],
   );
 
+  const { data: promoterAssignments = [] } = useQuery({
+    queryKey: ['promoter-assignments-inbox', selectedJobItem?.venueId, selectedJobItem?.applicantUserId],
+    queryFn: () =>
+      apiGet(
+        `/api/events/venue/${selectedJobItem.venueId}/promoter/${selectedJobItem.applicantUserId}/assignments`,
+      ).then((r) => r?.data || []),
+    enabled: filter === 'promoters' && !!selectedJobItem?.venueId && !!selectedJobItem?.applicantUserId,
+  });
+
   const { data: jobMessages = [], refetch: refetchJobMessages, isSuccess: jobMessagesLoaded } = useQuery({
     queryKey: ['job-messages', selectedJobAppId],
     queryFn: () => apiGet(`/api/jobs/applications/${selectedJobAppId}/messages`),
@@ -265,6 +274,25 @@ export default function BusinessMessages() {
               ) : (
                 <>
                   <h3 className="font-semibold mb-3">{selectedJobItem?.title || 'Messages'}</h3>
+                  {filter === 'promoters' ? (
+                    <div className="mb-4 p-3 rounded-lg border border-[var(--sec-border)]" style={{ background: 'var(--sec-bg-elevated)' }}>
+                      <p className="text-xs font-semibold mb-2">Assigned events</p>
+                      {promoterAssignments.length === 0 ? (
+                        <p className="text-xs text-[var(--sec-text-muted)]">
+                          No events assigned yet. Assign in{' '}
+                          <button type="button" className="text-[var(--sec-accent)] underline" onClick={() => navigate(createPageUrl('BusinessEvents'))}>
+                            Events Manager
+                          </button>.
+                        </p>
+                      ) : (
+                        <ul className="text-xs space-y-1">
+                          {promoterAssignments.map((a) => (
+                            <li key={a.eventId}>{a.title}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : null}
                   <div className="max-h-52 overflow-y-auto space-y-2 mb-4">
                     {jobMessages.map((m) => (
                       <div

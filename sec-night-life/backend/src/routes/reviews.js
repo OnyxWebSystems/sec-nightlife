@@ -31,13 +31,79 @@ function mapReviewerUser(u) {
   };
 }
 
+function mapUserReviewRow(r) {
+  return {
+    id: r.id,
+    reviewSource: 'user',
+    rating: r.rating,
+    comment: r.comment,
+    createdAt: r.createdAt.toISOString(),
+    eventId: r.eventId,
+    reviewer: mapReviewerUser(r.reviewer),
+    event: r.event
+      ? { id: r.event.id, name: r.event.title, date: r.event.date.toISOString() }
+      : null,
+    venue: null,
+  };
+}
+
+function mapVenueUserReviewRow(r) {
+  return {
+    id: r.id,
+    reviewSource: 'venue',
+    rating: r.rating,
+    comment: r.comment,
+    createdAt: r.createdAt.toISOString(),
+    eventId: null,
+    reviewer: null,
+    event: null,
+    venue: r.venue ? { id: r.venue.id, name: r.venue.name } : null,
+  };
+}
+
+async function profileReviewStats(subjectUserId) {
+  const [userRows, venueRows] = await Promise.all([
+    prisma.userReview.findMany({ where: { subjectUserId, flagged: false }, select: { rating: true } }),
+    prisma.venueUserReview.findMany({ where: { subjectUserId, flagged: false }, select: { rating: true } }),
+  ]);
+  const all = [...userRows, ...venueRows];
+  const total = all.length;
+  if (total === 0) return { averageRating: 0, totalReviews: 0 };
+  const sum = all.reduce((s, r) => s + r.rating, 0);
+  return { averageRating: round1(sum / total), totalReviews: total };
+}
+
+async function fetchMergedProfileReviews(subjectUserId, skip, limit) {
+  const [userReviews, venueReviews] = await Promise.all([
+    prisma.userReview.findMany({
+      where: { subjectUserId, flagged: false },
+      include: {
+        reviewer: {
+          select: { id: true, username: true, fullName: true, userProfile: { select: { avatarUrl: true } } },
+        },
+        event: { select: { id: true, title: true, date: true } },
+      },
+    }),
+    prisma.venueUserReview.findMany({
+      where: { subjectUserId, flagged: false },
+      include: { venue: { select: { id: true, name: true } } },
+    }),
+  ]);
+  const merged = [
+    ...userReviews.map(mapUserReviewRow),
+    ...venueReviews.map(mapVenueUserReviewRow),
+  ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return { reviews: merged.slice(skip, skip + limit), total: merged.length };
+}
+
 async function countReviewsCreatedLastHour(reviewerId) {
   const since = new Date(Date.now() - 60 * 60 * 1000);
-  const [uc, vc] = await Promise.all([
+  const [uc, vc, vuc] = await Promise.all([
     prisma.userReview.count({ where: { reviewerId, createdAt: { gte: since } } }),
     prisma.venueReview.count({ where: { reviewerId, createdAt: { gte: since } } }),
+    prisma.venueUserReview.count({ where: { authorUserId: reviewerId, createdAt: { gte: since } } }),
   ]);
-  return uc + vc;
+  return uc + vc + vuc;
 }
 
 async function getSuperAdminUserIds() {
@@ -48,19 +114,16 @@ async function getSuperAdminUserIds() {
   return rows.map((r) => r.id);
 }
 
-// --- Authenticated: reviews I've written (user reviews) ---
+// --- Authenticated: reviews I've written (user + venue-as-user) ---
 router.get('/me/given', authenticateToken, async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
     const limit = 10;
     const skip = (page - 1) * limit;
 
-    const [rows, total] = await Promise.all([
+    const [userRows, venueUserRows] = await Promise.all([
       prisma.userReview.findMany({
         where: { reviewerId: req.userId, flagged: false },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
         include: {
           subject: {
             select: {
@@ -73,12 +136,26 @@ router.get('/me/given', authenticateToken, async (req, res, next) => {
           event: { select: { id: true, title: true, date: true } },
         },
       }),
-      prisma.userReview.count({ where: { reviewerId: req.userId, flagged: false } }),
+      prisma.venueUserReview.findMany({
+        where: { authorUserId: req.userId, flagged: false },
+        include: {
+          subject: {
+            select: {
+              id: true,
+              username: true,
+              fullName: true,
+              userProfile: { select: { avatarUrl: true } },
+            },
+          },
+          venue: { select: { id: true, name: true } },
+        },
+      }),
     ]);
 
-    res.json({
-      reviews: rows.map((r) => ({
+    const merged = [
+      ...userRows.map((r) => ({
         id: r.id,
+        reviewSource: 'user',
         rating: r.rating,
         comment: r.comment,
         createdAt: r.createdAt.toISOString(),
@@ -87,7 +164,26 @@ router.get('/me/given', authenticateToken, async (req, res, next) => {
           ? { id: r.event.id, name: r.event.title, date: r.event.date.toISOString() }
           : null,
         subject: mapReviewerUser(r.subject),
+        venue: null,
       })),
+      ...venueUserRows.map((r) => ({
+        id: r.id,
+        reviewSource: 'venue',
+        rating: r.rating,
+        comment: r.comment,
+        createdAt: r.createdAt.toISOString(),
+        eventId: null,
+        event: null,
+        subject: mapReviewerUser(r.subject),
+        venue: r.venue ? { id: r.venue.id, name: r.venue.name } : null,
+      })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    const total = merged.length;
+    const reviews = merged.slice(skip, skip + limit);
+
+    res.json({
+      reviews,
       page,
       totalPages: Math.ceil(total / limit) || 1,
       total,
@@ -100,7 +196,7 @@ router.get('/me/given', authenticateToken, async (req, res, next) => {
 // --- Admin (must be before /users/:userId) ---
 router.get('/admin/flagged', authenticateToken, requireRole('SUPER_ADMIN'), async (req, res, next) => {
   try {
-    const [userReviews, venueReviews] = await Promise.all([
+    const [userReviews, venueReviews, venueUserReviews] = await Promise.all([
       prisma.userReview.findMany({
         where: { flagged: true },
         orderBy: { flaggedAt: 'desc' },
@@ -122,6 +218,19 @@ router.get('/admin/flagged', authenticateToken, requireRole('SUPER_ADMIN'), asyn
             select: { id: true, username: true, fullName: true, userProfile: { select: { avatarUrl: true } } },
           },
           venue: { select: { id: true, name: true, ownerUserId: true } },
+        },
+      }),
+      prisma.venueUserReview.findMany({
+        where: { flagged: true },
+        orderBy: { flaggedAt: 'desc' },
+        include: {
+          subject: {
+            select: { id: true, username: true, fullName: true, userProfile: { select: { avatarUrl: true } } },
+          },
+          venue: { select: { id: true, name: true, ownerUserId: true } },
+          author: {
+            select: { id: true, username: true, fullName: true, userProfile: { select: { avatarUrl: true } } },
+          },
         },
       }),
     ]);
@@ -150,6 +259,17 @@ router.get('/admin/flagged', authenticateToken, requireRole('SUPER_ADMIN'), asyn
         reviewer: mapReviewerUser(r.reviewer),
         venue: r.venue ? { id: r.venue.id, name: r.venue.name, ownerUserId: r.venue.ownerUserId } : null,
       })),
+      venueUserReviews: venueUserReviews.map((r) => ({
+        id: r.id,
+        type: 'venue_user',
+        rating: r.rating,
+        comment: r.comment,
+        flagReason: r.flagReason,
+        flaggedAt: r.flaggedAt?.toISOString() ?? null,
+        reviewer: mapReviewerUser(r.author),
+        subject: mapReviewerUser(r.subject),
+        venue: r.venue ? { id: r.venue.id, name: r.venue.name, ownerUserId: r.venue.ownerUserId } : null,
+      })),
     });
   } catch (e) {
     next(e);
@@ -173,6 +293,14 @@ router.patch(
       }
       if (reviewType === 'venue') {
         const u = await prisma.venueReview.updateMany({
+          where: { id: reviewId },
+          data: { flagged: false, flagReason: null, flaggedAt: null },
+        });
+        if (u.count === 0) return res.status(404).json({ error: 'Review not found' });
+        return res.json({ ok: true });
+      }
+      if (reviewType === 'venue_user') {
+        const u = await prisma.venueUserReview.updateMany({
           where: { id: reviewId },
           data: { flagged: false, flagReason: null, flaggedAt: null },
         });
@@ -230,6 +358,24 @@ router.delete(
         return res.json({ ok: true });
       }
 
+      if (reviewType === 'venue_user') {
+        const row = await prisma.venueUserReview.findUnique({
+          where: { id: reviewId },
+          include: { subject: { select: { id: true } } },
+        });
+        if (!row) return res.status(404).json({ error: 'Review not found' });
+        await prisma.venueUserReview.delete({ where: { id: reviewId } });
+        await createInAppNotification({
+          userId: row.subjectUserId,
+          type: 'REVIEW_REMOVED_BY_ADMIN',
+          title: 'A flagged review has been removed',
+          body: 'After review, we removed a flagged review from your profile.',
+          referenceId: reviewId,
+          referenceType: 'VENUE_USER_REVIEW_REMOVED',
+        });
+        return res.json({ ok: true });
+      }
+
       return res.status(400).json({ error: 'Invalid review type' });
     } catch (e) {
       next(e);
@@ -237,7 +383,53 @@ router.delete(
   }
 );
 
-// --- User reviews: public list ---
+// --- User reviews: venue eligibility (before /users/:userId) ---
+router.get('/users/:userId/venue-eligibility', authenticateToken, async (req, res, next) => {
+  try {
+    const { userId: subjectUserId } = req.params;
+    if (subjectUserId === req.userId) {
+      return res.json({ venues: [] });
+    }
+
+    const ownedVenues = await prisma.venue.findMany({
+      where: { ownerUserId: req.userId, deletedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    if (ownedVenues.length === 0) {
+      return res.json({ venues: [] });
+    }
+
+    const existing = await prisma.venueUserReview.findMany({
+      where: {
+        authorUserId: req.userId,
+        subjectUserId,
+        venueId: { in: ownedVenues.map((v) => v.id) },
+      },
+      select: { id: true, venueId: true, rating: true, comment: true },
+    });
+    const byVenue = new Map(existing.map((r) => [r.venueId, r]));
+
+    res.json({
+      venues: ownedVenues.map((v) => ({
+        id: v.id,
+        name: v.name,
+        existingReview: byVenue.has(v.id)
+          ? {
+              id: byVenue.get(v.id).id,
+              rating: byVenue.get(v.id).rating,
+              comment: byVenue.get(v.id).comment,
+            }
+          : null,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- User reviews: public list (user + venue-attributed) ---
 router.get('/users/:userId', optionalAuth, async (req, res, next) => {
   try {
     const { userId } = req.params;
@@ -245,43 +437,15 @@ router.get('/users/:userId', optionalAuth, async (req, res, next) => {
     const limit = 10;
     const skip = (page - 1) * limit;
 
-    const where = { subjectUserId: userId, flagged: false };
-
-    const [agg, rows, total] = await Promise.all([
-      prisma.userReview.aggregate({
-        where,
-        _avg: { rating: true },
-        _count: { id: true },
-      }),
-      prisma.userReview.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-        include: {
-          reviewer: {
-            select: { id: true, username: true, fullName: true, userProfile: { select: { avatarUrl: true } } },
-          },
-          event: { select: { id: true, title: true, date: true } },
-        },
-      }),
-      prisma.userReview.count({ where }),
+    const [stats, { reviews, total }] = await Promise.all([
+      profileReviewStats(userId),
+      fetchMergedProfileReviews(userId, skip, limit),
     ]);
 
     res.json({
-      averageRating: round1(agg._avg.rating),
-      totalReviews: agg._count.id,
-      reviews: rows.map((r) => ({
-        id: r.id,
-        rating: r.rating,
-        comment: r.comment,
-        createdAt: r.createdAt.toISOString(),
-        eventId: r.eventId,
-        reviewer: mapReviewerUser(r.reviewer),
-        event: r.event
-          ? { id: r.event.id, name: r.event.title, date: r.event.date.toISOString() }
-          : null,
-      })),
+      averageRating: stats.averageRating,
+      totalReviews: stats.totalReviews,
+      reviews,
       page,
       totalPages: Math.ceil(total / limit) || 1,
     });
@@ -294,24 +458,20 @@ router.get('/users/:userId/eligibility', authenticateToken, async (req, res, nex
   try {
     const { userId } = req.params;
     if (userId === req.userId) {
-      return res.json({ eligible: false, sharedEvents: [], existingReview: null });
+      return res.json({ eligible: false, existingReview: null });
     }
 
-    const { eligible, sharedEvents } = await checkUserReviewEligibility(req.userId, userId);
+    const { eligible } = await checkUserReviewEligibility(req.userId, userId);
 
-    const existing = await prisma.userReview.findFirst({
-      where: { reviewerId: req.userId, subjectUserId: userId },
-      orderBy: { createdAt: 'desc' },
+    const existing = await prisma.userReview.findUnique({
+      where: {
+        reviewerId_subjectUserId: { reviewerId: req.userId, subjectUserId: userId },
+      },
       include: { event: { select: { id: true, title: true, date: true } } },
     });
 
     res.json({
       eligible,
-      sharedEvents: sharedEvents.map((e) => ({
-        id: e.id,
-        name: e.name,
-        date: e.date instanceof Date ? e.date.toISOString() : e.date,
-      })),
       existingReview: existing
         ? {
             id: existing.id,
@@ -333,6 +493,78 @@ router.get('/users/:userId/eligibility', authenticateToken, async (req, res, nex
   }
 });
 
+router.post('/users/:userId/as-venue', authenticateToken, async (req, res, next) => {
+  try {
+    const { userId: subjectUserId } = req.params;
+    if (subjectUserId === req.userId) {
+      return res.status(400).json({ error: 'You cannot review yourself.' });
+    }
+
+    const schema = ratingComment.extend({ venueId: z.string().uuid() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    }
+    const { rating, comment, venueId } = parsed.data;
+
+    const venue = await prisma.venue.findFirst({
+      where: { id: venueId, deletedAt: null },
+      select: { id: true, name: true, ownerUserId: true },
+    });
+    if (!venue) return res.status(404).json({ error: 'Venue not found' });
+    if (venue.ownerUserId !== req.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const createdLastHour = await countReviewsCreatedLastHour(req.userId);
+    if (createdLastHour >= 5) {
+      return res.status(429).json({
+        error: 'You are posting reviews too quickly. Please wait before submitting another.',
+      });
+    }
+
+    try {
+      const review = await prisma.venueUserReview.create({
+        data: {
+          venueId,
+          subjectUserId,
+          authorUserId: req.userId,
+          rating,
+          comment,
+        },
+        include: { venue: { select: { name: true } } },
+      });
+
+      await createInAppNotification({
+        userId: subjectUserId,
+        type: 'USER_REVIEW_RECEIVED',
+        title: 'New review on your profile',
+        body: `${review.venue?.name || 'A venue'} left you a ${rating}-star review`,
+        referenceId: review.id,
+        referenceType: 'VENUE_USER_REVIEW',
+      });
+
+      res.status(201).json({
+        id: review.id,
+        venueId: review.venueId,
+        subjectUserId: review.subjectUserId,
+        rating: review.rating,
+        comment: review.comment,
+        createdAt: review.createdAt.toISOString(),
+      });
+    } catch (err) {
+      if (err && typeof err === 'object' && err.code === 'P2002') {
+        return res.status(409).json({
+          error: 'This venue has already reviewed this person. Edit the existing review instead.',
+        });
+      }
+      throw err;
+    }
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/users/:userId', authenticateToken, async (req, res, next) => {
   try {
     const { userId: subjectUserId } = req.params;
@@ -340,20 +572,15 @@ router.post('/users/:userId', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'You cannot review yourself.' });
     }
 
-    const schema = ratingComment.extend({
-      eventId: z.string().uuid(),
-    });
-    const parsed = schema.safeParse(req.body);
+    const parsed = ratingComment.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     }
-    const { rating, comment, eventId } = parsed.data;
+    const { rating, comment } = parsed.data;
 
-    const { eligible, sharedEvents } = await checkUserReviewEligibility(req.userId, subjectUserId, eventId);
-    if (!eligible || !sharedEvents.some((e) => e.id === eventId)) {
-      return res.status(403).json({
-        error: 'You can only review someone you have shared an event or table with.',
-      });
+    const { eligible } = await checkUserReviewEligibility(req.userId, subjectUserId);
+    if (!eligible) {
+      return res.status(403).json({ error: 'You cannot review yourself.' });
     }
 
     const createdLastHour = await countReviewsCreatedLastHour(req.userId);
@@ -368,7 +595,6 @@ router.post('/users/:userId', authenticateToken, async (req, res, next) => {
         data: {
           reviewerId: req.userId,
           subjectUserId,
-          eventId,
           rating,
           comment,
         },
@@ -399,8 +625,7 @@ router.post('/users/:userId', authenticateToken, async (req, res, next) => {
     } catch (err) {
       if (err && typeof err === 'object' && err.code === 'P2002') {
         return res.status(409).json({
-          error:
-            'You have already reviewed this person for this event. Edit your existing review instead.',
+          error: 'You have already reviewed this person. Edit your existing review instead.',
         });
       }
       throw err;
@@ -495,6 +720,105 @@ router.post('/users/review/:reviewId/flag', authenticateToken, async (req, res, 
       body: `@${subj} flagged a review by @${rev}`,
       referenceId: reviewId,
       referenceType: 'FLAGGED_REVIEW',
+    });
+
+    res.json({ flagged: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- Venue-attributed user reviews (CRUD + flag) ---
+router.patch('/venues/users/review/:reviewId', authenticateToken, async (req, res, next) => {
+  try {
+    const { reviewId } = req.params;
+    const parsed = ratingComment.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    }
+
+    const existing = await prisma.venueUserReview.findUnique({
+      where: { id: reviewId },
+      include: { venue: { select: { ownerUserId: true } } },
+    });
+    if (!existing) return res.status(404).json({ error: 'Review not found' });
+    if (existing.authorUserId !== req.userId && existing.venue.ownerUserId !== req.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const updated = await prisma.venueUserReview.update({
+      where: { id: reviewId },
+      data: { rating: parsed.data.rating, comment: parsed.data.comment },
+    });
+
+    res.json({
+      id: updated.id,
+      rating: updated.rating,
+      comment: updated.comment,
+      updatedAt: updated.updatedAt.toISOString(),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/venues/users/review/:reviewId', authenticateToken, async (req, res, next) => {
+  try {
+    const { reviewId } = req.params;
+    const existing = await prisma.venueUserReview.findUnique({
+      where: { id: reviewId },
+      include: { venue: { select: { ownerUserId: true } } },
+    });
+    if (!existing) return res.status(404).json({ error: 'Review not found' });
+    if (existing.authorUserId !== req.userId && existing.venue.ownerUserId !== req.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await prisma.venueUserReview.delete({ where: { id: reviewId } });
+    res.json({ deleted: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/venues/users/review/:reviewId/flag', authenticateToken, async (req, res, next) => {
+  try {
+    const { reviewId } = req.params;
+    const parsed = z.object({ reason: z.string().min(1).max(200) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid reason' });
+
+    const review = await prisma.venueUserReview.findUnique({
+      where: { id: reviewId },
+      include: {
+        subject: { select: { username: true } },
+        venue: { select: { name: true } },
+      },
+    });
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    if (review.subjectUserId !== req.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (review.flagged) {
+      return res.status(409).json({ error: 'Already flagged' });
+    }
+
+    await prisma.venueUserReview.update({
+      where: { id: reviewId },
+      data: {
+        flagged: true,
+        flagReason: parsed.data.reason,
+        flaggedAt: new Date(),
+      },
+    });
+
+    const admins = await getSuperAdminUserIds();
+    const subj = review.subject?.username || 'user';
+    const vname = review.venue?.name || 'Venue';
+    await createInAppNotificationsForUsers(admins, {
+      type: 'ADMIN_FLAGGED_USER_REVIEW',
+      title: 'Review flagged for admin review',
+      body: `@${subj} flagged a review from ${vname}`,
+      referenceId: reviewId,
+      referenceType: 'FLAGGED_VENUE_USER_REVIEW',
     });
 
     res.json({ flagged: true });

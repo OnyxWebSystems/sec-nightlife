@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { createPageUrl, getStoredPromoterRef } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
@@ -304,7 +304,12 @@ export default function TableDetails() {
         amount: table.joining_fee,
         email: userProfile?.email || user?.email,
         description: `Join Table: ${table.name}`,
-        metadata: { type: 'table', table_id: tableId, user_id: userProfile?.id || user?.id },
+        metadata: {
+          type: 'table',
+          table_id: tableId,
+          user_id: userProfile?.id || user?.id,
+          ...(getStoredPromoterRef(table?.event_id) ? { promoter_user_id: getStoredPromoterRef(table?.event_id) } : {}),
+        },
       });
       if (res?.reference && res?.access_code) {
         await launchPaystackInline({
@@ -782,7 +787,10 @@ export default function TableDetails() {
       const needsPay = totalOnline > 0;
       try {
         if (needsPay) setIsProcessingPayment(true);
-        const r = await apiPost(`/api/host/tables/${tableId}/join`, {});
+        const promoterRef = getStoredPromoterRef(hostedTable?.event?.id);
+        const r = await apiPost(`/api/host/tables/${tableId}/join`, {
+          ...(promoterRef ? { promoter_user_id: promoterRef } : {}),
+        });
         queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
         if (r?.pending) {
           toast.success('Request sent. The host will approve your join.');

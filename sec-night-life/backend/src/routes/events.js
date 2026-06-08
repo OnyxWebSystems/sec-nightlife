@@ -646,6 +646,240 @@ router.get('/featured-details', optionalAuth, async (req, res, next) => {
   }
 });
 
+async function getOwnedEventForPromoters(eventId, userId) {
+  return prisma.event.findFirst({
+    where: { id: eventId, deletedAt: null, venue: { ownerUserId: userId } },
+    select: { id: true, venueId: true, title: true },
+  });
+}
+
+router.get('/venue/:venueId/promoter/:promoterUserId/assignments', authenticateToken, async (req, res, next) => {
+  try {
+    const venue = await prisma.venue.findFirst({
+      where: { id: req.params.venueId, ownerUserId: req.userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!venue) return res.status(403).json({ error: 'Forbidden' });
+
+    const assignments = await prisma.eventPromoterAssignment.findMany({
+      where: {
+        venueId: venue.id,
+        promoterUserId: req.params.promoterUserId,
+        status: 'ACTIVE',
+      },
+      include: {
+        event: {
+          select: { id: true, title: true, date: true, status: true, coverImageUrl: true },
+        },
+      },
+      orderBy: { assignedAt: 'desc' },
+    });
+
+    const appBase = (process.env.APP_URL || '').replace(/\/+$/, '');
+    res.json({
+      data: assignments.map((a) => ({
+        eventId: a.event.id,
+        title: a.event.title,
+        date: a.event.date,
+        shareUrl: appBase
+          ? `${appBase}/EventDetails?id=${encodeURIComponent(a.event.id)}&ref=${encodeURIComponent(req.params.promoterUserId)}`
+          : `/EventDetails?id=${a.event.id}&ref=${req.params.promoterUserId}`,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/venue/:venueId/promoters', authenticateToken, async (req, res, next) => {
+  try {
+    const venue = await prisma.venue.findFirst({
+      where: { id: req.params.venueId, ownerUserId: req.userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!venue) return res.status(403).json({ error: 'Forbidden' });
+
+    const roster = await prisma.venuePromoter.findMany({
+      where: { venueId: venue.id, status: 'ACTIVE' },
+      include: {
+        promoter: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+            userProfile: { select: { avatarUrl: true, username: true } },
+          },
+        },
+      },
+      orderBy: { hiredAt: 'desc' },
+    });
+
+    res.json({
+      data: roster.map((r) => ({
+        promoterUserId: r.promoterUserId,
+        hiredAt: r.hiredAt,
+        username: r.promoter.userProfile?.username || r.promoter.username,
+        fullName: r.promoter.fullName,
+        avatarUrl: r.promoter.userProfile?.avatarUrl || null,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/promoters', optionalAuth, async (req, res, next) => {
+  try {
+    const event = await prisma.event.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { id: true, venueId: true },
+    });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    const assignments = await prisma.eventPromoterAssignment.findMany({
+      where: { eventId: event.id, status: 'ACTIVE' },
+      include: {
+        promoter: {
+          select: {
+            id: true,
+            username: true,
+            fullName: true,
+            userProfile: { select: { avatarUrl: true, username: true, isVerifiedPromoter: true } },
+          },
+        },
+      },
+      orderBy: { assignedAt: 'desc' },
+    });
+
+    res.json({
+      data: assignments.map((a) => ({
+        id: a.id,
+        promoterUserId: a.promoterUserId,
+        assignedAt: a.assignedAt,
+        username: a.promoter.userProfile?.username || a.promoter.username,
+        fullName: a.promoter.fullName,
+        avatarUrl: a.promoter.userProfile?.avatarUrl || null,
+        isVerifiedPromoter: !!a.promoter.userProfile?.isVerifiedPromoter,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/promoters', authenticateToken, async (req, res, next) => {
+  try {
+    const schema = z.object({ promoterUserIds: z.array(z.string().min(1)).max(20) });
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+
+    const event = await getOwnedEventForPromoters(req.params.id, req.userId);
+    if (!event) return res.status(403).json({ error: 'Forbidden' });
+
+    const ids = [...new Set(parsed.data.promoterUserIds)];
+    const roster = await prisma.venuePromoter.findMany({
+      where: {
+        venueId: event.venueId,
+        promoterUserId: { in: ids },
+        status: 'ACTIVE',
+      },
+      select: { promoterUserId: true },
+    });
+    const allowed = new Set(roster.map((r) => r.promoterUserId));
+    const invalid = ids.filter((id) => !allowed.has(id));
+    if (invalid.length) {
+      return res.status(400).json({ error: 'Some promoters are not on your active roster.', invalid });
+    }
+
+    const existing = await prisma.eventPromoterAssignment.findMany({
+      where: { eventId: event.id },
+      select: { id: true, promoterUserId: true, status: true },
+    });
+    const existingMap = new Map(existing.map((e) => [e.promoterUserId, e]));
+
+    const toActivate = [];
+    const toRevoke = existing.filter((e) => e.status === 'ACTIVE' && !ids.includes(e.promoterUserId));
+
+    for (const promoterUserId of ids) {
+      const row = existingMap.get(promoterUserId);
+      if (!row) {
+        toActivate.push(promoterUserId);
+      } else if (row.status !== 'ACTIVE') {
+        await prisma.eventPromoterAssignment.update({
+          where: { id: row.id },
+          data: { status: 'ACTIVE', assignedAt: new Date(), assignedByUserId: req.userId },
+        });
+        toActivate.push(promoterUserId);
+      }
+    }
+
+    if (toRevoke.length) {
+      await prisma.eventPromoterAssignment.updateMany({
+        where: { id: { in: toRevoke.map((r) => r.id) } },
+        data: { status: 'REVOKED' },
+      });
+    }
+
+    if (toActivate.length) {
+      await prisma.eventPromoterAssignment.createMany({
+        data: toActivate.map((promoterUserId) => ({
+          eventId: event.id,
+          promoterUserId,
+          venueId: event.venueId,
+          assignedByUserId: req.userId,
+          status: 'ACTIVE',
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    const { notifyPromoterFollowers } = await import('../lib/promoterAttribution.js');
+    const appBase = (process.env.APP_URL || '').replace(/\/+$/, '');
+    for (const promoterUserId of toActivate) {
+      await prisma.notification.create({
+        data: {
+          userId: promoterUserId,
+          type: 'PROMOTER_EVENT_ASSIGNED',
+          title: 'New event to promote',
+          body: `You've been assigned to promote "${event.title}". Copy your link from Promoter Hub.`,
+          actionUrl: '/MyJobApplications?hub=promoter',
+        },
+      }).catch(() => {});
+      await notifyPromoterFollowers({
+        promoterUserId,
+        title: 'New event from a promoter you follow',
+        body: `A promoter you follow was assigned to "${event.title}".`,
+        actionUrl: appBase ? `${appBase}/EventDetails?id=${event.id}` : `/EventDetails?id=${event.id}`,
+      });
+    }
+
+    const updated = await prisma.eventPromoterAssignment.findMany({
+      where: { eventId: event.id, status: 'ACTIVE' },
+      include: {
+        promoter: {
+          select: {
+            id: true,
+            username: true,
+            fullName: true,
+            userProfile: { select: { avatarUrl: true, username: true } },
+          },
+        },
+      },
+    });
+
+    res.json({
+      data: updated.map((a) => ({
+        promoterUserId: a.promoterUserId,
+        username: a.promoter.userProfile?.username || a.promoter.username,
+        fullName: a.promoter.fullName,
+        avatarUrl: a.promoter.userProfile?.avatarUrl || null,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', optionalAuth, async (req, res, next) => {
   try {
     const event = await prisma.event.findFirst({

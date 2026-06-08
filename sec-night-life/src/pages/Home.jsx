@@ -369,6 +369,14 @@ export default function Home() {
     staleTime: 60_000,
   });
 
+  const { data: followedPromotersData } = useQuery({
+    queryKey: ['home-followed-promoters'],
+    queryFn: () => apiGet('/api/home/followed-promoters'),
+    enabled: !isLoadingAuth && !!user,
+    staleTime: 60_000,
+  });
+  const followedPromoterEvents = followedPromotersData?.items || [];
+
   const { data: promotionsFeedData, isLoading: promotionsFeedLoading } = useQuery({
     queryKey: ['home-promotions-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity],
     queryFn: async () => {
@@ -588,6 +596,37 @@ export default function Home() {
         <div style={{ marginBottom: 32 }}>
           <QuickActions />
         </div>
+
+        {followedPromoterEvents.length > 0 && (
+          <section style={{ marginBottom: 36 }}>
+            <div className="sec-section-header">
+              <div>
+                <span className="sec-label">Following</span>
+                <h2 style={{ fontSize: 19, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '4px 0 0', letterSpacing: '-0.02em' }}>
+                  From promoters you follow
+                </h2>
+              </div>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+              {followedPromoterEvents.map((item) => (
+                <Link
+                  key={`${item.promoterId}-${item.event.id}`}
+                  to={createPageUrl(`EventDetails?id=${item.event.id}`)}
+                  className="sec-card"
+                  style={{ minWidth: 220, maxWidth: 240, padding: 12, borderRadius: 14, textDecoration: 'none', flexShrink: 0 }}
+                >
+                  {item.event.coverImageUrl ? (
+                    <img src={item.event.coverImageUrl} alt="" style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 10, marginBottom: 8 }} />
+                  ) : null}
+                  <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-text-primary)' }}>{item.event.title}</div>
+                  <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                    @{item.promoterUsername} · {item.event.venueName || item.event.city}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ── House Parties (public) ── */}
         {hostParties.length > 0 && (

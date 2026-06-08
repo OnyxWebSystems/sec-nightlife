@@ -112,6 +112,18 @@ export const dataService = {
     async myFollowing() {
       return apiGet('/api/promoters/me/following');
     },
+    async myStatus() {
+      return apiGet('/api/promoters/me/status');
+    },
+    async myHub() {
+      return apiGet('/api/promoters/me/hub');
+    },
+    async promotions(promoterId) {
+      return apiGet(`/api/promoters/${promoterId}/promotions`, { skipAuth: true });
+    },
+    async weekLeaderboard() {
+      return apiGet('/api/promoters/leaderboard/week', { skipAuth: true });
+    },
   },
   Legal: {
     async promoterCodeOfConduct() {

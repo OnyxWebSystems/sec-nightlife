@@ -23,8 +23,8 @@ const LEGAL_DOCS = {
   promoter_code_of_conduct: {
     type: 'PROMOTER_CODE_OF_CONDUCT',
     title: 'Promoter Code of Conduct',
-    version: '1.0',
-    effectiveDate: '2026-04-15',
+    version: '1.1',
+    effectiveDate: '2026-06-08',
   },
 };
 
@@ -132,6 +132,18 @@ router.get('/promoter-code-of-conduct', (req, res) => {
       {
         heading: 'Compliance and Enforcement',
         body: 'SEC reserves the right to monitor promoter activity and suspend or remove promoters who violate this Code.',
+      },
+      {
+        heading: 'Becoming a Verified Promoter',
+        body: 'Apply for and get hired on a venue Promoter role job. Accept this Code of Conduct in Settings. Get assigned events in the venue Events Manager. Promote using your personal SEC referral links only. Complete jobs and earn venue ratings (Profile Reviews count). Reach Promoter Standard (20 promoter hires) and stay active. SEC admin reviews your record and grants the Verified Promoter badge.',
+      },
+      {
+        heading: 'Verified Promoter Privileges',
+        body: 'Verified promoters can appear on the Promoter Leaderboard, receive a follow button on their profile, and be featured when assigned to promote events. Followers see those events on their home feed.',
+      },
+      {
+        heading: 'Attribution and Referral Rules',
+        body: 'Only use official SEC event links with your referral ID. Do not misrepresent events or prices. Self-referrals and fraudulent conversions may void leaderboard points. Ticket purchases and table joins through your link earn conversion points for leaderboard ranking.',
       },
     ],
   });

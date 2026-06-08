@@ -94,12 +94,18 @@ export default function BusinessJobs() {
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
   });
 
+  const activeJob = useMemo(() => jobs.find((j) => j.id === activeJobId) || null, [jobs, activeJobId]);
+
   const updateStatus = useMutation({
     mutationFn: ({ applicationId, status }) => apiPatch(`/api/jobs/applications/${applicationId}/status`, { status }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['biz-job-applications', activeJobId] });
       qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['business-inbox'] });
       toast.success('Application updated');
+      if (variables.status === 'HIRED' && activeJob?.positionRole === 'PROMOTER') {
+        navigate(createPageUrl(`BusinessMessages?tab=promoters&application=${variables.applicationId}`));
+      }
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Status update failed'),
   });
@@ -192,7 +198,12 @@ export default function BusinessJobs() {
             })()}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontWeight: 700 }}>{job.title}</div>
+                <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {job.title}
+                  {job.positionRole === 'PROMOTER' ? (
+                    <span className="sec-badge" style={{ fontSize: 10, color: 'var(--sec-accent)' }}>Promoter</span>
+                  ) : null}
+                </div>
                 <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{job.jobType} · {compensationText(job)}</div>
                 <div style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-text-muted)' }}>
                   {job.filledSpots} of {job.totalSpots} filled · {job.closingDate ? new Date(job.closingDate).toLocaleDateString() : 'No closing date'}

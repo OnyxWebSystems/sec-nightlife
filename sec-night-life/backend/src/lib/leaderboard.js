@@ -1,11 +1,12 @@
 import { prisma } from './prisma.js';
+import { conversionScoreFromPoints, promoterConversionStats } from './promoterAttribution.js';
 
 const POLICY = {
   minAcceptedJobs: 20,
   minRatings: 3,
   minUniqueRaters: 2,
   staleDays: 120,
-  scoreWeights: { quality: 45, execution: 30, consistency: 15, compliance: 10 },
+  scoreWeights: { quality: 40, execution: 25, consistency: 15, conversions: 15, compliance: 5 },
 };
 
 function clamp(v, min, max) {
@@ -54,6 +55,7 @@ async function promoterActivityMapFromJobApplications(userIds) {
     where: {
       applicantUserId: { in: userIds },
       status: { in: ['HIRED'] },
+      jobPosting: { positionRole: 'PROMOTER' },
     },
     select: {
       applicantUserId: true,
@@ -139,7 +141,7 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
     const userIds = users.map((u) => u.id);
     const staleCutoff = new Date(Date.now() - POLICY.staleDays * 24 * 60 * 60 * 1000);
 
-    const [legacyActivity, postingActivity, legalAcceptances, ratingsByUser, reportsByUser, blocksByUser] = await Promise.all([
+    const [legacyActivity, postingActivity, legalAcceptances, ratingsByUser, reportsByUser, blocksByUser, conversionStats] = await Promise.all([
       promoterActivityMap(userIds),
       promoterActivityMapFromJobApplications(userIds),
       prisma.legalDocumentAcceptance.findMany({
@@ -163,6 +165,7 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
         where: { blockedId: { in: userIds } },
         _count: { _all: true },
       }),
+      promoterConversionStats(userIds),
     ]);
     const activity = mergeActivity(legacyActivity, postingActivity);
 
@@ -211,10 +214,13 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
       const daysSince = a.lastActivityAt ? (Date.now() - a.lastActivityAt.getTime()) / (1000 * 60 * 60 * 24) : 365;
       const consistency = clamp(100 - daysSince, 0, 100);
       const compliance = clamp(100 - reports * 18 - blocks * 8, 0, 100);
+      const conv = conversionStats.get(u.id) || { conversionCount: 0, conversionPoints: 0 };
+      const conversions = conversionScoreFromPoints(conv.conversionPoints);
       const score = (
         quality * POLICY.scoreWeights.quality +
         execution * POLICY.scoreWeights.execution +
         consistency * POLICY.scoreWeights.consistency +
+        conversions * POLICY.scoreWeights.conversions +
         compliance * POLICY.scoreWeights.compliance
       ) / 100;
 
@@ -227,12 +233,15 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
         uniqueRaters,
         acceptedJobs: a.acceptedJobs,
         completedJobs: a.completedJobs,
+        conversionCount: conv.conversionCount,
+        conversionPoints: conv.conversionPoints,
         lastActivityAt: a.lastActivityAt,
         score: Number(score.toFixed(2)),
         scoreBreakdown: {
           quality: Number(quality.toFixed(2)),
           execution: Number(execution.toFixed(2)),
           consistency: Number(consistency.toFixed(2)),
+          conversions: Number(conversions.toFixed(2)),
           compliance: Number(compliance.toFixed(2)),
         },
         legalAcceptance: legal || null,
@@ -301,7 +310,9 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
         completedJobs: 0,
         lastActivityAt: null,
         score: Number(u.userProfile?.serviceRatingAvg || 0),
-        scoreBreakdown: { quality: Number(u.userProfile?.serviceRatingAvg || 0), execution: 0, consistency: 0, compliance: 100 },
+        scoreBreakdown: { quality: Number(u.userProfile?.serviceRatingAvg || 0), execution: 0, consistency: 0, conversions: 0, compliance: 100 },
+        conversionCount: 0,
+        conversionPoints: 0,
         eligibility: {
           isVerifiedPromoter: true,
           hasMinimumAcceptedJobs: true,
@@ -325,5 +336,58 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
       data: ranked.slice(skip, skip + take),
     };
   }
+}
+
+export async function getPromoterStatusForUser(userId) {
+  const [profile, legal, venuePromoter, leaderboard] = await Promise.all([
+    prisma.userProfile.findUnique({
+      where: { userId },
+      select: {
+        isVerifiedPromoter: true,
+        isPromoterStandard: true,
+        promoterJobsAccepted: true,
+        serviceRatingCount: true,
+      },
+    }),
+    prisma.legalDocumentAcceptance.findFirst({
+      where: { userId, documentType: 'PROMOTER_CODE_OF_CONDUCT' },
+      orderBy: { acceptedAt: 'desc' },
+      select: { version: true, acceptedAt: true },
+    }),
+    prisma.venuePromoter.findFirst({
+      where: { promoterUserId: userId, status: 'ACTIVE' },
+      select: { id: true },
+    }),
+    getPromotersLeaderboard({ page: 1, limit: 500 }),
+  ]);
+
+  const me = leaderboard.data.find((x) => x.promoterId === userId);
+  const nextSteps = [];
+  if (!venuePromoter && !profile?.promoterJobsAccepted) {
+    nextSteps.push('Apply for and get hired on a venue Promoter role job');
+  }
+  if (!legal) nextSteps.push('Accept the Promoter Code of Conduct in Settings');
+  if (!profile?.isVerifiedPromoter) nextSteps.push('Request verified promoter status from SEC admin after meeting milestones');
+  if ((profile?.promoterJobsAccepted || 0) < POLICY.minAcceptedJobs) {
+    nextSteps.push(`Complete ${POLICY.minAcceptedJobs - (profile?.promoterJobsAccepted || 0)} more promoter hires`);
+  }
+  if ((profile?.serviceRatingCount || 0) < POLICY.minRatings) {
+    nextSteps.push(`Earn ${POLICY.minRatings - (profile?.serviceRatingCount || 0)} more venue ratings`);
+  }
+
+  return {
+    isHiredPromoter: !!venuePromoter,
+    hasAcceptedCodeOfConduct: !!legal,
+    isVerifiedPromoter: !!profile?.isVerifiedPromoter,
+    isPromoterStandard: !!profile?.isPromoterStandard,
+    promoterJobsAccepted: profile?.promoterJobsAccepted || 0,
+    featured: !!me,
+    rank: me?.rank || null,
+    score: me?.score || 0,
+    conversionCount: me?.conversionCount || 0,
+    conversionPoints: me?.conversionPoints || 0,
+    eligibility: me?.eligibility || null,
+    nextSteps,
+  };
 }
 

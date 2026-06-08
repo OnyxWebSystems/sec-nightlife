@@ -11,6 +11,7 @@ import { Loader2, Ticket, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { getStoredPromoterRef } from '@/utils';
 import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 
 export default function TicketPurchaseButton({ event }) {
@@ -90,6 +91,8 @@ export default function TicketPurchaseButton({ event }) {
       if (menuPayload.length > 0) {
         metadata.selected_menu_items = menuPayload;
       }
+      const promoterRef = getStoredPromoterRef(event.id);
+      if (promoterRef) metadata.promoter_user_id = promoterRef;
       const res = await apiPost('/api/payments/initialize', {
         amount: totalPrice,
         email: user?.email,

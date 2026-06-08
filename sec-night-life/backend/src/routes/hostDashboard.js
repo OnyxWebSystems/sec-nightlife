@@ -95,6 +95,11 @@ function requirePaystackKey() {
   return key;
 }
 
+function promoterMetaFromBody(body) {
+  const id = body?.promoter_user_id || body?.promoterUserId;
+  return typeof id === 'string' && id.trim() ? { promoter_user_id: id.trim() } : {};
+}
+
 async function initializePaystackPayment({ userId, amountZar, metadata }) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
   const email = user?.email || 'user@secnightlife.app';
@@ -1360,6 +1365,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
             menu_zar: menuCartZar,
             min_spend_zar: minSpendZar,
             amount_total_zar: totalHostPay,
+            ...promoterMetaFromBody(req.body),
             selected_menu_items: menuResolved.items,
             tier_included_items: tierIncludedSnapshot,
             hosting_tier_name: tierName,
@@ -2111,6 +2117,7 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           join_zar: joinZarJoin,
           amount_total_zar: entranceZarJoin + joinZarJoin,
           user_id: req.userId,
+          ...promoterMetaFromBody(req.body),
         },
       });
       return res.json({ joined: false, pendingPayment: true, ...pay });

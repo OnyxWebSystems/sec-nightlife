@@ -13,6 +13,14 @@ export default function Leaderboard() {
       return dataService.Leaderboard.promoters({ page: 1, limit: 50 });
     }
   });
+  const { data: myStatus } = useQuery({
+    queryKey: ['promoter-me-status'],
+    queryFn: () => dataService.Promoters.myStatus(),
+  });
+  const { data: weekData } = useQuery({
+    queryKey: ['promoter-week'],
+    queryFn: () => dataService.Promoters.weekLeaderboard(),
+  });
   const promoters = data?.data || [];
   const policy = data?.policy || null;
   const topThree = promoters.slice(0, 3);
@@ -51,10 +59,45 @@ export default function Leaderboard() {
           )}
         </div>
 
+        {myStatus ? (
+          <div className="sec-card" style={{ padding: 16, marginBottom: 16, borderColor: myStatus.featured ? 'var(--sec-accent-border)' : undefined }}>
+            <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 8 }}>Your promoter progress</h2>
+            {myStatus.featured ? (
+              <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
+                Rank #{myStatus.rank} · Score {myStatus.score?.toFixed?.(1) || myStatus.score} · {myStatus.conversionPoints || 0} conversion pts
+              </p>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--sec-text-muted)', lineHeight: 1.6 }}>
+                {(myStatus.nextSteps || []).map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ul>
+            )}
+            <Link to={createPageUrl('PromoterCodeOfConduct')} style={{ fontSize: 12, color: 'var(--sec-accent)', marginTop: 8, display: 'inline-block' }}>
+              Read verification guide
+            </Link>
+          </div>
+        ) : null}
+
+        {(weekData?.data || []).length > 0 ? (
+          <div className="sec-card" style={{ padding: 16, marginBottom: 16 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 10 }}>Promoter of the week</h2>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {weekData.data.map((p, i) => (
+                <Link key={p.promoterId} to={createPageUrl(`Profile?id=${p.promoterId}`)} style={{ textDecoration: 'none' }}>
+                  <span className="sec-badge" style={{ fontSize: 12 }}>
+                    {i + 1}. @{p.username} · {p.points} pts
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
           <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 8 }}>How to get featured</h2>
           <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 6 }}>
-            Become a verified promoter, complete at least 20 accepted jobs, maintain strong ratings, and accept the latest Promoter Code of Conduct.
+            Become a verified promoter, complete at least 20 accepted promoter jobs, earn ratings and referral conversions, and accept the Promoter Code of Conduct.
           </p>
           {policy && (
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
@@ -165,6 +208,9 @@ export default function Leaderboard() {
                           <Users size={12} strokeWidth={1.5} />
                           {promoter.ratingCount || 0} ratings
                         </span>
+                        {(promoter.conversionPoints || 0) > 0 ? (
+                          <span>{promoter.conversionPoints} conv. pts</span>
+                        ) : null}
                       </div>
                       {promoter.badges?.compliant && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--sec-accent)', marginTop: 4 }}>

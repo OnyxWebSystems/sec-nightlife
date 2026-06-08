@@ -135,9 +135,13 @@ export default function JobDetails() {
 
   const updateStatus = useMutation({
     mutationFn: ({ applicationId, status }) => apiPatch(`/api/jobs/applications/${applicationId}/status`, { status }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['owner-job', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['business-inbox'] });
       toast.success('Application updated');
+      if (variables.status === 'HIRED' && ownerJob?.positionRole === 'PROMOTER') {
+        navigate(createPageUrl(`BusinessMessages?tab=promoters&application=${variables.applicationId}`));
+      }
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update status'),
   });
@@ -203,7 +207,7 @@ export default function JobDetails() {
   }, [highlightApplicationId, ownerJob?.applications]);
 
   function openBusinessMessages(application) {
-    const tab = application.status === 'HIRED' ? 'promoters' : 'jobs';
+    const tab = application.status === 'HIRED' && ownerJob?.positionRole === 'PROMOTER' ? 'promoters' : 'jobs';
     navigate(createPageUrl(`BusinessMessages?tab=${tab}&application=${application.id}`));
   }
 

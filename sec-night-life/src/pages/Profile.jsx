@@ -34,13 +34,71 @@ import MyReviews from '@/components/profile/MyReviews';
 import InterestsEditor from '@/components/profile/InterestsEditor';
 import TableHistorySection from '@/components/profile/TableHistorySection';
 import UserSecWallet from '@/components/wallet/UserSecWallet';
+function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false }) {
+  const renderEvent = (item) => {
+    const eventId = item.eventId || item.id;
+    const title = item.title;
+    const venueName = item.venueName;
+    const itemStats = item.stats;
+    return (
+      <div key={eventId} className="p-3 rounded-xl bg-[#0A0A0B] border border-[#262629]">
+        <Link to={createPageUrl(`EventDetails?id=${eventId}`)} className="font-medium hover:underline">
+          {title}
+        </Link>
+        {venueName ? <p className="text-xs text-gray-500 mt-1">{venueName}</p> : null}
+        {itemStats ? (
+          <p className="text-xs text-gray-500 mt-1">
+            {itemStats.tickets || 0} tickets · {itemStats.tableJoins || 0} joins · {itemStats.points || 0} pts
+          </p>
+        ) : null}
+        {isOwn && item.shareUrl ? (
+          <button
+            type="button"
+            className="sec-btn sec-btn-secondary sec-btn-sm mt-2"
+            onClick={() => {
+              navigator.clipboard.writeText(item.shareUrl);
+              toast.success('Promotion link copied');
+            }}
+          >
+            Copy promotion link
+          </button>
+        ) : null}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {stats ? (
+        <p className="text-sm text-gray-400">
+          {stats.totalConversions || 0} conversions · {stats.totalPoints || 0} leaderboard points
+        </p>
+      ) : null}
+      {current.length > 0 ? (
+        <div>
+          <h4 className="font-semibold mb-2 text-sm">Currently promoting</h4>
+          <div className="space-y-2">{current.map(renderEvent)}</div>
+        </div>
+      ) : null}
+      {past.length > 0 ? (
+        <div>
+          <h4 className="font-semibold mb-2 text-sm">Past promotions</h4>
+          <div className="space-y-2">{past.map(renderEvent)}</div>
+        </div>
+      ) : null}
+      {!current.length && !past.length ? (
+        <p className="text-sm text-gray-500">No promoted events yet.</p>
+      ) : null}
+    </div>
+  );
+}
 
 export default function Profile() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const OWN_ONLY_TABS = ['tickets', 'reviews', 'interests', 'wallet'];
+  const OWN_ONLY_TABS = ['tickets', 'reviews', 'interests', 'wallet', 'promotions'];
   const rawTab = searchParams.get('tab');
-  const profileTab = ['activity', 'tickets', 'reviews', 'interests', 'wallet'].includes(rawTab)
+  const profileTab = ['activity', 'tickets', 'reviews', 'interests', 'wallet', 'promotions'].includes(rawTab)
     ? rawTab
     : 'activity';
   const setProfileTab = (tab) => setSearchParams({ tab });
@@ -102,6 +160,22 @@ export default function Profile() {
   const displayProfile = isOwnProfile ? userProfile : viewedProfile;
 
   const authUserId = displayProfile?.user_id || user?.id || null;
+
+  const { data: profilePromotions } = useQuery({
+    queryKey: ['profile-promotions', authUserId],
+    queryFn: () => dataService.Promoters.promotions(authUserId),
+    enabled: !!authUserId,
+  });
+
+  const { data: promoterHub } = useQuery({
+    queryKey: ['promoter-hub'],
+    queryFn: () => dataService.Promoters.myHub(),
+    enabled: !!isOwnProfile && !!user?.id,
+  });
+
+  const hasPromotionsTab = isOwnProfile
+    ? (promoterHub?.active?.length > 0 || promoterHub?.past?.length > 0)
+    : (profilePromotions?.current?.length > 0 || profilePromotions?.past?.length > 0);
 
   const { data: socialStats } = useQuery({
     queryKey: ['profile-social', authUserId],
@@ -578,6 +652,7 @@ export default function Profile() {
                 <TabsTrigger value="reviews" className="flex-1">Reviews</TabsTrigger>
                 <TabsTrigger value="interests" className="flex-1">Interests</TabsTrigger>
                 <TabsTrigger value="wallet" className="flex-1">Wallet</TabsTrigger>
+                {hasPromotionsTab ? <TabsTrigger value="promotions" className="flex-1">Promotions</TabsTrigger> : null}
               </TabsList>
 
               <TabsContent value="activity" className="mt-4 space-y-4">
@@ -661,6 +736,17 @@ export default function Profile() {
               <TabsContent value="wallet" className="mt-4">
                 <UserSecWallet userProfile={userProfile} onProfileUpdated={mergeSelfProfileFromApi} />
               </TabsContent>
+
+              {hasPromotionsTab ? (
+                <TabsContent value="promotions" className="mt-4 space-y-4">
+                  <PromoterPromotionsPanel
+                    current={promoterHub?.active || []}
+                    past={promoterHub?.past || []}
+                    stats={promoterHub?.stats}
+                    isOwn
+                  />
+                </TabsContent>
+              ) : null}
             </Tabs>
           </div>
         )}
@@ -694,6 +780,19 @@ export default function Profile() {
                 </div>
               </div>
             )}
+
+            {hasPromotionsTab ? (
+              <div className="glass-card rounded-2xl p-4 mb-6">
+                <h3 className="font-semibold mb-4 flex items-center gap-2">
+                  <Star className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
+                  Promotions
+                </h3>
+                <PromoterPromotionsPanel
+                  current={profilePromotions?.current || []}
+                  past={profilePromotions?.past || []}
+                />
+              </div>
+            ) : null}
 
             {interestedEvents.length > 0 && (
               <div className="glass-card rounded-2xl p-4 mb-6">

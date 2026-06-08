@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
-import { Flag, Loader2 } from 'lucide-react';
+import { Flag, Loader2, Building2 } from 'lucide-react';
 import { apiGet, apiPatch, apiPost, apiDelete } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
+import { createPageUrl } from '@/utils';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -22,7 +24,7 @@ import { StarRatingDisplay, StarRatingInput } from './StarRating';
 
 function ReviewsIGave({ onEdit }) {
   const queryClient = useQueryClient();
-  const [deleteId, setDeleteId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['reviews-me-given'],
@@ -31,12 +33,16 @@ function ReviewsIGave({ onEdit }) {
   const rows = data?.reviews ?? [];
 
   const confirmDelete = async () => {
-    if (!deleteId) return;
+    if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await apiDelete(`/api/reviews/users/review/${deleteId}`);
+      const url =
+        deleteTarget.reviewSource === 'venue'
+          ? `/api/reviews/venues/users/review/${deleteTarget.id}`
+          : `/api/reviews/users/review/${deleteTarget.id}`;
+      await apiDelete(url);
       toast.success('Review deleted');
-      setDeleteId(null);
+      setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ['reviews-me-given'] });
     } catch (e) {
       toast.error(e?.data?.error || e?.message || 'Failed to delete');
@@ -60,6 +66,9 @@ function ReviewsIGave({ onEdit }) {
           <li key={r.id} className="rounded-xl border border-[#262629] bg-[#141416] p-4 flex justify-between gap-2 items-start">
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">@{r.subject?.username}</p>
+              {r.reviewSource === 'venue' && r.venue?.name && (
+                <p className="text-xs text-gray-500">As {r.venue.name}</p>
+              )}
               {r.event?.name && <p className="text-xs text-gray-500">From {r.event.name}</p>}
               <StarRatingDisplay value={r.rating} size={14} className="mt-1" />
               <p className="text-sm text-gray-300 mt-2 whitespace-pre-wrap">{r.comment}</p>
@@ -68,7 +77,12 @@ function ReviewsIGave({ onEdit }) {
               <Button type="button" variant="outline" className="min-h-[44px]" onClick={() => onEdit(r)}>
                 Edit
               </Button>
-              <Button type="button" variant="outline" className="min-h-[44px] text-red-400 border-red-900/50" onClick={() => setDeleteId(r.id)}>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-[44px] text-red-400 border-red-900/50"
+                onClick={() => setDeleteTarget(r)}
+              >
                 Delete
               </Button>
             </div>
@@ -76,7 +90,7 @@ function ReviewsIGave({ onEdit }) {
         ))}
       </ul>
 
-      <AlertDialog open={!!deleteId} onOpenChange={(o) => { if (!o) setDeleteId(null); }}>
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
         <AlertDialogContent className="bg-[#0A0A0B] border-[#262629]">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete review?</AlertDialogTitle>
@@ -109,12 +123,13 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
   const [page, setPage] = useState(1);
   const [accReviews, setAccReviews] = useState([]);
   const [writeOpen, setWriteOpen] = useState(false);
+  const [venueWriteOpen, setVenueWriteOpen] = useState(false);
   const [editReview, setEditReview] = useState(null);
   const [flagReview, setFlagReview] = useState(null);
   const [flagReason, setFlagReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const [formEventId, setFormEventId] = useState('');
+  const [formVenueId, setFormVenueId] = useState('');
   const [formRating, setFormRating] = useState(0);
   const [formComment, setFormComment] = useState('');
 
@@ -151,25 +166,59 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
     enabled: !!profileUserId && isAuthenticated && !!viewerId && viewerId !== profileUserId,
   });
 
-  const resetWriteForm = (ev) => {
-    const first = ev?.sharedEvents?.[0]?.id || '';
-    setFormEventId(first);
+  const { data: venueEligibility } = useQuery({
+    queryKey: ['user-review-venue-eligibility', profileUserId],
+    queryFn: () => apiGet(`/api/reviews/users/${profileUserId}/venue-eligibility`),
+    enabled: !!profileUserId && isAuthenticated && !!viewerId && viewerId !== profileUserId,
+  });
+
+  const venuesCanReview = (venueEligibility?.venues || []).filter((v) => !v.existingReview);
+  const venuesWithExisting = (venueEligibility?.venues || []).filter((v) => v.existingReview);
+  const hasVenueReviewOption = venuesCanReview.length > 0 || venuesWithExisting.length > 0;
+
+  const resetWriteForm = () => {
     setFormRating(0);
     setFormComment('');
     setEditReview(null);
   };
 
   const openWrite = () => {
-    resetWriteForm(eligibility);
+    if (eligibility?.existingReview) {
+      openEdit({ ...eligibility.existingReview, reviewSource: 'user' });
+      return;
+    }
+    resetWriteForm();
     setWriteOpen(true);
+  };
+
+  const openVenueWrite = () => {
+    const existingVenue = venuesWithExisting[0];
+    if (existingVenue?.existingReview && venuesCanReview.length === 0) {
+      openEdit({
+        ...existingVenue.existingReview,
+        reviewSource: 'venue',
+        venueId: existingVenue.id,
+        venue: { id: existingVenue.id, name: existingVenue.name },
+      });
+      return;
+    }
+    const first = venuesCanReview[0]?.id || '';
+    setFormVenueId(first);
+    setFormRating(0);
+    setFormComment('');
+    setVenueWriteOpen(true);
   };
 
   const openEdit = (rev) => {
     setEditReview(rev);
     setFormRating(rev.rating);
     setFormComment(rev.comment);
-    setFormEventId(rev.eventId || '');
-    setWriteOpen(true);
+    if (rev.reviewSource === 'venue') {
+      setFormVenueId(rev.venueId || rev.venue?.id || '');
+      setVenueWriteOpen(true);
+    } else {
+      setWriteOpen(true);
+    }
   };
 
   const submitWrite = async () => {
@@ -180,15 +229,23 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
       }
       setSubmitting(true);
       try {
-        await apiPatch(`/api/reviews/users/review/${editReview.id}`, {
+        const url =
+          editReview.reviewSource === 'venue'
+            ? `/api/reviews/venues/users/review/${editReview.id}`
+            : `/api/reviews/users/review/${editReview.id}`;
+        await apiPatch(url, {
           rating: formRating,
           comment: formComment.trim(),
         });
         toast.success('Review updated');
         setWriteOpen(false);
+        setVenueWriteOpen(false);
+        setEditReview(null);
         setPage(1);
         queryClient.invalidateQueries({ queryKey: ['user-reviews', profileUserId] });
         queryClient.invalidateQueries({ queryKey: ['reviews-me-given'] });
+        queryClient.invalidateQueries({ queryKey: ['user-review-eligibility', profileUserId] });
+        queryClient.invalidateQueries({ queryKey: ['user-review-venue-eligibility', profileUserId] });
       } catch (e) {
         toast.error(e?.data?.error || e?.message || 'Failed');
       } finally {
@@ -197,8 +254,8 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
       return;
     }
 
-    if (formRating < 1 || !formEventId || formComment.trim().length < 10) {
-      toast.error('Choose an event, rating, and comment (10–300 characters).');
+    if (formRating < 1 || formComment.trim().length < 10) {
+      toast.error('Rating and comment (10–300 characters) are required.');
       return;
     }
     setSubmitting(true);
@@ -206,13 +263,73 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
       await apiPost(`/api/reviews/users/${profileUserId}`, {
         rating: formRating,
         comment: formComment.trim(),
-        eventId: formEventId,
       });
       toast.success('Review posted!');
       setWriteOpen(false);
       setPage(1);
       queryClient.invalidateQueries({ queryKey: ['user-reviews', profileUserId] });
       queryClient.invalidateQueries({ queryKey: ['user-review-eligibility', profileUserId] });
+      queryClient.invalidateQueries({ queryKey: ['public-profile', profileUserId] });
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitVenueWrite = async () => {
+    const existingVenueReview = (venueEligibility?.venues || []).find(
+      (v) => v.id === formVenueId
+    )?.existingReview;
+
+    if (editReview?.reviewSource === 'venue') {
+      if (formRating < 1 || formComment.trim().length < 10) {
+        toast.error('Rating and comment (10–300 characters) are required.');
+        return;
+      }
+      setSubmitting(true);
+      try {
+        await apiPatch(`/api/reviews/venues/users/review/${editReview.id}`, {
+          rating: formRating,
+          comment: formComment.trim(),
+        });
+        toast.success('Review updated');
+        setVenueWriteOpen(false);
+        setEditReview(null);
+        setPage(1);
+        queryClient.invalidateQueries({ queryKey: ['user-reviews', profileUserId] });
+        queryClient.invalidateQueries({ queryKey: ['reviews-me-given'] });
+        queryClient.invalidateQueries({ queryKey: ['user-review-venue-eligibility', profileUserId] });
+      } catch (e) {
+        toast.error(e?.data?.error || e?.message || 'Failed');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    if (existingVenueReview) {
+      openEdit({ ...existingVenueReview, reviewSource: 'venue', venueId: formVenueId });
+      return;
+    }
+
+    if (formRating < 1 || !formVenueId || formComment.trim().length < 10) {
+      toast.error('Choose a venue, rating, and comment (10–300 characters).');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await apiPost(`/api/reviews/users/${profileUserId}/as-venue`, {
+        venueId: formVenueId,
+        rating: formRating,
+        comment: formComment.trim(),
+      });
+      toast.success('Venue review posted!');
+      setVenueWriteOpen(false);
+      setPage(1);
+      queryClient.invalidateQueries({ queryKey: ['user-reviews', profileUserId] });
+      queryClient.invalidateQueries({ queryKey: ['user-review-venue-eligibility', profileUserId] });
+      queryClient.invalidateQueries({ queryKey: ['public-profile', profileUserId] });
     } catch (e) {
       toast.error(e?.data?.error || e?.message || 'Failed');
     } finally {
@@ -229,7 +346,11 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
     if (!flagReview) return;
     setSubmitting(true);
     try {
-      await apiPost(`/api/reviews/users/review/${flagReview.id}/flag`, { reason: r });
+      const url =
+        flagReview.reviewSource === 'venue'
+          ? `/api/reviews/venues/users/review/${flagReview.id}/flag`
+          : `/api/reviews/users/review/${flagReview.id}/flag`;
+      await apiPost(url, { reason: r });
       toast.success("Review flagged for admin review. We'll look into this shortly.");
       setFlagReview(null);
       setFlagReason('');
@@ -265,13 +386,17 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
       </div>
 
       {!isOwnProfile && isAuthenticated && viewerId && (
-        <div className="mb-4">
-          {eligibility?.eligible ? (
+        <div className="mb-4 flex flex-col sm:flex-row gap-2">
+          {eligibility?.eligible && (
             <Button type="button" className="min-h-[44px] w-full sm:w-auto" onClick={openWrite}>
-              Write a Review
+              {eligibility?.existingReview ? 'Edit your review' : 'Write a Review'}
             </Button>
-          ) : (
-            <p className="text-xs text-gray-500">Attend an event with this person to leave a review</p>
+          )}
+          {hasVenueReviewOption && (
+            <Button type="button" variant="outline" className="min-h-[44px] w-full sm:w-auto" onClick={openVenueWrite}>
+              <Building2 className="w-4 h-4 mr-2" />
+              {venuesCanReview.length === 0 ? 'Edit venue review' : 'Review as venue'}
+            </Button>
           )}
         </div>
       )}
@@ -286,8 +411,10 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
         {reviews.map((r) => (
           <li key={r.id} className="rounded-xl border border-[#262629] bg-[#141416] p-4">
             <div className="flex gap-3">
-              <div className="w-11 h-11 rounded-full bg-[#262629] overflow-hidden shrink-0">
-                {r.reviewer?.avatarUrl ? (
+              <div className="w-11 h-11 rounded-full bg-[#262629] overflow-hidden shrink-0 flex items-center justify-center">
+                {r.reviewSource === 'venue' ? (
+                  <Building2 className="w-5 h-5 text-gray-400" />
+                ) : r.reviewer?.avatarUrl ? (
                   <img src={r.reviewer.avatarUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-sm font-bold">
@@ -298,8 +425,22 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-medium truncate">{r.reviewer?.fullName || r.reviewer?.username}</p>
-                    <p className="text-xs text-gray-500">@{r.reviewer?.username}</p>
+                    {r.reviewSource === 'venue' && r.venue ? (
+                      <>
+                        <Link
+                          to={createPageUrl(`VenueProfile?id=${r.venue.id}`)}
+                          className="font-medium truncate hover:text-[var(--sec-accent)]"
+                        >
+                          {r.venue.name}
+                        </Link>
+                        <p className="text-xs text-gray-500">Venue review</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium truncate">{r.reviewer?.fullName || r.reviewer?.username}</p>
+                        <p className="text-xs text-gray-500">@{r.reviewer?.username}</p>
+                      </>
+                    )}
                   </div>
                   <StarRatingDisplay value={r.rating} size={14} />
                 </div>
@@ -347,28 +488,6 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
               {editReview ? 'Edit review' : `Review @${profileUsername || 'user'}`}
             </DialogTitle>
           </DialogHeader>
-          {!editReview && eligibility?.existingReview && (
-            <p className="text-xs text-gray-500 mb-2">
-              You&apos;ve reviewed this person before. This will be a new review for a different event.
-            </p>
-          )}
-          {!editReview && (
-            <label className="block text-sm mb-1">Which event was this for?</label>
-          )}
-          {!editReview && (
-            <select
-              className="w-full min-h-[44px] rounded-lg bg-[#141416] border border-[#262629] px-3 mb-4"
-              value={formEventId}
-              onChange={(e) => setFormEventId(e.target.value)}
-            >
-              <option value="">Select event</option>
-              {(eligibility?.sharedEvents || []).map((ev) => (
-                <option key={ev.id} value={ev.id}>
-                  {ev.name}
-                </option>
-              ))}
-            </select>
-          )}
           <p className="text-sm mb-1">Rating</p>
           <StarRatingInput value={formRating} onChange={setFormRating} />
           <label className="block text-sm mt-4 mb-1">Comment</label>
@@ -383,6 +502,48 @@ export default function UserProfileReviewsSection({ profileUserId, profileUserna
           <p className="text-xs text-gray-500 mt-1">{formComment.length}/300</p>
           <Button type="button" className="w-full mt-4 min-h-[44px]" disabled={submitting} onClick={submitWrite}>
             {editReview ? 'Save' : 'Post Review'}
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={venueWriteOpen} onOpenChange={(o) => { if (!o) { setVenueWriteOpen(false); setEditReview(null); } }}>
+        <DialogContent className="max-w-app md:max-w-app-md max-h-[90vh] overflow-y-auto bg-[#0A0A0B] border-[#262629]">
+          <DialogHeader>
+            <DialogTitle>
+              {editReview?.reviewSource === 'venue' ? 'Edit venue review' : `Review @${profileUsername || 'user'} as venue`}
+            </DialogTitle>
+          </DialogHeader>
+          {!editReview && (
+            <>
+              <label className="block text-sm mb-1">Venue</label>
+              <select
+                className="w-full min-h-[44px] rounded-lg bg-[#141416] border border-[#262629] px-3 mb-4"
+                value={formVenueId}
+                onChange={(e) => setFormVenueId(e.target.value)}
+              >
+                <option value="">Select venue</option>
+                {(venueEligibility?.venues || []).map((v) => (
+                  <option key={v.id} value={v.id} disabled={!!v.existingReview}>
+                    {v.name}{v.existingReview ? ' (already reviewed)' : ''}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          <p className="text-sm mb-1">Rating</p>
+          <StarRatingInput value={formRating} onChange={setFormRating} />
+          <label className="block text-sm mt-4 mb-1">Comment</label>
+          <Textarea
+            value={formComment}
+            onChange={(e) => setFormComment(e.target.value)}
+            minLength={10}
+            maxLength={300}
+            rows={4}
+            className="min-h-[100px] bg-[#141416] border-[#262629]"
+          />
+          <p className="text-xs text-gray-500 mt-1">{formComment.length}/300</p>
+          <Button type="button" className="w-full mt-4 min-h-[44px]" disabled={submitting} onClick={submitVenueWrite}>
+            {editReview?.reviewSource === 'venue' ? 'Save' : 'Post Venue Review'}
           </Button>
         </DialogContent>
       </Dialog>

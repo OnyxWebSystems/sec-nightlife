@@ -17,6 +17,7 @@ export async function recordEventVenueTableBooking({
   hostingTierName = null,
   hostingCategory = null,
   menuTotalZar = null,
+  promoterUserId = null,
 }) {
   if (!venueId || !eventId || !hostedTableId || !userId || !role) return null;
   const dup = await prisma.eventVenueTableBooking.findFirst({
@@ -31,6 +32,7 @@ export async function recordEventVenueTableBooking({
     ...(hostingTierName != null ? { hostingTierName } : {}),
     ...(hostingCategory != null ? { hostingCategory } : {}),
     ...(menuTotalZar != null ? { menuTotalZar } : {}),
+    ...(promoterUserId ? { promoterUserId } : {}),
   };
   if (dup) {
     return prisma.eventVenueTableBooking.update({ where: { id: dup.id }, data });

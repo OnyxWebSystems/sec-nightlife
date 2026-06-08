@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { buildTableOfferings } from '../lib/tableOfferings.js';
 import { parseGeoQuery, distanceKm } from '../lib/geo.js';
 
@@ -234,6 +234,74 @@ router.get('/table-offerings', optionalAuth, async (req, res, next) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 60);
     const items = await buildTableOfferings({ userId: req.userId || null, limit });
     res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/followed-promoters', authenticateToken, async (req, res, next) => {
+  try {
+    const follows = await prisma.promoterFollow.findMany({
+      where: { userId: req.userId },
+      select: { promoterId: true },
+    });
+    const promoterIds = follows.map((f) => f.promoterId);
+    if (!promoterIds.length) return res.json({ items: [] });
+
+    const now = new Date();
+    const assignments = await prisma.eventPromoterAssignment.findMany({
+      where: {
+        promoterUserId: { in: promoterIds },
+        status: 'ACTIVE',
+        event: {
+          deletedAt: null,
+          status: 'published',
+          OR: [{ endsAt: { gt: now } }, { endsAt: null, date: { gte: now } }],
+        },
+      },
+      include: {
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            endsAt: true,
+            coverImageUrl: true,
+            city: true,
+            eventFormat: true,
+            venue: { select: { name: true } },
+          },
+        },
+        promoter: {
+          select: {
+            id: true,
+            username: true,
+            userProfile: { select: { username: true, avatarUrl: true } },
+          },
+        },
+      },
+      orderBy: { assignedAt: 'desc' },
+      take: 20,
+    });
+
+    res.json({
+      items: assignments.map((a) => ({
+        kind: 'followed_promoter_event',
+        promoterId: a.promoterUserId,
+        promoterUsername: a.promoter.userProfile?.username || a.promoter.username,
+        promoterAvatarUrl: a.promoter.userProfile?.avatarUrl || null,
+        event: {
+          id: a.event.id,
+          title: a.event.title,
+          date: a.event.date,
+          endsAt: a.event.endsAt,
+          coverImageUrl: a.event.coverImageUrl,
+          city: a.event.city,
+          eventFormat: a.event.eventFormat,
+          venueName: a.event.venue?.name,
+        },
+      })),
+    });
   } catch (err) {
     next(err);
   }

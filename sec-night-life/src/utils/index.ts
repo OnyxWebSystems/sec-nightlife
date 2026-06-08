@@ -49,3 +49,27 @@ export function getVenueProfileShareUrl(venueId: string): string {
 export function getEventDetailsShareUrl(eventId: string): string {
     return `${getPublicAppOrigin()}/EventDetails?id=${encodeURIComponent(eventId)}`;
 }
+
+export function getPromoterEventShareUrl(eventId: string, promoterUserId: string): string {
+    return `${getPublicAppOrigin()}/EventDetails?id=${encodeURIComponent(eventId)}&ref=${encodeURIComponent(promoterUserId)}`;
+}
+
+export const PROMOTER_REF_STORAGE_PREFIX = 'sec_promoter_ref_';
+
+export function storePromoterRef(eventId: string, promoterUserId: string): void {
+    if (!eventId || !promoterUserId) return;
+    try {
+        sessionStorage.setItem(`${PROMOTER_REF_STORAGE_PREFIX}${eventId}`, promoterUserId);
+    } catch {
+        /* ignore */
+    }
+}
+
+export function getStoredPromoterRef(eventId: string): string | null {
+    if (!eventId) return null;
+    try {
+        return sessionStorage.getItem(`${PROMOTER_REF_STORAGE_PREFIX}${eventId}`);
+    } catch {
+        return null;
+    }
+}

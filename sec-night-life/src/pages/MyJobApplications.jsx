@@ -3,7 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { apiGet, apiPost } from '@/api/client';
-import { ChevronLeft, Briefcase, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { dataService } from '@/services/dataService';
+import { ChevronLeft, Briefcase, Clock, CheckCircle2, XCircle, Star, Copy } from 'lucide-react';
+import { toast } from 'sonner';
 import LegalDocLink from '@/components/legal/LegalDocLink';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -58,6 +60,12 @@ export default function MyJobApplications() {
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const deepLinkApplicationId = urlParams.get('applicationId');
   const deepLinkJobId = urlParams.get('jobId');
+
+  const { data: promoterHub } = useQuery({
+    queryKey: ['promoter-hub'],
+    queryFn: () => dataService.Promoters.myHub(),
+    enabled: authed,
+  });
 
   const { data: apps = [], isLoading: appsLoading, isError: appsError, error: appsErrorDetails } = useQuery({
     queryKey: ['my-apps'],
@@ -123,6 +131,37 @@ export default function MyJobApplications() {
       </header>
 
       <div style={{ padding: 16 }}>
+        {(promoterHub?.active?.length > 0 || promoterHub?.past?.length > 0) && (
+          <div className="sec-card" style={{ padding: 16, marginBottom: 16, borderRadius: 16, borderColor: 'var(--sec-accent-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <Star size={18} style={{ color: 'var(--sec-accent)' }} />
+              <h2 style={{ fontSize: 16, fontWeight: 700 }}>Promoter Hub</h2>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 12 }}>
+              {promoterHub?.stats?.totalConversions || 0} conversions · {promoterHub?.stats?.totalPoints || 0} leaderboard points
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {(promoterHub?.active || []).map((ev) => (
+                <div key={ev.eventId} className="p-3 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
+                  <div style={{ fontWeight: 600 }}>{ev.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>{ev.venueName}</div>
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-secondary sec-btn-sm"
+                    style={{ marginTop: 8 }}
+                    onClick={() => {
+                      navigator.clipboard.writeText(ev.shareUrl);
+                      toast.success('Link copied — share on Instagram, WhatsApp, or X');
+                    }}
+                  >
+                    <Copy size={14} style={{ marginRight: 6 }} />
+                    Copy promotion link
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {!appsLoading && !appsError && apps.length > 0 && (
           <div
             className="sec-card"

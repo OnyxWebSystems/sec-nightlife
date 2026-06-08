@@ -120,7 +120,12 @@ export default function Jobs() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="font-semibold">{job.title}</h3>
+                      <h3 className="font-semibold" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {job.title}
+                        {job.positionRole === 'PROMOTER' ? (
+                          <span className="sec-badge" style={{ fontSize: 10, color: 'var(--sec-accent)' }}>Promoter</span>
+                        ) : null}
+                      </h3>
                       <div style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>{job.venue?.name} · {toLabel(job.venue?.venueType)}</div>
                     </div>
                     <ChevronRight size={20} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />

@@ -704,6 +704,23 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       if (hostedEvents.length >= 20) break;
     }
 
+    const [userReviewRows, venueUserReviewRows] = await Promise.all([
+      prisma.userReview.findMany({
+        where: { subjectUserId: targetId, flagged: false },
+        select: { rating: true },
+      }),
+      prisma.venueUserReview.findMany({
+        where: { subjectUserId: targetId, flagged: false },
+        select: { rating: true },
+      }),
+    ]);
+    const allRatings = [...userReviewRows, ...venueUserReviewRows];
+    const reviewCount = allRatings.length;
+    const reviewAverage =
+      reviewCount > 0
+        ? Math.round((allRatings.reduce((s, r) => s + r.rating, 0) / reviewCount) * 10) / 10
+        : 0;
+
     res.json({
       id: user.id,
       username: user.username || user.userProfile?.username || '',
@@ -723,6 +740,8 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       blockedByThem,
       canUnblock,
       isSelf: viewerId === targetId,
+      reviewAverage,
+      reviewCount,
     });
   } catch (err) {
     next(err);
