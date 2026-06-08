@@ -349,6 +349,9 @@ model User {
   eventVenueTableBookings     EventVenueTableBooking[]
   celebrationRequests         CelebrationRequest[]
   ticketsAdmittedAsStaff    Ticket[]                   @relation("TicketAdmittedBy")
+  tableHistoryEntries         UserTableHistory[]
+  secWallet                   SecWallet?                 @relation("UserSecWallet")
+  walletLookupsAsTarget       WalletLookupLog[]          @relation("WalletLookupTarget")
 
   @@unique([email, role])
   @@index([email])
@@ -502,6 +505,9 @@ model Venue {
   menuItems           VenueMenuItem[]
   payoutLedgers       PayoutLedger[] @relation("PayoutRecipientVenue")
   eventVenueTableBookings EventVenueTableBooking[]
+  secWallet           SecWallet?         @relation("VenueSecWallet")
+  walletRecipients    WalletRecipient[]
+  walletLookupLogs    WalletLookupLog[]  @relation("WalletLookupVenue")
 
   @@index([ownerUserId])
   @@index([city])
@@ -1991,4 +1997,80 @@ model PartyGroupEvent {
   @@index([groupId])
   @@index([eventId])
   @@map("party_group_events")
+}
+
+// ─── Table history & Sec Wallet ───────────────────────────────────────────
+
+enum TableHistoryRole {
+  HOST
+  JOINED
+}
+
+model UserTableHistory {
+  id            String           @id @default(cuid())
+  userId        String           @map("user_id")
+  tableId       String?          @map("table_id")
+  hostedTableId String?          @map("hosted_table_id")
+  venueTableId  String?          @map("venue_table_id")
+  eventId       String?          @map("event_id")
+  role          TableHistoryRole
+  tableName     String           @map("table_name")
+  eventTitle    String?          @map("event_title")
+  occurredAt    DateTime         @default(now()) @map("occurred_at")
+  hiddenAt      DateTime?        @map("hidden_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, hiddenAt, occurredAt])
+  @@map("user_table_history")
+}
+
+enum SecWalletOwnerType {
+  USER
+  VENUE
+}
+
+model SecWallet {
+  id         String             @id @default(cuid())
+  walletCode String             @unique @map("wallet_code")
+  ownerType  SecWalletOwnerType @map("owner_type")
+  userId     String?            @unique @map("user_id")
+  venueId    String?            @unique @map("venue_id")
+  createdAt  DateTime           @default(now()) @map("created_at")
+
+  user       User?             @relation("UserSecWallet", fields: [userId], references: [id], onDelete: Cascade)
+  venue      Venue?            @relation("VenueSecWallet", fields: [venueId], references: [id], onDelete: Cascade)
+  recipients WalletRecipient[] @relation("RecipientTargetWallet")
+
+  @@index([walletCode])
+  @@map("sec_wallets")
+}
+
+model WalletRecipient {
+  id             String   @id @default(cuid())
+  venueId        String   @map("venue_id")
+  targetWalletId String   @map("target_wallet_id")
+  label          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  venue        Venue     @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  targetWallet SecWallet @relation("RecipientTargetWallet", fields: [targetWalletId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, targetWalletId])
+  @@index([venueId])
+  @@map("wallet_recipients")
+}
+
+model WalletLookupLog {
+  id           String   @id @default(cuid())
+  venueId      String   @map("venue_id")
+  targetUserId String   @map("target_user_id")
+  lookedUpById String   @map("looked_up_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  venue      Venue @relation("WalletLookupVenue", fields: [venueId], references: [id], onDelete: Cascade)
+  targetUser User  @relation("WalletLookupTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([venueId, createdAt])
+  @@map("wallet_lookup_logs")
 }

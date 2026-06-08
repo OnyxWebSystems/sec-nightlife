@@ -10,6 +10,7 @@ import { auditFromReq } from '../lib/audit.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
 import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
+import { mapTableHistoryRow } from '../lib/tableHistory.js';
 
 const router = Router();
 const PROFILE_GENDER_VALUES = ['male', 'female', 'other'];
@@ -355,36 +356,126 @@ router.get('/stats/social/:targetUserId([0-9a-f-]{36})', authenticateToken, asyn
       },
     });
 
-    const tablesHosted = await prisma.table.count({
-      where: {
-        hostUserId: targetUserId,
-        deletedAt: null,
-        event: { deletedAt: null, status: 'published' },
-      },
-    });
+    const [
+      legacyTablesHosted,
+      hostedTablesHosted,
+      venueTablesHosted,
+      hostedTableJoins,
+      venueTableJoins,
+      legacyTableJoinsRow,
+    ] = await Promise.all([
+      prisma.table.count({
+        where: {
+          hostUserId: targetUserId,
+          deletedAt: null,
+          event: { deletedAt: null, status: 'published' },
+        },
+      }),
+      prisma.hostedTable.count({
+        where: {
+          hostUserId: targetUserId,
+          status: { not: 'DRAFT' },
+        },
+      }),
+      prisma.venueTable.count({
+        where: { hostUserId: targetUserId, isActive: true },
+      }),
+      prisma.hostedTableMember.count({
+        where: {
+          userId: targetUserId,
+          hostedTable: { NOT: { hostUserId: targetUserId } },
+        },
+      }),
+      prisma.venueTableMember.count({
+        where: {
+          userId: targetUserId,
+          venueTable: { NOT: { hostUserId: targetUserId } },
+        },
+      }),
+      prisma.$queryRaw`
+        SELECT COUNT(DISTINCT t.id)::int AS count
+        FROM tables t
+        INNER JOIN events e ON e.id = t.event_id
+        WHERE t.deleted_at IS NULL
+          AND t.host_user_id != ${targetUserId}::uuid
+          AND e.deleted_at IS NULL
+          AND e.status = 'published'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements(
+              CASE
+                WHEN jsonb_typeof(t.members::jsonb) = 'array' THEN t.members::jsonb
+                ELSE '[]'::jsonb
+              END
+            ) AS elem
+            WHERE elem #>> '{}' = ${targetUserId}
+               OR elem->>'user_id' = ${targetUserId}
+               OR elem->>'userId' = ${targetUserId}
+          )
+      `,
+    ]);
 
-    const joinCandidates = await prisma.table.findMany({
-      where: {
-        deletedAt: null,
-        NOT: { hostUserId: targetUserId },
-        event: { deletedAt: null, status: 'published' },
-      },
-      select: { members: true },
-      take: 400,
-    });
-    let tablesJoined = 0;
-    for (const t of joinCandidates) {
-      const ids = [];
-      const members = Array.isArray(t.members) ? t.members : [];
-      for (const m of members) {
-        const uid = typeof m === 'object' && m ? m.user_id || m.userId : m;
-        if (typeof uid === 'string' && uid) ids.push(uid);
-      }
-      if (ids.includes(targetUserId)) tablesJoined += 1;
-    }
+    const tablesHosted = legacyTablesHosted + hostedTablesHosted + venueTablesHosted;
+    const legacyJoined = Number(legacyTableJoinsRow?.[0]?.count ?? 0);
+    const tablesJoined = legacyJoined + hostedTableJoins + venueTableJoins;
 
     res.json({ friendCount, tablesHosted, tablesJoined });
   } catch (err) {
+    next(err);
+  }
+});
+
+/** GET table participation history for a user profile */
+router.get('/:userId([0-9a-f-]{36})/table-history', authenticateToken, async (req, res, next) => {
+  try {
+    const targetUserId = req.params.userId;
+    const viewerId = req.userId;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+
+    const friendship = await prisma.friendship.findFirst({
+      where: {
+        status: 'ACCEPTED',
+        OR: [
+          { requesterId: viewerId, receiverId: targetUserId },
+          { requesterId: targetUserId, receiverId: viewerId },
+        ],
+      },
+    });
+
+    const canView = viewerId === targetUserId || friendship;
+    if (!canView) {
+      return res.status(403).json({ error: 'Add this user as a friend to view their table history' });
+    }
+
+    const rows = await prisma.userTableHistory.findMany({
+      where: { userId: targetUserId, hiddenAt: null },
+      orderBy: { occurredAt: 'desc' },
+      take: limit,
+    });
+
+    res.json({
+      items: rows.map(mapTableHistoryRow),
+      isOwn: viewerId === targetUserId,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Soft-delete own table history entry */
+router.delete('/me/table-history/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const row = await prisma.userTableHistory.findFirst({
+      where: { id, userId: req.userId, hiddenAt: null },
+    });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    await prisma.userTableHistory.update({
+      where: { id },
+      data: { hiddenAt: new Date() },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid id' });
     next(err);
   }
 });

@@ -1146,7 +1146,7 @@ export default function VenueOnboarding() {
            >
              <div className="text-center mb-8">
                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Set up payouts</h1>
-               <p style={{ color: 'var(--sec-text-muted)' }}>Optional now. You can also add this later in Settings &gt; Payment Methods.</p>
+               <p style={{ color: 'var(--sec-text-muted)' }}>Optional now. You can also add this later in your Sec Wallet on the Business Dashboard.</p>
                <div className="mt-3 max-w-md mx-auto text-left">
                  <RefundPolicyNote />
                  <p className="text-xs mt-2" style={{ color: 'var(--sec-text-muted)' }}>

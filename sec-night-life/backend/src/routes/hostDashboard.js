@@ -12,6 +12,7 @@ import { requireVerified } from '../middleware/requireVerified.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { notifyUserAlert } from '../lib/paymentNotifications.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
+import { recordTableHistory } from '../lib/tableHistory.js';
 import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
 import { normalizeGuestGenderPreference } from '../lib/genderPreference.js';
@@ -1336,6 +1337,14 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
           referenceType: 'HOSTED_TABLE',
           description: 'hosted a table',
         });
+        recordTableHistory({
+          userId: req.userId,
+          role: 'HOST',
+          hostedTableId: t.id,
+          eventId: ev.id,
+          tableName: t.tableName,
+          eventTitle: ev.title,
+        });
       }
       if (needsListingPayment) {
         const pay = await initializePaystackPayment({
@@ -2149,6 +2158,14 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       referenceId: t.id,
       referenceType: 'HOSTED_TABLE',
       description: 'joined a table',
+    });
+    recordTableHistory({
+      userId: req.userId,
+      role: 'JOINED',
+      hostedTableId: t.id,
+      eventId: t.eventId || joinEvent?.id || null,
+      tableName: t.tableName,
+      eventTitle: joinEvent?.title || null,
     });
     res.json({ joined: true });
   } catch (e) {

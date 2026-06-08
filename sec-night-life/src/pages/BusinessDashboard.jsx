@@ -11,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import {
   Calendar, BookOpen, Megaphone, BarChart3,
   Star, Users, ArrowRight, Building2, Plus,
-  ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload, UtensilsCrossed, Armchair
+  ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload, UtensilsCrossed, Armchair, Wallet,
 } from 'lucide-react';
+import VenueSecWallet from '@/components/wallet/VenueSecWallet';
 
 /** Matches backend REQUIRED_DOC_TYPES (excludes optional OTHER). */
 const REQUIRED_COMPLIANCE_DOC_TYPES = [
@@ -359,7 +360,7 @@ export default function BusinessDashboard() {
           </div>
         </div>
       </div>
-      {!userProfile?.payment_setup_complete ? (
+      {!venue?.paystack_recipient_code && !venue?.paystackRecipientCode ? (
         <div style={{
           padding: '12px 16px',
           borderRadius: 12,
@@ -368,9 +369,7 @@ export default function BusinessDashboard() {
           border: '1px solid var(--sec-border)',
         }}>
           <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
-            Payout setup missing. Add your bank details in
-            {' '}<Link to={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>Settings &gt; Payment Methods</Link>
-            {' '}to prevent pending payouts.
+            Venue payout setup missing. Complete your bank details in the Sec Wallet section below to prevent pending payouts.
           </p>
         </div>
       ) : null}
@@ -595,6 +594,29 @@ export default function BusinessDashboard() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Sec Wallet */}
+      <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 10,
+            backgroundColor: 'var(--sec-accent-muted)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Wallet size={18} style={{ color: 'var(--sec-accent)' }} />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--sec-text-primary)', margin: 0 }}>Sec Wallet</h3>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+              Venue earnings, payout setup, and staff payment lookups.
+            </p>
+          </div>
+        </div>
+        <VenueSecWallet
+          venues={venues}
+          onVenuesUpdated={() => qc.invalidateQueries({ queryKey: ['biz-venues', user?.id] })}
+        />
       </div>
 
       {/* Two-Column Layout */}

@@ -16,7 +16,6 @@ import {
   Wine,
   Edit3,
   Award,
-  TrendingUp,
   UserPlus,
   UserCheck,
   ChevronLeft,
@@ -27,20 +26,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format, parseISO } from 'date-fns';
-import { motion } from 'framer-motion';
 import { toast } from "sonner";
 
 import FriendRequestCard from '@/components/profile/FriendRequestCard';
 import MyTickets from '@/components/profile/MyTickets';
 import MyReviews from '@/components/profile/MyReviews';
 import InterestsEditor from '@/components/profile/InterestsEditor';
+import TableHistorySection from '@/components/profile/TableHistorySection';
+import UserSecWallet from '@/components/wallet/UserSecWallet';
 
 export default function Profile() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const profileTab = ['activity', 'tickets', 'reviews', 'interests'].includes(searchParams.get('tab'))
+  const [searchParams, setSearchParams] = useSearchParams();
+  const profileTab = ['activity', 'tickets', 'reviews', 'interests', 'wallet'].includes(searchParams.get('tab'))
     ? searchParams.get('tab')
     : 'activity';
+  const setProfileTab = (tab) => setSearchParams({ tab });
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -101,28 +102,6 @@ export default function Profile() {
     queryKey: ['friends-preview-own'],
     queryFn: () => apiGet('/api/friends').then((list) => (Array.isArray(list) ? list.slice(0, 6) : [])),
     enabled: !!user?.id && isOwnProfile,
-  });
-
-  const { data: tableActivityRows = [] } = useQuery({
-    queryKey: ['profile-table-activity', authUserId],
-    queryFn: async () => {
-      const [hosted, joined] = await Promise.all([
-        apiGet(`/api/tables/filter?host_user_id=${encodeURIComponent(authUserId)}&limit=20&sort=-created_date`),
-        apiGet(`/api/tables/filter?member_user_id=${encodeURIComponent(authUserId)}&limit=20&sort=-created_date`),
-      ]);
-      const h = Array.isArray(hosted) ? hosted : [];
-      const j = Array.isArray(joined) ? joined : [];
-      const rows = [];
-      for (const t of h) rows.push({ key: `h-${t.id}`, table: t, role: 'host' });
-      for (const t of j) rows.push({ key: `j-${t.id}`, table: t, role: 'member' });
-      rows.sort((a, b) => {
-        const da = a.table?.created_date ? Date.parse(a.table.created_date) : 0;
-        const db = b.table?.created_date ? Date.parse(b.table.created_date) : 0;
-        return db - da;
-      });
-      return rows.slice(0, 8);
-    },
-    enabled: !!authUserId && isOwnProfile,
   });
 
   const { data: activeTables = [] } = useQuery({
@@ -581,12 +560,13 @@ export default function Profile() {
         {/* Profile Content Tabs - Only for own profile */}
         {isOwnProfile && (
           <div className="glass-card rounded-2xl p-4 mb-6">
-            <Tabs value={profileTab} className="w-full">
+            <Tabs value={profileTab} onValueChange={setProfileTab} className="w-full">
               <TabsList className="w-full bg-[#0A0A0B] border border-[#262629]">
                 <TabsTrigger value="activity" className="flex-1">Activity</TabsTrigger>
                 <TabsTrigger value="tickets" className="flex-1">Tickets</TabsTrigger>
                 <TabsTrigger value="reviews" className="flex-1">Reviews</TabsTrigger>
                 <TabsTrigger value="interests" className="flex-1">Interests</TabsTrigger>
+                <TabsTrigger value="wallet" className="flex-1">Wallet</TabsTrigger>
               </TabsList>
 
               <TabsContent value="activity" className="mt-4 space-y-4">
@@ -652,64 +632,23 @@ export default function Profile() {
                   </div>
                 )}
 
-                {/* Table History */}
-                <div>
-                  <h3 className="font-semibold mb-3 flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
-                    Table History
-                  </h3>
-                  {tableActivityRows.length > 0 ? (
-                    <div className="space-y-3">
-                      {tableActivityRows.slice(0, 5).map((row, index) => (
-                        <motion.div
-                          key={row.key}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: index * 0.05 }}
-                          className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B]"
-                        >
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                            row.role === 'host'
-                              ? 'bg-[var(--sec-accent-muted)] text-[var(--sec-accent)]'
-                              : 'bg-[var(--sec-success-muted)] text-[var(--sec-success)]'
-                          }`}>
-                            <Users className="w-5 h-5" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{row.table?.name || 'Table'}</p>
-                            <p className="text-xs text-gray-500">
-                              {row.table?.created_date && format(parseISO(row.table.created_date), 'MMM d, yyyy')}
-                            </p>
-                          </div>
-                          <span className={`px-2 py-0.5 rounded-full text-xs ${
-                            row.role === 'host'
-                              ? 'bg-[var(--sec-accent-muted)] text-[var(--sec-accent)]'
-                              : 'bg-[var(--sec-success-muted)] text-[var(--sec-success)]'
-                          }`}>
-                            {row.role === 'host' ? 'host' : 'joined'}
-                          </span>
-                        </motion.div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Users className="w-10 h-10 text-gray-600 mx-auto mb-2" />
-                      <p className="text-gray-500 text-sm">No table history yet</p>
-                    </div>
-                  )}
-                </div>
+                <TableHistorySection userId={authUserId} isOwn limit={8} />
               </TabsContent>
 
               <TabsContent value="tickets" className="mt-4">
-                <MyTickets userId={userProfile?.id} />
+                <MyTickets userId={authUserId} />
               </TabsContent>
 
               <TabsContent value="reviews" className="mt-4">
-                <MyReviews userId={userProfile?.id} username={userProfile?.username} />
+                <MyReviews userId={authUserId} username={userProfile?.username} />
               </TabsContent>
 
               <TabsContent value="interests" className="mt-4">
                 <InterestsEditor userProfile={userProfile} onProfileUpdated={mergeSelfProfileFromApi} />
+              </TabsContent>
+
+              <TabsContent value="wallet" className="mt-4">
+                <UserSecWallet userProfile={userProfile} onProfileUpdated={mergeSelfProfileFromApi} />
               </TabsContent>
             </Tabs>
           </div>

@@ -9,6 +9,7 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
 import UserProfileReviewsSection from '@/components/reviews/UserProfileReviewsSection';
 import ReportDialog from '@/components/moderation/ReportDialog';
+import TableHistorySection from '@/components/profile/TableHistorySection';
 
 export default function UserProfile() {
   const navigate = useNavigate();
@@ -249,6 +250,16 @@ export default function UserProfile() {
       </div>
 
       <UserProfileReviewsSection profileUserId={userId} profileUsername={profile.username} />
+
+      <div className="mt-10">
+        {st === 'ACCEPTED' || isSelf ? (
+          <TableHistorySection userId={userId} isOwn={isSelf} limit={12} />
+        ) : (
+          <p className="text-sm text-gray-500">
+            Add {profile.fullName?.split(' ')?.[0] || 'them'} as a friend to see their table history.
+          </p>
+        )}
+      </div>
 
       <div className="mt-10">
         <h3 className="text-sm font-semibold text-gray-500 mb-2">Activity</h3>

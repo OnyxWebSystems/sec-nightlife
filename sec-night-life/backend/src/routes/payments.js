@@ -11,6 +11,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { userHasIdentityVerified } from '../middleware/requireIdentityVerified.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
+import { recordTableHistory } from '../lib/tableHistory.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { sendEmail } from '../lib/email.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
@@ -558,8 +559,32 @@ async function applyReferenceSideEffects(reference, paystackData) {
         venueTableId: String(venueTableId),
         userId: String(userId),
       },
-      include: { venueTable: { select: { id: true, tableName: true } } },
+      include: {
+        venueTable: {
+          select: { id: true, tableName: true, eventId: true, hostUserId: true },
+        },
+      },
     });
+    if (vtMember?.venueTable) {
+      const vtEv = vtMember.venueTable.eventId
+        ? await prisma.event.findFirst({
+            where: { id: vtMember.venueTable.eventId },
+            select: { title: true },
+          })
+        : null;
+      const isHostRole =
+        (metadata.booking_mode || metadata.bookingMode) === 'host' ||
+        (metadata.booking_mode || metadata.bookingMode) === 'custom_host' ||
+        vtMember.memberRole === 'HOST';
+      recordTableHistory({
+        userId: String(userId),
+        role: isHostRole ? 'HOST' : 'JOINED',
+        venueTableId: vtMember.venueTable.id,
+        eventId: vtMember.venueTable.eventId || null,
+        tableName: vtMember.venueTable.tableName,
+        eventTitle: vtEv?.title || null,
+      });
+    }
     const bookingModePaid = metadata.booking_mode || metadata.bookingMode;
     const isHostPaymentPaid =
       bookingModePaid === 'host' ||
@@ -717,6 +742,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
             referenceId: hosted.id,
             referenceType: 'HOSTED_TABLE',
             description: 'hosted a table',
+          });
+          recordTableHistory({
+            userId: String(userId),
+            role: 'HOST',
+            hostedTableId: hosted.id,
+            eventId: hosted.eventId || null,
+            tableName: hosted.tableName,
+            eventTitle: hosted.event?.title || null,
           });
           const venueCode = hosted.event?.venueId ? await resolveRecipientCodeForVenue(hosted.event.venueId) : null;
           const totalZar = Number(amount || 0);
@@ -927,6 +960,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
             referenceId: ht.id,
             referenceType: 'HOSTED_TABLE',
             description: 'hosted a table',
+          });
+          recordTableHistory({
+            userId: String(userId),
+            role: 'HOST',
+            hostedTableId: ht.id,
+            eventId: ht.eventId || null,
+            tableName: ht.tableName,
+            eventTitle: null,
           });
           const payer = await prisma.user.findUnique({
             where: { id: String(userId) },
@@ -1210,6 +1251,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 referenceType: 'HOSTED_TABLE',
               });
             }
+            recordTableHistory({
+              userId: String(userId),
+              role: 'JOINED',
+              hostedTableId: htFinal.id,
+              eventId: htEvent?.id || htFinal.eventId || null,
+              tableName: htFinal.tableName,
+              eventTitle: htEvent?.title || null,
+            });
           }
         }
       }
@@ -1265,6 +1314,17 @@ async function applyReferenceSideEffects(reference, paystackData) {
         referenceId: tableId,
         referenceType: 'TABLE',
         description: 'joined a table',
+      });
+      const joinEv = table.eventId
+        ? await prisma.event.findFirst({ where: { id: table.eventId }, select: { title: true } })
+        : null;
+      recordTableHistory({
+        userId,
+        role: 'JOINED',
+        tableId,
+        eventId: table.eventId,
+        tableName: table.name,
+        eventTitle: joinEv?.title || null,
       });
       await upsertConfirmedAttendance(userId, table.eventId);
 

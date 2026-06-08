@@ -72,8 +72,9 @@ async function mapTicketRowWithDoor(req, t) {
 router.get('/my', authenticateToken, async (req, res, next) => {
   try {
     const br = typeof req.query.bucket === 'string' ? req.query.bucket : 'active';
-    const bp = z.enum(['active', 'expired', 'all']).safeParse(br);
+    const bp = z.enum(['active', 'inactive', 'expired', 'all']).safeParse(br);
     const bucket = bp.success ? bp.data : 'active';
+    const normalizedBucket = bucket === 'expired' ? 'inactive' : bucket;
     const now = new Date();
 
     const rows = await prisma.ticket.findMany({
@@ -88,8 +89,11 @@ router.get('/my', authenticateToken, async (req, res, next) => {
     const filtered = mapped.filter(({ raw }) => {
       const exp = ticketExpiresAtFromRow(raw);
       const expired = exp <= now;
-      if (bucket === 'active') return !expired;
-      if (bucket === 'expired') return expired;
+      const startRaw = raw.eventStartsAt;
+      const started = !startRaw || new Date(startRaw) <= now;
+      const isActive = started && !expired;
+      if (normalizedBucket === 'active') return isActive;
+      if (normalizedBucket === 'inactive') return !isActive;
       return true;
     });
 

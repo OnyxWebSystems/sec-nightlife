@@ -491,8 +491,8 @@ export default function HostDashboard() {
               <div className="mb-3 rounded-xl p-3 border" style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-card)' }}>
                 <p className="text-sm" style={{ color: 'var(--sec-text-primary)' }}>
                   Add payout details to receive your earnings automatically.
-                  <Link to={createPageUrl('Payments')} className="ml-1 underline" style={{ color: 'var(--sec-accent)' }}>
-                    Settings &gt; Payment Methods
+                  <Link to={createPageUrl('Profile?tab=wallet')} className="ml-1 underline" style={{ color: 'var(--sec-accent)' }}>
+                    Sec Wallet on Profile
                   </Link>
                 </p>
               </div>

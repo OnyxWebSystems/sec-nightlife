@@ -647,7 +647,7 @@ export default function ProfileSetup() {
                 <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
                   Get paid faster
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Add payout details now or later in Settings &gt; Payment Methods</p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Add payout details now or later in your Sec Wallet on Profile</p>
               </div>
 
               <div
@@ -666,8 +666,8 @@ export default function ProfileSetup() {
                     </p>
                     <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0, lineHeight: 1.5 }}>
                       If you earn from paid tables and activities, your payout can be transferred automatically when your payout details are set. You can skip now and add details later in{' '}
-                      <Link to={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
-                        Settings &gt; Payment Methods
+                      <Link to={createPageUrl('Profile?tab=wallet')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
+                        Sec Wallet on Profile
                       </Link>
                       . See the{' '}
                       <Link to={createPageUrl('RefundPolicy')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>

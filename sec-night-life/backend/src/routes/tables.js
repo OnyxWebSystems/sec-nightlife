@@ -15,6 +15,7 @@ import { auditFromReq } from '../lib/audit.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
 import { addUserToEventGroupChat } from '../lib/groupChatHelpers.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
+import { recordTableHistory } from '../lib/tableHistory.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
@@ -342,6 +343,14 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
       referenceType: 'TABLE',
       description: 'hosted a table',
     });
+    recordTableHistory({
+      userId: req.userId,
+      role: 'HOST',
+      tableId: table.id,
+      eventId: table.eventId,
+      tableName: table.name,
+      eventTitle: event.title,
+    });
 
     res.status(201).json(formatTable(table));
   } catch (err) {
@@ -533,12 +542,14 @@ router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified,
       });
     }
 
+    let eventTitle = null;
     if (hydrated?.eventId) {
       const ev = await prisma.event.findFirst({
         where: { id: hydrated.eventId, deletedAt: null },
         select: { title: true },
       });
-      await addUserToEventGroupChat(hydrated.eventId, targetUserId, ev?.title || hydrated?.name || '');
+      eventTitle = ev?.title || null;
+      await addUserToEventGroupChat(hydrated.eventId, targetUserId, eventTitle || hydrated?.name || '');
     }
 
     logFriendActivity({
@@ -547,6 +558,14 @@ router.post('/:id/requests/:userId/approve', authenticateToken, requireVerified,
       referenceId: tableId,
       referenceType: 'TABLE',
       description: 'joined a table',
+    });
+    recordTableHistory({
+      userId: targetUserId,
+      role: 'JOINED',
+      tableId,
+      eventId: hydrated?.eventId || null,
+      tableName: hydrated?.name || 'Table',
+      eventTitle,
     });
     if (hydrated?.eventId) await upsertConfirmedAttendance(targetUserId, hydrated.eventId);
 
@@ -751,12 +770,29 @@ router.post('/:id/join', authenticateToken, requireVerified, requireIdentityVeri
       metadata: { currentGuests: result.currentGuests, maxGuests: result.maxGuests }
     });
 
+    let joinEventTitle = null;
+    if (hydrated?.eventId) {
+      const ev = await prisma.event.findFirst({
+        where: { id: hydrated.eventId, deletedAt: null },
+        select: { title: true },
+      });
+      joinEventTitle = ev?.title || null;
+    }
+
     logFriendActivity({
       userId,
       activityType: 'JOINED_TABLE',
       referenceId: tableId,
       referenceType: 'TABLE',
       description: 'joined a table',
+    });
+    recordTableHistory({
+      userId,
+      role: 'JOINED',
+      tableId,
+      eventId: hydrated?.eventId || null,
+      tableName: hydrated?.name || 'Table',
+      eventTitle: joinEventTitle,
     });
     if (hydrated?.eventId) await upsertConfirmedAttendance(userId, hydrated.eventId);
 

@@ -58,7 +58,7 @@ export default function RefundPolicy() {
         </p>
         <p>
           If recipient setup is missing, payout records may remain in a pending state until details are added in
-          Settings &gt; Payment Methods. SEC does not guarantee transfer timing in cases caused by missing, invalid, or
+          your Sec Wallet. SEC does not guarantee transfer timing in cases caused by missing, invalid, or
           rejected recipient details.
         </p>
       </LegalPolicySection>

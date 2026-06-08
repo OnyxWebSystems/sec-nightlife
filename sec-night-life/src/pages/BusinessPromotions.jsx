@@ -1331,8 +1331,8 @@ export default function BusinessPromotions() {
           <div className="sec-card" style={{ padding: 12, marginBottom: 10, border: '1px solid var(--sec-border)' }}>
             <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
               Payout setup missing. Add details in{' '}
-              <a href={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>
-                Settings &gt; Payment Methods
+              <a href={createPageUrl('BusinessDashboard')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>
+                Sec Wallet on Business Dashboard
               </a>{' '}
               to avoid pending payouts.
             </p>

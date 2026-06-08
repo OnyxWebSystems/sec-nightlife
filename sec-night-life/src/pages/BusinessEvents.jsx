@@ -462,7 +462,7 @@ export default function BusinessEvents() {
         <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
           <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
             Payout details missing. Your venue payouts can remain pending until setup is complete in
-            {' '}<Link to={createPageUrl('Payments')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>Settings &gt; Payment Methods</Link>.
+            {' '}<Link to={createPageUrl('BusinessDashboard')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline' }}>Sec Wallet on Business Dashboard</Link>.
           </p>
         </div>
       ) : null}

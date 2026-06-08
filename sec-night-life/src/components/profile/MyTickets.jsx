@@ -81,23 +81,24 @@ export default function MyTickets({ userId }) {
     enabled: !!userId,
   });
 
-  const expiredQ = useQuery({
-    queryKey: ['my-tickets', userId, 'expired'],
-    queryFn: () => apiGet('/api/tickets/my?bucket=expired'),
+  const inactiveQ = useQuery({
+    queryKey: ['my-tickets', userId, 'inactive'],
+    queryFn: () => apiGet('/api/tickets/my?bucket=inactive'),
     enabled: !!userId,
   });
 
   useEffect(() => {
     if (!userId) return;
-    const prev = loadMyTicketsSnapshot(userId) || { active: [], expired: [] };
+    const prev = loadMyTicketsSnapshot(userId) || { active: [], inactive: [], expired: [] };
     const next = {
       active: activeQ.isSuccess ? (activeQ.data ?? []) : prev.active,
-      expired: expiredQ.isSuccess ? (expiredQ.data ?? []) : prev.expired,
+      inactive: inactiveQ.isSuccess ? (inactiveQ.data ?? []) : (prev.inactive ?? prev.expired),
+      expired: inactiveQ.isSuccess ? (inactiveQ.data ?? []) : (prev.expired ?? prev.inactive),
     };
-    if (activeQ.isSuccess || expiredQ.isSuccess) {
+    if (activeQ.isSuccess || inactiveQ.isSuccess) {
       saveMyTicketsSnapshot(userId, next);
     }
-  }, [userId, activeQ.isSuccess, activeQ.data, expiredQ.isSuccess, expiredQ.data]);
+  }, [userId, activeQ.isSuccess, activeQ.data, inactiveQ.isSuccess, inactiveQ.data]);
 
   const deleteMutation = useMutation({
     mutationFn: (id) => apiDelete(`/api/tickets/my/${encodeURIComponent(id)}`),
@@ -117,24 +118,37 @@ export default function MyTickets({ userId }) {
         : activeQ.isError && ticketsCache?.active?.length
           ? ticketsCache.active
           : [];
-  const expiredTickets =
-    expiredQ.data !== undefined
-      ? expiredQ.data
-      : offline && ticketsCache?.expired?.length
-        ? ticketsCache.expired
-        : expiredQ.isError && ticketsCache?.expired?.length
-          ? ticketsCache.expired
+  const inactiveTickets =
+    inactiveQ.data !== undefined
+      ? inactiveQ.data
+      : offline && (ticketsCache?.inactive?.length || ticketsCache?.expired?.length)
+        ? (ticketsCache.inactive ?? ticketsCache.expired)
+        : inactiveQ.isError && (ticketsCache?.inactive?.length || ticketsCache?.expired?.length)
+          ? (ticketsCache.inactive ?? ticketsCache.expired)
           : [];
 
   const activeFromCache =
     activeQ.data === undefined && ticketsCache?.active?.length && (offline || activeQ.isError);
-  const expiredFromCache =
-    expiredQ.data === undefined && ticketsCache?.expired?.length && (offline || expiredQ.isError);
+  const inactiveFromCache =
+    inactiveQ.data === undefined &&
+    (ticketsCache?.inactive?.length || ticketsCache?.expired?.length) &&
+    (offline || inactiveQ.isError);
 
   const activeLoading =
     activeQ.isLoading && !(offline && ticketsCache?.active?.length) && activeTickets.length === 0;
-  const expiredLoading =
-    expiredQ.isLoading && !(offline && ticketsCache?.expired?.length) && expiredTickets.length === 0;
+  const inactiveLoading =
+    inactiveQ.isLoading &&
+    !(offline && (ticketsCache?.inactive?.length || ticketsCache?.expired?.length)) &&
+    inactiveTickets.length === 0;
+
+  function ticketPhase(ticket) {
+    const now = Date.now();
+    const exp = ticket.expires_at || ticket.visible_until;
+    const start = ticket.event_starts_at;
+    if (start && Date.parse(start) > now) return 'upcoming';
+    if (exp && Date.parse(exp) <= now) return 'expired';
+    return 'inactive';
+  }
 
   if (!userId) {
     return null;
@@ -145,7 +159,8 @@ export default function MyTickets({ userId }) {
     const expiresLabel = expiresRaw
       ? format(parseISO(expiresRaw), 'MMM dd, yyyy HH:mm')
       : '—';
-    const isExpiredTab = tab === 'expired';
+    const isInactiveTab = tab === 'inactive';
+    const phase = ticketPhase(ticket);
     const verifyUrl =
       ticket.verify_url ||
       getTicketVerifyUrl(ticket.qr_token, {
@@ -189,14 +204,18 @@ export default function MyTickets({ userId }) {
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Calendar className="w-3.5 h-3.5 shrink-0" />
                 <span>
-                  {isExpiredTab ? 'Expired' : 'Valid through'} {expiresLabel}
+                  {phase === 'upcoming'
+                    ? `Starts ${ticket.event_starts_at ? format(parseISO(ticket.event_starts_at), 'MMM dd, yyyy HH:mm') : '—'}`
+                    : phase === 'expired'
+                      ? `Expired ${expiresLabel}`
+                      : `Valid through ${expiresLabel}`}
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 pt-1">
                 <Button variant="outline" size="sm" className="border-[#262629] h-8" asChild>
                   <Link to={ticketDetailHref(ticket)}>View details</Link>
                 </Button>
-                {isExpiredTab && (
+                {isInactiveTab && phase === 'expired' && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -235,9 +254,9 @@ export default function MyTickets({ userId }) {
     title: 'No active tickets',
     hint: 'Book a table or buy an event ticket to see it here.',
   };
-  const emptyCopyExpired = {
-    title: 'No expired tickets',
-    hint: 'Tickets older than 24h after event start appear here.',
+  const emptyCopyInactive = {
+    title: 'No inactive tickets',
+    hint: 'Upcoming and expired tickets appear here.',
   };
 
   return (
@@ -255,15 +274,15 @@ export default function MyTickets({ userId }) {
         <button
           type="button"
           className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
-            tab === 'expired' ? 'bg-[#1a1a1d] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'
+            tab === 'inactive' ? 'bg-[#1a1a1d] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'
           }`}
-          onClick={() => setTab('expired')}
+          onClick={() => setTab('inactive')}
         >
-          Expired
+          Inactive
         </button>
       </div>
 
-      {(activeFromCache || expiredFromCache) && (
+      {(activeFromCache || inactiveFromCache) && (
         <p className="text-xs text-amber-200/90 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2">
           Offline or couldn&apos;t refresh — showing tickets last saved on this device. Open Profile online once to
           update.
@@ -289,18 +308,18 @@ export default function MyTickets({ userId }) {
         </div>
       )}
 
-      {tab === 'expired' && (
+      {tab === 'inactive' && (
         <div className="mt-4 space-y-3">
-          {expiredLoading ? (
+          {inactiveLoading ? (
             <div className="text-center py-8 text-gray-500">Loading tickets...</div>
-          ) : expiredTickets.length === 0 ? (
+          ) : inactiveTickets.length === 0 ? (
             <div className="text-center py-12">
               <Ticket className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-              <p className="text-gray-400 mb-1">{emptyCopyExpired.title}</p>
-              <p className="text-gray-500 text-sm">{emptyCopyExpired.hint}</p>
+              <p className="text-gray-400 mb-1">{emptyCopyInactive.title}</p>
+              <p className="text-gray-500 text-sm">{emptyCopyInactive.hint}</p>
             </div>
           ) : (
-            expiredTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)
+            inactiveTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)
           )}
         </div>
       )}

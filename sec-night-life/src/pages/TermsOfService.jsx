@@ -132,7 +132,7 @@ export default function TermsOfService() {
         </p>
         <p>
           Eligible earnings for venues and users are transferred through configured payout recipient details. If payout
-          details are missing or invalid, transfers may remain pending until corrected in Settings &gt; Payment Methods.
+          details are missing or invalid, transfers may remain pending until corrected in your Sec Wallet (Profile for users, Business Dashboard for venues).
         </p>
         <p>
           Users acknowledge that all financial transactions are conducted at their own risk. Disputes regarding

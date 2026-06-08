@@ -348,6 +348,11 @@ router.post('/register', async (req, res, next) => {
       update: { username: usernameNormalized },
     }).catch(() => {});
 
+    if (role === 'USER') {
+      const { ensureSecWallet } = await import('../lib/secWallet.js');
+      ensureSecWallet('USER', user.id).catch(() => {});
+    }
+
     await audit({
       userId: user.id,
       action: 'USER_REGISTERED',
