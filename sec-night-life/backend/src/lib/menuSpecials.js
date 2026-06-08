@@ -93,10 +93,22 @@ export function resolveGuestMenuDisplayImage(row, catalogItem = null) {
   return null;
 }
 
-/** Guest checkout/browse listing — includes all venue-available items (not only venue-owned photos). */
-export function formatVenueMenuItemForGuestMenu(row, catalogItem = null) {
+/** Single source of truth for whether guests should see a menu item. */
+export function computeGuestMenuVisibility(row, catalogItem = null) {
   const displayImage = resolveGuestMenuDisplayImage(row, catalogItem);
   const special = resolveMenuSpecialState(row);
+  const hasVenuePhoto = isVenueOwnedImageUrl(row?.imageUrl);
+  const guest_visible =
+    row.isAvailable && hasVenuePhoto && !!displayImage && !special.isExpired;
+  return { guest_visible, needs_photo: !hasVenuePhoto, displayImage, special };
+}
+
+/** Guest checkout/browse listing — same visibility rules as owner guest_visible. */
+export function formatVenueMenuItemForGuestMenu(row, catalogItem = null) {
+  const { guest_visible, needs_photo, displayImage, special } = computeGuestMenuVisibility(
+    row,
+    catalogItem,
+  );
   const subCategoryRaw = row.subCategory;
   const sub_category =
     subCategoryRaw && String(subCategoryRaw).trim().startsWith(SPECIAL_OFFER_EXP_PREFIX)
@@ -114,9 +126,10 @@ export function formatVenueMenuItemForGuestMenu(row, catalogItem = null) {
     original_price: special.originalPrice,
     base_price: special.basePrice,
     image_url: displayImage,
-    is_available: row.isAvailable && !special.isExpired,
+    is_available: guest_visible,
+    guest_visible,
     sort_order: row.sortOrder,
-    needs_photo: !displayImage,
+    needs_photo,
     special_offer_starts_at: special.startsAt ? special.startsAt.toISOString() : null,
     special_offer_expires_at: special.endsAt ? special.endsAt.toISOString() : null,
     is_expired: special.isExpired,
@@ -156,15 +169,15 @@ export function formatVenueMenuItemForClient(row) {
 
 /** Business Menu Maker — preserves Hide/Show toggle separately from guest visibility. */
 export function formatVenueMenuItemForOwner(row, catalogItem = null) {
-  const displayImage = resolveGuestMenuDisplayImage(row, catalogItem);
-  const special = resolveMenuSpecialState(row);
+  const { guest_visible, needs_photo, displayImage, special } = computeGuestMenuVisibility(
+    row,
+    catalogItem,
+  );
   const subCategoryRaw = row.subCategory;
   const sub_category =
     subCategoryRaw && String(subCategoryRaw).trim().startsWith(SPECIAL_OFFER_EXP_PREFIX)
       ? null
       : subCategoryRaw;
-  const hasVenuePhoto = isVenueOwnedImageUrl(row?.imageUrl);
-  const guest_visible = row.isAvailable && !!displayImage && !special.isExpired;
 
   return {
     id: row.id,
@@ -180,7 +193,7 @@ export function formatVenueMenuItemForOwner(row, catalogItem = null) {
     is_available: row.isAvailable,
     guest_visible,
     sort_order: row.sortOrder,
-    needs_photo: !hasVenuePhoto,
+    needs_photo,
     special_offer_starts_at: special.startsAt ? special.startsAt.toISOString() : null,
     special_offer_expires_at: special.endsAt ? special.endsAt.toISOString() : null,
     is_expired: special.isExpired,

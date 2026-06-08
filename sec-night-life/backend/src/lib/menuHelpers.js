@@ -10,7 +10,7 @@ export async function fetchGuestVenueMenuItems(venueId) {
   });
   return rows
     .map((row) => formatVenueMenuItemForGuestMenu(row, row.catalogItem))
-    .filter((item) => item.is_available);
+    .filter((item) => item.guest_visible);
 }
 
 /** Shape guest menu rows for venue table API responses. */

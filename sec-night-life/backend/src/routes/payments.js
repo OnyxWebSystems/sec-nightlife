@@ -213,13 +213,18 @@ async function applyReferenceSideEffects(reference, paystackData) {
       payerEmail: email,
       sendNotification: true,
     });
-    if (!activation.activated) {
+    if (!activation.activated && activation.reason !== 'already_live') {
       console.error('PROMOTION_PUBLISH: activation failed', {
         reference,
         promoId,
         reason: activation.reason,
         status: activation.promotion?.status,
       });
+      throw new Error(
+        activation.reason
+          ? `Promotion activation failed: ${activation.reason}`
+          : 'Promotion activation failed after payment',
+      );
     }
   } else if ((metadata.sec_kind === 'BOOST' || metadata.type === 'BOOST') && promoId) {
     const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;

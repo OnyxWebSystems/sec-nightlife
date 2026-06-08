@@ -96,34 +96,46 @@ export async function launchPaystackInline({ email, amount, reference, accessCod
   const PaystackPop = window.PaystackPop;
   const popup = new PaystackPop();
 
-  if (accessCode) {
-    popup.resumeTransaction(String(accessCode), {
-      onSuccess: (transaction) => onSuccess?.(transaction),
-      onCancel: () => onCancel?.(),
-      onError: (error) => {
-        const msg = error?.message || 'Paystack could not start checkout';
-        console.error('Paystack onError', error);
-        toast.error(msg);
-        onCancel?.();
-      },
-    });
-    return;
-  }
-
-  popup.newTransaction({
-    key,
-    email,
-    amount: Math.round(Number(amount) * 100),
-    reference,
-    currency: 'ZAR',
-    onSuccess: (transaction) => onSuccess?.(transaction),
-    onCancel: () => onCancel?.(),
-    onError: (error) => {
+  return new Promise((resolve, reject) => {
+    const handleSuccess = async (transaction) => {
+      try {
+        await onSuccess?.(transaction);
+        resolve(transaction);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    const handleCancel = () => {
+      onCancel?.();
+      reject(new Error('Payment cancelled'));
+    };
+    const handleError = (error) => {
       const msg = error?.message || 'Paystack could not start checkout';
       console.error('Paystack onError', error);
       toast.error(msg);
       onCancel?.();
-    },
+      reject(new Error(msg));
+    };
+
+    if (accessCode) {
+      popup.resumeTransaction(String(accessCode), {
+        onSuccess: (transaction) => void handleSuccess(transaction),
+        onCancel: handleCancel,
+        onError: handleError,
+      });
+      return;
+    }
+
+    popup.newTransaction({
+      key,
+      email,
+      amount: Math.round(Number(amount) * 100),
+      reference,
+      currency: 'ZAR',
+      onSuccess: (transaction) => void handleSuccess(transaction),
+      onCancel: handleCancel,
+      onError: handleError,
+    });
   });
 }
 

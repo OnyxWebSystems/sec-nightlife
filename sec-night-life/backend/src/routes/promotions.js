@@ -473,8 +473,22 @@ router.post('/:promotionId/confirm-publish', authenticateToken, async (req, res,
     if (!isPromotionPublishPayment(metadata, payment.type)) {
       return res.status(400).json({ error: 'Payment is not a promotion publish charge' });
     }
-    if (payment.status !== 'success' && payment.status !== 'paid') {
-      return res.status(402).json({ error: 'Payment is not confirmed yet', payment_status: payment.status });
+    let paymentStatus = payment.status;
+    if (paymentStatus !== 'success' && paymentStatus !== 'paid') {
+      const verified = await paystackVerifyReference(parsed.data.reference);
+      const paystackOk = verified?.status === 'success';
+      if (paystackOk) {
+        await prisma.payment.update({
+          where: { reference: parsed.data.reference },
+          data: {
+            status: 'success',
+            amount: verified.amount ? verified.amount / 100 : undefined,
+          },
+        });
+        paymentStatus = 'success';
+      } else {
+        return res.status(402).json({ error: 'Payment is not confirmed yet', payment_status: payment.status });
+      }
     }
 
     const activation = await activatePromotionAfterPublishPayment({
@@ -605,6 +619,30 @@ router.post('/:promotionId/checkout', authenticateToken, async (req, res, next) 
     if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     if (promotion.status !== 'DRAFT') {
       return res.status(400).json({ error: 'Only draft promotions can be published from checkout. Create a new promotion to run again.' });
+    }
+
+    const scheduleStart = promotion.startAt ? new Date(promotion.startAt) : null;
+    const scheduleEnd = promotion.endAt ? new Date(promotion.endAt) : null;
+    if (scheduleStart && scheduleEnd && scheduleEnd > scheduleStart) {
+      const billedDays = Math.max(
+        1,
+        Math.ceil((scheduleEnd.getTime() - scheduleStart.getTime()) / (24 * 60 * 60 * 1000)),
+      );
+      if (publishDays < billedDays) {
+        return res.status(400).json({
+          error: `Run length must be at least ${billedDays} day${billedDays === 1 ? '' : 's'} to cover the promotion schedule`,
+        });
+      }
+      if (boostDays > billedDays) {
+        return res.status(400).json({
+          error: `Boost length cannot exceed the ${billedDays}-day promotion schedule`,
+        });
+      }
+      if (boostDays > publishDays) {
+        return res.status(400).json({
+          error: `Boost length cannot exceed the ${publishDays}-day run length`,
+        });
+      }
     }
 
     const key = process.env.PAYSTACK_SECRET_KEY;

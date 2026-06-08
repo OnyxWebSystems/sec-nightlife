@@ -124,6 +124,7 @@ function buildSpecialPatchData(patch, existing) {
 router.get('/venues/:venueId/menu-items', authenticateToken, async (req, res, next) => {
   try {
     await assertVenueOwner(req.params.venueId, req.userId);
+    await clearExpiredMenuSpecials();
     const rows = await prisma.venueMenuItem.findMany({
       where: { venueId: req.params.venueId },
       include: { catalogItem: { select: { imageUrl: true } } },
@@ -164,7 +165,14 @@ router.post('/venues/:venueId/menu-items', authenticateToken, async (req, res, n
         });
       })
     );
-    res.status(201).json(created.map(formatVenueMenuItemForClient));
+    const withCatalog =
+      created.length > 0
+        ? await prisma.venueMenuItem.findMany({
+            where: { id: { in: created.map((c) => c.id) } },
+            include: { catalogItem: { select: { imageUrl: true } } },
+          })
+        : [];
+    res.status(201).json(withCatalog.map((row) => formatVenueMenuItemForOwner(row, row.catalogItem)));
   } catch (e) {
     next(e);
   }
@@ -236,8 +244,15 @@ router.post('/venues/:venueId/menu-items/from-catalog', authenticateToken, async
           )
         : [];
 
+    const withCatalog =
+      created.length > 0
+        ? await prisma.venueMenuItem.findMany({
+            where: { id: { in: created.map((c) => c.id) } },
+            include: { catalogItem: { select: { imageUrl: true } } },
+          })
+        : [];
     res.status(201).json({
-      created: created.map(formatVenueMenuItemForClient),
+      created: withCatalog.map((row) => formatVenueMenuItemForOwner(row, row.catalogItem)),
       skipped_catalog_ids: skipped,
     });
   } catch (e) {

@@ -204,16 +204,34 @@ function buildDefaultPromotionSchedule(publishDays = 7) {
   };
 }
 
-function validatePromotionSchedule(startsAtLocal, endsAtLocal, publishDays) {
+function promotionBilledDays(startsAtLocal, endsAtLocal) {
+  const start = new Date(startsAtLocal);
+  const end = new Date(endsAtLocal);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return 1;
+  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function validatePromotionSchedule(
+  startsAtLocal,
+  endsAtLocal,
+  publishDays,
+  { boostDays = 0, useBoost = false } = {},
+) {
   const start = new Date(startsAtLocal);
   const end = new Date(endsAtLocal);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 'Invalid start or end date and time';
   if (end <= start) return 'End must be after start';
   const spanMs = end.getTime() - start.getTime();
   if (spanMs > PROMO_MAX_MS) return 'Promotion duration cannot exceed 30 days';
-  const billedDays = Math.max(1, Math.ceil(spanMs / (24 * 60 * 60 * 1000)));
+  const billedDays = promotionBilledDays(startsAtLocal, endsAtLocal);
   if (billedDays > publishDays) {
     return `Increase run length to at least ${billedDays} day${billedDays === 1 ? '' : 's'} to cover your schedule`;
+  }
+  if (useBoost && boostDays > billedDays) {
+    return `Boost length cannot exceed your ${billedDays}-day promotion schedule`;
+  }
+  if (useBoost && boostDays > publishDays) {
+    return `Boost length cannot exceed your ${publishDays}-day run length`;
   }
   return null;
 }
@@ -366,14 +384,24 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
   const boostTotal = useBoost ? boostDays * BOOST_ZAR_PER_DAY : 0;
   const checkoutTotal = publishTotal + boostTotal;
 
+  const billedDays = useMemo(
+    () => promotionBilledDays(form.startsAt, form.endsAt),
+    [form.startsAt, form.endsAt],
+  );
+  const maxBoostDays = useMemo(
+    () => Math.max(1, Math.min(MAX_BOOST_D, billedDays, publishDays)),
+    [billedDays, publishDays],
+  );
+
+  useEffect(() => {
+    setPublishDays((prev) => Math.max(prev, billedDays));
+    setBoostDays((prev) => Math.min(prev, Math.max(1, Math.min(billedDays, publishDays))));
+  }, [billedDays, publishDays]);
+
   const durationText = useMemo(() => {
     if (!form.startsAt || !form.endsAt) return '';
-    const start = new Date(form.startsAt);
-    const end = new Date(form.endsAt);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
-    const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
-    return `This promotion runs for ${days} day${days === 1 ? '' : 's'}`;
-  }, [form.startsAt, form.endsAt]);
+    return `This promotion runs for ${billedDays} day${billedDays === 1 ? '' : 's'}`;
+  }, [form.startsAt, form.endsAt, billedDays]);
 
   function validateCommonFields({ requirePaymentEmail = false } = {}) {
     if (!selectedVenue) return 'Please select a venue.';
@@ -416,7 +444,10 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
     const commonErr = validateCommonFields({ requirePaymentEmail: true });
     if (commonErr) return setFormError(commonErr);
     if (useBoost && boostDays < 1) return setFormError('Choose at least 1 boost day or turn boost off.');
-    const scheduleErr = validatePromotionSchedule(form.startsAt, form.endsAt, publishDays);
+    const scheduleErr = validatePromotionSchedule(form.startsAt, form.endsAt, publishDays, {
+      boostDays: useBoost ? boostDays : 0,
+      useBoost,
+    });
     if (scheduleErr) return setFormError(scheduleErr);
 
     setSaving(true);
@@ -580,7 +611,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
             <span>Run length · {publishDays} day{publishDays === 1 ? '' : 's'} × R{PUBLISH_ZAR_PER_DAY}</span>
             <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>R{publishTotal.toLocaleString('en-ZA')}</span>
           </div>
-          <input type="range" min={MIN_PUBLISH_D} max={MAX_PUBLISH_D} value={publishDays} onChange={(e) => setPublishDays(parseInt(e.target.value, 10))} className="w-full" style={{ accentColor: 'var(--sec-accent)' }} />
+          <input type="range" min={billedDays} max={MAX_PUBLISH_D} value={Math.max(publishDays, billedDays)} onChange={(e) => setPublishDays(parseInt(e.target.value, 10))} className="w-full" style={{ accentColor: 'var(--sec-accent)' }} />
         </div>
 
         <label className="flex items-center gap-2 text-sm mb-3" style={{ color: 'var(--sec-text-secondary)', cursor: 'pointer' }}>
@@ -593,7 +624,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
               <span>Boost · {boostDays} day{boostDays === 1 ? '' : 's'}</span>
               <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>R{boostTotal.toLocaleString('en-ZA')}</span>
             </div>
-            <input type="range" min={1} max={MAX_BOOST_D} value={Math.max(1, boostDays)} onChange={(e) => setBoostDays(parseInt(e.target.value, 10))} className="w-full" style={{ accentColor: 'var(--sec-warning)' }} />
+            <input type="range" min={1} max={maxBoostDays} value={Math.min(Math.max(1, boostDays), maxBoostDays)} onChange={(e) => setBoostDays(parseInt(e.target.value, 10))} className="w-full" style={{ accentColor: 'var(--sec-warning)' }} />
           </div>
         ) : null}
 
@@ -626,170 +657,6 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         </button>
       </div>
     </div>
-  );
-});
-
-const MenuSpecialOfferModal = React.memo(function MenuSpecialOfferModal({ open, promotion, venueId, onClose, onApplied }) {
-  const [menuItems, setMenuItems] = useState([]);
-  const [loadingMenu, setLoadingMenu] = useState(false);
-  const [selectedItemId, setSelectedItemId] = useState('');
-  const [specialPrice, setSpecialPrice] = useState('');
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const scheduleLabel = useMemo(() => {
-    if (!promotion?.startsAt || !promotion?.endsAt) return '';
-    const start = new Date(promotion.startsAt);
-    const end = new Date(promotion.endsAt);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
-    return `${start.toLocaleString()} → ${end.toLocaleString()}`;
-  }, [promotion?.startsAt, promotion?.endsAt]);
-
-  useEffect(() => {
-    if (!open || !venueId) return;
-    setSelectedItemId('');
-    setSpecialPrice('');
-    setError('');
-    setLoadingMenu(true);
-    apiGet(`/api/business/venues/${venueId}/menu-items`)
-      .then((rows) => setMenuItems(Array.isArray(rows) ? rows : []))
-      .catch((e) => {
-        setMenuItems([]);
-        toast.error(e?.data?.error || e.message || 'Could not load venue menu');
-      })
-      .finally(() => setLoadingMenu(false));
-  }, [open, venueId]);
-
-  const selectableItems = useMemo(
-    () =>
-      menuItems.filter((item) => item.image_url && !item.needs_photo && item.category !== 'Special Offers'),
-    [menuItems],
-  );
-
-  const selectedItem = useMemo(
-    () => selectableItems.find((item) => String(item.id) === String(selectedItemId)) || null,
-    [selectableItems, selectedItemId],
-  );
-
-  useEffect(() => {
-    if (!selectedItem) return;
-    const normal =
-      selectedItem.base_price ?? selectedItem.original_price ?? selectedItem.price ?? '';
-    setSpecialPrice(String(normal));
-  }, [selectedItem]);
-
-  async function handleApply() {
-    setError('');
-    if (!promotion?.startsAt || !promotion?.endsAt) {
-      return setError('This promotion needs a start and end date/time first.');
-    }
-    if (!selectedItem) return setError('Choose a menu item for this special.');
-    const price = Number(String(specialPrice).replace(',', '.'));
-    if (!Number.isFinite(price) || price <= 0) return setError('Enter a valid special price.');
-
-    const originalPrice =
-      selectedItem.base_price ?? selectedItem.original_price ?? selectedItem.price;
-    if (!Number.isFinite(Number(originalPrice)) || Number(originalPrice) <= 0) {
-      return setError('Could not determine the item’s normal price.');
-    }
-
-    setSaving(true);
-    try {
-      await apiPatch(`/api/business/venues/${venueId}/menu-items/${selectedItem.id}`, {
-        special_price: price,
-        special_starts_at: promotion.startsAt,
-        special_ends_at: promotion.endsAt,
-        original_price: Number(originalPrice),
-        is_available: true,
-      });
-      toast.success(`${selectedItem.name} is on special for this promotion’s schedule.`);
-      if (onApplied) await onApplied();
-      onClose();
-    } catch (e) {
-      setError(e?.data?.error || e.message || 'Could not apply menu special');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-w-lg gap-4 p-6">
-        <DialogHeader>
-          <DialogTitle>Add menu special</DialogTitle>
-          <DialogDescription style={{ color: 'var(--sec-text-muted)' }}>
-            Pick an item from your venue menu. The special price runs for the same window as this promotion.
-          </DialogDescription>
-        </DialogHeader>
-
-        {promotion?.title ? (
-          <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)' }}>
-            Promotion: <strong style={{ color: 'var(--sec-text-primary)' }}>{promotion.title}</strong>
-          </p>
-        ) : null}
-        {scheduleLabel ? (
-          <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Active: {scheduleLabel}</p>
-        ) : (
-          <p style={{ fontSize: 12, color: '#ef4444' }}>Set start and end on the promotion before adding a menu special.</p>
-        )}
-
-        {loadingMenu ? (
-          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Loading menu…</p>
-        ) : selectableItems.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
-            No menu items with photos yet. Add items with your own photos in your venue menu first.
-          </p>
-        ) : (
-          <>
-            <div>
-              <Label>Menu item</Label>
-              <select
-                className="sec-input-rect"
-                value={selectedItemId}
-                onChange={(e) => setSelectedItemId(e.target.value)}
-                style={{ marginTop: 6, height: 44, width: '100%' }}
-              >
-                <option value="">Select item</option>
-                {selectableItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} — R{Number(item.price).toLocaleString('en-ZA')}
-                    {item.category ? ` (${item.category})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label>Special price (ZAR)</Label>
-              <input
-                className="sec-input-rect"
-                type="number"
-                min={1}
-                step="0.01"
-                value={specialPrice}
-                onChange={(e) => setSpecialPrice(e.target.value)}
-                style={{ marginTop: 6, height: 44, width: '100%' }}
-              />
-            </div>
-          </>
-        )}
-
-        {error ? <p style={{ fontSize: 12, color: '#ef4444' }}>{error}</p> : null}
-
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button type="button" className="sec-btn sec-btn-ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="sec-btn sec-btn-primary"
-            disabled={saving || loadingMenu || !selectedItem || !promotion?.startsAt || !promotion?.endsAt}
-            onClick={() => void handleApply()}
-          >
-            {saving ? 'Applying…' : 'Apply special'}
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 });
 
@@ -1051,10 +918,24 @@ const PromotionEditModal = React.memo(function PromotionEditModal({ open, promot
 });
 
 const PublishRepublishModal = React.memo(function PublishRepublishModal({ open, promotion, userEmail, onClose, onPaid }) {
+  const billedDays = useMemo(() => {
+    if (!promotion?.startsAt || !promotion?.endsAt) return 7;
+    return promotionBilledDays(
+      isoToDatetimeLocal(promotion.startsAt),
+      isoToDatetimeLocal(promotion.endsAt),
+    );
+  }, [promotion?.startsAt, promotion?.endsAt]);
   const [publishDays, setPublishDays] = useState(7);
   const [boostDays, setBoostDays] = useState(3);
   const [useBoost, setUseBoost] = useState(true);
   const [paying, setPaying] = useState(false);
+  const maxBoostDays = Math.max(1, Math.min(MAX_BOOST_D, billedDays, publishDays));
+
+  useEffect(() => {
+    if (!open) return;
+    setPublishDays((prev) => Math.max(prev, billedDays));
+    setBoostDays((prev) => Math.min(prev, Math.max(1, Math.min(billedDays, publishDays))));
+  }, [open, billedDays, publishDays]);
 
   const publishTotal = publishDays * PUBLISH_ZAR_PER_DAY;
   const boostTotal = useBoost ? boostDays * BOOST_ZAR_PER_DAY : 0;
@@ -1069,6 +950,16 @@ const PublishRepublishModal = React.memo(function PublishRepublishModal({ open, 
     }
     if (useBoost && boostDays < 1) {
       toast.error('Choose boost days or turn boost off.');
+      return;
+    }
+    const scheduleErr = validatePromotionSchedule(
+      isoToDatetimeLocal(promotion.startsAt),
+      isoToDatetimeLocal(promotion.endsAt),
+      publishDays,
+      { boostDays: useBoost ? boostDays : 0, useBoost },
+    );
+    if (scheduleErr) {
+      toast.error(scheduleErr);
       return;
     }
     setPaying(true);
@@ -1120,7 +1011,7 @@ const PublishRepublishModal = React.memo(function PublishRepublishModal({ open, 
             <span style={{ color: 'var(--sec-text-secondary)' }}>Publish · {publishDays}d × R{PUBLISH_ZAR_PER_DAY}</span>
             <span style={{ fontWeight: 600 }}>R{publishTotal}</span>
           </div>
-          <input type="range" min={MIN_PUBLISH_D} max={MAX_PUBLISH_D} value={publishDays} onChange={(e) => setPublishDays(+e.target.value)} style={{ width: '100%', accentColor: 'var(--sec-accent)' }} />
+          <input type="range" min={billedDays} max={MAX_PUBLISH_D} value={Math.max(publishDays, billedDays)} onChange={(e) => setPublishDays(+e.target.value)} style={{ width: '100%', accentColor: 'var(--sec-accent)' }} />
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, cursor: 'pointer', color: 'var(--sec-text-secondary)' }}>
           <input type="checkbox" checked={useBoost} onChange={(e) => setUseBoost(e.target.checked)} />
@@ -1132,7 +1023,7 @@ const PublishRepublishModal = React.memo(function PublishRepublishModal({ open, 
               <span style={{ color: 'var(--sec-text-secondary)' }}>{boostDays} day(s)</span>
               <span style={{ fontWeight: 600 }}>R{boostTotal}</span>
             </div>
-            <input type="range" min={1} max={MAX_BOOST_D} value={Math.max(1, boostDays)} onChange={(e) => setBoostDays(+e.target.value)} style={{ width: '100%', accentColor: 'var(--sec-warning)' }} />
+            <input type="range" min={1} max={maxBoostDays} value={Math.min(Math.max(1, boostDays), maxBoostDays)} onChange={(e) => setBoostDays(+e.target.value)} style={{ width: '100%', accentColor: 'var(--sec-warning)' }} />
           </div>
         ) : null}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--sec-border)' }}>
@@ -1162,7 +1053,6 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
   onPublishOpen,
   onSyncPublish,
   onBoostPay,
-  onAddToMenuSpecial,
 }) {
   const title = listMode === 'past' ? 'Past promotions' : 'Live & drafts';
   return (
@@ -1249,15 +1139,6 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
                       Delete draft
                     </button>
                   )}
-                  {p.promotionType === 'SPECIAL_OFFER' && (
-                    <button
-                      type="button"
-                      className="sec-btn sec-btn-secondary sec-btn-full"
-                      onClick={() => onAddToMenuSpecial?.(p)}
-                    >
-                      Add to menu special offers
-                    </button>
-                  )}
                 </>
               )}
             </div>
@@ -1278,8 +1159,6 @@ export default function BusinessPromotions() {
   const [loadingList, setLoadingList] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState(null);
   const [publishModal, setPublishModal] = useState(null);
-  const [menuSpecialPromotion, setMenuSpecialPromotion] = useState(null);
-
   useEffect(() => {
     (async () => {
       try {
@@ -1400,21 +1279,6 @@ export default function BusinessPromotions() {
     [handlePromotionPublished],
   );
 
-  const openMenuSpecialOffer = useCallback(
-    (promotion) => {
-      if (!selectedVenue) {
-        toast.error('No venue selected.');
-        return;
-      }
-      if (!promotion?.startsAt || !promotion?.endsAt) {
-        toast.error('Set promotion start and end dates before adding a menu special.');
-        return;
-      }
-      setMenuSpecialPromotion(promotion);
-    },
-    [selectedVenue],
-  );
-
   const patchPromotion = useCallback(async (id, payload) => {
     try {
       await apiPatch(`/api/promotions/${id}`, payload);
@@ -1508,14 +1372,6 @@ export default function BusinessPromotions() {
         onSave={saveEditedPromotion}
       />
 
-      <MenuSpecialOfferModal
-        open={!!menuSpecialPromotion}
-        promotion={menuSpecialPromotion}
-        venueId={selectedVenue}
-        onClose={() => setMenuSpecialPromotion(null)}
-        onApplied={handlePromotionPublished}
-      />
-
       <div style={{ display: 'grid', gap: 20, gridTemplateColumns: 'minmax(0, 1fr)' }}>
         <PromotionCardsList
           promotions={livePromotions}
@@ -1527,7 +1383,6 @@ export default function BusinessPromotions() {
           onPublishOpen={(p) => setPublishModal(p)}
           onSyncPublish={syncPromotionPublish}
           onBoostPay={runBoostPayment}
-          onAddToMenuSpecial={openMenuSpecialOffer}
         />
         <PromotionCardsList
           promotions={pastPromotions}
@@ -1539,7 +1394,6 @@ export default function BusinessPromotions() {
           onPublishOpen={(p) => setPublishModal(p)}
           onSyncPublish={syncPromotionPublish}
           onBoostPay={runBoostPayment}
-          onAddToMenuSpecial={openMenuSpecialOffer}
         />
       </div>
     </div>

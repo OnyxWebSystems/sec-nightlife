@@ -13,10 +13,6 @@ import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
 import VenueMenuNavigator from '@/components/menu/VenueMenuNavigator';
 import { formatMenuCategoryLabel } from '@/lib/groupMenuByCategory';
 
-function isVenuePhoto(url) {
-  return url && typeof url === 'string' && url.startsWith('http') && !url.includes('/menu-catalog/');
-}
-
 export default function BusinessMenu() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -54,10 +50,7 @@ export default function BusinessMenu() {
     enabled: !!venueId,
   });
 
-  const needsPhotoCount = useMemo(
-    () => items.filter((i) => i.needs_photo ?? !isVenuePhoto(i.image_url)).length,
-    [items]
-  );
+  const needsPhotoCount = useMemo(() => items.filter((i) => i.needs_photo).length, [items]);
 
   const addedCatalogIds = useMemo(
     () => new Set(items.map((i) => i.catalog_item_id).filter(Boolean)),
@@ -90,7 +83,7 @@ export default function BusinessMenu() {
   const invalidateMenu = () => queryClient.invalidateQueries({ queryKey: ['venue-menu', venueId] });
 
   const toggleAvailable = async (item) => {
-    const needsPhoto = item.needs_photo ?? !isVenuePhoto(item.image_url);
+    const needsPhoto = Boolean(item.needs_photo);
     const isListed = Boolean(item.is_available);
     const nextVisible = !isListed;
     if (nextVisible && needsPhoto) {
@@ -98,11 +91,21 @@ export default function BusinessMenu() {
       return;
     }
     try {
-      await apiPatch(`/api/business/venues/${venueId}/menu-items/${item.id}`, {
+      const updated = await apiPatch(`/api/business/venues/${venueId}/menu-items/${item.id}`, {
         is_available: nextVisible,
       });
       await invalidateMenu();
-      toast.success(nextVisible ? 'Item is live on your guest menu' : 'Item hidden from guests');
+      if (!nextVisible) {
+        toast.success('Item hidden from guests');
+      } else if (updated?.guest_visible) {
+        toast.success('Item is live on your guest menu');
+      } else {
+        toast.message('Item is shown in Menu Maker', {
+          description: updated?.is_expired
+            ? 'Special offer expired — update pricing to go live for guests.'
+            : 'Upload your photo or fix listing details to appear on guest menus.',
+        });
+      }
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Update failed');
     }
@@ -214,14 +217,22 @@ export default function BusinessMenu() {
             mode="manage"
             venueLogoUrl={venueLogoUrl}
             renderManageActions={(item) => {
-              const needsPhoto = item.needs_photo ?? !isVenuePhoto(item.image_url);
+              const needsPhoto = Boolean(item.needs_photo);
               const isListed = Boolean(item.is_available);
-              const published = isListed && !needsPhoto;
+              const guestVisible = Boolean(item.guest_visible);
+              const statusLabel = guestVisible
+                ? 'Live'
+                : needsPhoto
+                  ? 'Needs photo'
+                  : !isListed
+                    ? 'Off'
+                    : item.is_expired
+                      ? 'Expired offer'
+                      : 'Hidden';
+              const statusColor = guestVisible ? 'var(--sec-accent)' : '#f59e0b';
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-                  <span style={{ fontSize: 10, color: published ? 'var(--sec-accent)' : '#f59e0b' }}>
-                    {published ? 'Live' : needsPhoto ? 'Needs photo' : 'Hidden'}
-                  </span>
+                  <span style={{ fontSize: 10, color: statusColor }}>{statusLabel}</span>
                   <button
                     type="button"
                     className="sec-btn sec-btn-ghost text-xs h-7"
