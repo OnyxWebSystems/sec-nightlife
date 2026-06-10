@@ -185,8 +185,13 @@ export default function BusinessDashboard() {
 
   const deleteJobMutation = useMutation({
     mutationFn: (jobId) => apiDelete(`/api/jobs/${jobId}`),
-    onSuccess: () => {
-      toast.success('Job deleted');
+    onSuccess: (data) => {
+      const n = data?.applicationCount || 0;
+      toast.success(
+        n > 0
+          ? `Job deleted (${n} application${n === 1 ? '' : 's'} removed)`
+          : 'Job deleted',
+      );
       qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
@@ -654,8 +659,12 @@ export default function BusinessDashboard() {
                     style={{ height: 42, width: '100%', borderColor: 'rgba(217, 85, 85, 0.35)', color: 'var(--sec-error)' }}
                     disabled={deleteJobMutation.isPending}
                     onClick={() => {
-                      const ok = window.confirm('Delete this job post? This action cannot be undone.');
-                      if (!ok) return;
+                      const appCount = j._count?.applications || 0;
+                      const msg =
+                        appCount > 0
+                          ? `Delete this job post? This will permanently remove ${appCount} application${appCount === 1 ? '' : 's'} and all related messages.`
+                          : 'Delete this job post? This action cannot be undone.';
+                      if (!window.confirm(msg)) return;
                       deleteJobMutation.mutate(j.id);
                     }}
                   >

@@ -65,6 +65,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
         where: {
           jobPosting: { venueId: { in: venueIds } },
           status: { in: ['PENDING', 'SHORTLISTED'] },
+          venueHiddenAt: null,
         },
         include: {
           jobPosting: { select: { id: true, title: true, jobType: true } },
@@ -97,6 +98,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
         where: {
           jobPosting: { venueId: { in: venueIds }, positionRole: 'PROMOTER' },
           status: 'HIRED',
+          venueHiddenAt: null,
         },
         include: {
           jobPosting: { select: { id: true, title: true, jobType: true, venueId: true } },
@@ -187,8 +189,11 @@ router.delete('/threads/:threadId', authenticateToken, async (req, res, next) =>
     });
     if (!application) return res.status(404).json({ error: 'Thread not found' });
 
-    await prisma.jobMessage.deleteMany({ where: { applicationId: application.id } });
-    res.json({ deleted: true });
+    await prisma.jobApplication.update({
+      where: { id: application.id },
+      data: { venueHiddenAt: new Date() },
+    });
+    res.json({ deleted: true, hidden: true });
   } catch (e) {
     next(e);
   }

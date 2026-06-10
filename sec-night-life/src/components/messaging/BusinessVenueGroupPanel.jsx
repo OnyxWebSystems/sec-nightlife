@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
+import { asArray } from '@/utils';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,20 +30,23 @@ export default function BusinessVenueGroupPanel({ venueId }) {
 
   const groupsBase = `/api/business/venues/${venueId}/groups`;
 
-  const { data: groups = [], isLoading: groupsLoading } = useQuery({
+  const { data: groupsRaw, isLoading: groupsLoading } = useQuery({
     queryKey: ['venue-message-groups', venueId],
     queryFn: () => apiGet(groupsBase),
     enabled: !!venueId,
+    staleTime: 30_000,
   });
+  const groups = asArray(groupsRaw);
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) || null;
 
-  const { data: messages = [], refetch: refetchMessages } = useQuery({
+  const { data: messagesRaw, refetch: refetchMessages } = useQuery({
     queryKey: ['venue-message-group-messages', venueId, selectedGroupId],
     queryFn: () => apiGet(`${groupsBase}/${selectedGroupId}/messages`),
     enabled: !!venueId && !!selectedGroupId,
-    refetchInterval: 15000,
+    refetchInterval: 60_000,
   });
+  const messages = asArray(messagesRaw);
 
   const { data: groupDetail, refetch: refetchDetail } = useQuery({
     queryKey: ['venue-message-group-detail', venueId, selectedGroupId],

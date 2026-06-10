@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, Send } from 'lucide-react';
+import { ChevronLeft, MessageSquareX, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
-import { apiGet, apiPost } from '@/api/client';
+import { apiDelete, apiGet, apiPost } from '@/api/client';
+import { toast } from 'sonner';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
 import { createPageUrl } from '@/utils';
@@ -67,6 +68,7 @@ export default function DMThread({ conversationId, onBack }) {
   const [other, setOther] = useState(null);
   const [body, setBody] = useState('');
   const [blocked, setBlocked] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
   const lastPollRef = useRef(null);
@@ -107,6 +109,21 @@ export default function DMThread({ conversationId, onBack }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const deleteConversation = async () => {
+    if (!window.confirm('Delete this conversation? It will be removed from your messages.')) return;
+    setDeleting(true);
+    try {
+      await apiDelete(`/api/messages/conversations/${conversationId}`);
+      toast.success('Conversation deleted');
+      dispatchMessagesRefresh();
+      onBack();
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not delete conversation');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const send = async () => {
     const t = body.trim();
@@ -156,10 +173,19 @@ export default function DMThread({ conversationId, onBack }) {
             </div>
           )}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-semibold truncate">{other?.fullName || 'Chat'}</p>
           <p className="text-xs text-gray-500 truncate">@{other?.username || 'user'}</p>
         </div>
+        <button
+          type="button"
+          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-500 hover:text-red-400"
+          disabled={deleting}
+          onClick={deleteConversation}
+          title="Delete conversation"
+        >
+          <MessageSquareX className="w-5 h-5" />
+        </button>
       </div>
 
       {blocked && (

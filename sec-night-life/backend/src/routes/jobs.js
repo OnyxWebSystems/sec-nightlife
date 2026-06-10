@@ -356,13 +356,19 @@ router.delete('/:jobId', authenticateToken, async (req, res, next) => {
   try {
     const ownedJob = await getOwnedJob(req.params.jobId, req.userId);
     if (!ownedJob) return res.status(403).json({ error: 'Forbidden' });
-    const count = await prisma.jobApplication.count({ where: { jobPostingId: req.params.jobId } });
-    if (count > 0) {
-      await prisma.jobPosting.update({ where: { id: req.params.jobId }, data: { status: 'CLOSED' } });
-      return res.json({ status: 'CLOSED' });
+    const applicationCount = await prisma.jobApplication.count({
+      where: { jobPostingId: req.params.jobId },
+    });
+    const hiredCount = await prisma.jobApplication.count({
+      where: { jobPostingId: req.params.jobId, status: 'HIRED' },
+    });
+    if (hiredCount > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete a job with hired applicants. Close the job instead or remove hires first.',
+      });
     }
     await prisma.jobPosting.delete({ where: { id: req.params.jobId } });
-    return res.json({ deleted: true });
+    return res.json({ deleted: true, applicationCount });
   } catch (err) {
     return next(err);
   }

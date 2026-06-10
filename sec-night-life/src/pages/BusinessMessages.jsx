@@ -114,10 +114,10 @@ export default function BusinessMessages() {
 
   async function deleteJobThread() {
     if (!selectedJobAppId) return;
-    if (!window.confirm('Delete this job conversation? All messages will be removed.')) return;
+    if (!window.confirm('Delete this thread? It will be removed from your inbox (applications stay on the job page).')) return;
     try {
       await apiDelete(`/api/business/inbox/threads/${selectedJobAppId}`);
-      toast.success('Conversation deleted');
+      toast.success('Thread removed from inbox');
       setSelectedJobAppId(null);
       setSearchParams({ tab: filter });
       refetch();

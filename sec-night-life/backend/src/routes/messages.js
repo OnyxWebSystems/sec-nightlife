@@ -60,6 +60,28 @@ function otherParticipantId(conv, me) {
   return conv.participantAId === me ? conv.participantBId : conv.participantAId;
 }
 
+function conversationHiddenForUser(conv, me) {
+  if (conv.participantAId === me) return Boolean(conv.participantAHiddenAt);
+  if (conv.participantBId === me) return Boolean(conv.participantBHiddenAt);
+  return false;
+}
+
+async function hideConversationForUser(conversationId, me) {
+  const c = await prisma.conversation.findUnique({ where: { id: conversationId } });
+  if (!c || (c.participantAId !== me && c.participantBId !== me)) return null;
+  const data =
+    c.participantAId === me
+      ? { participantAHiddenAt: new Date() }
+      : { participantBHiddenAt: new Date() };
+  const updated = await prisma.conversation.update({ where: { id: c.id }, data });
+  if (updated.participantAHiddenAt && updated.participantBHiddenAt) {
+    await prisma.directMessage.deleteMany({ where: { conversationId: c.id } });
+    await prisma.conversation.delete({ where: { id: c.id } });
+    return { deleted: true };
+  }
+  return { hidden: true };
+}
+
 /** ── Direct message conversations (friends) ─────────────────────────── */
 
 router.post('/conversations/find-or-create', authenticateToken, async (req, res, next) => {
@@ -128,6 +150,7 @@ router.get('/conversations', authenticateToken, async (req, res, next) => {
 
     const out = [];
     for (const c of convs) {
+      if (conversationHiddenForUser(c, me)) continue;
       const otherId = otherParticipantId(c, me);
       const ok = await hasAcceptedFriendship(me, otherId);
       if (!ok) continue;
@@ -319,6 +342,16 @@ router.get('/conversations/:conversationId', authenticateToken, async (req, res,
   }
 });
 
+router.delete('/conversations/:conversationId', authenticateToken, async (req, res, next) => {
+  try {
+    const result = await hideConversationForUser(req.params.conversationId, req.userId);
+    if (!result) return res.status(403).json({ error: 'Forbidden' });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/conversations/:conversationId', authenticateToken, async (req, res, next) => {
   try {
     const me = req.userId;
@@ -329,6 +362,13 @@ router.post('/conversations/:conversationId', authenticateToken, async (req, res
     const c = await prisma.conversation.findUnique({ where: { id: req.params.conversationId } });
     if (!c || (c.participantAId !== me && c.participantBId !== me)) {
       return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    if (c.participantAHiddenAt || c.participantBHiddenAt) {
+      await prisma.conversation.update({
+        where: { id: c.id },
+        data: { participantAHiddenAt: null, participantBHiddenAt: null },
+      });
     }
 
     const otherId = otherParticipantId(c, me);

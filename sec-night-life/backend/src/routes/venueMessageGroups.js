@@ -152,6 +152,75 @@ router.post('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+router.get('/:groupId', authenticateToken, async (req, res, next) => {
+  try {
+    const { venueId, groupId } = req.params;
+    const access = await getGroupAccess(venueId, groupId, req.userId);
+    if (access.error === 'not_found' || access.error === 'group_not_found') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    if (access.error === 'forbidden') return res.status(403).json({ error: 'Forbidden' });
+
+    const { group, isAdmin, isOwner } = access;
+    res.json({
+      id: group.id,
+      name: group.name,
+      ownerUserId: access.venue.ownerUserId,
+      isOwner,
+      myRole: isOwner ? 'ADMIN' : access.membership?.role || null,
+      canManage: isAdmin,
+      members: group.members.map((m) => ({
+        id: m.id,
+        userId: m.userId,
+        role: m.role,
+        username: m.user.userProfile?.username || m.user.fullName || 'User',
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/:groupId/messages', authenticateToken, async (req, res, next) => {
+  try {
+    const { venueId, groupId } = req.params;
+    const access = await getGroupAccess(venueId, groupId, req.userId);
+    if (access.error === 'not_found' || access.error === 'group_not_found') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    if (access.error === 'forbidden') return res.status(403).json({ error: 'Forbidden' });
+
+    const rows = await prisma.venueMessageGroupMessage.findMany({
+      where: { groupId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            fullName: true,
+            userProfile: { select: { username: true } },
+          },
+        },
+      },
+    });
+
+    res.json(
+      rows.map((m) => ({
+        id: m.id,
+        body: m.body,
+        createdAt: m.createdAt,
+        senderUserId: m.senderUserId,
+        senderLabel: m.sender.userProfile?.username
+          ? `@${m.sender.userProfile.username}`
+          : m.sender.fullName || 'User',
+        isMine: m.senderUserId === req.userId,
+      })),
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/:groupId/members', authenticateToken, async (req, res, next) => {
   try {
     const { venueId, groupId } = req.params;
