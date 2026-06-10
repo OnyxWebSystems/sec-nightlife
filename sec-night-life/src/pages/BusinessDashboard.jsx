@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { asArray, createPageUrl } from '@/utils';
+import { asArray, buildPageUrl, createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -183,18 +183,27 @@ export default function BusinessDashboard() {
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update job status'),
   });
 
+  const [deletingJobId, setDeletingJobId] = useState(null);
+
   const deleteJobMutation = useMutation({
     mutationFn: (jobId) => apiDelete(`/api/jobs/${jobId}`),
-    onSuccess: (data) => {
+    onMutate: (jobId) => {
+      setDeletingJobId(jobId);
+    },
+    onSuccess: (data, jobId) => {
       const n = data?.applicationCount || 0;
       toast.success(
         n > 0
           ? `Job deleted (${n} application${n === 1 ? '' : 's'} removed)`
           : 'Job deleted',
       );
+      qc.setQueryData(['biz-jobs', venue?.id], (old) =>
+        asArray(old).filter((j) => j.id !== jobId),
+      );
       qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
+    onSettled: () => setDeletingJobId(null),
   });
 
   if (!user) return null;
@@ -628,14 +637,14 @@ export default function BusinessDashboard() {
                 </div>
                 <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
                   <Link
-                    to={createPageUrl(`JobDetails?id=${j.id}`)}
+                    to={buildPageUrl('BusinessJobs', { job: j.id, view: 'applicants' })}
                     className="sec-btn sec-btn-secondary"
                     style={{ textDecoration: 'none', height: 42, width: '100%', boxSizing: 'border-box' }}
                   >
                     View Applicants
                   </Link>
                   <Link
-                    to={`${createPageUrl('BusinessJobs')}?edit=${encodeURIComponent(j.id)}`}
+                    to={buildPageUrl('BusinessJobs', { job: j.id, view: 'edit' })}
                     className="sec-btn sec-btn-secondary"
                     style={{ textDecoration: 'none', height: 42, width: '100%', boxSizing: 'border-box' }}
                   >
@@ -657,18 +666,18 @@ export default function BusinessDashboard() {
                     type="button"
                     className="sec-btn sec-btn-secondary"
                     style={{ height: 42, width: '100%', borderColor: 'rgba(217, 85, 85, 0.35)', color: 'var(--sec-error)' }}
-                    disabled={deleteJobMutation.isPending}
+                    disabled={deletingJobId === j.id}
                     onClick={() => {
                       const appCount = j._count?.applications || 0;
                       const msg =
                         appCount > 0
-                          ? `Delete this job post? This will permanently remove ${appCount} application${appCount === 1 ? '' : 's'} and all related messages.`
-                          : 'Delete this job post? This action cannot be undone.';
+                          ? `Delete "${j.title}"? This will permanently remove ${appCount} application${appCount === 1 ? '' : 's'} and all related messages.`
+                          : `Delete "${j.title}"? This action cannot be undone.`;
                       if (!window.confirm(msg)) return;
                       deleteJobMutation.mutate(j.id);
                     }}
                   >
-                    {deleteJobMutation.isPending ? 'Deleting...' : 'Delete Job'}
+                    {deletingJobId === j.id ? 'Deleting...' : 'Delete Job'}
                   </button>
                 </div>
               </div>

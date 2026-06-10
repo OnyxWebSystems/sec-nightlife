@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { asArray, buildPageUrl, createPageUrl } from '@/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch } from '@/api/client';
 import { dataService } from '@/services/dataService';
@@ -41,7 +41,12 @@ export default function BusinessJobs() {
   const qc = useQueryClient();
   const [activeJobId, setActiveJobId] = useState(null);
   const [editJobId, setEditJobId] = useState(null);
+  const [deletingJobId, setDeletingJobId] = useState(null);
   const [editForm, setEditForm] = useState(() => jobPostingToEditForm(null));
+
+  const focusJobId = searchParams.get('job') || searchParams.get('edit');
+  const focusView = searchParams.get('view') || (searchParams.get('edit') ? 'edit' : null);
+  const isFocused = Boolean(focusJobId);
 
   const { data: user } = useQuery({
     queryKey: ['business-jobs-me'],
@@ -50,11 +55,16 @@ export default function BusinessJobs() {
 
   const { activeVenue: venue } = useActiveVenue();
 
-  const { data: jobs = [], isLoading } = useQuery({
+  const { data: jobsRaw, isLoading } = useQuery({
     queryKey: ['biz-jobs', venue?.id],
     queryFn: () => apiGet(`/api/jobs/venue/${venue.id}`),
     enabled: !!venue?.id,
   });
+  const jobs = asArray(jobsRaw);
+  const focusedJob = useMemo(
+    () => (focusJobId ? jobs.find((j) => j.id === focusJobId) || null : null),
+    [jobs, focusJobId],
+  );
 
   const { data: applications = [] } = useQuery({
     queryKey: ['biz-job-applications', activeJobId],
@@ -77,17 +87,36 @@ export default function BusinessJobs() {
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update job status'),
   });
 
+  const clearJobFocus = () => {
+    setActiveJobId(null);
+    setEditJobId(null);
+    setEditForm(jobPostingToEditForm(null));
+    setSearchParams({}, { replace: true });
+  };
+
   const deleteJobMutation = useMutation({
     mutationFn: (jobId) => apiDelete(`/api/jobs/${jobId}`),
-    onSuccess: () => {
-      toast.success('Job deleted');
-      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
-      if (activeJobId) {
-        setActiveJobId(null);
-        qc.invalidateQueries({ queryKey: ['biz-job-applications', activeJobId] });
+    onMutate: (jobId) => setDeletingJobId(jobId),
+    onSuccess: (data, jobId) => {
+      const n = data?.applicationCount || 0;
+      toast.success(
+        n > 0
+          ? `Job deleted (${n} application${n === 1 ? '' : 's'} removed)`
+          : 'Job deleted',
+      );
+      qc.setQueryData(['biz-jobs', venue?.id], (old) =>
+        asArray(old).filter((j) => j.id !== jobId),
+      );
+      if (activeJobId === jobId) setActiveJobId(null);
+      if (editJobId === jobId) {
+        setEditJobId(null);
+        setEditForm(jobPostingToEditForm(null));
       }
+      if (isFocused && focusJobId === jobId) clearJobFocus();
+      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
+    onSettled: () => setDeletingJobId(null),
   });
 
   const activeJob = useMemo(() => jobs.find((j) => j.id === activeJobId) || null, [jobs, activeJobId]);
@@ -110,8 +139,12 @@ export default function BusinessJobs() {
     mutationFn: () => apiPatch(`/api/jobs/${editJobId}`, buildJobPatchBody(editForm)),
     onSuccess: () => {
       toast.success('Job updated');
-      setEditJobId(null);
-      setEditForm(jobPostingToEditForm(null));
+      if (isFocused && focusView === 'edit') {
+        setSearchParams({ job: editJobId, view: 'applicants' }, { replace: true });
+      } else {
+        setEditJobId(null);
+        setEditForm(jobPostingToEditForm(null));
+      }
       qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Update failed'),
@@ -140,22 +173,23 @@ export default function BusinessJobs() {
   }, [navigate]);
 
   useEffect(() => {
-    const editId = searchParams.get('edit');
-    if (!editId || !jobs.length) return;
-    const job = jobs.find((j) => j.id === editId);
+    const legacyEdit = searchParams.get('edit');
+    if (legacyEdit && !searchParams.get('job')) {
+      setSearchParams({ job: legacyEdit, view: 'edit' }, { replace: true });
+      return;
+    }
+    if (!focusJobId || !jobs.length) return;
+    const job = jobs.find((j) => j.id === focusJobId);
     if (!job) return;
-    setEditJobId(job.id);
-    setEditForm({
-      title: job.title || '',
-      description: job.description || '',
-      requirements: job.requirements || '',
-      totalSpots: job.totalSpots || 1,
-      closingDate: job.closingDate ? new Date(job.closingDate).toISOString().slice(0, 10) : '',
-    });
-    const next = new URLSearchParams(searchParams);
-    next.delete('edit');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, jobs, setSearchParams]);
+    if (focusView === 'edit') {
+      setEditJobId(job.id);
+      setEditForm(jobPostingToEditForm(job));
+      setActiveJobId(null);
+    } else if (focusView === 'applicants') {
+      setActiveJobId(job.id);
+      setEditJobId(null);
+    }
+  }, [focusJobId, focusView, jobs, searchParams, setSearchParams]);
 
   if (!venue?.id) {
     return (
@@ -168,91 +202,133 @@ export default function BusinessJobs() {
     );
   }
 
+  const confirmDeleteJob = (job) => {
+    const appCount = job._count?.applications || 0;
+    const msg =
+      appCount > 0
+        ? `Delete "${job.title}"? This will permanently remove ${appCount} application${appCount === 1 ? '' : 's'} and all related messages.`
+        : `Delete "${job.title}"? This action cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    deleteJobMutation.mutate(job.id);
+  };
+
+  const renderJobActions = (job) => (
+    <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+      <button
+        className="sec-btn sec-btn-secondary"
+        style={{ height: 42, width: '100%' }}
+        onClick={() => setSearchParams({ job: job.id, view: 'applicants' }, { replace: true })}
+      >
+        View Applicants ({job._count?.applications || 0})
+      </button>
+      <button
+        className="sec-btn sec-btn-secondary"
+        style={{ height: 42, width: '100%' }}
+        onClick={() => setSearchParams({ job: job.id, view: 'edit' }, { replace: true })}
+      >
+        Edit
+      </button>
+      <button
+        className={`sec-btn ${job.status === 'OPEN' ? 'sec-btn-secondary' : 'sec-btn-primary'}`}
+        style={{ height: 42, width: '100%' }}
+        disabled={jobStatusMutation.isPending}
+        onClick={() => {
+          const status = job.status === 'OPEN' ? 'CLOSED' : 'OPEN';
+          jobStatusMutation.mutate({ jobId: job.id, status });
+        }}
+      >
+        {jobStatusMutation.isPending ? 'Saving...' : (job.status === 'OPEN' ? 'Close Job' : 'Open Job')}
+      </button>
+      <button
+        className="sec-btn sec-btn-secondary"
+        style={{ height: 42, width: '100%', borderColor: 'rgba(217, 85, 85, 0.35)', color: 'var(--sec-error)' }}
+        disabled={deletingJobId === job.id}
+        onClick={() => confirmDeleteJob(job)}
+      >
+        {deletingJobId === job.id ? 'Deleting...' : 'Delete Job'}
+      </button>
+    </div>
+  );
+
+  const renderJobCard = (job) => (
+    <div key={job.id} className="sec-card" style={{ borderRadius: 12, padding: 14 }}>
+      {(() => {
+        const visibility = getPublicVisibility(job);
+        return (
+          <div style={{ marginBottom: 8 }}>
+            <span className={`sec-badge ${visibility.isVisible ? 'sec-badge-success' : 'sec-badge-danger'}`}>
+              {visibility.reason}
+            </span>
+          </div>
+        );
+      })()}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {job.title}
+            {job.positionRole === 'PROMOTER' ? (
+              <span className="sec-badge" style={{ fontSize: 10, color: 'var(--sec-accent)' }}>Promoter</span>
+            ) : null}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{job.jobType} · {compensationText(job)}</div>
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-text-muted)' }}>
+            {job.filledSpots} of {job.totalSpots} filled · {job.closingDate ? new Date(job.closingDate).toLocaleDateString() : 'No closing date'}
+          </div>
+        </div>
+        <span className={`sec-badge ${job.status === 'OPEN' ? 'sec-badge-success' : job.status === 'FILLED' ? 'sec-badge-gold' : 'sec-badge-muted'}`}>{job.status}</span>
+      </div>
+      {renderJobActions(job)}
+      {!isFocused ? (
+        <div style={{ marginTop: 8 }}>
+          <span className="sec-badge sec-badge-muted">Unread {unreadByJob[job.id] || 0}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
     <div style={{ maxWidth: 560, margin: '0 auto' }}>
-      <PageBackHeader title="Jobs" subtitle="Manage venue job postings" />
+      <PageBackHeader
+        title={isFocused && focusedJob ? focusedJob.title : 'Jobs'}
+        subtitle={
+          isFocused
+            ? focusView === 'edit'
+              ? 'Edit this job posting'
+              : 'Applicants for this job'
+            : 'Manage venue job postings'
+        }
+        onBack={isFocused ? clearJobFocus : undefined}
+        fallbackTo={isFocused ? undefined : 'BusinessDashboard'}
+      />
       <div style={{ padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 12, gap: 12 }}>
-        <Link to={createPageUrl('CreateJob')} className="sec-btn sec-btn-primary sec-btn-md" style={{ textDecoration: 'none', flexShrink: 0 }}>
-          Post Job
-        </Link>
-      </div>
+      {!isFocused ? (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 12, gap: 12 }}>
+          <Link to={createPageUrl('CreateJob')} className="sec-btn sec-btn-primary sec-btn-md" style={{ textDecoration: 'none', flexShrink: 0 }}>
+            Post Job
+          </Link>
+        </div>
+      ) : null}
 
       {isLoading ? <div className="sec-spinner" /> : null}
-      <div style={{ display: 'grid', gap: 12 }}>
-        {jobs.map((job) => (
-          <div key={job.id} className="sec-card" style={{ borderRadius: 12, padding: 14 }}>
-            {(() => {
-              const visibility = getPublicVisibility(job);
-              return (
-                <div style={{ marginBottom: 8 }}>
-                  <span className={`sec-badge ${visibility.isVisible ? 'sec-badge-success' : 'sec-badge-danger'}`}>
-                    {visibility.reason}
-                  </span>
-                </div>
-              );
-            })()}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  {job.title}
-                  {job.positionRole === 'PROMOTER' ? (
-                    <span className="sec-badge" style={{ fontSize: 10, color: 'var(--sec-accent)' }}>Promoter</span>
-                  ) : null}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{job.jobType} · {compensationText(job)}</div>
-                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-text-muted)' }}>
-                  {job.filledSpots} of {job.totalSpots} filled · {job.closingDate ? new Date(job.closingDate).toLocaleDateString() : 'No closing date'}
-                </div>
-              </div>
-              <span className={`sec-badge ${job.status === 'OPEN' ? 'sec-badge-success' : job.status === 'FILLED' ? 'sec-badge-gold' : 'sec-badge-muted'}`}>{job.status}</span>
-            </div>
-            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
-              <button className="sec-btn sec-btn-secondary" style={{ height: 42, width: '100%' }} onClick={() => setActiveJobId(job.id)}>
-                View Applicants ({job._count?.applications || 0})
-              </button>
-              <button
-                className="sec-btn sec-btn-secondary"
-                style={{ height: 42, width: '100%' }}
-                onClick={() => {
-                  setEditJobId(job.id);
-                  setEditForm(jobPostingToEditForm(job));
-                }}
-              >
-                Edit
-              </button>
-              <button
-                className={`sec-btn ${job.status === 'OPEN' ? 'sec-btn-secondary' : 'sec-btn-primary'}`}
-                style={{ height: 42, width: '100%' }}
-                disabled={jobStatusMutation.isPending}
-                onClick={() => {
-                  const status = job.status === 'OPEN' ? 'CLOSED' : 'OPEN';
-                  jobStatusMutation.mutate({ jobId: job.id, status });
-                }}
-              >
-                {jobStatusMutation.isPending ? 'Saving...' : (job.status === 'OPEN' ? 'Close Job' : 'Open Job')}
-              </button>
-              <button
-                className="sec-btn sec-btn-secondary"
-                style={{ height: 42, width: '100%', borderColor: 'rgba(217, 85, 85, 0.35)', color: 'var(--sec-error)' }}
-                disabled={deleteJobMutation.isPending}
-                onClick={() => {
-                  const ok = window.confirm('Delete this job post? This action cannot be undone.');
-                  if (!ok) return;
-                  deleteJobMutation.mutate(job.id);
-                }}
-              >
-                {deleteJobMutation.isPending ? 'Deleting...' : 'Delete Job'}
-              </button>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <span className="sec-badge sec-badge-muted">Unread {unreadByJob[job.id] || 0}</span>
-            </div>
-          </div>
-        ))}
-      </div>
 
-      {activeJobId ? (
+      {isFocused && !focusedJob && !isLoading ? (
+        <div className="sec-card" style={{ padding: 16, borderRadius: 12, marginBottom: 12 }}>
+          <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Job not found or it was removed.</p>
+          <button type="button" className="sec-btn sec-btn-secondary mt-3" onClick={clearJobFocus}>
+            Back to all jobs
+          </button>
+        </div>
+      ) : null}
+
+      {isFocused && focusedJob && focusView !== 'edit' ? renderJobCard(focusedJob) : null}
+
+      {!isFocused ? (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {jobs.map((job) => renderJobCard(job))}
+        </div>
+      ) : null}
+
+      {activeJobId && (!isFocused || focusView === 'applicants') ? (
         <div className="sec-card" style={{ marginTop: 14, borderRadius: 12, padding: 14 }}>
           <h3 style={{ fontWeight: 700 }}>Applicants</h3>
           <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
@@ -290,7 +366,7 @@ export default function BusinessJobs() {
         </div>
       ) : null}
 
-      {editJobId ? (
+      {editJobId && (!isFocused || focusView === 'edit') ? (
         <div
           className="sec-card"
           style={{ marginTop: 14, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 0, maxHeight: 'min(85vh, 720px)', overflow: 'hidden' }}
@@ -430,8 +506,12 @@ export default function BusinessJobs() {
               className="sec-btn sec-btn-secondary w-full"
               style={{ height: 44, borderRadius: 12 }}
               onClick={() => {
-                setEditJobId(null);
-                setEditForm(jobPostingToEditForm(null));
+                if (isFocused) {
+                  setSearchParams({ job: editJobId, view: 'applicants' }, { replace: true });
+                } else {
+                  setEditJobId(null);
+                  setEditForm(jobPostingToEditForm(null));
+                }
               }}
             >
               Cancel
