@@ -12,12 +12,23 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuth = async () => {
     const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
-    if (!token) {
+    const refreshToken = localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
+    if (!token && !refreshToken) {
       setUser(null);
       setUserProfile(null);
       setIsAuthenticated(false);
       setIsLoadingAuth(false);
       return;
+    }
+    if (!token && refreshToken) {
+      const refreshed = await authService.ensureSession();
+      if (!refreshed) {
+        setUser(null);
+        setUserProfile(null);
+        setIsAuthenticated(false);
+        setIsLoadingAuth(false);
+        return;
+      }
     }
     try {
       setAuthError(null);

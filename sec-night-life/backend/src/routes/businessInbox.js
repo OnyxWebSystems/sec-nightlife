@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getTemplateLabel, MESSAGABLE_VENUE_MEMBER_STATUSES } from '../lib/venueTableMessageTemplates.js';
+import { ensurePromoterVenueThread } from '../lib/promoterVenueThread.js';
 
 const router = Router();
 
@@ -18,7 +19,7 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
     const venueIds = await ownedVenueIds(req.userId);
     if (!venueIds.length) return res.json({ count: 0 });
 
-    const [jobUnread, tableThreadUnread] = await Promise.all([
+    const [jobUnread, tableThreadUnread, promoterVenueUnread] = await Promise.all([
       prisma.jobMessage.count({
         where: {
           readAt: null,
@@ -26,7 +27,6 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
           application: {
             OR: [
               { status: 'SHORTLISTED', jobPosting: { venueId: { in: venueIds } } },
-              { status: 'HIRED', jobPosting: { venueId: { in: venueIds }, positionRole: 'PROMOTER' } },
             ],
           },
         },
@@ -44,9 +44,16 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
           },
         },
       }),
+      prisma.promoterVenueMessage.count({
+        where: {
+          readAt: null,
+          OR: [{ senderUserId: null }, { senderUserId: { not: req.userId } }],
+          thread: { venueId: { in: venueIds }, venueHiddenAt: null },
+        },
+      }),
     ]);
 
-    res.json({ count: jobUnread + tableThreadUnread });
+    res.json({ count: jobUnread + tableThreadUnread + promoterVenueUnread });
   } catch (e) {
     next(e);
   }
@@ -94,36 +101,63 @@ router.get('/', authenticateToken, async (req, res, next) => {
     }
 
     if (filter === 'promoters') {
-      const apps = await prisma.jobApplication.findMany({
+      const hiredApps = await prisma.jobApplication.findMany({
         where: {
           jobPosting: { venueId: { in: venueIds }, positionRole: 'PROMOTER' },
           status: 'HIRED',
-          venueHiddenAt: null,
         },
+        select: {
+          id: true,
+          applicantUserId: true,
+          jobPosting: { select: { venueId: true, venue: { select: { name: true } } } },
+        },
+      });
+      await Promise.all(
+        hiredApps.map((app) =>
+          ensurePromoterVenueThread({
+            venueId: app.jobPosting.venueId,
+            promoterUserId: app.applicantUserId,
+            jobApplicationId: app.id,
+          }),
+        ),
+      );
+
+      const threads = await prisma.promoterVenueThread.findMany({
+        where: { venueId: { in: venueIds }, venueHiddenAt: null },
         include: {
-          jobPosting: { select: { id: true, title: true, jobType: true, venueId: true } },
-          applicant: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
+          venue: { select: { id: true, name: true } },
+          promoter: {
+            select: {
+              id: true,
+              fullName: true,
+              userProfile: { select: { username: true, avatarUrl: true } },
+            },
+          },
           messages: { orderBy: { sentAt: 'desc' }, take: 1 },
         },
         orderBy: { updatedAt: 'desc' },
         take: 50,
       });
-      for (const app of apps) {
-        const last = app.messages[0];
+      for (const t of threads) {
+        const last = t.messages[0];
+        const unread = await prisma.promoterVenueMessage.count({
+          where: {
+            threadId: t.id,
+            readAt: null,
+            OR: [{ senderUserId: null }, { senderUserId: { not: req.userId } }],
+          },
+        });
         items.push({
-          type: 'job',
-          id: app.id,
-          status: app.status,
-          title: app.jobPosting.title,
-          subtitle: app.applicant.userProfile?.username || app.applicant.fullName || 'Promoter',
-          applicantUserId: app.applicant.id,
-          venueId: app.jobPosting.venueId,
+          type: 'promoter_venue_thread',
+          id: t.id,
+          threadId: t.id,
+          title: t.promoter.userProfile?.username || t.promoter.fullName || 'Promoter',
+          subtitle: t.venue.name,
+          applicantUserId: t.promoterUserId,
+          venueId: t.venueId,
           body: last?.body || null,
-          referenceId: app.jobPostingId,
-          applicationId: app.id,
-          jobType: app.jobPosting.jobType,
-          updatedAt: last?.sentAt || app.updatedAt,
-          unread: Boolean(last && !last.readAt && last.senderUserId !== req.userId),
+          updatedAt: last?.sentAt || t.updatedAt,
+          unread: unread > 0,
         });
       }
     }

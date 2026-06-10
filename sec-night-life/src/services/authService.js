@@ -1,7 +1,7 @@
 /**
  * Auth service - uses backend API for registration, login, and session.
  */
-import { apiGet, apiPost, setTokens, clearTokens } from '@/api/client';
+import { apiGet, apiPost, setTokens, clearTokens, refreshAccessToken } from '@/api/client';
 
 export async function getAuthSession() {
   const data = await apiGet('/api/auth/me');
@@ -21,6 +21,14 @@ export async function getAuthSession() {
 export async function getCurrentUser() {
   const { user } = await getAuthSession();
   return user;
+}
+
+export async function ensureSession() {
+  const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+  if (token) return true;
+  const refreshToken = localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
+  if (!refreshToken) return false;
+  return refreshAccessToken();
 }
 
 export function redirectToLogin(returnUrl) {

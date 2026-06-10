@@ -217,4 +217,83 @@ router.get('/event-interest-reminders', async (req, res, next) => {
   }
 });
 
+/** Friday 12:00 SAST (10:00 UTC) — weekly weekend reminder for party goers. */
+router.get('/weekend-reminder', async (req, res, next) => {
+  try {
+    if (!isCronAuthorized(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const now = new Date();
+    const sast = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' }));
+    const weekKey = `${sast.getFullYear()}-W${String(getIsoWeek(sast)).padStart(2, '0')}`;
+    const baseUrl = (process.env.APP_URL || 'http://localhost:5173').replace(/\/$/, '');
+
+    const partyGoerRoles = await prisma.accountRole.findMany({
+      where: { roleType: 'partygoer' },
+      select: { userId: true },
+    });
+    const partyGoerIds = new Set(partyGoerRoles.map((r) => r.userId));
+
+    const users = await prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        suspendedAt: null,
+        emailVerified: true,
+        email: { not: null },
+        OR: [
+          { role: { in: ['USER', 'FREELANCER'] } },
+          { id: { in: [...partyGoerIds] } },
+        ],
+      },
+      select: { id: true, email: true, fullName: true },
+    });
+
+    let sent = 0;
+    let skipped = 0;
+
+    for (const user of users) {
+      const existing = await prisma.weekendReminderSent.findUnique({
+        where: { userId_weekKey: { userId: user.id, weekKey } },
+      });
+      if (existing) {
+        skipped += 1;
+        continue;
+      }
+
+      const firstName = (user.fullName || 'there').split(' ')[0];
+      const subject = 'The weekend is here — book your night out on SEC';
+      const text =
+        `Hi ${firstName},\n\n` +
+        `It's Friday — the weekend is here! Open SEC to book a table or grab tickets to an event near you.\n\n` +
+        `Browse events: ${baseUrl}/Home\n\n` +
+        `See you out there,\nThe SEC team`;
+      const html =
+        `<p>Hi ${firstName},</p>` +
+        `<p><strong>The weekend is here!</strong> Open SEC to book a table or buy tickets to an event near you.</p>` +
+        `<p><a href="${baseUrl}/Home">Browse events on SEC</a></p>` +
+        `<p>See you out there,<br/>The SEC team</p>`;
+
+      try {
+        await sendEmail({ to: user.email, subject, text, html });
+        await prisma.weekendReminderSent.create({ data: { userId: user.id, weekKey } });
+        sent += 1;
+      } catch (mailErr) {
+        logger.warn('weekend-reminder email failed', { userId: user.id, err: mailErr?.message });
+      }
+    }
+
+    res.json({ weekKey, sent, skipped, eligible: users.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+function getIsoWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
 export default router;

@@ -176,11 +176,26 @@ export default function Notifications() {
       return tableId ? buildPageUrl('TableDetails', { id: tableId, source: 'venue' }) : actionUrl;
     }
     if (t === 'TABLE_MESSAGE') {
+      const promoterVenue = extractQueryParam(actionUrl, 'promoterVenue');
+      if (promoterVenue) {
+        return business
+          ? `${createPageUrl('BusinessMessages')}?tab=promoters&promoterVenue=${encodeURIComponent(promoterVenue)}`
+          : `${createPageUrl('Messages')}?promoterVenue=${encodeURIComponent(promoterVenue)}`;
+      }
       const threadId = n.referenceId || extractQueryParam(actionUrl, 'venueTableThread');
       if (!threadId) return actionUrl;
       return business
         ? `${createPageUrl('BusinessMessages')}?tab=tables&thread=${encodeURIComponent(threadId)}`
         : `${createPageUrl('Messages')}?venueTableThread=${encodeURIComponent(threadId)}`;
+    }
+
+    if (t === 'PROMOTER_EVENT_ASSIGNED') {
+      const promoterVenue = extractQueryParam(actionUrl, 'promoterVenue');
+      if (promoterVenue) {
+        return `${createPageUrl('Messages')}?promoterVenue=${encodeURIComponent(promoterVenue)}`;
+      }
+      if (actionUrl) return actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
+      return createPageUrl('Messages');
     }
 
     if (t === 'DIRECT_MESSAGE' && n.referenceId) {

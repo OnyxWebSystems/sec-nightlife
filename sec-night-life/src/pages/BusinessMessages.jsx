@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { Loader2, Briefcase, Armchair, Star, Trash2 } from 'lucide-react';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import BusinessVenueGroupPanel from '@/components/messaging/BusinessVenueGroupPanel';
+import PromoterVenueThreadPanel from '@/components/messaging/PromoterVenueThreadPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 
@@ -29,6 +30,7 @@ export default function BusinessMessages() {
   );
   const [selectedJobAppId, setSelectedJobAppId] = useState(searchParams.get('application') || null);
   const [selectedTableThreadId, setSelectedTableThreadId] = useState(searchParams.get('thread') || null);
+  const [selectedPromoterVenueId, setSelectedPromoterVenueId] = useState(searchParams.get('promoterVenue') || null);
   const [jobMessageBody, setJobMessageBody] = useState('');
   const [jobSending, setJobSending] = useState(false);
   const [tableSending, setTableSending] = useState(false);
@@ -43,6 +45,11 @@ export default function BusinessMessages() {
       setSelectedTableThreadId(thread);
       if (!tab || tab === 'jobs') setFilter('tables');
     }
+    const promoterVenue = searchParams.get('promoterVenue');
+    if (promoterVenue) {
+      setSelectedPromoterVenueId(promoterVenue);
+      setFilter('promoters');
+    }
   }, [searchParams]);
 
   const inboxType =
@@ -56,24 +63,20 @@ export default function BusinessMessages() {
 
   const items = data?.items ?? [];
 
+  const selectedPromoterItem = useMemo(
+    () => items.find((i) => i.type === 'promoter_venue_thread' && i.threadId === selectedPromoterVenueId),
+    [items, selectedPromoterVenueId],
+  );
+
   const selectedJobItem = useMemo(
     () => items.find((i) => i.type === 'job' && i.id === selectedJobAppId),
     [items, selectedJobAppId],
   );
 
-  const { data: promoterAssignments = [] } = useQuery({
-    queryKey: ['promoter-assignments-inbox', selectedJobItem?.venueId, selectedJobItem?.applicantUserId],
-    queryFn: () =>
-      apiGet(
-        `/api/events/venue/${selectedJobItem.venueId}/promoter/${selectedJobItem.applicantUserId}/assignments`,
-      ).then((r) => r?.data || []),
-    enabled: filter === 'promoters' && !!selectedJobItem?.venueId && !!selectedJobItem?.applicantUserId,
-  });
-
   const { data: jobMessagesRaw, refetch: refetchJobMessages, isSuccess: jobMessagesLoaded } = useQuery({
     queryKey: ['job-messages', selectedJobAppId],
     queryFn: () => apiGet(`/api/jobs/applications/${selectedJobAppId}/messages`),
-    enabled: !!selectedJobAppId && (filter === 'jobs' || filter === 'promoters'),
+    enabled: !!selectedJobAppId && filter === 'jobs',
     refetchInterval: 60_000,
     staleTime: 20_000,
   });
@@ -156,6 +159,11 @@ export default function BusinessMessages() {
     }
   }
 
+  function selectPromoterItem(item) {
+    setSelectedPromoterVenueId(item.threadId);
+    setSearchParams({ tab: 'promoters', promoterVenue: item.threadId });
+  }
+
   function selectJobItem(item) {
     setSelectedJobAppId(item.id);
     setSearchParams({ tab: filter, application: item.id });
@@ -175,6 +183,7 @@ export default function BusinessMessages() {
           setFilter(v);
           setSelectedJobAppId(null);
           setSelectedTableThreadId(null);
+          setSelectedPromoterVenueId(null);
           setSearchParams({ tab: v });
         }}
       >
@@ -201,12 +210,15 @@ export default function BusinessMessages() {
                 items.map((item) => {
                   const isJob = item.type === 'job';
                   const isTable = item.type === 'venue_table_thread';
+                  const isPromoterThread = item.type === 'promoter_venue_thread';
                   const selected = isJob
                     ? selectedJobAppId === item.id
-                    : selectedTableThreadId === item.threadId;
+                    : isPromoterThread
+                      ? selectedPromoterVenueId === item.threadId
+                      : selectedTableThreadId === item.threadId;
                   return (
                     <button
-                      key={`${item.type}-${item.id}`}
+                      key={`${item.type}-${item.id || item.threadId}`}
                       type="button"
                       className="sec-card p-4 border text-left w-full"
                       style={{
@@ -215,6 +227,7 @@ export default function BusinessMessages() {
                       }}
                       onClick={() => {
                         if (isJob) selectJobItem(item);
+                        else if (isPromoterThread) selectPromoterItem(item);
                         else if (isTable) {
                           setSelectedTableThreadId(item.threadId);
                           setSearchParams({ tab: 'tables', thread: item.threadId });
@@ -306,6 +319,26 @@ export default function BusinessMessages() {
                     </div>
                   </>
                 )
+              ) : filter === 'promoters' ? (
+                !selectedPromoterVenueId ? (
+                  <p className="text-sm text-[var(--sec-text-muted)] py-8 text-center">Select a promoter thread.</p>
+                ) : (
+                  <div className="min-h-[400px]">
+                    <PromoterVenueThreadPanel
+                      threadId={selectedPromoterVenueId}
+                      isBusiness
+                      onClose={() => {
+                        setSelectedPromoterVenueId(null);
+                        setSearchParams({ tab: 'promoters' });
+                      }}
+                      onDeleted={() => {
+                        setSelectedPromoterVenueId(null);
+                        setSearchParams({ tab: 'promoters' });
+                        refetch();
+                      }}
+                    />
+                  </div>
+                )
               ) : !selectedJobAppId ? (
                 <p className="text-sm text-[var(--sec-text-muted)] py-8 text-center">Select a job thread.</p>
               ) : selectedJobItem?.status === 'PENDING' ? (
@@ -340,25 +373,6 @@ export default function BusinessMessages() {
                       Delete chat
                     </Button>
                   </div>
-                  {filter === 'promoters' ? (
-                    <div className="mb-4 p-3 rounded-lg border border-[var(--sec-border)]" style={{ background: 'var(--sec-bg-elevated)' }}>
-                      <p className="text-xs font-semibold mb-2">Assigned events</p>
-                      {promoterAssignments.length === 0 ? (
-                        <p className="text-xs text-[var(--sec-text-muted)]">
-                          No events assigned yet. Assign in{' '}
-                          <button type="button" className="text-[var(--sec-accent)] underline" onClick={() => navigate(createPageUrl('BusinessEvents'))}>
-                            Events Manager
-                          </button>.
-                        </p>
-                      ) : (
-                        <ul className="text-xs space-y-1">
-                          {promoterAssignments.map((a) => (
-                            <li key={a.eventId}>{a.title}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ) : null}
                   <div className="max-h-52 overflow-y-auto space-y-2 mb-4">
                     {jobMessages.map((m) => (
                       <div

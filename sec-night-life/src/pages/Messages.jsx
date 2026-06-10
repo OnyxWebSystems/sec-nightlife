@@ -10,7 +10,8 @@ import { formatDistanceToNow } from 'date-fns';
 import DMThread from '@/components/messaging/DMThread';
 import GroupThread from '@/components/messaging/GroupThread';
 import VenueTableThreadPanel from '@/components/messaging/VenueTableThreadPanel';
-import { Armchair } from 'lucide-react';
+import PromoterVenueThreadPanel from '@/components/messaging/PromoterVenueThreadPanel';
+import { Armchair, Megaphone } from 'lucide-react';
 
 export default function Messages() {
   const queryClient = useQueryClient();
@@ -20,6 +21,7 @@ export default function Messages() {
   const group = searchParams.get('group');
   const groupKind = searchParams.get('gk') || 'EVENT';
   const venueTableThread = searchParams.get('venueTableThread');
+  const promoterVenue = searchParams.get('promoterVenue');
   const [user, setUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState('all');
@@ -64,9 +66,18 @@ export default function Messages() {
     staleTime: 30_000,
   });
 
+  const { data: promoterThreadsRaw, isLoading: pvLoading } = useQuery({
+    queryKey: ['promoter-venue-threads-mine'],
+    queryFn: () => apiGet('/api/promoter-venue-threads/mine'),
+    enabled: !!user?.id,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
   const dms = asArray(dmsRaw);
   const groups = asArray(groupsRaw);
   const venueThreads = asArray(venueThreadsRaw);
+  const promoterThreads = asArray(promoterThreadsRaw);
 
   const combined = useMemo(() => {
     const a = (dms || []).map((c) => ({
@@ -100,8 +111,18 @@ export default function Messages() {
       unread: t.unreadCount || 0,
       memberStatus: t.memberStatus,
     }));
-    return [...a, ...b, ...c].sort((x, y) => (y.at?.getTime() || 0) - (x.at?.getTime() || 0));
-  }, [dms, groups, venueThreads]);
+    const d = (promoterThreads || []).map((t) => ({
+      kind: 'promoter_venue',
+      id: t.threadId,
+      name: t.venueName,
+      sub: t.venueCity ? `${t.venueCity} · Promoter` : 'Promoter venue',
+      preview: t.lastMessage?.body || 'Venue thread',
+      at: t.lastMessage?.sentAt ? new Date(t.lastMessage.sentAt) : null,
+      unread: t.unreadCount || 0,
+      logoUrl: t.venueLogoUrl,
+    }));
+    return [...a, ...b, ...c, ...d].sort((x, y) => (y.at?.getTime() || 0) - (x.at?.getTime() || 0));
+  }, [dms, groups, venueThreads, promoterThreads]);
 
   const filtered = combined.filter((c) => {
     const q = searchQuery.toLowerCase();
@@ -109,12 +130,14 @@ export default function Messages() {
     if (selectedTab === 'direct') return matches && c.kind === 'dm';
     if (selectedTab === 'groups') return matches && c.kind === 'group';
     if (selectedTab === 'tables') return matches && c.kind === 'venue_table';
+    if (selectedTab === 'venues') return matches && c.kind === 'promoter_venue';
     return matches;
   });
 
   const openChat = (c) => {
     if (c.kind === 'dm') setSearchParams({ dm: c.id });
     else if (c.kind === 'venue_table') setSearchParams({ venueTableThread: c.id });
+    else if (c.kind === 'promoter_venue') setSearchParams({ promoterVenue: c.id });
     else setSearchParams({ group: c.id, gk: c.chatKind || 'EVENT' });
   };
 
@@ -133,12 +156,18 @@ export default function Messages() {
     return row?.memberStatus || 'APPROVED';
   }, [venueTableThread, venueThreads]);
 
+  const handlePromoterThreadDeleted = () => {
+    queryClient.invalidateQueries({ queryKey: ['promoter-venue-threads-mine'] });
+    closeThread();
+  };
+
   const selectedConversation = useMemo(() => {
     if (dm) return combined.find((c) => c.kind === 'dm' && c.id === dm) || null;
     if (group) return combined.find((c) => c.kind === 'group' && c.id === group) || null;
     if (venueTableThread) return combined.find((c) => c.kind === 'venue_table' && c.id === venueTableThread) || null;
+    if (promoterVenue) return combined.find((c) => c.kind === 'promoter_venue' && c.id === promoterVenue) || null;
     return null;
-  }, [combined, dm, group, venueTableThread]);
+  }, [combined, dm, group, venueTableThread, promoterVenue]);
 
   const conversationList = (
     <>
@@ -162,7 +191,7 @@ export default function Messages() {
           />
         </div>
         <div className="flex gap-2">
-          {['all', 'direct', 'groups', 'tables'].map((t) => (
+          {['all', 'direct', 'groups', 'tables', 'venues'].map((t) => (
             <button
               key={t}
               type="button"
@@ -171,14 +200,14 @@ export default function Messages() {
                 selectedTab === t ? 'bg-[var(--sec-accent)] text-black' : 'bg-[#141416] text-gray-400'
               }`}
             >
-              {t === 'all' ? 'All' : t === 'direct' ? 'Direct' : t === 'groups' ? 'Groups' : 'Tables'}
+              {t === 'all' ? 'All' : t === 'direct' ? 'Direct' : t === 'groups' ? 'Groups' : t === 'tables' ? 'Tables' : 'Venues'}
             </button>
           ))}
         </div>
       </header>
 
       <div className="px-4 py-3 space-y-2">
-        {(dmLoading || gLoading || vtLoading) && <p className="text-sm text-gray-500">Loading...</p>}
+        {(dmLoading || gLoading || vtLoading || pvLoading) && <p className="text-sm text-gray-500">Loading...</p>}
 
         {selectedTab === 'direct' && !dmLoading && filtered.length === 0 && (
           <div className="text-center py-12 space-y-4">
@@ -206,6 +235,12 @@ export default function Messages() {
             <div className="w-12 h-12 rounded-full overflow-hidden bg-[#262629] flex items-center justify-center flex-shrink-0">
               {c.kind === 'venue_table' ? (
                 <Armchair className="w-6 h-6 text-gray-400" />
+              ) : c.kind === 'promoter_venue' ? (
+                c.logoUrl ? (
+                  <img src={c.logoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <Megaphone className="w-6 h-6 text-gray-400" />
+                )
               ) : c.kind === 'dm' ? (
                 c.avatarUrl ? (
                   <img src={c.avatarUrl} alt="" className="w-full h-full object-cover" />
@@ -247,7 +282,13 @@ export default function Messages() {
             {conversationList}
           </section>
           <section className="rounded-2xl border border-[#262629] overflow-hidden bg-[#0A0A0B] min-h-[78vh]">
-            {venueTableThread ? (
+            {promoterVenue ? (
+              <PromoterVenueThreadPanel
+                threadId={promoterVenue}
+                onClose={closeThread}
+                onDeleted={handlePromoterThreadDeleted}
+              />
+            ) : venueTableThread ? (
               <VenueTableThreadPanel
                 threadId={venueTableThread}
                 onClose={closeThread}
@@ -271,6 +312,18 @@ export default function Messages() {
             )}
           </section>
         </div>
+      </div>
+    );
+  }
+
+  if (promoterVenue) {
+    return (
+      <div className="max-w-[1100px] mx-auto px-2 md:px-4 py-4 min-h-screen">
+        <PromoterVenueThreadPanel
+          threadId={promoterVenue}
+          onClose={closeThread}
+          onDeleted={handlePromoterThreadDeleted}
+        />
       </div>
     );
   }

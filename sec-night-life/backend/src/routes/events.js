@@ -834,16 +834,13 @@ router.put('/:id/promoters', authenticateToken, async (req, res, next) => {
     }
 
     const { notifyPromoterFollowers } = await import('../lib/promoterAttribution.js');
+    const { notifyPromoterEventAssignment } = await import('../lib/promoterVenueThread.js');
     const appBase = (process.env.APP_URL || '').replace(/\/+$/, '');
     for (const promoterUserId of toActivate) {
-      await prisma.notification.create({
-        data: {
-          userId: promoterUserId,
-          type: 'PROMOTER_EVENT_ASSIGNED',
-          title: 'New event to promote',
-          body: `You've been assigned to promote "${event.title}". Copy your link from Promoter Hub.`,
-          actionUrl: '/MyJobApplications?hub=promoter',
-        },
+      await notifyPromoterEventAssignment({
+        venueId: event.venueId,
+        promoterUserId,
+        event: { id: event.id, title: event.title, date: event.date },
       }).catch(() => {});
       await notifyPromoterFollowers({
         promoterUserId,

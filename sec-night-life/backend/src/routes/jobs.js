@@ -6,6 +6,7 @@ import { sendEmail } from '../lib/email.js';
 import { notifyAdmins } from '../lib/adminNotify.js';
 import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
+import { welcomePromoterThread, promoterVenueThreadPath } from '../lib/promoterVenueThread.js';
 
 const router = Router();
 const USER_HOURLY_LIMIT = 5;
@@ -118,7 +119,10 @@ function ownerJobDetailsPath(jobPostingId) {
   return `/JobDetails?id=${jobPostingId}`;
 }
 
-function ownerBusinessMessagesPath(applicationId, hired = false, isPromoterRole = false) {
+function ownerBusinessMessagesPath(applicationId, hired = false, isPromoterRole = false, promoterVenueThreadId = null) {
+  if (hired && isPromoterRole && promoterVenueThreadId) {
+    return `/BusinessMessages?tab=promoters&promoterVenue=${promoterVenueThreadId}`;
+  }
   const tab = hired && isPromoterRole ? 'promoters' : 'jobs';
   return `/BusinessMessages?tab=${tab}&application=${applicationId}`;
 }
@@ -518,10 +522,22 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
       REJECTED: `Unfortunately, your application for ${jobTitle} at ${venueName} was not selected.`,
       HIRED: `Congratulations, you've been hired for ${jobTitle} at ${venueName}.`,
     };
-    const applicantThreadPath = myApplicationThreadPath(application.id, application.jobPostingId);
     const isPromoterRole = isPromoterJobPosting(application.jobPosting);
+    let promoterVenueThreadId = null;
+    if (status === 'HIRED' && isPromoterRole) {
+      const thread = await welcomePromoterThread({
+        venueId: application.jobPosting.venueId,
+        promoterUserId: application.applicant.id,
+        venueName: venueName,
+        jobApplicationId: application.id,
+      });
+      promoterVenueThreadId = thread.id;
+    }
+    const applicantThreadPath = status === 'HIRED' && isPromoterRole && promoterVenueThreadId
+      ? promoterVenueThreadPath(promoterVenueThreadId)
+      : myApplicationThreadPath(application.id, application.jobPostingId);
     const ownerThreadPath = status === 'HIRED'
-      ? ownerBusinessMessagesPath(application.id, true, isPromoterRole)
+      ? ownerBusinessMessagesPath(application.id, true, isPromoterRole, promoterVenueThreadId)
       : ownerBusinessMessagesPath(application.id, false, false);
     await createJobNotification({
       userId: application.applicant.id,
@@ -546,7 +562,6 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
         actionUrl: ownerThreadPath,
       });
     }
-
     if (status === 'HIRED' && becameFilled) {
       // Notify owner
       await createJobNotification({

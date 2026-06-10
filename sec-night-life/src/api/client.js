@@ -41,16 +41,23 @@ function getHeaders(includeAuth = true) {
   return headers;
 }
 
-async function refreshAccessToken() {
+let refreshInFlight = null;
+
+async function doRefreshAccessToken() {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 
-  const res = await fetch(`${API_BASE}/api/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ refreshToken }),
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    return false;
+  }
 
   const text = await res.text();
   let data = null;
@@ -59,7 +66,9 @@ async function refreshAccessToken() {
   } catch {}
 
   if (!res.ok || !data?.accessToken) {
-    clearTokens();
+    if (res.status === 401 || res.status === 403) {
+      clearTokens();
+    }
     return false;
   }
 
@@ -67,6 +76,14 @@ async function refreshAccessToken() {
   storage.setItem('access_token', data.accessToken);
   if (data.refreshToken) storage.setItem('refresh_token', data.refreshToken);
   return true;
+}
+
+export async function refreshAccessToken() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = doRefreshAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 }
 
 export async function api(method, path, body = null, opts = {}) {

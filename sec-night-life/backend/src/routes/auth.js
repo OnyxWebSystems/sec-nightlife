@@ -20,7 +20,15 @@ const SALT_ROUNDS = 12;
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 const JWT_ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '15m';
-const JWT_REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '7d';
+const JWT_REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '90d';
+
+function parseExpiryToMs(expiry) {
+  const match = /^(\d+)([smhd])$/.exec(String(expiry || '').trim());
+  if (!match) return 90 * 24 * 60 * 60 * 1000;
+  const n = parseInt(match[1], 10);
+  const multipliers = { s: 1000, m: 60 * 1000, h: 3600 * 1000, d: 86400 * 1000 };
+  return n * (multipliers[match[2]] || multipliers.d);
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -56,7 +64,7 @@ async function issueTokens(user) {
   );
   const rawRefresh = uuidv4() + '.' + uuidv4(); // high-entropy opaque token
   const refreshHash = await hashRefreshToken(rawRefresh);
-  const refreshExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const refreshExpiry = new Date(Date.now() + parseExpiryToMs(JWT_REFRESH_EXPIRY));
 
   await prisma.refreshToken.create({
     data: { userId: user.id, token: refreshHash, expiresAt: refreshExpiry }
