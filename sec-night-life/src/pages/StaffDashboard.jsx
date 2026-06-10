@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { createPageUrl } from '@/utils';
+import { asArray, createPageUrl } from '@/utils';
 import { apiGet } from '@/api/client';
 import {
   LayoutDashboard,
@@ -38,10 +38,12 @@ function permLabel(key) {
 }
 
 export default function StaffDashboard() {
-  const { data: assignments = [], isLoading } = useQuery({
+  const { data: assignmentsRaw, isLoading } = useQuery({
     queryKey: ['staff-venues'],
     queryFn: () => apiGet('/api/staff/venues'),
+    staleTime: 5 * 60_000,
   });
+  const assignments = asArray(assignmentsRaw);
 
   return (
     <div className="sec-page max-w-2xl mx-auto pb-24">
@@ -69,6 +71,10 @@ export default function StaffDashboard() {
             {assignments.map((row) => {
               const perms = row.permissions || {};
               const enabledKeys = Object.keys(perms).filter((k) => perms[k]);
+              const venue = row.venue || {};
+              const venueName = venue.name || row.venueName || 'Venue';
+              const venueCity = venue.city || row.venueCity;
+              const venueLogo = venue.logoUrl || venue.coverImageUrl || row.venueLogoUrl;
               return (
                 <div
                   key={row.venueId || row.id}
@@ -76,9 +82,9 @@ export default function StaffDashboard() {
                   style={{ border: '1px solid var(--sec-border)' }}
                 >
                   <div className="flex items-start gap-3 mb-4">
-                    {row.venueLogoUrl ? (
+                    {venueLogo ? (
                       <img
-                        src={row.venueLogoUrl}
+                        src={venueLogo}
                         alt=""
                         className="w-12 h-12 rounded-xl object-cover"
                         style={{ border: '1px solid var(--sec-border)' }}
@@ -92,10 +98,10 @@ export default function StaffDashboard() {
                       </div>
                     )}
                     <div>
-                      <h2 className="font-semibold text-lg">{row.venueName || 'Venue'}</h2>
-                      {row.venueCity ? (
+                      <h2 className="font-semibold text-lg">{venueName}</h2>
+                      {venueCity ? (
                         <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
-                          {row.venueCity}
+                          {venueCity}
                         </p>
                       ) : null}
                     </div>

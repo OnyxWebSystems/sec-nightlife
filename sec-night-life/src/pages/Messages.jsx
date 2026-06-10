@@ -1,9 +1,9 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { asArray, createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, Users, User } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { formatDistanceToNow } from 'date-fns';
@@ -13,6 +13,7 @@ import VenueTableThreadPanel from '@/components/messaging/VenueTableThreadPanel'
 import { Armchair } from 'lucide-react';
 
 export default function Messages() {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const dm = searchParams.get('dm');
@@ -39,26 +40,33 @@ export default function Messages() {
     return () => media.removeEventListener('change', sync);
   }, []);
 
-  const { data: dms = [], isLoading: dmLoading } = useQuery({
+  const { data: dmsRaw, isLoading: dmLoading } = useQuery({
     queryKey: ['dm-conversations'],
     queryFn: () => apiGet('/api/messages/conversations'),
     enabled: !!user?.id,
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 
-  const { data: groups = [], isLoading: gLoading } = useQuery({
+  const { data: groupsRaw, isLoading: gLoading } = useQuery({
     queryKey: ['group-chats-mine'],
     queryFn: () => apiGet('/api/group-chats/my-chats'),
     enabled: !!user?.id,
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 
-  const { data: venueThreads = [], isLoading: vtLoading } = useQuery({
+  const { data: venueThreadsRaw, isLoading: vtLoading } = useQuery({
     queryKey: ['venue-table-threads-mine'],
     queryFn: () => apiGet('/api/venue-table-threads/mine'),
     enabled: !!user?.id,
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
+
+  const dms = asArray(dmsRaw);
+  const groups = asArray(groupsRaw);
+  const venueThreads = asArray(venueThreadsRaw);
 
   const combined = useMemo(() => {
     const a = (dms || []).map((c) => ({
@@ -112,6 +120,11 @@ export default function Messages() {
 
   const closeThread = () => {
     setSearchParams({});
+  };
+
+  const handleVenueThreadDeleted = () => {
+    queryClient.invalidateQueries({ queryKey: ['venue-table-threads-mine'] });
+    closeThread();
   };
 
   const selectedVenueMemberStatus = useMemo(() => {
@@ -238,6 +251,7 @@ export default function Messages() {
               <VenueTableThreadPanel
                 threadId={venueTableThread}
                 onClose={closeThread}
+                onDeleted={handleVenueThreadDeleted}
                 memberStatus={selectedVenueMemberStatus}
               />
             ) : dm ? (
@@ -267,6 +281,7 @@ export default function Messages() {
         <VenueTableThreadPanel
           threadId={venueTableThread}
           onClose={closeThread}
+          onDeleted={handleVenueThreadDeleted}
           memberStatus={selectedVenueMemberStatus}
         />
       </div>

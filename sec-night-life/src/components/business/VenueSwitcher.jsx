@@ -2,10 +2,12 @@ import React from 'react';
 import { Building2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
+import { asArray } from '@/utils';
 
 export default function VenueSwitcher({ className = '' }) {
   const ctx = useActiveVenueOptional();
-  if (!ctx || ctx.venues.length <= 1) {
+  const venues = asArray(ctx?.venues);
+  if (!ctx || venues.length <= 1) {
     if (!ctx?.activeVenue) return null;
     return (
       <div
@@ -24,7 +26,7 @@ export default function VenueSwitcher({ className = '' }) {
     );
   }
 
-  const { venues, activeVenueId, setActiveVenueId } = ctx;
+  const { activeVenueId, setActiveVenueId } = ctx;
 
   return (
     <div className={className} style={{ minWidth: 160, maxWidth: 280 }}>

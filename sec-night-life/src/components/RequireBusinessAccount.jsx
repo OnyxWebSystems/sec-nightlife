@@ -29,7 +29,8 @@ export default function RequireBusinessAccount({ children }) {
         if (!hasBusiness) {
           try {
             const staffVenues = await apiGet('/api/staff/venues');
-            hasBusiness = Array.isArray(staffVenues) && staffVenues.length > 0;
+            const staffList = Array.isArray(staffVenues) ? staffVenues : (staffVenues?.items || []);
+            hasBusiness = staffList.length > 0;
           } catch {}
         }
         if (cancelled) return;

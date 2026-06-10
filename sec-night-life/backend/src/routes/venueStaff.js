@@ -73,6 +73,71 @@ function formatAssignment(row) {
   };
 }
 
+router.get('/search-users', authenticateToken, async (req, res, next) => {
+  try {
+    const { venueId } = req.params;
+    await assertVenueOwner(venueId, req.userId);
+    const q = String(req.query.q || '')
+      .trim()
+      .slice(0, 40);
+    if (q.length < 2) return res.json([]);
+
+    const rows = await prisma.userProfile.findMany({
+      where: {
+        username: { contains: q.replace(/^@/, ''), mode: 'insensitive' },
+        user: { deletedAt: null, id: { not: req.userId } },
+      },
+      take: 12,
+      select: {
+        username: true,
+        avatarUrl: true,
+        user: { select: { id: true, fullName: true } },
+      },
+    });
+
+    const byName = await prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        id: { not: req.userId },
+        fullName: { contains: q, mode: 'insensitive' },
+      },
+      take: 8,
+      select: {
+        id: true,
+        fullName: true,
+        userProfile: { select: { username: true, avatarUrl: true } },
+      },
+    });
+
+    const seen = new Set();
+    const out = [];
+    for (const p of rows) {
+      if (!p.user?.id || seen.has(p.user.id)) continue;
+      seen.add(p.user.id);
+      out.push({
+        id: p.user.id,
+        username: p.username,
+        fullName: p.user.fullName,
+        avatarUrl: p.avatarUrl || null,
+      });
+    }
+    for (const u of byName) {
+      if (seen.has(u.id)) continue;
+      seen.add(u.id);
+      out.push({
+        id: u.id,
+        username: u.userProfile?.username || null,
+        fullName: u.fullName,
+        avatarUrl: u.userProfile?.avatarUrl || null,
+      });
+    }
+    res.json(out.slice(0, 15));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
     const { venueId } = req.params;

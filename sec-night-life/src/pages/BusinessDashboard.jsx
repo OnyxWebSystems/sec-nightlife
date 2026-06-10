@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { asArray, createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -118,20 +118,6 @@ export default function BusinessDashboard() {
 
   const { venues, activeVenue: venue, isLoading: venuesLoading, setActiveVenueId, refreshVenues } = useActiveVenue();
 
-  useEffect(() => {
-    if (!import.meta.env.DEV || !user) return;
-    // Debug: remove before production deploy — confirms auth role + /api/venues/mine payload
-    console.log('[BusinessDashboard] auth user', { id: user.id, role: user.role, email: user.email });
-  }, [user]);
-
-  useEffect(() => {
-    if (!import.meta.env.DEV || venuesLoading) return;
-    console.log('[BusinessDashboard] GET /api/venues/mine', {
-      venueCount: venues?.length ?? 0,
-      venues,
-    });
-  }, [user, venuesLoading, venues]);
-
   const DOC_TYPES = [
     { type: 'LIQUOR_LICENCE', label: 'Liquor Licence' },
     { type: 'BUSINESS_REGISTRATION', label: 'Business Registration' },
@@ -155,29 +141,38 @@ export default function BusinessDashboard() {
     enabled: !!venue,
   });
 
-  const { data: events = [] } = useQuery({
+  const { data: eventsRaw } = useQuery({
     queryKey: ['biz-events', venue?.id],
     queryFn: () => dataService.Event.filter({ venue_id: venue.id }),
     enabled: !!venue,
+    staleTime: 3 * 60_000,
   });
 
-  const { data: tables = [] } = useQuery({
+  const { data: tablesRaw } = useQuery({
     queryKey: ['biz-tables', venue?.id],
     queryFn: () => dataService.Table.filter({ venue_id: venue.id }),
     enabled: !!venue,
+    staleTime: 3 * 60_000,
   });
 
-  const { data: reviews = [] } = useQuery({
+  const { data: reviewsRaw } = useQuery({
     queryKey: ['biz-reviews', venue?.id],
     queryFn: () => dataService.Review.filter({ venue_id: venue.id }),
     enabled: !!venue,
+    staleTime: 5 * 60_000,
   });
 
-  const { data: jobs = [] } = useQuery({
+  const { data: jobsRaw } = useQuery({
     queryKey: ['biz-jobs', venue?.id],
     queryFn: () => apiGet(`/api/jobs/venue/${venue.id}`),
     enabled: !!venue,
+    staleTime: 2 * 60_000,
   });
+
+  const events = asArray(eventsRaw);
+  const tables = asArray(tablesRaw);
+  const reviews = asArray(reviewsRaw);
+  const jobs = asArray(jobsRaw);
 
   const jobStatusMutation = useMutation({
     mutationFn: ({ jobId, status }) => apiPatch(`/api/jobs/${jobId}`, { status }),
@@ -327,69 +322,113 @@ export default function BusinessDashboard() {
     <div className="pb-10" style={{ padding: 'var(--space-6) var(--space-5)', maxWidth: 1100, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ marginBottom: 16 }}>
           <VenueSwitcher />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        </div>
+        <div
+          className="sec-card"
+          style={{
+            padding: '20px 22px',
+            background: 'linear-gradient(145deg, var(--sec-bg-card) 0%, var(--sec-bg-elevated) 100%)',
+            border: '1px solid var(--sec-border)',
+            borderRadius: 16,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18, flexWrap: 'wrap' }}>
+            {venue.logo_url ? (
+              <img
+                src={venue.logo_url}
+                alt=""
+                style={{
+                  width: 52,
+                  height: 52,
+                  objectFit: 'contain',
+                  borderRadius: 12,
+                  background: 'var(--sec-bg-elevated)',
+                  padding: 4,
+                  border: '1px solid var(--sec-border)',
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 12,
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: 'var(--sec-accent-muted)',
+                  border: '1px solid var(--sec-border)',
+                }}
+              >
+                <Building2 size={22} style={{ color: 'var(--sec-accent)' }} />
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>
+                {venue.name}
+              </h1>
+              <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
+                {venue.city} &middot; {venue.venue_type?.replace('_', ' ')}
+                {' '}&middot;{' '}
+                <span style={{
+                  color: headerComplianceApproved ? 'var(--sec-success)' : 'var(--sec-warning)',
+                  fontWeight: 600,
+                }}>
+                  {headerComplianceLabel}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: 10,
+            }}
+          >
             <button
               type="button"
-              className="sec-btn sec-btn-ghost"
-              style={{ height: 36, fontSize: 13 }}
+              className="biz-dash-action"
               onClick={() =>
                 navigate(`${createPageUrl('VenueOnboarding')}?edit=1&venueId=${encodeURIComponent(venue.id)}`)
               }
             >
-              <Settings size={14} style={{ marginRight: 6 }} />
-              Edit venue setup
+              <span className="biz-dash-action-icon">
+                <Settings size={16} />
+              </span>
+              <span className="biz-dash-action-text">
+                <span className="biz-dash-action-label">Edit venue setup</span>
+                <span className="biz-dash-action-hint">Profile, hours &amp; details</span>
+              </span>
             </button>
             <button
               type="button"
-              className="sec-btn sec-btn-ghost"
-              style={{ height: 36, fontSize: 13 }}
+              className="biz-dash-action biz-dash-action-accent"
               onClick={() => setStaffModalOpen(true)}
             >
-              <UserPlus size={14} style={{ marginRight: 6 }} />
-              Invite staff
+              <span className="biz-dash-action-icon">
+                <UserPlus size={16} />
+              </span>
+              <span className="biz-dash-action-text">
+                <span className="biz-dash-action-label">Invite staff</span>
+                <span className="biz-dash-action-hint">Search &amp; assign permissions</span>
+              </span>
             </button>
             <button
               type="button"
-              className="sec-btn sec-btn-ghost"
-              style={{ height: 36, fontSize: 13 }}
+              className="biz-dash-action"
               onClick={() => navigate(createPageUrl('VenueOnboarding') + '?new=1')}
             >
-              <Plus size={14} style={{ marginRight: 6 }} />
-              Register another venue
-            </button>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-          {venue.logo_url && (
-            <img
-              src={venue.logo_url}
-              alt=""
-              style={{
-                width: 42,
-                height: 42,
-                objectFit: 'contain',
-                background: 'transparent',
-                display: 'block',
-              }}
-            />
-          )}
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
-              {venue.name}
-            </h1>
-            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
-              {venue.city} &middot; {venue.venue_type?.replace('_', ' ')}
-              {' '}&middot;{' '}
-              <span style={{
-                color: headerComplianceApproved
-                  ? 'var(--sec-success)'
-                  : 'var(--sec-warning)',
-              }}>
-                {headerComplianceLabel}
+              <span className="biz-dash-action-icon">
+                <Plus size={16} />
               </span>
-            </p>
+              <span className="biz-dash-action-text">
+                <span className="biz-dash-action-label">Register another venue</span>
+                <span className="biz-dash-action-hint">Add a new location</span>
+              </span>
+            </button>
           </div>
         </div>
       </div>
@@ -748,6 +787,41 @@ export default function BusinessDashboard() {
       <AddStaffModal open={staffModalOpen} onOpenChange={setStaffModalOpen} venueId={venue?.id} />
 
       <style>{`
+        .biz-dash-action {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 1px solid var(--sec-border);
+          background: var(--sec-bg-elevated);
+          color: var(--sec-text-primary);
+          text-align: left;
+          cursor: pointer;
+          transition: border-color 0.15s, background 0.15s, transform 0.1s;
+        }
+        .biz-dash-action:hover {
+          border-color: var(--sec-accent-border);
+          background: var(--sec-bg-card);
+        }
+        .biz-dash-action:active { transform: scale(0.98); }
+        .biz-dash-action-accent {
+          border-color: rgba(212, 175, 55, 0.35);
+          background: linear-gradient(145deg, var(--sec-accent-muted) 0%, var(--sec-bg-elevated) 100%);
+        }
+        .biz-dash-action-icon {
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
+          display: grid;
+          place-items: center;
+          flex-shrink: 0;
+          background: var(--sec-accent-muted);
+          color: var(--sec-accent);
+        }
+        .biz-dash-action-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .biz-dash-action-label { font-size: 13px; font-weight: 700; line-height: 1.2; }
+        .biz-dash-action-hint { font-size: 11px; color: var(--sec-text-muted); line-height: 1.3; }
         @media (max-width: 768px) {
           .biz-grid-responsive { grid-template-columns: 1fr !important; }
         }

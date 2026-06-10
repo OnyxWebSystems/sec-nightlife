@@ -169,7 +169,8 @@ export default function Layout({ children, currentPageName }) {
       try {
         const staffVenues = await apiGet('/api/staff/venues');
         if (!cancelled) {
-          setHasStaffAssignments(Array.isArray(staffVenues) && staffVenues.length > 0);
+          const staffList = Array.isArray(staffVenues) ? staffVenues : (staffVenues?.items || []);
+          setHasStaffAssignments(staffList.length > 0);
         }
       } catch {
         if (!cancelled) setHasStaffAssignments(false);

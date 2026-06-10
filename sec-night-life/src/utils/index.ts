@@ -1,3 +1,13 @@
+/** Coerce API payloads that may be a bare array or `{ items: [...] }`. */
+export function asArray<T>(value: unknown, itemsKey = 'items'): T[] {
+    if (Array.isArray(value)) return value as T[];
+    if (value && typeof value === 'object') {
+        const nested = (value as Record<string, unknown>)[itemsKey];
+        if (Array.isArray(nested)) return nested as T[];
+    }
+    return [];
+}
+
 export function createPageUrl(pageName: string | null | undefined) {
     const name = pageName == null ? '' : String(pageName);
     return '/' + name.replace(/ /g, '-');

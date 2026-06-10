@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
-import { apiGet, apiPost } from '@/api/client';
+import { apiDelete, apiGet, apiPost } from '@/api/client';
+import { asArray } from '@/utils';
 import { toast } from 'sonner';
-import { Loader2, Briefcase, Armchair, Star } from 'lucide-react';
+import { Loader2, Briefcase, Armchair, Star, Trash2 } from 'lucide-react';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import BusinessVenueGroupPanel from '@/components/messaging/BusinessVenueGroupPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -69,19 +70,24 @@ export default function BusinessMessages() {
     enabled: filter === 'promoters' && !!selectedJobItem?.venueId && !!selectedJobItem?.applicantUserId,
   });
 
-  const { data: jobMessages = [], refetch: refetchJobMessages, isSuccess: jobMessagesLoaded } = useQuery({
+  const { data: jobMessagesRaw, refetch: refetchJobMessages, isSuccess: jobMessagesLoaded } = useQuery({
     queryKey: ['job-messages', selectedJobAppId],
     queryFn: () => apiGet(`/api/jobs/applications/${selectedJobAppId}/messages`),
     enabled: !!selectedJobAppId && (filter === 'jobs' || filter === 'promoters'),
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
+    staleTime: 20_000,
   });
 
-  const { data: tableMessages = [], refetch: refetchTableMessages, isSuccess: tableMessagesLoaded } = useQuery({
+  const { data: tableMessagesRaw, refetch: refetchTableMessages, isSuccess: tableMessagesLoaded } = useQuery({
     queryKey: ['venue-table-thread-messages', selectedTableThreadId],
     queryFn: () => apiGet(`/api/venue-table-threads/${selectedTableThreadId}/messages`),
     enabled: !!selectedTableThreadId && filter === 'tables',
-    refetchInterval: 20000,
+    refetchInterval: 60_000,
+    staleTime: 20_000,
   });
+
+  const jobMessages = asArray(jobMessagesRaw);
+  const tableMessages = asArray(tableMessagesRaw);
 
   useEffect(() => {
     if (jobMessagesLoaded && selectedJobAppId) dispatchMessagesRefresh();
@@ -103,6 +109,35 @@ export default function BusinessMessages() {
       toast.error(e?.data?.error || e.message || 'Failed to send');
     } finally {
       setJobSending(false);
+    }
+  }
+
+  async function deleteJobThread() {
+    if (!selectedJobAppId) return;
+    if (!window.confirm('Delete this job conversation? All messages will be removed.')) return;
+    try {
+      await apiDelete(`/api/business/inbox/threads/${selectedJobAppId}`);
+      toast.success('Conversation deleted');
+      setSelectedJobAppId(null);
+      setSearchParams({ tab: filter });
+      refetch();
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not delete conversation');
+    }
+  }
+
+  async function deleteTableThread() {
+    if (!selectedTableThreadId) return;
+    if (!window.confirm('Delete this table chat? It will be removed for you and the guest.')) return;
+    try {
+      await apiDelete(`/api/venue-table-threads/${selectedTableThreadId}`);
+      toast.success('Chat deleted');
+      setSelectedTableThreadId(null);
+      setSearchParams({ tab: 'tables' });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ['venue-table-threads-mine'] });
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not delete chat');
     }
   }
 
@@ -225,7 +260,18 @@ export default function BusinessMessages() {
                   <p className="text-sm text-[var(--sec-text-muted)] py-8 text-center">Select a table thread.</p>
                 ) : (
                   <>
-                    <h3 className="font-semibold mb-3">Table messages</h3>
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <h3 className="font-semibold">Table messages</h3>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                        onClick={deleteTableThread}
+                      >
+                        <Trash2 size={14} className="mr-1" />
+                        Delete chat
+                      </Button>
+                    </div>
                     <p className="text-xs text-[var(--sec-text-muted)] mb-3">
                       Use quick replies only — no payment details in chat.
                     </p>
@@ -282,7 +328,18 @@ export default function BusinessMessages() {
                 </div>
               ) : (
                 <>
-                  <h3 className="font-semibold mb-3">{selectedJobItem?.title || 'Messages'}</h3>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <h3 className="font-semibold">{selectedJobItem?.title || 'Messages'}</h3>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      onClick={deleteJobThread}
+                    >
+                      <Trash2 size={14} className="mr-1" />
+                      Delete chat
+                    </Button>
+                  </div>
                   {filter === 'promoters' ? (
                     <div className="mb-4 p-3 rounded-lg border border-[var(--sec-border)]" style={{ background: 'var(--sec-bg-elevated)' }}>
                       <p className="text-xs font-semibold mb-2">Assigned events</p>

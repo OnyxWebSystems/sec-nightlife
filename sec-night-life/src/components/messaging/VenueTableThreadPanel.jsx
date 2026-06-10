@@ -3,15 +3,16 @@ import { useQuery } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Trash2 } from 'lucide-react';
+import { Trash2, MessageSquareX } from 'lucide-react';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 import {
   GUEST_REPLY_TEMPLATES,
 } from '@/lib/venueTableMessageTemplates';
 
-export default function VenueTableThreadPanel({ threadId, onClose, memberStatus = 'APPROVED' }) {
+export default function VenueTableThreadPanel({ threadId, onClose, memberStatus = 'APPROVED', onDeleted }) {
   const [sending, setSending] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [deletingChat, setDeletingChat] = useState(false);
 
   const { data: messages = [], refetch, isSuccess } = useQuery({
     queryKey: ['venue-table-thread-messages', threadId],
@@ -26,6 +27,21 @@ export default function VenueTableThreadPanel({ threadId, onClose, memberStatus 
 
   const templates =
     memberStatus === 'DECLINED' ? GUEST_REPLY_TEMPLATES : [];
+
+  async function deleteChat() {
+    if (!window.confirm('Delete this chat? It will be removed from your messages.')) return;
+    setDeletingChat(true);
+    try {
+      await apiDelete(`/api/venue-table-threads/${threadId}`);
+      toast.success('Chat deleted');
+      if (onDeleted) onDeleted();
+      else onClose();
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not delete chat');
+    } finally {
+      setDeletingChat(false);
+    }
+  }
 
   async function deleteMessage(messageId) {
     setDeletingId(messageId);
@@ -57,7 +73,16 @@ export default function VenueTableThreadPanel({ threadId, onClose, memberStatus 
         <button type="button" onClick={onClose} className="sec-btn sec-btn-ghost sec-btn-sm">
           Back
         </button>
-        <h2 className="font-semibold text-sm">Table messages</h2>
+        <h2 className="font-semibold text-sm flex-1">Table messages</h2>
+        <button
+          type="button"
+          onClick={deleteChat}
+          disabled={deletingChat}
+          className="sec-btn sec-btn-ghost sec-btn-sm text-[var(--sec-text-muted)] hover:text-red-400"
+          title="Delete chat"
+        >
+          <MessageSquareX size={16} />
+        </button>
       </header>
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {messages.length === 0 ? (

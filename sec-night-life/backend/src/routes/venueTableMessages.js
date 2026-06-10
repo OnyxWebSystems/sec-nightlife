@@ -203,7 +203,7 @@ router.delete('/:threadId', authenticateToken, async (req, res, next) => {
   try {
     const access = await getThreadAccess(req.params.threadId, req.userId);
     if (!access) return res.status(403).json({ error: 'Forbidden' });
-    if (!access.isOwner) return res.status(403).json({ error: 'Forbidden' });
+    if (!access.isOwner && !access.isGuest) return res.status(403).json({ error: 'Forbidden' });
 
     await prisma.venueTableThread.update({
       where: { id: access.thread.id },

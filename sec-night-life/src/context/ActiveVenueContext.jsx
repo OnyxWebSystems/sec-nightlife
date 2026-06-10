@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { dataService } from '@/services/dataService';
+import { asArray } from '@/utils';
 
 const ActiveVenueContext = createContext(null);
 
@@ -14,12 +15,13 @@ export function ActiveVenueProvider({ children }) {
   const queryClient = useQueryClient();
   const [activeVenueId, setActiveVenueIdState] = useState(null);
 
-  const { data: venues = [], isLoading, refetch } = useQuery({
+  const { data: venuesRaw, isLoading, refetch } = useQuery({
     queryKey: ['biz-venues', user?.id],
     queryFn: () => dataService.Venue.mine(),
     enabled: !!user?.id,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
   });
+  const venues = asArray(venuesRaw);
 
   useEffect(() => {
     if (!user?.id) {

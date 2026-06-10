@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { VenuePayoutSetup } from './WalletPayoutSetup';
+import { asArray } from '@/utils';
 
 function formatZar(n) {
   return `R ${Number(n || 0).toFixed(2)}`;
@@ -22,7 +23,8 @@ async function copyText(label, value) {
   }
 }
 
-export default function VenueSecWallet({ venues, onVenuesUpdated }) {
+export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) {
+  const venues = asArray(venuesProp);
   const [selectedVenueId, setSelectedVenueId] = useState(venues[0]?.id || '');
   const [lookupCode, setLookupCode] = useState('');
 
