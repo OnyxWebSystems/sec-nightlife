@@ -27,6 +27,7 @@ import { motion } from 'framer-motion';
 import VenueReviewsSection from '@/components/reviews/VenueReviewsSection';
 import VenueShareModal from '@/components/venues/VenueShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
+import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 
 function spotsLeft(job) {
   return Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
@@ -125,6 +126,7 @@ export default function VenueProfile() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const venueIdFromUrl = searchParams.get('id');
+  const activeVenueCtx = useActiveVenueOptional();
   const [currentUser, setCurrentUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -152,6 +154,8 @@ export default function VenueProfile() {
         return apiGet(`/api/venues/${venueIdFromUrl}`);
       }
       if (currentUser?.id) {
+        const activeId = activeVenueCtx?.activeVenueId;
+        if (activeId) return apiGet(`/api/venues/${activeId}`);
         const venues = await dataService.Venue.mine();
         return venues[0];
       }

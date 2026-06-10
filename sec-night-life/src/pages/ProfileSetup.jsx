@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -46,6 +46,8 @@ const GENDER_OPTIONS = [
 
 export default function ProfileSetup() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isEditMode = searchParams.get('edit') === '1';
   const [step, setStep] = useState(1);
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -155,8 +157,8 @@ export default function ProfileSetup() {
     return true;
   };
 
-  const completeOnboarding = async (options = {}) => {
-    const { paymentCompleted = false } = options;
+  const saveProfile = async (options = {}) => {
+    const { paymentCompleted = false, markComplete = !isEditMode } = options;
     setIsSubmitting(true);
     setError('');
     try {
@@ -167,11 +169,13 @@ export default function ProfileSetup() {
         city: formData.city,
         favorite_drink: formData.favorite_drink,
         gender: formData.gender,
-        age_verified: false,
-        verification_status: hasId ? 'submitted' : 'pending',
-        payment_setup_complete: paymentCompleted,
-        onboarding_complete: true,
       };
+      if (!isEditMode || !userProfile?.age_verified) {
+        payload.age_verified = false;
+        payload.verification_status = hasId ? 'submitted' : (userProfile?.verification_status || 'pending');
+      }
+      if (paymentCompleted) payload.payment_setup_complete = true;
+      if (markComplete) payload.onboarding_complete = true;
       if (formData.avatar_url) payload.avatar_url = formData.avatar_url;
       if (formData.date_of_birth) payload.date_of_birth = formData.date_of_birth;
       if (formData.id_document_url) payload.id_document_url = formData.id_document_url;
@@ -179,15 +183,17 @@ export default function ProfileSetup() {
       if (userProfile) {
         await dataService.User.update(userProfile.id, payload);
       } else {
-        await dataService.User.create(payload);
+        await dataService.User.create({ ...payload, onboarding_complete: true });
       }
-      navigate(createPageUrl('Home'));
+      navigate(createPageUrl(isEditMode ? 'Profile' : 'Home'));
     } catch (err) {
-      setError('Failed to complete setup. Please try again.');
+      setError('Failed to save profile. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const completeOnboarding = (options = {}) => saveProfile({ ...options, markComplete: true });
 
   const handlePaymentSuccess = async () => {
     if (formData.payout_account_name && formData.payout_account_number && formData.payout_bank_code) {
@@ -376,9 +382,11 @@ export default function ProfileSetup() {
             >
               <div className="text-center mb-8">
                 <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
-                  Basics
+                  {isEditMode ? 'Edit profile setup' : 'Basics'}
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Tell us about yourself</p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>
+                  {isEditMode ? 'Update any section — save when you are done' : 'Tell us about yourself'}
+                </p>
               </div>
 
               {/* Avatar */}
@@ -713,9 +721,13 @@ export default function ProfileSetup() {
         <div className="flex gap-3">
           <button
             type="button"
-            onClick={() =>
-              step === 1 ? navigate(createPageUrl('Onboarding')) : setStep(step - 1)
-            }
+            onClick={() => {
+              if (step === 1) {
+                navigate(createPageUrl(isEditMode ? 'Profile' : 'Onboarding'));
+              } else {
+                setStep(step - 1);
+              }
+            }}
             style={{
               height: 52,
               width: 52,
@@ -731,11 +743,11 @@ export default function ProfileSetup() {
           >
             <ChevronLeft size={20} strokeWidth={2} />
           </button>
-          {step < 4 ? (
+          {isEditMode ? (
             <button
               type="button"
-              onClick={() => setStep(step + 1)}
-              disabled={!canProceed()}
+              onClick={() => saveProfile({ paymentCompleted: false, markComplete: false })}
+              disabled={isSubmitting}
               style={{
                 flex: 1,
                 height: 52,
@@ -745,6 +757,32 @@ export default function ProfileSetup() {
                 fontWeight: 600,
                 fontSize: 15,
                 border: 'none',
+                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                opacity: isSubmitting ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+            >
+              {isSubmitting ? 'Saving…' : 'Save changes'}
+            </button>
+          ) : null}
+          {step < 4 ? (
+            <button
+              type="button"
+              onClick={() => setStep(step + 1)}
+              disabled={!canProceed()}
+              style={{
+                flex: isEditMode ? undefined : 1,
+                width: isEditMode ? 52 : undefined,
+                height: 52,
+                borderRadius: 'var(--radius-lg)',
+                backgroundColor: isEditMode ? 'var(--sec-bg-card)' : 'var(--sec-accent)',
+                color: isEditMode ? 'var(--sec-text-secondary)' : '#000',
+                fontWeight: 600,
+                fontSize: 15,
+                border: isEditMode ? '1px solid var(--sec-border)' : 'none',
                 cursor: canProceed() ? 'pointer' : 'not-allowed',
                 opacity: canProceed() ? 1 : 0.5,
                 display: 'flex',
@@ -753,10 +791,16 @@ export default function ProfileSetup() {
                 gap: 8,
               }}
             >
-              {step === 3 ? (formData.id_document_url ? 'Continue' : 'Verify later') : 'Continue'}
-              <ChevronRight size={20} strokeWidth={2} />
+              {isEditMode ? (
+                <ChevronRight size={20} strokeWidth={2} />
+              ) : (
+                <>
+                  {step === 3 ? (formData.id_document_url ? 'Continue' : 'Verify later') : 'Continue'}
+                  <ChevronRight size={20} strokeWidth={2} />
+                </>
+              )}
             </button>
-          ) : (
+          ) : !isEditMode ? (
             <div className="flex flex-1 flex-col gap-2">
               <button
                 type="button"
@@ -807,6 +851,26 @@ export default function ProfileSetup() {
                 Save payout details and finish
               </button>
             </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSkipPayment}
+              disabled={isSubmitting}
+              style={{
+                flex: 1,
+                height: 52,
+                borderRadius: 'var(--radius-lg)',
+                backgroundColor: 'var(--sec-accent)',
+                color: '#000',
+                fontWeight: 600,
+                fontSize: 15,
+                border: 'none',
+                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                opacity: isSubmitting ? 0.5 : 1,
+              }}
+            >
+              {isSubmitting ? 'Saving…' : 'Save payout & finish'}
+            </button>
           )}
         </div>
       </div>

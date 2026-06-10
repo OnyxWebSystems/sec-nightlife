@@ -12,7 +12,7 @@ const router = Router();
 
 async function getThreadAccess(threadId, userId) {
   const thread = await prisma.venueTableThread.findFirst({
-    where: { id: threadId },
+    where: { id: threadId, deletedAt: null },
     include: {
       member: {
         include: {
@@ -55,6 +55,7 @@ router.get('/mine', authenticateToken, async (req, res, next) => {
   try {
     const threads = await prisma.venueTableThread.findMany({
       where: {
+        deletedAt: null,
         member: {
           userId: req.userId,
           status: { in: ['APPROVED', 'PENDING_PAYMENT', 'CONFIRMED', 'DECLINED'] },
@@ -193,6 +194,43 @@ router.post('/:threadId/messages', authenticateToken, async (req, res, next) => 
       label,
       sentAt: created.sentAt,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/:threadId', authenticateToken, async (req, res, next) => {
+  try {
+    const access = await getThreadAccess(req.params.threadId, req.userId);
+    if (!access) return res.status(403).json({ error: 'Forbidden' });
+    if (!access.isOwner) return res.status(403).json({ error: 'Forbidden' });
+
+    await prisma.venueTableThread.update({
+      where: { id: access.thread.id },
+      data: { deletedAt: new Date() },
+    });
+    res.json({ deleted: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/:threadId/messages/:messageId', authenticateToken, async (req, res, next) => {
+  try {
+    const access = await getThreadAccess(req.params.threadId, req.userId);
+    if (!access) return res.status(403).json({ error: 'Forbidden' });
+    if (access.forbidden) return res.status(403).json({ error: access.reason });
+
+    const message = await prisma.venueTableMessage.findFirst({
+      where: { id: req.params.messageId, threadId: access.thread.id },
+    });
+    if (!message) return res.status(404).json({ error: 'Message not found' });
+
+    const isSender = message.senderUserId === req.userId;
+    if (!isSender && !access.isOwner) return res.status(403).json({ error: 'Forbidden' });
+
+    await prisma.venueTableMessage.delete({ where: { id: message.id } });
+    res.json({ deleted: true });
   } catch (e) {
     next(e);
   }

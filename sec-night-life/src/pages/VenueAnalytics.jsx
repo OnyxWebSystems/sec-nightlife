@@ -17,6 +17,8 @@ import {
 import { format, subDays } from 'date-fns';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from 'recharts';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useActiveVenue } from '@/context/ActiveVenueContext';
+import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -47,18 +49,17 @@ export default function VenueAnalytics() {
     }
   };
 
-  const { data: venues = [] } = useQuery({
-    queryKey: ['my-venues'],
-    queryFn: () => dataService.Venue.mine(),
-    enabled: !!user,
-  });
+  const { venues, activeVenueId, setActiveVenueId } = useActiveVenue();
 
   useEffect(() => {
-    if (!venues.length) return;
-    if (!selectedVenue || !venues.some((v) => v.id === selectedVenue)) {
-      setSelectedVenue(venues[0].id);
+    if (activeVenueId) setSelectedVenue(activeVenueId);
+  }, [activeVenueId]);
+
+  useEffect(() => {
+    if (selectedVenue && selectedVenue !== activeVenueId) {
+      setActiveVenueId(selectedVenue);
     }
-  }, [venues, selectedVenue]);
+  }, [selectedVenue]);
 
   const selectedVenueRecord = useMemo(
     () => venues.find((v) => v.id === selectedVenue) || null,

@@ -108,6 +108,8 @@ export default function EventDetails() {
     refetchOnWindowFocus: true,
   });
   const tableTiers = tableTiersData?.tiers ?? [];
+  const customListingId = tableTiersData?.customListingId ?? null;
+  const allowsCustomRequests = tableTiersData?.allowsCustomRequests ?? false;
 
   const toggleInterestMutation = useMutation({
     mutationFn: async () => {
@@ -572,6 +574,8 @@ export default function EventDetails() {
           tier={selectedTier}
           open={Boolean(selectedTier)}
           onClose={() => setSelectedTier(null)}
+          customListingId={customListingId}
+          allowsCustomRequests={allowsCustomRequests}
         />
         ) : null}
 

@@ -3,6 +3,22 @@ export function createPageUrl(pageName: string | null | undefined) {
     return '/' + name.replace(/ /g, '-');
 }
 
+/** Build a page path with query params (preferred over embedding ? in createPageUrl). */
+export function buildPageUrl(
+    pageName: string,
+    params?: Record<string, string | number | boolean | null | undefined>,
+): string {
+    const base = createPageUrl(pageName);
+    if (!params) return base;
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+        if (value == null || value === '') continue;
+        search.set(key, String(value));
+    }
+    const qs = search.toString();
+    return qs ? `${base}?${qs}` : base;
+}
+
 /** Canonical web origin for share links (not the API URL). */
 export function getPublicAppOrigin(): string {
     const raw = import.meta.env.VITE_PUBLIC_APP_URL || 'https://sec-nightlife.vercel.app';

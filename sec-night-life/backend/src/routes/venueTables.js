@@ -430,7 +430,10 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
         isCustom: z.boolean().optional(),
       })
       .parse(req.body || {});
-    const table = await prisma.venueTable.findUnique({ where: { id: req.params.tableId }, include: { venue: true } });
+    const table = await prisma.venueTable.findUnique({
+      where: { id: req.params.tableId },
+      include: { venue: { include: { owner: { select: { id: true, email: true } } } } },
+    });
     if (!table) return res.status(404).json({ error: 'Table not found' });
     if (!table.isActive) return res.status(400).json({ error: 'Table not available' });
     if (table.venue.ownerUserId === req.userId) return res.status(403).json({ error: 'Cannot request your own venue table' });
@@ -462,6 +465,20 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
         actionUrl: '/BusinessVenueTables?tab=requests',
       },
     });
+    const ownerEmail = table.venue.owner?.email;
+    const reviewUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/BusinessVenueTables?tab=requests`;
+    if (ownerEmail) {
+      try {
+        await sendEmail({
+          to: ownerEmail,
+          subject: `New custom table request — ${table.tableName}`,
+          text: `A guest submitted a custom table request for ${table.tableName}.\n\nReview and approve or decline in SEC:\n${reviewUrl}`,
+          html: `<p>A guest submitted a custom table request for <strong>${table.tableName}</strong>.</p><p><a href="${reviewUrl}">Review request in SEC</a></p>`,
+        });
+      } catch (err) {
+        logger?.warn?.('table request venue email failed', { err: String(err?.message || err) });
+      }
+    }
     res.status(201).json({ member, status: 'PENDING_VENUE_REVIEW' });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
@@ -505,7 +522,7 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
     if (member.venueTable.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const guestEmail = member.user?.email;
     const tableLabel = member.venueTable.tableName;
-    const payUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/TableDetails?id=${member.venueTableId}&source=venue`;
+    const payUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/TableDetails?id=${member.venueTableId}&source=venue&checkout=1`;
     if (payload.action === 'decline') {
       const templateKeys =
         payload.declineTemplateKeys?.length
@@ -587,7 +604,7 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
         type: 'TABLE_APPROVED',
         title: 'Table request approved',
         body: `You can now complete payment for ${tableLabel}.`,
-        actionUrl: `/TableDetails?id=${member.venueTableId}&source=venue`,
+        actionUrl: `/TableDetails?id=${member.venueTableId}&source=venue&checkout=1`,
       },
     });
     if (guestEmail) {

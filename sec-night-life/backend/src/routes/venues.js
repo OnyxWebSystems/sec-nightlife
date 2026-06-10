@@ -20,6 +20,7 @@ async function syncProfileFollowedVenues(userId, venueId, following) {
 }
 import { isStaff } from '../lib/access.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
+import { sendEmail } from '../lib/email.js';
 
 const router = Router();
 
@@ -422,6 +423,7 @@ router.post('/:id/custom-table-request', authenticateToken, async (req, res, nex
   try {
     const venue = await prisma.venue.findFirst({
       where: { id: req.params.id, deletedAt: null },
+      include: { owner: { select: { email: true } } },
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
     if (!venue.acceptsDayBookings) {
@@ -487,6 +489,20 @@ router.post('/:id/custom-table-request', authenticateToken, async (req, res, nex
         actionUrl: '/BusinessVenueTables?tab=requests',
       },
     });
+
+    const reviewUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/BusinessVenueTables?tab=requests`;
+    if (venue.owner?.email) {
+      try {
+        await sendEmail({
+          to: venue.owner.email,
+          subject: `New custom table request — ${venue.name}`,
+          text: `A guest submitted a custom table request at ${venue.name}.\n\nReview in SEC:\n${reviewUrl}`,
+          html: `<p>A guest submitted a custom table request at <strong>${venue.name}</strong>.</p><p><a href="${reviewUrl}">Review request in SEC</a></p>`,
+        });
+      } catch (err) {
+        logger?.warn?.('custom table request venue email failed', { err: String(err?.message || err) });
+      }
+    }
 
     res.status(201).json({
       customListingId: listing.id,

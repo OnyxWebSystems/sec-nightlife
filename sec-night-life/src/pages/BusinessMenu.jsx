@@ -13,6 +13,8 @@ import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
 import VenueMenuNavigator from '@/components/menu/VenueMenuNavigator';
 import { formatMenuCategoryLabel } from '@/lib/groupMenuByCategory';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useActiveVenue } from '@/context/ActiveVenueContext';
+import VenueSwitcher from '@/components/business/VenueSwitcher';
 
 export default function BusinessMenu() {
   const navigate = useNavigate();
@@ -37,13 +39,8 @@ export default function BusinessMenu() {
     })();
   }, []);
 
-  const { data: venues = [], isLoading: venuesLoading } = useQuery({
-    queryKey: ['biz-venues', user?.id],
-    queryFn: () => dataService.Venue.mine(),
-    enabled: !!user?.id,
-  });
-
-  const venueId = venues[0]?.id;
+  const { activeVenue, isLoading: venuesLoading } = useActiveVenue();
+  const venueId = activeVenue?.id;
 
   const { data: items = [], isLoading: itemsLoading } = useQuery({
     queryKey: ['venue-menu', venueId],
@@ -58,7 +55,7 @@ export default function BusinessMenu() {
     [items]
   );
 
-  const venueLogoUrl = venues[0]?.logo_url || venues[0]?.logoUrl;
+  const venueLogoUrl = activeVenue?.logo_url || activeVenue?.logoUrl;
 
   const photoCrop = useImageCropUpload({
     onCropped: async (file) => {

@@ -9,16 +9,43 @@ const router = Router();
 /** Shown on Messages (badge/sound), not the Notifications screen */
 const EXCLUDED_IN_APP_TYPES = ['DIRECT_MESSAGE', 'GROUP_MESSAGE'];
 
+function extractQueryParamFromPath(path, key) {
+  if (!path || typeof path !== 'string') return null;
+  try {
+    const parsed = new URL(path, 'https://sec.local');
+    return parsed.searchParams.get(key);
+  } catch {
+    const m = path.match(new RegExp(`[?&]${key}=([^&]+)`));
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+}
+
+function resolveLegacyReferenceId(type, path) {
+  if (!path) return null;
+  const t = String(type || '').toUpperCase();
+  if (t === 'TABLE_APPROVED' || t === 'TABLE_DECLINED' || t === 'TABLE_INVITE' || t === 'TABLE_REQUEST') {
+    const tableId = extractQueryParamFromPath(path, 'id');
+    if (tableId && !tableId.includes('/')) return tableId;
+  }
+  if (t === 'TABLE_DECLINED' || t === 'TABLE_MESSAGE') {
+    const threadId = extractQueryParamFromPath(path, 'venueTableThread');
+    if (threadId) return threadId;
+  }
+  if (path.startsWith('/') && !path.includes('?')) return path;
+  return null;
+}
+
 function mapLegacy(n) {
   const path = n.actionUrl?.trim() || null;
   const isRoute = path && path.startsWith('/');
+  const referenceId = resolveLegacyReferenceId(n.type, path);
   return {
     id: n.id,
     type: n.type,
     title: n.title,
     body: n.body ?? '',
-    referenceId: path,
-    referenceType: isRoute ? 'ROUTE' : path ? 'LEGACY' : null,
+    referenceId,
+    referenceType: referenceId ? (isRoute ? 'VENUE_TABLE' : 'LEGACY') : isRoute ? 'ROUTE' : path ? 'LEGACY' : null,
     actionUrl: path,
     read: n.isRead,
     createdAt: n.createdAt,

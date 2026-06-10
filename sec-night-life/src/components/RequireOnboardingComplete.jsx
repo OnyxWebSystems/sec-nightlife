@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
-import { dataService } from '@/services/dataService';
 
-export default function RequireBusinessAccount({ children }) {
+export default function RequireOnboardingComplete({ children }) {
   const navigate = useNavigate();
   const [allowed, setAllowed] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -15,26 +14,15 @@ export default function RequireBusinessAccount({ children }) {
     (async () => {
       try {
         const user = await authService.getCurrentUser();
-        let hasBusiness = user?.role === 'VENUE';
-        try {
-          const roles = await apiGet('/api/user-roles/me');
-          if (roles?.business) hasBusiness = true;
-        } catch {}
-        if (!hasBusiness) {
-          try {
-            const venues = await dataService.Venue.mine();
-            hasBusiness = Array.isArray(venues) && venues.length > 0;
-          } catch {}
+        if (!user) {
+          authService.redirectToLogin();
+          return;
         }
-        if (!hasBusiness) {
-          try {
-            const staffVenues = await apiGet('/api/staff/venues');
-            hasBusiness = Array.isArray(staffVenues) && staffVenues.length > 0;
-          } catch {}
-        }
+        const profile = await apiGet('/api/users/profile');
+        const row = Array.isArray(profile) ? profile[0] : profile;
         if (cancelled) return;
-        if (!hasBusiness) {
-          navigate(createPageUrl('VenueOnboarding'), { replace: true });
+        if (!row?.onboarding_complete) {
+          navigate(createPageUrl('ProfileSetup'), { replace: true });
           return;
         }
         setAllowed(true);
@@ -52,7 +40,7 @@ export default function RequireBusinessAccount({ children }) {
   if (checking) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
       </div>
     );
   }

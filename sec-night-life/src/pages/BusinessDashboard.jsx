@@ -12,8 +12,12 @@ import {
   Calendar, BookOpen, Megaphone, BarChart3,
   Star, Users, ArrowRight, Building2, Plus,
   ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload, UtensilsCrossed, Armchair, Wallet,
+  Settings, UserPlus,
 } from 'lucide-react';
 import VenueSecWallet from '@/components/wallet/VenueSecWallet';
+import { useActiveVenue } from '@/context/ActiveVenueContext';
+import VenueSwitcher from '@/components/business/VenueSwitcher';
+import AddStaffModal from '@/components/business/AddStaffModal';
 
 /** Matches backend REQUIRED_DOC_TYPES (excludes optional OTHER). */
 const REQUIRED_COMPLIANCE_DOC_TYPES = [
@@ -112,13 +116,7 @@ export default function BusinessDashboard() {
     }).catch(() => {});
   }, [user?.email]);
 
-  const { data: venues = [], isLoading: venuesLoading } = useQuery({
-    queryKey: ['biz-venues', user?.id],
-    queryFn: () => dataService.Venue.mine(),
-    enabled: !!user?.id,
-  });
-
-  const venue = venues[0];
+  const { venues, activeVenue: venue, isLoading: venuesLoading, setActiveVenueId, refreshVenues } = useActiveVenue();
 
   useEffect(() => {
     if (!import.meta.env.DEV || !user) return;
@@ -144,6 +142,7 @@ export default function BusinessDashboard() {
 
   const [complianceError, setComplianceError] = useState('');
   const [uploading, setUploading] = useState({});
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
 
   const cloudinaryConfig = {
     cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
@@ -328,6 +327,40 @@ export default function BusinessDashboard() {
     <div className="pb-10" style={{ padding: 'var(--space-6) var(--space-5)', maxWidth: 1100, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+          <VenueSwitcher />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="sec-btn sec-btn-ghost"
+              style={{ height: 36, fontSize: 13 }}
+              onClick={() =>
+                navigate(`${createPageUrl('VenueOnboarding')}?edit=1&venueId=${encodeURIComponent(venue.id)}`)
+              }
+            >
+              <Settings size={14} style={{ marginRight: 6 }} />
+              Edit venue setup
+            </button>
+            <button
+              type="button"
+              className="sec-btn sec-btn-ghost"
+              style={{ height: 36, fontSize: 13 }}
+              onClick={() => setStaffModalOpen(true)}
+            >
+              <UserPlus size={14} style={{ marginRight: 6 }} />
+              Invite staff
+            </button>
+            <button
+              type="button"
+              className="sec-btn sec-btn-ghost"
+              style={{ height: 36, fontSize: 13 }}
+              onClick={() => navigate(createPageUrl('VenueOnboarding') + '?new=1')}
+            >
+              <Plus size={14} style={{ marginRight: 6 }} />
+              Register another venue
+            </button>
+          </div>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
           {venue.logo_url && (
             <img
@@ -711,6 +744,8 @@ export default function BusinessDashboard() {
           )}
         </div>
       </div>
+
+      <AddStaffModal open={staffModalOpen} onOpenChange={setStaffModalOpen} venueId={venue?.id} />
 
       <style>{`
         @media (max-width: 768px) {

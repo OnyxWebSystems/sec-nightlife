@@ -36,6 +36,7 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
           readAt: null,
           senderUserId: { not: req.userId },
           thread: {
+            deletedAt: null,
             member: {
               venueTable: { venueId: { in: venueIds } },
               status: { in: MESSAGABLE_VENUE_MEMBER_STATUSES },
@@ -128,6 +129,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
     if (filter === 'tables') {
       const threads = await prisma.venueTableThread.findMany({
         where: {
+          deletedAt: null,
           member: {
             venueTable: { venueId: { in: venueIds } },
             status: { in: MESSAGABLE_VENUE_MEMBER_STATUSES },
@@ -166,6 +168,27 @@ router.get('/', authenticateToken, async (req, res, next) => {
 
     items.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     res.json({ items });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/threads/:threadId', authenticateToken, async (req, res, next) => {
+  try {
+    const venueIds = await ownedVenueIds(req.userId);
+    if (!venueIds.length) return res.status(403).json({ error: 'Forbidden' });
+
+    const application = await prisma.jobApplication.findFirst({
+      where: {
+        id: req.params.threadId,
+        jobPosting: { venueId: { in: venueIds } },
+      },
+      select: { id: true },
+    });
+    if (!application) return res.status(404).json({ error: 'Thread not found' });
+
+    await prisma.jobMessage.deleteMany({ where: { applicationId: application.id } });
+    res.json({ deleted: true });
   } catch (e) {
     next(e);
   }

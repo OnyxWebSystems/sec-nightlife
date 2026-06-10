@@ -23,6 +23,7 @@ import { tierMinSpendsFromApi, resolveTierMinSpends } from '@/lib/tierMinSpend';
 import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
 import { isEventEnded } from '@/lib/eventLifecycle';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useActiveVenue } from '@/context/ActiveVenueContext';
 
 const EVENT_COVER_CROP_ASPECT = 16 / 9;
 const EVENT_COVER_CROP_DIALOG_PROPS = {
@@ -143,13 +144,7 @@ export default function BusinessEvents() {
     }).catch(() => {});
   }, [user?.email]);
 
-  const { data: venues = [] } = useQuery({
-    queryKey: ['biz-venues', user?.id],
-    queryFn: () => dataService.Venue.mine(),
-    enabled: !!user,
-  });
-
-  const venue = venues[0];
+  const { activeVenue: venue } = useActiveVenue();
   const { data: venueMenuItems = [] } = useQuery({
     queryKey: ['venue-menu', venue?.id],
     queryFn: () => apiGet(`/api/business/venues/${venue.id}/menu-items`),

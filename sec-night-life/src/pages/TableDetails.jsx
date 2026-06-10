@@ -86,9 +86,9 @@ export default function TableDetails() {
   const source = urlParams.get('source');
   const bookingModeParam = urlParams.get('mode');
   const settlementParam = urlParams.get('settlement');
+  const checkoutParam = urlParams.get('checkout');
   const isVenueSource = source === 'venue';
-  const venueBookingMode = bookingModeParam === 'host' ? 'host' : 'join';
-  const isHostCheckout = venueBookingMode === 'host';
+  const isHostCheckout = bookingModeParam === 'host';
   const [selectedMenuItems, setSelectedMenuItems] = useState({});
   const [hostedMenuSelected, setHostedMenuSelected] = useState({});
 
@@ -129,6 +129,13 @@ export default function TableDetails() {
     queryFn: () => apiGet(`/api/venue-tables/${tableId}`),
     enabled: !!tableId && isVenueSource,
   });
+
+  const venueBookingMode = useMemo(() => {
+    if (bookingModeParam === 'host') return 'host';
+    const specs = venueTable?.myMembership?.userSpecs;
+    if (venueTable?.isCustomListing || specs?.guestCount) return 'custom_host';
+    return 'join';
+  }, [bookingModeParam, venueTable?.myMembership?.userSpecs, venueTable?.isCustomListing]);
 
   const [venueSettlementMode, setVenueSettlementMode] = useState(() =>
     settlementParam === 'PREPAY_LUMP' ? 'PREPAY_LUMP' : 'PREPAY_MENU',
@@ -175,16 +182,34 @@ export default function TableDetails() {
   }, []);
 
   useEffect(() => {
-    if (!isVenueSource || !venueTable?.includedItems?.length) return;
+    if (!isVenueSource || !venueTable) return;
     setSelectedMenuItems((prev) => {
       const next = { ...prev };
-      for (const inc of venueTable.includedItems) {
+      for (const inc of venueTable.includedItems || []) {
         const id = inc.menu_item_id || inc.menuItemId;
         if (id && !next[id]) next[id] = String(inc.quantity || 1);
       }
+      const membership = venueTable.myMembership;
+      const stored = membership?.selectedMenuItems || membership?.userSpecs?.selectedMenuItems;
+      if (Array.isArray(stored)) {
+        for (const s of stored) {
+          const id = s.menuItemId || s.menu_item_id;
+          if (id) next[id] = String(s.quantity || 1);
+        }
+      }
       return next;
     });
-  }, [isVenueSource, venueTable?.id, venueTable?.includedItems]);
+    const membership = venueTable.myMembership;
+    const specs = membership?.userSpecs;
+    if (membership?.status === 'APPROVED' || checkoutParam === '1') {
+      if (specs?.minSpendMode === 'manual' && specs?.proposedMinimumSpend != null) {
+        setVenueSettlementMode('PREPAY_LUMP');
+      } else if (Array.isArray(specs?.selectedMenuItems) && specs.selectedMenuItems.length > 0) {
+        setVenueSettlementMode('PREPAY_MENU');
+      }
+      setVenueCheckoutStep('checkout');
+    }
+  }, [isVenueSource, venueTable?.id, venueTable?.myMembership?.status, checkoutParam]);
 
   const joinVenueTable = async () => {
     const membership = venueTable?.myMembership;
@@ -457,10 +482,18 @@ export default function TableDetails() {
         price: row?.price || 0,
       };
     });
+    const membership = venueTable.myMembership;
+    const membershipSpecs = membership?.userSpecs || {};
+    const approvedCustomMin =
+      membership?.status === 'APPROVED' && membershipSpecs.proposedMinimumSpend != null
+        ? Number(membershipSpecs.proposedMinimumSpend)
+        : null;
     const minSpendZar =
-      isHostCheckout
-        ? Number(venueTable.hostMinimumSpend ?? venueTable.host_minimum_spend ?? venueTable.minimumSpend) || 0
-        : Number(venueTable.minimumSpend) || 0;
+      approvedCustomMin != null
+        ? approvedCustomMin
+        : isHostCheckout
+          ? Number(venueTable.hostMinimumSpend ?? venueTable.host_minimum_spend ?? venueTable.minimumSpend) || 0
+          : Number(venueTable.minimumSpend) || 0;
     const { chargeableTotal, itemCount } = getVenueMenuCartStats(
       venueMenuItems,
       selectedMenuItems,
@@ -473,7 +506,7 @@ export default function TableDetails() {
     const checkoutLines = venueCheckoutPreview?.lines?.length ? venueCheckoutPreview.lines : [];
     const checkoutTotal =
       venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
-    const membership = venueTable.myMembership;
+    const isCustomHostCheckout = venueBookingMode === 'custom_host';
     const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
     // Host-this-tier flow pays the host fee + min spend without a prior venue custom request.
     const approvalOk =
@@ -482,10 +515,14 @@ export default function TableDetails() {
       membership?.status === 'APPROVED' ||
       membership?.status === 'LEFT';
     const canPay = minSpendMet && approvalOk && !venueCheckoutPreview?.error;
+    const inCustomRequestEntry = urlParams.get('request') === '1';
     const showCustomRequest =
+      !isHostCheckout &&
+      inCustomRequestEntry &&
       (venueTable.allowsCustomRequests || venueTable.isCustomListing) &&
-      membership?.status !== 'APPROVED';
-    const inRequestFlow = showCustomRequest && membership?.status !== 'APPROVED';
+      membership?.status !== 'APPROVED' &&
+      membership?.status !== 'PENDING_VENUE_REVIEW';
+    const inRequestFlow = showCustomRequest || (inCustomRequestEntry && membership?.status === 'PENDING_VENUE_REVIEW');
     const onRequestMenuStep = inRequestFlow && customRequestStep === 'menu';
     const onRequestDetailsStep = inRequestFlow && customRequestStep === 'details';
     const footerPad = onRequestMenuStep
@@ -502,8 +539,17 @@ export default function TableDetails() {
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>{venueTable.tableName}</h1>
           <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{venueTable.venue?.name}</p>
           <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-accent)', fontWeight: 600 }}>
-            {isHostCheckout ? 'Hosting this table' : 'Joining this table'}
+            {isHostCheckout
+              ? 'Hosting this table'
+              : isCustomHostCheckout
+                ? 'Complete your custom table booking'
+                : 'Joining this table'}
           </p>
+          {membership?.status === 'APPROVED' ? (
+            <p style={{ marginTop: 6, fontSize: 12, color: 'var(--sec-success, #22c55e)' }}>
+              Request approved — review your order and pay below.
+            </p>
+          ) : null}
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
         </div>
@@ -683,18 +729,26 @@ export default function TableDetails() {
             minSpendZar={minSpendZar}
             minMet={minSpendMet}
             onContinue={() => {
-              setVenueSettlementMode('PREPAY_MENU');
+              if (isHostCheckout && itemCount === 0 && minSpendZar > 0) {
+                setVenueSettlementMode('PREPAY_LUMP');
+              } else {
+                setVenueSettlementMode('PREPAY_MENU');
+              }
               setVenueCheckoutStep('checkout');
             }}
             onPayMinimumLump={
-              minSpendZar > 0
+              minSpendZar > 0 && itemCount > 0
                 ? () => {
                     setVenueSettlementMode('PREPAY_LUMP');
                     setVenueCheckoutStep('checkout');
                   }
                 : undefined
             }
-            continueLabel="Review order"
+            continueLabel={
+              isHostCheckout && itemCount === 0 && minSpendZar > 0
+                ? 'Skip menu — pay minimum spend only'
+                : 'Review order'
+            }
           />
         ) : !inRequestFlow ? (
           <TableCheckoutFooter
@@ -714,7 +768,7 @@ export default function TableDetails() {
               {isProcessingPayment
                 ? 'Processing…'
                 : checkoutTotal > 0
-                  ? isHostCheckout
+                  ? isHostCheckout || isCustomHostCheckout
                     ? `Pay R${checkoutTotal.toFixed(0)} to host`
                     : `Pay R${checkoutTotal.toFixed(0)} to join`
                   : 'Complete booking'}

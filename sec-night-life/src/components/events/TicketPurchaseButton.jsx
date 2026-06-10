@@ -14,6 +14,12 @@ import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInl
 import { getStoredPromoterRef } from '@/utils';
 import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 
+const selectContentClass =
+  'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
+
+const selectItemClass =
+  'text-[var(--sec-text-primary)] focus:bg-[var(--sec-bg-elevated)] focus:text-[var(--sec-text-primary)] data-[highlighted]:bg-[var(--sec-bg-elevated)]';
+
 export default function TicketPurchaseButton({ event }) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState('');
@@ -129,6 +135,12 @@ export default function TicketPurchaseButton({ event }) {
     return n ? String(n).trim() : 'Guest';
   }
 
+  function formatTierLabel(tier) {
+    const left = tier.quantity - (tier.sold || 0);
+    const category = tier.category ? ` (${tier.category})` : '';
+    return `${tier.name}${category} — R${tier.price} (${left} left)`;
+  }
+
   return (
     <>
       <Button
@@ -140,53 +152,83 @@ export default function TicketPurchaseButton({ event }) {
       </Button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="bg-[#141416] border-[#262629] text-white">
-          <DialogHeader>
-            <DialogTitle className="gradient-text">Purchase Tickets</DialogTitle>
+        <DialogContent
+          className="border text-[var(--sec-text-primary)] p-0 gap-0 overflow-hidden"
+          style={{
+            background: 'var(--sec-bg-card)',
+            borderColor: 'var(--sec-border)',
+            maxHeight: 'min(90vh, 720px)',
+          }}
+        >
+          <DialogHeader className="px-5 pt-5 pb-3 border-b" style={{ borderColor: 'var(--sec-border)' }}>
+            <DialogTitle style={{ color: 'var(--sec-text-primary)', fontSize: 18, fontWeight: 700 }}>
+              Purchase Tickets
+            </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 pt-4">
-            <div>
-              <Label className="text-gray-400 text-sm">Event</Label>
-              <p className="text-white font-semibold mt-1">{event.title}</p>
+          <div className="px-5 py-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 180px)' }}>
+            <div className="mb-4">
+              <Label className="text-sm mb-2 block" style={{ color: 'var(--sec-text-muted)' }}>Event</Label>
+              <p className="font-semibold" style={{ color: 'var(--sec-text-primary)' }}>{event.title}</p>
             </div>
 
             {availableTickets.length === 0 ? (
-              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
+              <div
+                className="p-4 rounded-xl text-sm"
+                style={{
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  color: '#f87171',
+                }}
+              >
                 No tickets available for this event
               </div>
             ) : (
               <>
-                <div>
-                  <Label className="text-gray-400 text-sm mb-2 block">Ticket Type</Label>
+                <div className="mb-4">
+                  <Label className="text-sm mb-3 block" style={{ color: 'var(--sec-text-muted)' }}>Ticket Type</Label>
                   <Select value={selectedTier} onValueChange={setSelectedTier}>
-                    <SelectTrigger className="bg-[#0A0A0B] border-[#262629]">
+                    <SelectTrigger
+                      className="w-full"
+                      style={{
+                        background: 'var(--sec-bg-elevated)',
+                        borderColor: 'var(--sec-border)',
+                        color: 'var(--sec-text-primary)',
+                      }}
+                    >
                       <SelectValue placeholder="Select ticket type" />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                    <SelectContent position="popper" className={selectContentClass}>
                       {availableTickets.map((tier) => (
-                        <SelectItem key={tier.name} value={tier.name}>
-                          {tier.name} - R{tier.price} ({tier.quantity - (tier.sold || 0)} left)
+                        <SelectItem key={tier.name} value={tier.name} className={selectItemClass}>
+                          {formatTierLabel(tier)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                {selectedTier && (
+                {selectedTier ? (
                   <>
-                    <div>
-                      <Label className="text-gray-400 text-sm mb-2 block">Quantity</Label>
+                    <div className="mb-4">
+                      <Label className="text-sm mb-3 block" style={{ color: 'var(--sec-text-muted)' }}>Quantity</Label>
                       <Select
                         value={quantity.toString()}
                         onValueChange={(val) => setQuantity(parseInt(val, 10))}
                       >
-                        <SelectTrigger className="bg-[#0A0A0B] border-[#262629]">
+                        <SelectTrigger
+                          className="w-full"
+                          style={{
+                            background: 'var(--sec-bg-elevated)',
+                            borderColor: 'var(--sec-border)',
+                            color: 'var(--sec-text-primary)',
+                          }}
+                        >
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                        <SelectContent position="popper" className={selectContentClass}>
                           {Array.from({ length: maxQuantity }, (_, i) => i + 1).map((num) => (
-                            <SelectItem key={num} value={num.toString()}>
+                            <SelectItem key={num} value={num.toString()} className={selectItemClass}>
                               {num} {num === 1 ? 'ticket' : 'tickets'}
                             </SelectItem>
                           ))}
@@ -195,8 +237,8 @@ export default function TicketPurchaseButton({ event }) {
                     </div>
 
                     {quantity > 1 ? (
-                      <div className="space-y-2">
-                        <Label className="text-gray-400 text-sm">Guest name per ticket</Label>
+                      <div className="space-y-2 mb-4">
+                        <Label className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>Guest name per ticket</Label>
                         {Array.from({ length: quantity }, (_, i) => (
                           <Input
                             key={i}
@@ -207,27 +249,34 @@ export default function TicketPurchaseButton({ event }) {
                               next[i] = e.target.value;
                               setHolderNames(next);
                             }}
-                            className="bg-[#0A0A0B] border-[#262629]"
+                            style={{
+                              background: 'var(--sec-bg-elevated)',
+                              borderColor: 'var(--sec-border)',
+                              color: 'var(--sec-text-primary)',
+                            }}
                           />
                         ))}
                       </div>
                     ) : null}
 
-                    {selectedTierData?.description && (
-                      <div className="p-3 rounded-lg bg-[#0A0A0B]">
-                        <p className="text-xs text-gray-400">{selectedTierData.description}</p>
+                    {selectedTierData?.description ? (
+                      <div
+                        className="p-3 rounded-lg mb-4"
+                        style={{ background: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}
+                      >
+                        <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>{selectedTierData.description}</p>
                       </div>
-                    )}
+                    ) : null}
 
-                    {menuEnabled && (
-                      <div className="pt-2 border-t border-[#262629]">
-                        <Label className="text-gray-400 text-sm mb-2 block">Optional menu add-ons</Label>
+                    {menuEnabled ? (
+                      <div className="pt-3 mb-4 border-t" style={{ borderColor: 'var(--sec-border)' }}>
+                        <Label className="text-sm mb-3 block" style={{ color: 'var(--sec-text-muted)' }}>Optional menu add-ons</Label>
                         {menuLoading ? (
-                          <p className="text-xs text-gray-500 flex items-center gap-2">
+                          <p className="text-xs flex items-center gap-2" style={{ color: 'var(--sec-text-muted)' }}>
                             <Loader2 className="w-3 h-3 animate-spin" /> Loading menu…
                           </p>
                         ) : venueMenu.length === 0 ? (
-                          <p className="text-xs text-gray-500">No menu items available right now.</p>
+                          <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>No menu items available right now.</p>
                         ) : (
                           <MenuPicker
                             items={venueMenu}
@@ -236,49 +285,60 @@ export default function TicketPurchaseButton({ event }) {
                           />
                         )}
                       </div>
-                    )}
-
-                    <div className="pt-4 border-t border-[#262629]">
-                      {menuSubtotal > 0 && (
-                        <>
-                          <div className="flex items-center justify-between text-sm mb-1">
-                            <span className="text-gray-400">Tickets</span>
-                            <span className="text-white">R{ticketSubtotal.toLocaleString()}</span>
-                          </div>
-                          <div className="flex items-center justify-between text-sm mb-3">
-                            <span className="text-gray-400">Menu</span>
-                            <span className="text-white">R{menuSubtotal.toLocaleString()}</span>
-                          </div>
-                        </>
-                      )}
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-gray-400">Total</span>
-                        <span className="text-2xl font-bold text-white">R{totalPrice.toLocaleString()}</span>
-                      </div>
-
-                      <Button
-                        onClick={handlePurchase}
-                        disabled={isProcessing}
-                        className="w-full sec-btn-accent"
-                      >
-                        {isProcessing ? (
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        ) : (
-                          <CreditCard className="w-4 h-4 mr-2" />
-                        )}
-                        {isProcessing ? 'Processing...' : 'Proceed to Payment'}
-                      </Button>
-
-                      <p className="text-xs text-gray-500 text-center mt-2">
-                        Secure payment powered by Paystack
-                      </p>
-                      <RefundPolicyNote className="text-center mt-2" style={{ color: 'rgb(107 114 128)' }} />
-                    </div>
+                    ) : null}
                   </>
-                )}
+                ) : null}
               </>
             )}
           </div>
+
+          {selectedTier && availableTickets.length > 0 ? (
+            <div
+              className="px-5 py-4 border-t"
+              style={{
+                borderColor: 'var(--sec-border)',
+                background: 'rgba(0,0,0,0.35)',
+              }}
+            >
+              {menuSubtotal > 0 ? (
+                <>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span style={{ color: 'var(--sec-text-muted)' }}>Tickets</span>
+                    <span style={{ color: 'var(--sec-text-primary)' }}>R{ticketSubtotal.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mb-3">
+                    <span style={{ color: 'var(--sec-text-muted)' }}>Menu</span>
+                    <span style={{ color: 'var(--sec-text-primary)' }}>R{menuSubtotal.toLocaleString()}</span>
+                  </div>
+                </>
+              ) : null}
+              <div className="flex items-center justify-between mb-3">
+                <span style={{ color: 'var(--sec-text-muted)' }}>Total</span>
+                <span className="text-xl font-bold" style={{ color: 'var(--sec-text-primary)' }}>
+                  R{totalPrice.toLocaleString()}
+                </span>
+              </div>
+
+              <Button
+                onClick={handlePurchase}
+                disabled={isProcessing}
+                className="w-full sec-btn-accent"
+                style={{ height: 48 }}
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <CreditCard className="w-4 h-4 mr-2" />
+                )}
+                {isProcessing ? 'Processing…' : 'Continue to checkout'}
+              </Button>
+
+              <p className="text-xs text-center mt-2" style={{ color: 'var(--sec-text-muted)' }}>
+                Secure payment powered by Paystack
+              </p>
+              <RefundPolicyNote className="text-center mt-2" style={{ color: 'var(--sec-text-muted)' }} />
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </>

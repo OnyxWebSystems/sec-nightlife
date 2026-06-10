@@ -12,6 +12,7 @@ import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { launchPaystackInline, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useActiveVenue } from '@/context/ActiveVenueContext';
 
 const PUBLISH_ZAR_PER_DAY = 50;
 const BOOST_ZAR_PER_DAY = 150;
@@ -1177,26 +1178,21 @@ export default function BusinessPromotions() {
     }).catch(() => {});
   }, [user?.email]);
 
-  const { data: venues = [] } = useQuery({
-    queryKey: ['promotions-venues', user?.id],
-    queryFn: () => dataService.Venue.mine(),
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 15 * 60 * 1000,
-  });
+  const { venues, activeVenueId, setActiveVenueId } = useActiveVenue();
   const selectedVenueRecord = useMemo(
     () => venues.find((venue) => String(venue.id) === String(selectedVenue)) || null,
     [venues, selectedVenue],
   );
 
   useEffect(() => {
-    if (!Array.isArray(venues) || venues.length === 0) {
-      setSelectedVenue('');
-      return;
+    if (activeVenueId) setSelectedVenue(String(activeVenueId));
+  }, [activeVenueId]);
+
+  useEffect(() => {
+    if (selectedVenue && String(selectedVenue) !== String(activeVenueId)) {
+      setActiveVenueId(selectedVenue);
     }
-    const currentExists = venues.some((venue) => String(venue.id) === String(selectedVenue));
-    if (!currentExists) setSelectedVenue(String(venues[0].id));
-  }, [venues, selectedVenue]);
+  }, [selectedVenue]);
 
   const loadPromotions = useCallback(async (venueId) => {
     if (!venueId) return;

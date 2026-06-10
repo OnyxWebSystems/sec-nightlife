@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { createPageUrl, buildPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPatch } from '@/api/client';
@@ -131,6 +131,20 @@ export default function Notifications() {
     }
   };
 
+  function extractTableIdFromNotification(n, actionUrl) {
+    const ref = n.referenceId;
+    if (ref && typeof ref === 'string' && !ref.startsWith('/') && !ref.includes('?')) {
+      return ref;
+    }
+    if (ref && typeof ref === 'string' && ref.includes('id=')) {
+      const fromRef = extractQueryParam(ref.startsWith('/') ? ref : `/?${ref}`, 'id');
+      if (fromRef && !fromRef.includes('/')) return fromRef;
+    }
+    const fromUrl = extractQueryParam(actionUrl, 'id');
+    if (fromUrl && !fromUrl.includes('/')) return fromUrl;
+    return null;
+  }
+
   const resolveNotificationDestination = (n) => {
     const t = n.type;
     const actionUrl = resolveActionUrl(n);
@@ -145,14 +159,21 @@ export default function Notifications() {
       return business ? `${createPageUrl('BusinessVenueTables')}?tab=requests` : null;
     }
     if (t === 'TABLE_APPROVED' || t === 'table_approved') {
-      const tableId = n.referenceId || extractQueryParam(actionUrl, 'id');
-      return tableId ? `${createPageUrl('TableDetails')}?id=${tableId}&source=venue` : actionUrl;
+      const tableId = extractTableIdFromNotification(n, actionUrl);
+      return tableId
+        ? buildPageUrl('TableDetails', { id: tableId, source: 'venue', checkout: '1' })
+        : actionUrl;
     }
     if (t === 'TABLE_DECLINED') {
-      const threadId = n.referenceId || extractQueryParam(actionUrl, 'venueTableThread');
-      if (threadId) return `${createPageUrl('Messages')}?venueTableThread=${encodeURIComponent(threadId)}`;
-      const tableId = extractQueryParam(actionUrl, 'id');
-      return tableId ? `${createPageUrl('TableDetails')}?id=${tableId}&source=venue` : actionUrl;
+      const threadId =
+        (n.referenceId && !String(n.referenceId).includes('/')
+          ? n.referenceId
+          : null) || extractQueryParam(actionUrl, 'venueTableThread');
+      if (threadId && !threadId.includes('/')) {
+        return `${createPageUrl('Messages')}?venueTableThread=${encodeURIComponent(threadId)}`;
+      }
+      const tableId = extractTableIdFromNotification(n, actionUrl);
+      return tableId ? buildPageUrl('TableDetails', { id: tableId, source: 'venue' }) : actionUrl;
     }
     if (t === 'TABLE_MESSAGE') {
       const threadId = n.referenceId || extractQueryParam(actionUrl, 'venueTableThread');
@@ -179,9 +200,9 @@ export default function Notifications() {
       return createPageUrl('EditProfile');
     }
 
-    if ((t === 'TABLE_INVITE' || t === 'table_invite') && (n.referenceId || extractQueryParam(actionUrl, 'id'))) {
-      const id = n.referenceId || extractQueryParam(actionUrl, 'id');
-      return `${createPageUrl('TableDetails')}?id=${id}`;
+    if (t === 'TABLE_INVITE' || t === 'table_invite') {
+      const id = extractTableIdFromNotification(n, actionUrl);
+      if (id) return buildPageUrl('TableDetails', { id, source: 'venue' });
     }
     if (t === 'EVENT_INTEREST_REMINDER' && n.referenceId) {
       return `${createPageUrl('EventDetails')}?id=${n.referenceId}`;

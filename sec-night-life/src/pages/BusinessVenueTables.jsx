@@ -15,6 +15,8 @@ import { resolveTierFeesForSave } from '@/lib/tierBookingFees';
 import { resolveTierMinSpends } from '@/lib/tierMinSpend';
 import { VENUE_DECLINE_TEMPLATES, formatMenuLines } from '@/lib/venueTableMessageTemplates';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useActiveVenue } from '@/context/ActiveVenueContext';
+import VenueSwitcher from '@/components/business/VenueSwitcher';
 
 export default function BusinessVenueTables() {
   const navigate = useNavigate();
@@ -41,11 +43,7 @@ export default function BusinessVenueTables() {
   const [declineParamsByMember, setDeclineParamsByMember] = useState({});
   const [venueFees, setVenueFees] = useState({ host_table_fee_zar: '', custom_table_booking_fee_zar: '' });
 
-  const { data: venues = [] } = useQuery({
-    queryKey: ['my-venues'],
-    queryFn: () => apiGet('/api/venues/mine'),
-  });
-  const venue = venues[0];
+  const { activeVenue: venue } = useActiveVenue();
 
   const { data: venueDetail } = useQuery({
     queryKey: ['venue-detail', venue?.id],

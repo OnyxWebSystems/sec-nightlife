@@ -4,7 +4,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
-import { Loader2, MessageCircle, Briefcase, Armchair, Star } from 'lucide-react';
+import { Loader2, Briefcase, Armchair, Star } from 'lucide-react';
+import { useActiveVenue } from '@/context/ActiveVenueContext';
+import BusinessVenueGroupPanel from '@/components/messaging/BusinessVenueGroupPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 
@@ -20,8 +22,9 @@ export default function BusinessMessages() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const initialTab = searchParams.get('tab') || 'jobs';
+  const { activeVenue } = useActiveVenue();
   const [filter, setFilter] = useState(
-    ['jobs', 'promoters', 'tables'].includes(initialTab) ? initialTab : 'jobs',
+    ['jobs', 'promoters', 'tables', 'groups'].includes(initialTab) ? initialTab : 'jobs',
   );
   const [selectedJobAppId, setSelectedJobAppId] = useState(searchParams.get('application') || null);
   const [selectedTableThreadId, setSelectedTableThreadId] = useState(searchParams.get('thread') || null);
@@ -31,7 +34,7 @@ export default function BusinessMessages() {
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab && ['jobs', 'promoters', 'tables'].includes(tab)) setFilter(tab);
+    if (tab && ['jobs', 'promoters', 'tables', 'groups'].includes(tab)) setFilter(tab);
     const app = searchParams.get('application');
     if (app) setSelectedJobAppId(app);
     const thread = searchParams.get('thread');
@@ -41,11 +44,13 @@ export default function BusinessMessages() {
     }
   }, [searchParams]);
 
-  const inboxType = filter === 'tables' ? 'tables' : filter === 'promoters' ? 'promoters' : 'jobs';
+  const inboxType =
+    filter === 'tables' ? 'tables' : filter === 'promoters' ? 'promoters' : filter === 'groups' ? null : 'jobs';
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['business-inbox', inboxType],
     queryFn: () => apiGet(`/api/business/inbox?type=${inboxType}`),
+    enabled: !!inboxType,
   });
 
   const items = data?.items ?? [];
@@ -138,13 +143,17 @@ export default function BusinessMessages() {
           setSearchParams({ tab: v });
         }}
       >
-        <TabsList className="grid w-full grid-cols-3 mb-4">
+        <TabsList className="grid w-full grid-cols-4 mb-4">
           <TabsTrigger value="jobs">Jobs</TabsTrigger>
           <TabsTrigger value="promoters">Promoters</TabsTrigger>
           <TabsTrigger value="tables">Tables</TabsTrigger>
+          <TabsTrigger value="groups">Groups</TabsTrigger>
         </TabsList>
 
         <TabsContent value={filter}>
+          {filter === 'groups' ? (
+            <BusinessVenueGroupPanel venueId={activeVenue?.id} />
+          ) : (
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2 min-h-[200px]">
               {isLoading ? (
@@ -320,6 +329,7 @@ export default function BusinessMessages() {
               )}
             </div>
           </div>
+          )}
         </TabsContent>
       </Tabs>
       </div>

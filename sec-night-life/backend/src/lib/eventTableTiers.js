@@ -159,7 +159,21 @@ export async function buildEventTableTiers(eventId) {
     }
   }
 
-  return { tiers };
+  const customListing = await prisma.venueTable.findFirst({
+    where: {
+      eventId,
+      isActive: true,
+      isCustomListing: true,
+      allowsCustomRequests: true,
+    },
+    select: { id: true },
+  });
+
+  return {
+    tiers,
+    customListingId: customListing?.id ?? null,
+    allowsCustomRequests: tiers.some((t) => t.allowsCustomRequests) || Boolean(customListing),
+  };
 }
 
 /**

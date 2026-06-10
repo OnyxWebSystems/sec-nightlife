@@ -380,6 +380,13 @@ export default function Profile() {
           {isOwnProfile && (
             <div className="ml-auto flex gap-2">
               <Link
+                to={createPageUrl('ProfileSetup?edit=1')}
+                className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center"
+                title="Edit profile setup"
+              >
+                <UserPlus className="w-5 h-5" />
+              </Link>
+              <Link
                 to={createPageUrl('EditProfile')}
                 className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center"
               >
@@ -535,6 +542,28 @@ export default function Profile() {
               <p className="text-xs text-gray-500">Friends</p>
             </Link>
           </div>
+
+          {/* Edit profile setup - only on own profile */}
+          {isOwnProfile && (
+            <div className="pt-4 border-t border-[#262629]">
+              <Link
+                to={createPageUrl('ProfileSetup?edit=1')}
+                className="flex items-center gap-4 p-4 rounded-xl border transition-all"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--sec-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-elevated)'; }}
+              >
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--sec-accent-muted)' }}>
+                  <UserPlus className="w-6 h-6" style={{ color: 'var(--sec-accent)' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold">Edit profile setup</p>
+                  <p className="text-xs text-gray-500">Update onboarding details, verification, and payout info.</p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+              </Link>
+            </div>
+          )}
 
           {/* Job applications - only on own profile */}
           {isOwnProfile && (

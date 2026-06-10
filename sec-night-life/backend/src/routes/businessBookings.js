@@ -49,6 +49,16 @@ function eventDateIsPast(eventDate, startToday) {
   return t < startToday;
 }
 
+function computeCanRelease(table, hostedTable) {
+  if (!table) return false;
+  if (table.currentOccupancy > 0) return true;
+  if (table.status !== 'AVAILABLE') return true;
+  if (table.hostUserId) return true;
+  if (table.hostedTableId) return true;
+  if (hostedTable && hostedTable.status !== 'CLOSED') return true;
+  return false;
+}
+
 router.get('/event-table-bookings', authenticateToken, async (req, res, next) => {
   try {
     const ownedVenues = await prisma.venue.findMany({
@@ -62,7 +72,17 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
         summary: emptyEventTableBookingsSummary(),
       });
     }
-    const venueIds = ownedVenues.map((v) => v.id);
+    let venueIds = ownedVenues.map((v) => v.id);
+    const venueIdFilter =
+      typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
+        ? req.query.venue_id.trim()
+        : null;
+    if (venueIdFilter) {
+      if (!venueIds.includes(venueIdFilter)) {
+        return res.status(404).json({ error: 'Venue not found' });
+      }
+      venueIds = [venueIdFilter];
+    }
     const eventIdFilter = typeof req.query.event_id === 'string' && req.query.event_id.trim()
       ? req.query.event_id.trim()
       : null;
@@ -441,7 +461,15 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
       select: { id: true },
     });
     if (!ownedVenues.length) return res.json({ items: [] });
-    const venueIds = ownedVenues.map((v) => v.id);
+    let venueIds = ownedVenues.map((v) => v.id);
+    const venueIdFilter =
+      typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
+        ? req.query.venue_id.trim()
+        : null;
+    if (venueIdFilter) {
+      if (!venueIds.includes(venueIdFilter)) return res.status(404).json({ error: 'Venue not found' });
+      venueIds = [venueIdFilter];
+    }
     const members = await prisma.venueTableMember.findMany({
       where: {
         status: 'CONFIRMED',
@@ -459,31 +487,268 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
       orderBy: { paidAt: 'desc' },
       take: 120,
     });
+
+    const hostedTableIds = [
+      ...new Set(members.map((m) => m.venueTable.hostedTableId).filter(Boolean)),
+    ];
+    const hostedById = new Map();
+    if (hostedTableIds.length) {
+      const hostedRows = await prisma.hostedTable.findMany({
+        where: { id: { in: hostedTableIds } },
+        select: { id: true, status: true },
+      });
+      for (const ht of hostedRows) hostedById.set(ht.id, ht);
+    }
+
     res.json({
-      items: members.map((m) => ({
-        id: m.id,
-        status: m.status,
-        amountPaid: m.amountPaid,
-        settlementMode: m.settlementMode,
-        selectedMenuItems: m.selectedMenuItems,
-        userSpecs: m.userSpecs,
-        joinedAt: m.joinedAt,
-        paidAt: m.paidAt,
-        user: {
-          id: m.user.id,
-          username: m.user.userProfile?.username,
-          fullName: m.user.fullName,
-        },
-        table: {
-          id: m.venueTable.id,
-          tableName: m.venueTable.tableName,
-          minimumSpend: m.venueTable.minimumSpend,
-          isCustomListing: m.venueTable.isCustomListing,
-          event: m.venueTable.event,
-          venue: m.venueTable.venue,
-        },
-      })),
+      items: members.map((m) => {
+        const hostedTable = m.venueTable.hostedTableId
+          ? hostedById.get(m.venueTable.hostedTableId) || null
+          : null;
+        return {
+          id: m.id,
+          status: m.status,
+          amountPaid: m.amountPaid,
+          settlementMode: m.settlementMode,
+          selectedMenuItems: m.selectedMenuItems,
+          userSpecs: m.userSpecs,
+          joinedAt: m.joinedAt,
+          paidAt: m.paidAt,
+          user: {
+            id: m.user.id,
+            username: m.user.userProfile?.username,
+            fullName: m.user.fullName,
+          },
+          table: {
+            id: m.venueTable.id,
+            tableName: m.venueTable.tableName,
+            minimumSpend: m.venueTable.minimumSpend,
+            isCustomListing: m.venueTable.isCustomListing,
+            status: m.venueTable.status,
+            currentOccupancy: m.venueTable.currentOccupancy,
+            hostedTableId: m.venueTable.hostedTableId,
+            event: m.venueTable.event,
+            venue: m.venueTable.venue,
+            canRelease: computeCanRelease(m.venueTable, hostedTable),
+          },
+        };
+      }),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+function basePaystackRef(ref) {
+  return String(ref || '').replace(/-\d+$/, '');
+}
+
+/** Ticket purchases for ticketing events at owned venues. */
+router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
+  try {
+    const ownedVenues = await prisma.venue.findMany({
+      where: { ownerUserId: req.userId, deletedAt: null },
+      select: { id: true, name: true },
+    });
+    if (!ownedVenues.length) {
+      return res.json({ items: [], eventSummaries: [], summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0 } });
+    }
+    const venueIds = ownedVenues.map((v) => v.id);
+    const venueIdFilter =
+      typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
+        ? req.query.venue_id.trim()
+        : null;
+    const scopedVenueIds = venueIdFilter && venueIds.includes(venueIdFilter) ? [venueIdFilter] : venueIds;
+
+    const eventIdFilter =
+      typeof req.query.event_id === 'string' && req.query.event_id.trim()
+        ? req.query.event_id.trim()
+        : null;
+    const scopeRaw = String(req.query.event_scope || 'active').toLowerCase();
+    const eventScope = ['active', 'past', 'all'].includes(scopeRaw) ? scopeRaw : 'active';
+    const startToday = startOfUtcToday();
+    const dateWhere =
+      eventScope === 'active' ? { gte: startToday } : eventScope === 'past' ? { lt: startToday } : undefined;
+
+    let eventsInScope = [];
+    if (eventIdFilter) {
+      const ev = await prisma.event.findFirst({
+        where: { id: eventIdFilter, venueId: { in: scopedVenueIds }, deletedAt: null },
+        select: { id: true, title: true, date: true, ticketTiers: true },
+      });
+      if (!ev) return res.status(404).json({ error: 'Event not found' });
+      const isPast = eventDateIsPast(ev.date, startToday);
+      if (eventScope === 'active' && isPast) {
+        return res.json({
+          items: [],
+          eventSummaries: [],
+          summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0 },
+          eventScope,
+          notice: 'past_event_use_past_scope',
+        });
+      }
+      if (eventScope === 'past' && !isPast) {
+        return res.json({
+          items: [],
+          eventSummaries: [],
+          summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0 },
+          eventScope,
+          notice: 'upcoming_event_use_active_scope',
+        });
+      }
+      eventsInScope = [ev];
+    } else {
+      eventsInScope = await prisma.event.findMany({
+        where: {
+          venueId: { in: scopedVenueIds },
+          deletedAt: null,
+          ...(dateWhere ? { date: dateWhere } : {}),
+        },
+        select: { id: true, title: true, date: true, ticketTiers: true },
+      });
+    }
+
+    const eventIds = eventsInScope.map((e) => e.id);
+    const eventSummaries = eventsInScope
+      .map((e) => ({ id: e.id, title: e.title, date: e.date }))
+      .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+
+    if (!eventIds.length) {
+      return res.json({
+        items: [],
+        eventSummaries,
+        summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0 },
+        eventScope,
+      });
+    }
+
+    const tickets = await prisma.ticket.findMany({
+      where: {
+        kind: 'EVENT_TICKET',
+        eventId: { in: eventIds },
+        hiddenFromHistoryAt: null,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+            userProfile: { select: { username: true, avatarUrl: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 800,
+    });
+
+    const eventById = new Map(eventsInScope.map((e) => [e.id, e]));
+    const refs = [...new Set(tickets.map((t) => basePaystackRef(t.paystackReference)).filter(Boolean))];
+    const payments =
+      refs.length > 0
+        ? await prisma.payment.findMany({
+            where: { reference: { in: refs }, status: 'success' },
+            select: { reference: true, amount: true, metadata: true, createdAt: true },
+          })
+        : [];
+    const paymentByRef = new Map(payments.map((p) => [p.reference, p]));
+
+    const groups = new Map();
+    for (const t of tickets) {
+      const baseRef = basePaystackRef(t.paystackReference);
+      const ev = t.eventId ? eventById.get(t.eventId) : null;
+      if (!groups.has(baseRef)) {
+        const pay = paymentByRef.get(baseRef);
+        const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
+        groups.set(baseRef, {
+          id: baseRef,
+          paystackReference: baseRef,
+          event: ev
+            ? { id: ev.id, title: ev.title, date: ev.date }
+            : { id: t.eventId, title: t.title, date: null },
+          tierName: t.subtitle || meta.ticket_tier_name || 'Ticket',
+          purchaser: {
+            id: t.user.id,
+            username: t.user.userProfile?.username || t.user.username,
+            fullName: t.user.fullName,
+            avatarUrl: t.user.userProfile?.avatarUrl || null,
+          },
+          tickets: [],
+          quantity: 0,
+          admittedCount: 0,
+          amountPaidZar: pay ? Number(pay.amount) || 0 : 0,
+          purchasedAt: pay?.createdAt || t.createdAt,
+          menuAddons: [],
+        });
+      }
+      const g = groups.get(baseRef);
+      g.tickets.push({
+        id: t.id,
+        holderDisplayName: t.holderDisplayName,
+        admittedAt: t.admittedAt,
+        qrToken: t.qrToken,
+      });
+      g.quantity += 1;
+      if (t.admittedAt) g.admittedCount += 1;
+    }
+
+    const items = [...groups.values()].sort(
+      (a, b) => new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime(),
+    );
+
+    const summary = {
+      orderCount: items.length,
+      ticketCount: tickets.length,
+      admittedCount: tickets.filter((t) => t.admittedAt).length,
+      totalRevenueZar: items.reduce((s, i) => s + Number(i.amountPaidZar || 0), 0),
+    };
+
+    res.json({ items, eventSummaries, summary, eventScope });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/venue-tables/:tableId/release', authenticateToken, async (req, res, next) => {
+  try {
+    const table = await prisma.venueTable.findUnique({
+      where: { id: req.params.tableId },
+      include: { venue: { select: { id: true, ownerUserId: true } } },
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    if (table.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    let hostedTable = null;
+    if (table.hostedTableId) {
+      hostedTable = await prisma.hostedTable.findUnique({
+        where: { id: table.hostedTableId },
+        select: { id: true, status: true },
+      });
+    }
+    if (!computeCanRelease(table, hostedTable)) {
+      return res.status(400).json({ error: 'Table is already available' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (table.hostedTableId) {
+        await tx.hostedTable.update({
+          where: { id: table.hostedTableId },
+          data: { status: 'CLOSED' },
+        });
+      }
+      await tx.venueTable.update({
+        where: { id: table.id },
+        data: {
+          currentOccupancy: 0,
+          status: 'AVAILABLE',
+          amountContributed: 0,
+          hostUserId: null,
+          hostedTableId: null,
+        },
+      });
+    });
+
+    res.json({ released: true, tableId: table.id });
   } catch (e) {
     next(e);
   }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
@@ -245,6 +245,8 @@ function normalizeOptionalWebsite(value) {
 
 export default function VenueOnboarding() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isEditMode = searchParams.get('edit') === '1';
   const [step, setStep] = useState(1);
   const [user, setUser] = useState(null);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -401,6 +403,9 @@ export default function VenueOnboarding() {
       }
 
       const draft = loadParsedDraft(uid);
+      const urlParams = new URLSearchParams(window.location.search);
+      const editVenueId = urlParams.get('venueId');
+      const isNewVenue = urlParams.get('new') === '1';
       let mines = [];
       try {
         mines = await dataService.Venue.mine();
@@ -408,11 +413,16 @@ export default function VenueOnboarding() {
         mines = [];
       }
 
-      if (mines.length > 0) {
-        setVenueId(mines[0].id);
-        let detail = mines[0];
+      if (isNewVenue) {
+        if (draft?.formData && typeof draft.formData === 'object') {
+          setFormData({ ...INITIAL_FORM_DATA, ...draft.formData });
+        }
+      } else if (editVenueId || mines.length > 0) {
+        const targetId = editVenueId || mines[0].id;
+        setVenueId(targetId);
+        let detail = mines.find((v) => v.id === targetId) || mines[0];
         try {
-          detail = await apiGet(`/api/venues/${mines[0].id}`);
+          detail = await apiGet(`/api/venues/${targetId}`);
         } catch {
           /* use list row only */
         }
@@ -512,8 +522,21 @@ export default function VenueOnboarding() {
   };
 
   const upsertVenue = async (venueData) => {
-    const existingVenues = user?.id ? await dataService.Venue.mine() : [];
+    const urlParams = new URLSearchParams(window.location.search);
+    const editId = urlParams.get('venueId') || venueId;
+    const isNew = urlParams.get('new') === '1';
 
+    if (isNew) {
+      const created = await dataService.Venue.create(venueData);
+      if (created?.id) setVenueId(created.id);
+      return created;
+    }
+
+    if (editId) {
+      return dataService.Venue.update(editId, venueData);
+    }
+
+    const existingVenues = user?.id ? await dataService.Venue.mine() : [];
     if (existingVenues.length > 0) {
       return dataService.Venue.update(existingVenues[0].id, venueData);
     }
@@ -1196,7 +1219,13 @@ export default function VenueOnboarding() {
       <div className="max-w-md mx-auto w-full pt-6">
         <div className="flex gap-3">
           <Button
-            onClick={() => step === 1 ? navigate(createPageUrl('Onboarding')) : setStep(step - 1)}
+            onClick={() => {
+              if (step === 1) {
+                navigate(createPageUrl(isEditMode ? 'BusinessDashboard' : 'Onboarding'));
+              } else {
+                setStep(step - 1);
+              }
+            }}
             variant="outline"
             className="h-14 px-6 rounded-xl bg-[#141416] border-[#262629]"
           >

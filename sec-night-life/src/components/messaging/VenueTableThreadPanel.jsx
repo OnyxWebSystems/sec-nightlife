@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiGet, apiPost } from '@/api/client';
+import { apiDelete, apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Trash2 } from 'lucide-react';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 import {
   GUEST_REPLY_TEMPLATES,
@@ -10,6 +11,7 @@ import {
 
 export default function VenueTableThreadPanel({ threadId, onClose, memberStatus = 'APPROVED' }) {
   const [sending, setSending] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const { data: messages = [], refetch, isSuccess } = useQuery({
     queryKey: ['venue-table-thread-messages', threadId],
@@ -24,6 +26,18 @@ export default function VenueTableThreadPanel({ threadId, onClose, memberStatus 
 
   const templates =
     memberStatus === 'DECLINED' ? GUEST_REPLY_TEMPLATES : [];
+
+  async function deleteMessage(messageId) {
+    setDeletingId(messageId);
+    try {
+      await apiDelete(`/api/venue-table-threads/${threadId}/messages/${messageId}`);
+      await refetch();
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not delete message');
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function sendTemplate(templateKey) {
     setSending(true);
@@ -63,7 +77,20 @@ export default function VenueTableThreadPanel({ threadId, onClose, memberStatus 
                 border: '1px solid var(--sec-border)',
               }}
             >
-              <div className="text-[10px] text-[var(--sec-text-muted)]">{m.senderLabel}</div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-[var(--sec-text-muted)]">{m.senderLabel}</span>
+                {m.isMine ? (
+                  <button
+                    type="button"
+                    className="text-[var(--sec-text-muted)] hover:text-red-400 p-1"
+                    disabled={deletingId === m.id}
+                    onClick={() => deleteMessage(m.id)}
+                    title="Delete message"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                ) : null}
+              </div>
               <div>{m.label}</div>
             </div>
           ))

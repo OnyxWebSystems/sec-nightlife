@@ -9,11 +9,24 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { PreferencesProvider } from '@/context/PreferencesContext';
+import { ActiveVenueProvider } from '@/context/ActiveVenueContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import RequireBusinessAccount from '@/components/RequireBusinessAccount';
+import RequireOnboardingComplete from '@/components/RequireOnboardingComplete';
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : null;
+const ONBOARDING_EXEMPT_PAGES = new Set([
+  'Onboarding',
+  'ProfileSetup',
+  'VenueOnboarding',
+  'Welcome',
+  'Login',
+  'Register',
+  'ResetPassword',
+  'PaymentSuccess',
+  'TicketSuccess',
+]);
 const BUSINESS_ONLY_PAGES = new Set([
   'BusinessDashboard',
   'VenueAnalytics',
@@ -61,7 +74,17 @@ const AuthenticatedApp = () => {
         path="/"
         element={
           <LayoutWrapper currentPageName={mainPageKey}>
-            <Suspense fallback={<RoutePageFallback />}>{MainPage ? <MainPage /> : null}</Suspense>
+            <Suspense fallback={<RoutePageFallback />}>
+              {MainPage ? (
+                ONBOARDING_EXEMPT_PAGES.has(mainPageKey) ? (
+                  <MainPage />
+                ) : (
+                  <RequireOnboardingComplete>
+                    <MainPage />
+                  </RequireOnboardingComplete>
+                )
+              ) : null}
+            </Suspense>
           </LayoutWrapper>
         }
       />
@@ -88,8 +111,12 @@ const AuthenticatedApp = () => {
                     <RequireBusinessAccount>
                       <Page />
                     </RequireBusinessAccount>
-                  ) : (
+                  ) : ONBOARDING_EXEMPT_PAGES.has(path) ? (
                     <Page />
+                  ) : (
+                    <RequireOnboardingComplete>
+                      <Page />
+                    </RequireOnboardingComplete>
                   )}
                 </Suspense>
               </LayoutWrapper>
@@ -108,11 +135,13 @@ function App() {
     <AuthProvider>
       <PreferencesProvider>
         <QueryClientProvider client={queryClientInstance}>
-          <Router>
-            <NavigationTracker />
-            <AuthenticatedApp />
-          </Router>
-          <Toaster />
+          <ActiveVenueProvider>
+            <Router>
+              <NavigationTracker />
+              <AuthenticatedApp />
+            </Router>
+            <Toaster />
+          </ActiveVenueProvider>
         </QueryClientProvider>
       </PreferencesProvider>
     </AuthProvider>

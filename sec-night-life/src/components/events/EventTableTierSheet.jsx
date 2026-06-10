@@ -1,9 +1,9 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Crown, Users } from 'lucide-react';
-import { createPageUrl } from '@/utils';
+import { buildPageUrl } from '@/utils';
 
-function SlotRow({ label, sub, actionLabel, onAction, disabled }) {
+function SlotRow({ label, sub, actionLabel, onAction, disabled, secondaryAction }) {
   return (
     <div
       className="sec-card"
@@ -21,20 +21,33 @@ function SlotRow({ label, sub, actionLabel, onAction, disabled }) {
         <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', margin: 0 }}>{label}</p>
         {sub ? <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: '4px 0 0' }}>{sub}</p> : null}
       </div>
-      <button
-        type="button"
-        disabled={disabled}
-        className="sec-btn sec-btn-ghost"
-        style={{ height: 36, padding: '0 14px', fontSize: 12, flexShrink: 0 }}
-        onClick={onAction}
-      >
-        {actionLabel}
-      </button>
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        {secondaryAction ? (
+          <button
+            type="button"
+            disabled={disabled || secondaryAction.disabled}
+            className="sec-btn sec-btn-ghost"
+            style={{ height: 36, padding: '0 12px', fontSize: 12 }}
+            onClick={secondaryAction.onAction}
+          >
+            {secondaryAction.label}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          disabled={disabled}
+          className="sec-btn sec-btn-primary"
+          style={{ height: 36, padding: '0 14px', fontSize: 12 }}
+          onClick={onAction}
+        >
+          {actionLabel}
+        </button>
+      </div>
     </div>
   );
 }
 
-export default function EventTableTierSheet({ tier, open, onClose }) {
+export default function EventTableTierSheet({ tier, open, onClose, customListingId, allowsCustomRequests }) {
   const navigate = useNavigate();
   if (!open || !tier) return null;
 
@@ -45,13 +58,24 @@ export default function EventTableTierSheet({ tier, open, onClose }) {
   const goVenue = (venueTableId, mode) => {
     if (!venueTableId) return;
     onClose?.();
-    navigate(createPageUrl(`TableDetails?id=${encodeURIComponent(venueTableId)}&source=venue&mode=${mode}`));
+    navigate(buildPageUrl('TableDetails', { id: venueTableId, source: 'venue', mode }));
+  };
+
+  const goCustomRequest = () => {
+    const listingId = customListingId;
+    if (!listingId) return;
+    onClose?.();
+    navigate(buildPageUrl('TableDetails', { id: listingId, source: 'venue', request: '1' }));
   };
 
   const goHosted = (hostedTableId) => {
     onClose?.();
-    navigate(createPageUrl(`TableDetails?id=${encodeURIComponent(hostedTableId)}&source=hosted`));
+    navigate(buildPageUrl('TableDetails', { id: hostedTableId, source: 'hosted' }));
   };
+
+  const showCustomTable = Boolean(
+    allowsCustomRequests || tier.allowsCustomRequests || customListingId,
+  );
 
   return (
     <>
@@ -124,9 +148,37 @@ export default function EventTableTierSheet({ tier, open, onClose }) {
                   sub={`${s.spotsRemaining} spots left${Number(tier.hostBookingFeeZar) > 0 ? ` · Host fee R${Number(tier.hostBookingFeeZar).toLocaleString()}` : ''}`}
                   actionLabel="Host"
                   onAction={() => goVenue(s.venueTableId, 'host')}
+                  secondaryAction={
+                    showCustomTable
+                      ? {
+                          label: 'Custom table',
+                          onAction: goCustomRequest,
+                        }
+                      : undefined
+                  }
                 />
               ))}
+              {unhostedSlots.length === 0 && showCustomTable ? (
+                <SlotRow
+                  label="Request a custom table"
+                  sub="Send your guest count, minimum spend, and menu picks for venue review"
+                  actionLabel="Custom table"
+                  onAction={goCustomRequest}
+                />
+              ) : null}
             </div>
+          </section>
+        ) : showCustomTable ? (
+          <section style={{ marginBottom: 20 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginBottom: 10 }}>
+              Custom table
+            </h3>
+            <SlotRow
+              label="Request a custom table"
+              sub="Venue reviews your specs before checkout"
+              actionLabel="Custom table"
+              onAction={goCustomRequest}
+            />
           </section>
         ) : null}
 

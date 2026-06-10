@@ -8,6 +8,7 @@ import { dataService } from '@/services/dataService';
 import { apiGet } from '@/api/client';
 import { flushPendingLegalAccepts } from '@/lib/pendingLegalAccept';
 import SecLogo from '@/components/ui/SecLogo';
+import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
@@ -32,6 +33,7 @@ export default function Layout({ children, currentPageName }) {
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
   const [complianceAccess, setComplianceAccess] = useState({ canReview: false, isSuperAdmin: false });
+  const [hasStaffAssignments, setHasStaffAssignments] = useState(false);
   const longPressTimerRef = useRef(null);
 
   function playMessageChime() {
@@ -123,6 +125,7 @@ export default function Layout({ children, currentPageName }) {
       setUserRoles({ partygoer: true, host: false, business: false });
       setActiveMode(null);
       setComplianceAccess({ canReview: false, isSuperAdmin: false });
+      setHasStaffAssignments(false);
       return undefined;
     }
     let cancelled = false;
@@ -161,6 +164,15 @@ export default function Layout({ children, currentPageName }) {
         }
       } catch {
         if (!cancelled) setComplianceAccess({ canReview: false, isSuperAdmin: false });
+      }
+
+      try {
+        const staffVenues = await apiGet('/api/staff/venues');
+        if (!cancelled) {
+          setHasStaffAssignments(Array.isArray(staffVenues) && staffVenues.length > 0);
+        }
+      } catch {
+        if (!cancelled) setHasStaffAssignments(false);
       }
     })();
     return () => {
@@ -224,6 +236,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
+        ...(hasStaffAssignments ? [{ name: 'Staff Dashboard', icon: Shield, page: 'StaffDashboard' }] : []),
         ...complianceNavItem,
         ...((['SUPER_ADMIN', 'ADMIN', 'admin'].includes(user?.role)) ? [{ name: 'Admin', icon: LayoutDashboard, page: 'AdminDashboard' }] : []),
       ],
@@ -312,6 +325,12 @@ export default function Layout({ children, currentPageName }) {
             <SecLogo size={48} variant="full" />
           </Link>
         </div>
+
+        {user && mode === 'business' && (
+          <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid var(--sec-border)' }}>
+            <VenueSwitcher className="w-full" />
+          </div>
+        )}
 
         {user && availableModes.length > 1 && (
           <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid var(--sec-border)' }}>

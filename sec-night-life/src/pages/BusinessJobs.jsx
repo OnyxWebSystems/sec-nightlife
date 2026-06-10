@@ -19,6 +19,7 @@ import {
   buildJobPatchBody,
 } from '@/constants/jobPostingForm';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useActiveVenue } from '@/context/ActiveVenueContext';
 
 function compensationText(job) {
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
@@ -47,12 +48,7 @@ export default function BusinessJobs() {
     queryFn: () => authService.getCurrentUser(),
   });
 
-  const { data: venues = [] } = useQuery({
-    queryKey: ['biz-jobs-venues'],
-    queryFn: () => dataService.Venue.mine(),
-    enabled: !!user?.id,
-  });
-  const venue = Array.isArray(venues) ? venues[0] : null;
+  const { activeVenue: venue } = useActiveVenue();
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: ['biz-jobs', venue?.id],

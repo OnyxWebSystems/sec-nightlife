@@ -390,6 +390,11 @@ model User {
   promoterConversionsAsBuyer  PromoterConversion[]       @relation("PromoterConversionBuyer")
   announcementsCreated        PlatformAnnouncement[]     @relation("AnnouncementsCreated")
   announcementsRemoved        PlatformAnnouncement[]     @relation("AnnouncementsRemoved")
+  venueMessageGroupsCreated   VenueMessageGroup[]        @relation("VenueMessageGroupCreator")
+  venueMessageGroupMemberships VenueMessageGroupMember[] @relation("VenueMessageGroupMemberUser")
+  venueMessageGroupMessagesSent VenueMessageGroupMessage[] @relation("VenueMessageGroupMessageSender")
+  venueStaffAssignments       VenueStaffAssignment[]     @relation("VenueStaffUser")
+  venueStaffInvitations       VenueStaffAssignment[]     @relation("VenueStaffInviter")
 
   @@unique([email, role])
   @@index([email])
@@ -551,6 +556,8 @@ model Venue {
   walletRecipients    WalletRecipient[]
   walletLookupLogs    WalletLookupLog[]  @relation("WalletLookupVenue")
   venuePromoters      VenuePromoter[]
+  messageGroups       VenueMessageGroup[]
+  staffAssignments    VenueStaffAssignment[]
 
   @@index([ownerUserId])
   @@index([city])
@@ -1715,10 +1722,11 @@ model VenueTableMember {
 }
 
 model VenueTableThread {
-  id                 String   @id @default(cuid())
-  venueTableMemberId String   @unique @map("venue_table_member_id")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id                 String    @id @default(cuid())
+  venueTableMemberId String    @unique @map("venue_table_member_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
 
   member   VenueTableMember    @relation(fields: [venueTableMemberId], references: [id], onDelete: Cascade)
   messages VenueTableMessage[]
@@ -2226,4 +2234,75 @@ model WalletLookupLog {
 
   @@index([venueId, createdAt])
   @@map("wallet_lookup_logs")
+}
+
+enum VenueMessageGroupRole {
+  ADMIN
+  MEMBER
+}
+
+model VenueMessageGroup {
+  id              String    @id @default(cuid())
+  venueId         String    @map("venue_id")
+  name            String
+  createdByUserId String    @map("created_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  venue    Venue                      @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  creator  User                       @relation("VenueMessageGroupCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  members  VenueMessageGroupMember[]
+  messages VenueMessageGroupMessage[]
+
+  @@index([venueId])
+  @@map("venue_message_groups")
+}
+
+model VenueMessageGroupMember {
+  id       String                @id @default(cuid())
+  groupId  String                @map("group_id")
+  userId   String                @map("user_id")
+  role     VenueMessageGroupRole @default(MEMBER)
+  joinedAt DateTime              @default(now()) @map("joined_at")
+
+  group VenueMessageGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User              @relation("VenueMessageGroupMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@map("venue_message_group_members")
+}
+
+model VenueMessageGroupMessage {
+  id           String    @id @default(cuid())
+  groupId      String    @map("group_id")
+  senderUserId String    @map("sender_user_id")
+  body         String    @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  group  VenueMessageGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender User              @relation("VenueMessageGroupMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+  @@map("venue_message_group_messages")
+}
+
+model VenueStaffAssignment {
+  id              String    @id @default(cuid())
+  venueId         String    @map("venue_id")
+  userId          String    @map("user_id")
+  invitedByUserId String    @map("invited_by_user_id")
+  permissions     Json
+  createdAt       DateTime  @default(now()) @map("created_at")
+  revokedAt       DateTime? @map("revoked_at")
+
+  venue   Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  user    User  @relation("VenueStaffUser", fields: [userId], references: [id], onDelete: Cascade)
+  inviter User  @relation("VenueStaffInviter", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, userId])
+  @@index([userId])
+  @@map("venue_staff_assignments")
 }
