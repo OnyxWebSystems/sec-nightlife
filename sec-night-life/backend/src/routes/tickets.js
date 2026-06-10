@@ -89,11 +89,10 @@ router.get('/my', authenticateToken, async (req, res, next) => {
     const filtered = mapped.filter(({ raw }) => {
       const exp = ticketExpiresAtFromRow(raw);
       const expired = exp <= now;
-      const startRaw = raw.eventStartsAt;
-      const started = !startRaw || new Date(startRaw) <= now;
-      const isActive = started && !expired;
+      // Active = any ticket still valid (including upcoming events).
+      const isActive = !expired;
       if (normalizedBucket === 'active') return isActive;
-      if (normalizedBucket === 'inactive') return !isActive;
+      if (normalizedBucket === 'inactive') return expired;
       return true;
     });
 

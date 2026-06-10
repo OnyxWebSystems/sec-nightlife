@@ -255,8 +255,8 @@ export default function MyTickets({ userId }) {
     hint: 'Book a table or buy an event ticket to see it here.',
   };
   const emptyCopyInactive = {
-    title: 'No inactive tickets',
-    hint: 'Upcoming and expired tickets appear here.',
+    title: 'No expired tickets',
+    hint: 'Tickets move here after the event ends.',
   };
 
   return (
@@ -281,6 +281,10 @@ export default function MyTickets({ userId }) {
           Inactive
         </button>
       </div>
+
+      <p className="text-xs text-gray-500 px-1">
+        Active shows all valid tickets, including upcoming events. Expired tickets are under Inactive.
+      </p>
 
       {(activeFromCache || inactiveFromCache) && (
         <p className="text-xs text-amber-200/90 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2">

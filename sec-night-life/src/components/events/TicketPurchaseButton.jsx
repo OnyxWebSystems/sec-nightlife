@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost } from '@/api/client';
 import * as authService from '@/services/authService';
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Ticket, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { launchPaystackInline, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
 import { getStoredPromoterRef } from '@/utils';
 import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 
@@ -21,6 +21,7 @@ const selectItemClass =
   'text-[var(--sec-text-primary)] focus:bg-[var(--sec-bg-elevated)] focus:text-[var(--sec-text-primary)] data-[highlighted]:bg-[var(--sec-bg-elevated)]';
 
 export default function TicketPurchaseButton({ event }) {
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -113,8 +114,14 @@ export default function TicketPurchaseButton({ event }) {
           reference: res.reference,
           accessCode: res.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || res.reference);
-            toast.success('Payment successful — your tickets are in Profile');
+            const ref = payload?.reference || res.reference;
+            const verify = await verifyPaystackReferenceWithRetry(ref, { retries: 6, baseDelayMs: 1200 });
+            if (verify?.status !== 'paid') {
+              toast.error('Payment received but confirmation is still processing. Check Profile → Tickets in a moment.');
+            } else {
+              queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+              toast.success('Payment successful — your tickets are in Profile → Tickets');
+            }
             setIsOpen(false);
           },
           onCancel: () => toast.message('Checkout cancelled'),
