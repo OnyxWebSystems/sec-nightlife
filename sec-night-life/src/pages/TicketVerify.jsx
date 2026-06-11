@@ -50,7 +50,7 @@ export default function TicketVerify() {
     const at = search.get('at');
     if (vn) qs.set('vn', vn);
     if (at) qs.set('at', at);
-    return apiGet(`/api/tickets/qr?${qs.toString()}`);
+    return apiGet(`/api/tickets/qr?${qs.toString()}`, { skipAuth: true });
   }, [token, queryKey]);
 
   useEffect(() => {
@@ -119,7 +119,7 @@ export default function TicketVerify() {
     return () => {
       cancelled = true;
     };
-  }, [token, queryKey, fetchVerify, isAuthenticated, onlineNonce]);
+  }, [token, queryKey, fetchVerify, onlineNonce]);
 
   const valid = payload?.valid === true;
   const expired = payload?.valid === false && payload?.reason === 'Ticket expired';
@@ -412,8 +412,8 @@ export default function TicketVerify() {
               <p className="text-xs text-gray-500 mb-4 leading-relaxed">
                 {!payload.viewer_authenticated ? (
                   <>
-                    Venue staff: sign in to the SEC app on this device with a venue owner, table host, house-party
-                    host, or SEC staff account, then reload this page to use Record entry.
+                    Anyone can view this ticket by scanning the QR — no login required. Venue staff: sign in on this
+                    device to record entry at the door.
                   </>
                 ) : payload.admit_denied_for_viewer ? (
                   <>{payload.admit_denied_reason || 'This account cannot record entry for this ticket.'}</>

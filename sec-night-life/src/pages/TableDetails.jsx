@@ -182,6 +182,17 @@ export default function TableDetails() {
     }
   }, []);
 
+  const venueMembership = venueTable?.myMembership;
+  const isAlreadyHostedByUser =
+    isVenueSource &&
+    isHostCheckout &&
+    venueMembership?.status === 'CONFIRMED' &&
+    (venueMembership?.memberRole === 'HOST' || venueTable?.hostUserId === user?.id);
+
+  useEffect(() => {
+    if (isAlreadyHostedByUser) setHostPaySuccess(true);
+  }, [isAlreadyHostedByUser]);
+
   useEffect(() => {
     if (!isVenueSource || !venueTable) return;
     setSelectedMenuItems((prev) => {
@@ -489,6 +500,7 @@ export default function TableDetails() {
       };
     });
     const membership = venueTable.myMembership;
+    const tablePurchased = hostPaySuccess || isAlreadyHostedByUser;
     const membershipSpecs = membership?.userSpecs || {};
     const approvedCustomMin =
       membership?.status === 'APPROVED' && membershipSpecs.proposedMinimumSpend != null
@@ -559,7 +571,7 @@ export default function TableDetails() {
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
         </div>
-        {hostPaySuccess && isHostCheckout ? (
+        {tablePurchased && isHostCheckout ? (
           <div
             className="sec-card"
             style={{
@@ -569,8 +581,11 @@ export default function TableDetails() {
               background: 'var(--sec-success-muted, rgba(34,197,94,0.08))',
             }}
           >
-            <p style={{ fontSize: 14, lineHeight: 1.5, marginBottom: 12 }}>
-              You are hosting this table. Use Host Dashboard to approve or decline join requests and set your table rules.
+            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-success, #22c55e)', marginBottom: 8 }}>
+              Purchase complete — you are hosting this table
+            </p>
+            <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 12, color: 'var(--sec-text-secondary)' }}>
+              Your QR ticket is in Profile → Tickets. Use Host Dashboard to approve join requests and set your table rules.
             </p>
             <button
               type="button"
@@ -756,25 +771,56 @@ export default function TableDetails() {
             minMet
             onContinue={null}
           >
-            <button
-              type="button"
-              onClick={joinVenueTable}
-              disabled={isProcessingPayment || !canPay}
-              className="sec-btn sec-btn-primary sec-btn-full"
-              style={{ height: 48, minHeight: 44 }}
-            >
-              {isProcessingPayment
-                ? 'Processing…'
-                : checkoutTotal > 0
-                  ? isHostCheckout || isCustomHostCheckout
-                    ? `Pay R${checkoutTotal.toFixed(0)} to host`
-                    : `Pay R${checkoutTotal.toFixed(0)} to join`
-                  : 'Complete booking'}
-            </button>
-            <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
-              No refunds: once you pay, your booking is confirmed per venue policy.
-            </p>
-            <RefundPolicyNote />
+            {tablePurchased && isHostCheckout ? (
+              <>
+                <button
+                  type="button"
+                  disabled
+                  className="sec-btn sec-btn-primary sec-btn-full"
+                  style={{ height: 48, minHeight: 44, opacity: 0.65, cursor: 'default' }}
+                >
+                  Purchase complete
+                </button>
+                <button
+                  type="button"
+                  className="sec-btn sec-btn-ghost sec-btn-full"
+                  style={{ height: 44, marginTop: 8, border: '1px solid var(--sec-border)' }}
+                  onClick={() => navigate(createPageUrl('HostDashboard?tab=tables&manage=1'))}
+                >
+                  Manage table in Host Dashboard
+                </button>
+                <button
+                  type="button"
+                  className="sec-btn sec-btn-ghost sec-btn-full"
+                  style={{ height: 40, marginTop: 8, fontSize: 13 }}
+                  onClick={() => navigate(createPageUrl('Profile?tab=tickets'))}
+                >
+                  View your QR ticket
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={joinVenueTable}
+                  disabled={isProcessingPayment || !canPay}
+                  className="sec-btn sec-btn-primary sec-btn-full"
+                  style={{ height: 48, minHeight: 44 }}
+                >
+                  {isProcessingPayment
+                    ? 'Processing…'
+                    : checkoutTotal > 0
+                      ? isHostCheckout || isCustomHostCheckout
+                        ? `Pay R${checkoutTotal.toFixed(0)} to host`
+                        : `Pay R${checkoutTotal.toFixed(0)} to join`
+                      : 'Complete booking'}
+                </button>
+                <p style={{ color: 'var(--sec-warning)', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+                  No refunds: once you pay, your booking is confirmed per venue policy.
+                </p>
+                <RefundPolicyNote />
+              </>
+            )}
           </TableCheckoutFooter>
         ) : null}
       </div>
