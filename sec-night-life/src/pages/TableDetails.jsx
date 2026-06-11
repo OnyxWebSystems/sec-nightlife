@@ -677,9 +677,9 @@ export default function TableDetails() {
         ) : null}
         {!canPay && venueCheckoutStep === 'checkout' && minSpendZar > 0 && !venueCheckoutPreview?.error ? (
           <p style={{ color: 'var(--sec-text-muted)', fontSize: 12, marginTop: 8, textAlign: 'center' }}>
-            {isHostCheckout
-              ? 'Meet the minimum spend with menu items, or go back and choose “Pay minimum only”.'
-              : 'Meet the minimum spend to continue checkout.'}
+            {itemCount === 0
+              ? 'Go back to choose menu items or pay the minimum spend only.'
+              : 'Add more menu items to meet the minimum spend, or go back and choose “Skip menu”.'}
           </p>
         ) : null}
         {showCustomRequest && membership?.status !== 'PENDING_VENUE_REVIEW' && !customRequestStep ? (
@@ -729,23 +729,15 @@ export default function TableDetails() {
             minSpendZar={minSpendZar}
             minMet={minSpendMet}
             onContinue={() => {
-              if (isHostCheckout && itemCount === 0 && minSpendZar > 0) {
+              if (itemCount === 0 && minSpendZar > 0) {
                 setVenueSettlementMode('PREPAY_LUMP');
               } else {
                 setVenueSettlementMode('PREPAY_MENU');
               }
               setVenueCheckoutStep('checkout');
             }}
-            onPayMinimumLump={
-              minSpendZar > 0 && itemCount > 0
-                ? () => {
-                    setVenueSettlementMode('PREPAY_LUMP');
-                    setVenueCheckoutStep('checkout');
-                  }
-                : undefined
-            }
             continueLabel={
-              isHostCheckout && itemCount === 0 && minSpendZar > 0
+              itemCount === 0 && minSpendZar > 0
                 ? 'Skip menu — pay minimum spend only'
                 : 'Review order'
             }

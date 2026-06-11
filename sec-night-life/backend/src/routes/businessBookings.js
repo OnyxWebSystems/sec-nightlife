@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
+import { splitPlatformGross } from '../lib/platformSplit.js';
 
 const router = Router();
 
@@ -47,6 +48,21 @@ function eventDateIsPast(eventDate, startToday) {
   const t = new Date(eventDate);
   t.setUTCHours(0, 0, 0, 0);
   return t < startToday;
+}
+
+function tableInUse(table, hostedTable = null) {
+  if (!table) return false;
+  if (table.currentOccupancy > 0) return true;
+  if (table.hostUserId) return true;
+  if (table.hostedTableId) return true;
+  if (hostedTable && hostedTable.status !== 'CLOSED') return true;
+  return false;
+}
+
+function canHideTableFromListings(table, hostedTable = null) {
+  if (!table?.isActive) return false;
+  if (table.isCustomListing) return false;
+  return !tableInUse(table, hostedTable);
 }
 
 function computeCanRelease(table, hostedTable) {
@@ -288,6 +304,67 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     const cutoff = new Date(Date.now() - days * 86400000);
 
+    const ledgerRows = await prisma.payoutLedger.findMany({
+      where: {
+        recipientVenueId: venueId,
+        recipientType: 'VENUE',
+        createdAt: { gte: cutoff },
+      },
+      select: {
+        paymentReference: true,
+        grossAmount: true,
+        recipientAmount: true,
+        createdAt: true,
+      },
+      take: 15000,
+    });
+
+    const ledgerRefs = [...new Set(ledgerRows.map((r) => r.paymentReference).filter(Boolean))];
+    const ledgerPayments =
+      ledgerRefs.length > 0
+        ? await prisma.payment.findMany({
+            where: { reference: { in: ledgerRefs } },
+            select: { reference: true, metadata: true },
+          })
+        : [];
+    const paymentMetaByRef = new Map(ledgerPayments.map((p) => [p.reference, p.metadata]));
+
+    const matchesEventFilterMeta = (meta) => {
+      if (!eventId) return true;
+      if (!meta || typeof meta !== 'object') return false;
+      const eid = meta.event_id ?? meta.eventId;
+      return eid != null && String(eid) === eventId;
+    };
+
+    let grossTotal = 0;
+    let netTotal = 0;
+    let ticketPaymentZar = 0;
+    let hostedTablePaymentZar = 0;
+    let otherPaymentZar = 0;
+    const revenueByDay = {};
+    const matchedPaymentRefs = new Set();
+
+    for (const row of ledgerRows) {
+      const meta = paymentMetaByRef.get(row.paymentReference);
+      if (meta && !matchesEventFilterMeta(meta)) continue;
+      const gross = Number(row.grossAmount) || 0;
+      const net = Number(row.recipientAmount) || 0;
+      grossTotal += gross;
+      netTotal += net;
+      if (row.paymentReference) matchedPaymentRefs.add(row.paymentReference);
+      const dayKey = row.createdAt.toISOString().slice(0, 10);
+      revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + gross;
+
+      const mtype = String(meta?.type || '');
+      if (mtype === 'HOSTED_TABLE_JOIN' || mtype === 'TABLE_HOST_FEE' || mtype === 'HOSTED_TABLE_EXTERNAL_LISTING') {
+        hostedTablePaymentZar += gross;
+      } else if (mtype === 'ticket' || mtype.includes('TICKET') || mtype === 'event') {
+        ticketPaymentZar += gross;
+      } else {
+        otherPaymentZar += gross;
+      }
+    }
+
     const payments = await prisma.payment.findMany({
       where: { status: 'success', createdAt: { gte: cutoff } },
       select: { amount: true, type: true, metadata: true, createdAt: true, reference: true },
@@ -312,19 +389,14 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       return eid != null && String(eid) === eventId;
     };
 
-    let grossTotal = 0;
-    let ticketPaymentZar = 0;
-    let hostedTablePaymentZar = 0;
-    let otherPaymentZar = 0;
-    const revenueByDay = {};
-    const matchedPaymentRefs = new Set();
-
     for (const p of payments) {
       const meta = p.metadata && typeof p.metadata === 'object' ? p.metadata : {};
       if (!matchesVenueScope(meta) || !matchesEventFilter(meta)) continue;
-      if (p.reference) matchedPaymentRefs.add(p.reference);
+      if (p.reference && matchedPaymentRefs.has(p.reference)) continue;
       const amt = Number(p.amount) || 0;
+      const { recipientAmount } = splitPlatformGross(amt);
       grossTotal += amt;
+      netTotal += recipientAmount;
       const dayKey = p.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
 
@@ -353,7 +425,9 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       const ref = t.stripeId || (t.metadata && typeof t.metadata === 'object' ? t.metadata.reference : null);
       if (ref && matchedPaymentRefs.has(String(ref))) continue;
       const amt = Number(t.amount) || 0;
+      const { recipientAmount } = splitPlatformGross(amt);
       grossTotal += amt;
+      netTotal += recipientAmount;
       const dayKey = t.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
       otherPaymentZar += amt;
@@ -372,14 +446,18 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     const revenueByDaySorted = Object.entries(revenueByDay)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, gross]) => ({ date, gross: Number(gross.toFixed(2)) }));
+      .map(([date, gross]) => {
+        const g = Number(gross.toFixed(2));
+        const dayNet = grossTotal > 0 ? (g / grossTotal) * netTotal : 0;
+        return { date, gross: g, net: Number(dayNet.toFixed(2)) };
+      });
 
     res.json({
       venueId,
       days,
       cutoff: cutoff.toISOString(),
       grossRevenueZar: Number(grossTotal.toFixed(2)),
-      netRevenueZar: Number((grossTotal * 0.85).toFixed(2)),
+      netRevenueZar: Number(netTotal.toFixed(2)),
       ticketSalesCount,
       ticketPaymentZar: Number(ticketPaymentZar.toFixed(2)),
       hostedTablePaymentZar: Number(hostedTablePaymentZar.toFixed(2)),
@@ -749,6 +827,133 @@ router.post('/venue-tables/:tableId/release', authenticateToken, async (req, res
     });
 
     res.json({ released: true, tableId: table.id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Live event table slots — which are in use vs available to hide from listings. */
+router.get('/event-venue-tables', authenticateToken, async (req, res, next) => {
+  try {
+    const eventId = typeof req.query.event_id === 'string' ? req.query.event_id.trim() : '';
+    if (!eventId) return res.status(400).json({ error: 'event_id is required' });
+
+    const event = await prisma.event.findFirst({
+      where: { id: eventId, deletedAt: null, venue: { ownerUserId: req.userId } },
+      select: { id: true, title: true, status: true, date: true },
+    });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    const tables = await prisma.venueTable.findMany({
+      where: { eventId, isCustomListing: false },
+      orderBy: [{ tierLabel: 'asc' }, { tableName: 'asc' }],
+    });
+
+    const hostedIds = tables.map((t) => t.hostedTableId).filter(Boolean);
+    const hostedRows =
+      hostedIds.length > 0
+        ? await prisma.hostedTable.findMany({
+            where: { id: { in: hostedIds } },
+            select: { id: true, status: true, tableName: true, hostUserId: true, spotsRemaining: true },
+          })
+        : [];
+    const hostedById = new Map(hostedRows.map((h) => [h.id, h]));
+
+    res.json({
+      event: { id: event.id, title: event.title, status: event.status, date: event.date },
+      items: tables.map((t) => {
+        const hosted = t.hostedTableId ? hostedById.get(t.hostedTableId) : null;
+        const inUse = tableInUse(t, hosted);
+        return {
+          id: t.id,
+          tableName: t.tableName,
+          tierLabel: t.tierLabel,
+          hostingTierKey: t.hostingTierKey,
+          isActive: t.isActive,
+          currentOccupancy: t.currentOccupancy,
+          guestCapacity: t.guestCapacity,
+          status: t.status,
+          inUse,
+          usageLabel: inUse
+            ? t.currentOccupancy > 0
+              ? `In use · ${t.currentOccupancy}/${t.guestCapacity} guests`
+              : t.hostUserId || t.hostedTableId
+                ? 'Hosted — active'
+                : 'In use'
+            : t.isActive
+              ? 'Available'
+              : 'Hidden from listings',
+          canHideFromListings: canHideTableFromListings(t, hosted),
+          canRestoreToListings: !t.isActive && !inUse,
+        };
+      }),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/venue-tables/:tableId/hide-from-listings', authenticateToken, async (req, res, next) => {
+  try {
+    const table = await prisma.venueTable.findUnique({
+      where: { id: req.params.tableId },
+      include: { venue: { select: { ownerUserId: true } } },
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    if (table.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (table.isCustomListing) return res.status(400).json({ error: 'Cannot hide the custom request listing' });
+
+    let hostedTable = null;
+    if (table.hostedTableId) {
+      hostedTable = await prisma.hostedTable.findUnique({
+        where: { id: table.hostedTableId },
+        select: { id: true, status: true },
+      });
+    }
+    if (!canHideTableFromListings(table, hostedTable)) {
+      return res.status(400).json({
+        error: tableInUse(table, hostedTable)
+          ? 'This table is in use — only empty tables can be removed from listings'
+          : 'Table is already hidden',
+      });
+    }
+
+    await prisma.venueTable.update({
+      where: { id: table.id },
+      data: { isActive: false },
+    });
+    res.json({ hidden: true, tableId: table.id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/venue-tables/:tableId/restore-to-listings', authenticateToken, async (req, res, next) => {
+  try {
+    const table = await prisma.venueTable.findUnique({
+      where: { id: req.params.tableId },
+      include: { venue: { select: { ownerUserId: true } } },
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    if (table.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    let hostedTable = null;
+    if (table.hostedTableId) {
+      hostedTable = await prisma.hostedTable.findUnique({
+        where: { id: table.hostedTableId },
+        select: { id: true, status: true },
+      });
+    }
+    if (table.isActive) return res.status(400).json({ error: 'Table is already listed' });
+    if (tableInUse(table, hostedTable)) {
+      return res.status(400).json({ error: 'Cannot restore a table that is currently in use' });
+    }
+
+    await prisma.venueTable.update({
+      where: { id: table.id },
+      data: { isActive: true },
+    });
+    res.json({ restored: true, tableId: table.id });
   } catch (e) {
     next(e);
   }

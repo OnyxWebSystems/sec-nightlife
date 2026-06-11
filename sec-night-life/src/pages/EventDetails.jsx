@@ -576,6 +576,7 @@ export default function EventDetails() {
           onClose={() => setSelectedTier(null)}
           customListingId={customListingId}
           allowsCustomRequests={allowsCustomRequests}
+          eventId={eventId}
         />
         ) : null}
 

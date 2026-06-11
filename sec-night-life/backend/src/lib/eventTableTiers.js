@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { normalizeHostingConfig } from './hostingConfig.js';
+import { ensureEventCustomListing } from './syncEventVenueTables.js';
 
 /**
  * Build grouped table tier payloads for Event Details.
@@ -158,6 +159,8 @@ export async function buildEventTableTiers(eventId) {
       });
     }
   }
+
+  await ensureEventCustomListing(eventId);
 
   const customListing = await prisma.venueTable.findFirst({
     where: {

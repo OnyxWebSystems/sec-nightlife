@@ -11,12 +11,13 @@ export default function TableCheckoutFooter({
   minMet = true,
   disabled = false,
   onContinue,
-  onPayMinimumLump,
   continueLabel = 'Review order',
   children,
 }) {
   const minSpend = Number(minSpendZar) || 0;
-  const showLump = Boolean(onPayMinimumLump) && minSpend > 0;
+  const hasItems = itemCount > 0;
+  const continueDisabled =
+    disabled || !onContinue || (hasItems && minSpend > 0 && !minMet);
 
   return (
     <div
@@ -41,8 +42,18 @@ export default function TableCheckoutFooter({
         >
           <span style={{ color: 'var(--sec-text-muted)' }}>
             {itemCount} item{itemCount === 1 ? '' : 's'}
+            {minSpend > 0 && hasItems ? (
+              <span style={{ marginLeft: 8 }}>
+                · Min R{minSpend.toFixed(0)}
+                {minMet ? '' : ` (${(minSpend - cartTotalZar).toFixed(0)} more needed)`}
+              </span>
+            ) : null}
           </span>
-          <span style={{ fontWeight: 700, fontSize: 16 }}>R{Number(cartTotalZar).toFixed(0)}</span>
+          {hasItems ? (
+            <span style={{ fontWeight: 700, fontSize: 16 }}>R{Number(cartTotalZar).toFixed(0)}</span>
+          ) : minSpend > 0 ? (
+            <span style={{ fontWeight: 700, fontSize: 16 }}>Min R{minSpend.toFixed(0)}</span>
+          ) : null}
         </div>
         <div className="table-checkout-footer__actions" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {onContinue ? (
@@ -50,21 +61,10 @@ export default function TableCheckoutFooter({
               type="button"
               className="sec-btn sec-btn-primary sec-btn-full"
               style={{ height: 48, minHeight: 44 }}
-              disabled={disabled || (minSpend > 0 && !minMet)}
+              disabled={continueDisabled}
               onClick={onContinue}
             >
               {continueLabel}
-            </button>
-          ) : null}
-          {showLump ? (
-            <button
-              type="button"
-              className="sec-btn sec-btn-ghost sec-btn-full"
-              style={{ height: 44, minHeight: 44 }}
-              disabled={disabled}
-              onClick={onPayMinimumLump}
-            >
-              Pay R{minSpend.toFixed(0)} minimum only (order on site)
             </button>
           ) : null}
           {children}

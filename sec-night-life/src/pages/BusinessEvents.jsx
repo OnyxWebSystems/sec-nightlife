@@ -12,10 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2
+  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2, Armchair
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiGet, apiPut, uploadFile } from '@/api/client';
+import { apiGet, apiPut, apiPost, uploadFile } from '@/api/client';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { tierFeeTogglesFromTier, resolveTierFeesForSave } from '@/lib/tierBookingFees';
@@ -112,6 +112,8 @@ export default function BusinessEvents() {
   const [search, setSearch] = useState('');
   const [lifecycleTab, setLifecycleTab] = useState('upcoming');
   const [deleteId, setDeleteId] = useState(null);
+  const [tablesEventId, setTablesEventId] = useState(null);
+  const [hidingTableId, setHidingTableId] = useState(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [createMode, setCreateMode] = useState('tables');
   const [selectedPromoterIds, setSelectedPromoterIds] = useState([]);
@@ -163,6 +165,14 @@ export default function BusinessEvents() {
     enabled: !!venue?.id,
   });
 
+  const { data: eventTablesData, isLoading: eventTablesLoading, refetch: refetchEventTables } = useQuery({
+    queryKey: ['event-venue-tables', tablesEventId],
+    queryFn: () => apiGet(`/api/business/event-venue-tables?event_id=${encodeURIComponent(tablesEventId)}`),
+    enabled: !!tablesEventId,
+  });
+
+  const tablesEvent = events.find((e) => e.id === tablesEventId);
+
   const saveMutation = useMutation({
     mutationFn: async (data) => {
       let saved;
@@ -194,6 +204,33 @@ export default function BusinessEvents() {
     },
     onError: () => toast.error('Failed to delete event'),
   });
+
+  async function hideTableFromListings(tableId) {
+    if (!window.confirm('Remove this table from guest listings? Guests already on this table are not affected.')) return;
+    setHidingTableId(tableId);
+    try {
+      await apiPost(`/api/business/venue-tables/${tableId}/hide-from-listings`);
+      toast.success('Table removed from listings');
+      refetchEventTables();
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not hide table');
+    } finally {
+      setHidingTableId(null);
+    }
+  }
+
+  async function restoreTableToListings(tableId) {
+    setHidingTableId(tableId);
+    try {
+      await apiPost(`/api/business/venue-tables/${tableId}/restore-to-listings`);
+      toast.success('Table restored to listings');
+      refetchEventTables();
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not restore table');
+    } finally {
+      setHidingTableId(null);
+    }
+  }
 
   const openCreate = () => {
     setEditingEvent(null);
@@ -601,6 +638,15 @@ export default function BusinessEvents() {
                 >
                   <Eye size={16} />
                 </button>
+                {!ended && evt.status === 'published' && evt.event_format !== 'TICKETING_ONLY' ? (
+                <button
+                  onClick={() => setTablesEventId(evt.id)}
+                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
+                  title="Manage tables"
+                >
+                  <Armchair size={16} />
+                </button>
+                ) : null}
                 {!ended ? (
                 <button
                   onClick={() => openEdit(evt)}
@@ -1348,6 +1394,65 @@ export default function BusinessEvents() {
             </div>
           </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Event table listings */}
+      <Dialog open={!!tablesEventId} onOpenChange={(open) => !open && setTablesEventId(null)}>
+        <DialogContent
+          className="text-white sm:max-w-[520px] max-h-[85vh] overflow-y-auto"
+          style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
+        >
+          <DialogHeader>
+            <DialogTitle>Event tables</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-400 mt-1">
+            {tablesEvent?.title || 'Event'} — see which tables are in use. Remove empty tables from guest listings without affecting guests already booked.
+          </p>
+          {eventTablesLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="animate-spin" />
+            </div>
+          ) : (eventTablesData?.items || []).length === 0 ? (
+            <p className="text-sm text-gray-500 py-8 text-center">No table slots for this event yet. Publish with hosting tiers to generate listings.</p>
+          ) : (
+            <div className="space-y-2 mt-4">
+              {(eventTablesData?.items || []).map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between gap-3 p-3 rounded-xl border"
+                  style={{ borderColor: 'var(--sec-border)', background: 'var(--sec-bg-elevated)' }}
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{t.tableName}</p>
+                    <p className="text-xs text-gray-500">{t.tierLabel || 'Table slot'}</p>
+                    <p className={`text-xs mt-1 ${t.inUse ? 'text-amber-400' : t.isActive ? 'text-emerald-400' : 'text-gray-500'}`}>
+                      {t.usageLabel}
+                    </p>
+                  </div>
+                  {t.canHideFromListings ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={hidingTableId === t.id}
+                      onClick={() => hideTableFromListings(t.id)}
+                    >
+                      {hidingTableId === t.id ? <Loader2 size={14} className="animate-spin" /> : 'Remove'}
+                    </Button>
+                  ) : t.canRestoreToListings ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={hidingTableId === t.id}
+                      onClick={() => restoreTableToListings(t.id)}
+                    >
+                      Restore
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

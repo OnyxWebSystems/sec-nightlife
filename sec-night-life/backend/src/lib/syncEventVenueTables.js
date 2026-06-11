@@ -100,38 +100,48 @@ export async function syncEventVenueTables(eventId) {
     }
   }
 
-  if (desiredKeys.size === 0) {
-    const customOnly = await prisma.venueTable.findFirst({
-      where: {
-        eventId: event.id,
-        allowsCustomRequests: true,
-        isCustomListing: true,
-        isActive: true,
-      },
-    });
-    if (!customOnly) {
-      const anyCustom = ['general', 'vip'].some((cat) =>
-        Boolean(hosting[cat]?.allows_custom_requests),
-      );
-      if (anyCustom) {
-        await prisma.venueTable.create({
-          data: {
-            venueId: event.venueId,
-            eventId: event.id,
-            tableName: 'Custom table request',
-            description: 'Submit your specs — the venue reviews before checkout.',
-            guestCapacity: 500,
-            minimumSpend: 0,
-            bookingFeeZar: 0,
-            minSpendSettlement: 'PREPAY_MENU',
-            allowsCustomRequests: true,
-            isCustomListing: true,
-            isActive: true,
-          },
-        });
-      }
-    }
-  }
+  await ensureEventCustomListing(event.id, event.venueId, hosting);
 
   return { synced: desiredKeys.size };
+}
+
+/** One custom-request listing per event when hosting config allows custom tables. */
+export async function ensureEventCustomListing(eventId, venueId = null, hostingConfig = null) {
+  let venue = venueId;
+  let hosting = hostingConfig;
+  if (!venue || !hosting) {
+    const event = await prisma.event.findFirst({
+      where: { id: eventId, deletedAt: null },
+      select: { venueId: true, hostingConfig: true },
+    });
+    if (!event) return null;
+    venue = event.venueId;
+    hosting = normalizeHostingConfig(event.hostingConfig);
+  }
+  const allowsCustom = ['general', 'vip'].some((cat) => Boolean(hosting[cat]?.allows_custom_requests));
+  if (!allowsCustom) return null;
+
+  const existing = await prisma.venueTable.findFirst({
+    where: { eventId, isCustomListing: true, isActive: true },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const created = await prisma.venueTable.create({
+    data: {
+      venueId: venue,
+      eventId,
+      tableName: 'Custom table request',
+      description: 'Submit your specs — the venue reviews before checkout.',
+      guestCapacity: 500,
+      minimumSpend: 0,
+      bookingFeeZar: 0,
+      minSpendSettlement: 'PREPAY_MENU',
+      allowsCustomRequests: true,
+      isCustomListing: true,
+      isActive: true,
+    },
+    select: { id: true },
+  });
+  return created.id;
 }

@@ -114,7 +114,7 @@ export default function VenueAnalytics() {
   // Calculate metrics (revenue + tickets from server-side Payment / Transaction aggregation)
   const calculateMetrics = () => {
     const gross = Number(analytics?.grossRevenueZar || 0);
-    const net = Number(analytics?.netRevenueZar ?? (gross > 0 ? gross * 0.85 : 0));
+    const net = Number(analytics?.netRevenueZar ?? 0);
     const activeRevenue = revenueMode === 'net' ? net : gross;
 
     const ticketSales = Number(analytics?.ticketSalesCount || 0);
@@ -166,16 +166,15 @@ export default function VenueAnalytics() {
     const days = periodDays;
     const daysChrono = Array.from({ length: days }, (_, i) => subDays(new Date(), days - 1 - i));
     const byDayGross = Object.fromEntries((analytics?.revenueByDay || []).map((d) => [d.date, Number(d.gross) || 0]));
+    const byDayNet = Object.fromEntries((analytics?.revenueByDay || []).map((d) => [d.date, Number(d.net ?? d.gross) || 0]));
     const grossTotal = Number(analytics?.grossRevenueZar || 0);
-    const netTotal = Number(analytics?.netRevenueZar ?? (grossTotal > 0 ? grossTotal * 0.85 : 0));
+    const netTotal = Number(analytics?.netRevenueZar ?? 0);
     return daysChrono.map((day) => {
       const key = format(day, 'yyyy-MM-dd');
       const dayGross = Number(byDayGross[key] || 0);
       const amount =
         revenueMode === 'net'
-          ? grossTotal > 0
-            ? (dayGross / grossTotal) * netTotal
-            : 0
+          ? Number(byDayNet[key] ?? (grossTotal > 0 ? (dayGross / grossTotal) * netTotal : 0))
           : dayGross;
       return {
         key,
