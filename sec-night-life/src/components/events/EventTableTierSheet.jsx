@@ -203,23 +203,26 @@ export default function EventTableTierSheet({
           <section
             style={{
               marginTop: 8,
-              paddingTop: 16,
-              borderTop: '1px solid var(--sec-border)',
+              padding: '16px 14px',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid rgba(212, 175, 55, 0.35)',
+              background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.1) 0%, rgba(20, 20, 20, 0.6) 100%)',
             }}
           >
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Sparkles size={14} /> Custom table
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Sparkles size={14} style={{ color: 'var(--sec-accent)' }} /> Custom table
             </h3>
-            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 12 }}>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
               Request a bespoke table for this event — guest count, minimum spend, and menu picks. The venue reviews before checkout.
             </p>
             <button
               type="button"
-              className="sec-btn sec-btn-ghost sec-btn-full"
-              style={{ height: 44, border: '1px solid var(--sec-border)' }}
+              className="sec-btn sec-btn-primary sec-btn-full"
+              style={{ height: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
               onClick={goCustomRequest}
             >
-              Request custom table
+              <Sparkles size={16} />
+              Request Custom Table
             </button>
           </section>
         ) : null}

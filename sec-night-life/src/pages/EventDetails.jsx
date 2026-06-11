@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createPageUrl, storePromoterRef } from '@/utils';
+import { createPageUrl, buildPageUrl, storePromoterRef } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPatch } from '@/api/client';
@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ChevronLeft, Share2, Heart, Calendar, Clock, MapPin,
-  Users, Ticket, BadgeCheck, Music, Star, Plus, ChevronRight, Navigation,
+  Users, Ticket, BadgeCheck, Music, Star, Plus, ChevronRight, Navigation, Sparkles,
 } from 'lucide-react';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 
@@ -565,6 +565,55 @@ export default function EventDetails() {
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', textAlign: 'center' }}>
               Select a tier to host your own table or join an existing one
             </p>
+          ) : null}
+
+          {allowsCustomRequests && customListingId ? (
+            <div
+              className="sec-card"
+              style={{
+                marginTop: 16,
+                padding: '16px 18px',
+                border: '1px solid rgba(212, 175, 55, 0.35)',
+                background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.08) 0%, rgba(20, 20, 20, 0.95) 100%)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'var(--sec-accent-muted)',
+                    color: 'var(--sec-accent)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-text-primary)', margin: '0 0 4px' }}>
+                    Need something bespoke?
+                  </p>
+                  <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: 0, lineHeight: 1.5 }}>
+                    Request a custom table — guest count, minimum spend, and menu picks. The venue reviews before checkout.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="sec-btn sec-btn-primary sec-btn-full"
+                style={{ height: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                onClick={() =>
+                  navigate(buildPageUrl('TableDetails', { id: customListingId, source: 'venue', request: '1' }))
+                }
+              >
+                <Sparkles size={16} />
+                Request Custom Table
+              </button>
+            </div>
           ) : null}
         </div>
         ) : null}

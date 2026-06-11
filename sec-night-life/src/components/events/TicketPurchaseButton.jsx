@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Ticket, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { launchPaystackInline, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
+import { launchPaystackInline } from '@/lib/paystackInline';
+import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { getStoredPromoterRef } from '@/utils';
 import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 
@@ -114,14 +115,7 @@ export default function TicketPurchaseButton({ event }) {
           reference: res.reference,
           accessCode: res.access_code,
           onSuccess: async (payload) => {
-            const ref = payload?.reference || res.reference;
-            const verify = await verifyPaystackReferenceWithRetry(ref, { retries: 6, baseDelayMs: 1200 });
-            if (verify?.status !== 'paid') {
-              toast.error('Payment received but confirmation is still processing. Check Profile → Tickets in a moment.');
-            } else {
-              queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
-              toast.success('Payment successful — your tickets are in Profile → Tickets');
-            }
+            await completePaystackCheckout({ reference: res.reference, payload, queryClient });
             setIsOpen(false);
           },
           onCancel: () => toast.message('Checkout cancelled'),

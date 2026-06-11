@@ -8,7 +8,8 @@ import { ChevronLeft, Loader2, UserPlus, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import HostedTableCard from '@/components/home/HostedTableCard';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
-import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { launchPaystackInline } from '@/lib/paystackInline';
+import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { getEventImage } from '@/lib/placeholders';
 
 const TABLE_BOOST_ZAR = 200;
@@ -49,7 +50,7 @@ export default function EventHostTables() {
         return;
       }
       const res = await apiPost(`/api/host/tables/${tableId}/join`, {});
-      if (res?.pending_approval) {
+      if (res?.pending || res?.pending_approval) {
         toast.success('Request sent to the host');
         queryClient.invalidateQueries({ queryKey: ['host-at-event', eventId, hostUserId] });
         return;
@@ -59,8 +60,13 @@ export default function EventHostTables() {
           authorizationUrl: res.authorization_url,
           accessCode: res.access_code,
           reference: res.reference,
-          onSuccess: async (ref) => {
-            await verifyPaystackReference(ref);
+          onSuccess: async (payload) => {
+            await completePaystackCheckout({
+              reference: res.reference,
+              payload,
+              queryClient,
+              showToasts: false,
+            });
             toast.success('You joined the table');
             queryClient.invalidateQueries({ queryKey: ['host-at-event', eventId, hostUserId] });
             queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
@@ -84,8 +90,13 @@ export default function EventHostTables() {
           authorizationUrl: pay.authorization_url,
           accessCode: pay.access_code,
           reference: pay.reference,
-          onSuccess: async (ref) => {
-            await verifyPaystackReference(ref);
+          onSuccess: async (payload) => {
+            await completePaystackCheckout({
+              reference: pay.reference,
+              payload,
+              queryClient,
+              showToasts: false,
+            });
             toast.success('Table boosted for 7 days');
             queryClient.invalidateQueries({ queryKey: ['host-at-event', eventId, hostUserId] });
             queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });

@@ -23,7 +23,8 @@ import { toast } from 'sonner';
 
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { launchPaystackInline } from '@/lib/paystackInline';
+import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import VenueMenuBrowser, { getVenueMenuCartStats } from '@/components/menu/VenueMenuBrowser';
 import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
@@ -264,7 +265,12 @@ export default function TableDetails() {
           reference: pay.reference,
           accessCode: pay.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || pay.reference);
+            await completePaystackCheckout({
+              reference: pay.reference,
+              payload,
+              queryClient,
+              showToasts: false,
+            });
             refreshBookingQueries();
             if (isHostCheckout) {
               setHostPaySuccess(true);
@@ -343,7 +349,7 @@ export default function TableDetails() {
           reference: res.reference,
           accessCode: res.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || res.reference);
+            await completePaystackCheckout({ reference: res.reference, payload, queryClient, showToasts: false });
             queryClient.invalidateQueries(['table', tableId]);
             setShowPaymentDialog(false);
             toast.success('Payment successful');
@@ -811,7 +817,7 @@ export default function TableDetails() {
             reference: r.reference,
             accessCode: r.access_code,
             onSuccess: async (payloadRef) => {
-              await verifyPaystackReference(payloadRef?.reference || r.reference);
+              await completePaystackCheckout({ reference: r.reference, payload: payloadRef, queryClient, showToasts: false });
               queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
               setHostedMenuSelected({});
               toast.success('Menu order paid — added to your table.');
@@ -850,9 +856,8 @@ export default function TableDetails() {
             reference: r.reference,
             accessCode: r.access_code,
             onSuccess: async (payload) => {
-              await verifyPaystackReference(payload?.reference || r.reference);
+              await completePaystackCheckout({ reference: r.reference, payload, queryClient });
               queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
-              toast.success('Payment successful — your ticket is ready.');
             },
             onCancel: () => {
               toast.message('Checkout closed', {

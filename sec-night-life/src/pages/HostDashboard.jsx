@@ -13,7 +13,8 @@ import { Plus, Loader2 } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { Input } from '@/components/ui/input';
-import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { launchPaystackInline } from '@/lib/paystackInline';
+import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { uploadHostedTablePhotoFile } from '@/lib/uploadHostedTablePhoto';
@@ -260,7 +261,7 @@ export default function HostDashboard() {
             reference: pay.reference,
             accessCode: pay.access_code,
             onSuccess: async (payload) => {
-              await verifyPaystackReference(payload?.reference || pay.reference);
+              await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
               queryClient.invalidateQueries(['host-parties']);
               toast.success('Party listing payment received.');
             },
@@ -318,7 +319,7 @@ export default function HostDashboard() {
             reference: created.payment.reference,
             accessCode: created.payment.access_code,
             onSuccess: async (payload) => {
-              await verifyPaystackReference(payload?.reference || created.payment.reference);
+              await completePaystackCheckout({ reference: created.payment.reference, payload, queryClient, showToasts: false });
               queryClient.invalidateQueries(['host-tables']);
               toast.success('Listing payment received — your external table is live.');
               setShowTableModal(false);
@@ -354,7 +355,7 @@ export default function HostDashboard() {
           reference: pay.reference,
           accessCode: pay.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || pay.reference);
+            await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
             queryClient.invalidateQueries(['host-parties']);
             toast.success('Party listing payment received.');
           },
@@ -381,7 +382,7 @@ export default function HostDashboard() {
           reference: pay.reference,
           accessCode: pay.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || pay.reference);
+            await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
             queryClient.invalidateQueries(['host-tables']);
           },
         });
@@ -401,7 +402,7 @@ export default function HostDashboard() {
           reference: pay.reference,
           accessCode: pay.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || pay.reference);
+            await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
             queryClient.invalidateQueries({ queryKey: ['host-tables'] });
             queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
             toast.success('Table boosted for 7 days');
@@ -435,7 +436,7 @@ export default function HostDashboard() {
           reference: pay.reference,
           accessCode: pay.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || pay.reference);
+            await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
             queryClient.invalidateQueries({ queryKey: ['host-tables', user?.id] });
             toast.success('Payment received — your table is live.');
           },

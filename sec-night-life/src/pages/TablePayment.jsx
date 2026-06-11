@@ -18,10 +18,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { useQueryClient } from '@tanstack/react-query';
+import { launchPaystackInline } from '@/lib/paystackInline';
+import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 
 export default function TablePayment() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -94,8 +97,8 @@ export default function TablePayment() {
           reference: res.reference,
           accessCode: res.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || res.reference);
-            navigate(createPageUrl('PaymentSuccess'));
+            await completePaystackCheckout({ reference: res.reference, payload, queryClient, showToasts: false });
+            navigate(`${createPageUrl('PaymentSuccess')}?ref=${encodeURIComponent(res.reference)}`);
           },
           onCancel: () => {},
         });

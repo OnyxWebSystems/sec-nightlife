@@ -282,6 +282,24 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
   }
 });
 
+function classifyVenuePaymentRevenue(mtype, pType, amount, counters) {
+  const t = String(mtype || '');
+  const amt = Number(amount) || 0;
+  if (
+    t === 'HOSTED_TABLE_JOIN' ||
+    t === 'TABLE_HOST_FEE' ||
+    t === 'HOSTED_TABLE_EXTERNAL_LISTING'
+  ) {
+    counters.hostedTablePaymentZar += amt;
+  } else if (t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN') {
+    counters.venueTablePaymentZar += amt;
+  } else if (t === 'ticket' || pType === 'ticket' || t.includes('TICKET') || t === 'event') {
+    counters.ticketPaymentZar += amt;
+  } else {
+    counters.otherPaymentZar += amt;
+  }
+}
+
 router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
   try {
     const venueId = String(req.query.venue_id || '').trim();
@@ -297,12 +315,16 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     const events = await prisma.event.findMany({
       where: { venueId, deletedAt: null, ...(eventId ? { id: eventId } : {}) },
-      select: { id: true },
+      select: { id: true, date: true },
     });
     const eventIds = events.map((e) => e.id);
     if (eventId && eventIds.length === 0) return res.status(400).json({ error: 'Event not found for this venue' });
 
     const cutoff = new Date(Date.now() - days * 86400000);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const eventsInPeriod = events.filter((e) => e.date && new Date(e.date) >= cutoff).length;
+    const upcomingEventsCount = events.filter((e) => e.date && new Date(e.date) >= todayStart).length;
 
     const ledgerRows = await prisma.payoutLedger.findMany({
       where: {
@@ -338,9 +360,12 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     let grossTotal = 0;
     let netTotal = 0;
-    let ticketPaymentZar = 0;
-    let hostedTablePaymentZar = 0;
-    let otherPaymentZar = 0;
+    const revenueCounters = {
+      ticketPaymentZar: 0,
+      hostedTablePaymentZar: 0,
+      venueTablePaymentZar: 0,
+      otherPaymentZar: 0,
+    };
     const revenueByDay = {};
     const matchedPaymentRefs = new Set();
 
@@ -355,18 +380,24 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       const dayKey = row.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + gross;
 
-      const mtype = String(meta?.type || '');
-      if (mtype === 'HOSTED_TABLE_JOIN' || mtype === 'TABLE_HOST_FEE' || mtype === 'HOSTED_TABLE_EXTERNAL_LISTING') {
-        hostedTablePaymentZar += gross;
-      } else if (mtype === 'ticket' || mtype.includes('TICKET') || mtype === 'event') {
-        ticketPaymentZar += gross;
-      } else {
-        otherPaymentZar += gross;
-      }
+      classifyVenuePaymentRevenue(meta?.type, null, gross, revenueCounters);
     }
 
+    const venuePaymentOr = [
+      { metadata: { path: ['venue_id'], equals: venueId } },
+      { metadata: { path: ['venueId'], equals: venueId } },
+      ...eventIds.flatMap((id) => [
+        { metadata: { path: ['event_id'], equals: id } },
+        { metadata: { path: ['eventId'], equals: id } },
+      ]),
+    ];
+
     const payments = await prisma.payment.findMany({
-      where: { status: 'success', createdAt: { gte: cutoff } },
+      where: {
+        status: 'success',
+        createdAt: { gte: cutoff },
+        ...(venuePaymentOr.length ? { OR: venuePaymentOr } : {}),
+      },
       select: { amount: true, type: true, metadata: true, createdAt: true, reference: true },
       take: 12000,
     });
@@ -400,14 +431,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       const dayKey = p.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
 
-      const mtype = String(meta.type || '');
-      if (mtype === 'HOSTED_TABLE_JOIN' || mtype === 'TABLE_HOST_FEE' || mtype === 'HOSTED_TABLE_EXTERNAL_LISTING') {
-        hostedTablePaymentZar += amt;
-      } else if (p.type === 'ticket' || mtype.includes('TICKET') || mtype === 'event') {
-        ticketPaymentZar += amt;
-      } else {
-        otherPaymentZar += amt;
-      }
+      classifyVenuePaymentRevenue(meta.type, p.type, amt, revenueCounters);
     }
 
     const paidTx = await prisma.transaction.findMany({
@@ -430,8 +454,10 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       netTotal += recipientAmount;
       const dayKey = t.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
-      otherPaymentZar += amt;
+      revenueCounters.otherPaymentZar += amt;
     }
+
+    const { ticketPaymentZar, hostedTablePaymentZar, venueTablePaymentZar, otherPaymentZar } = revenueCounters;
 
     const ticketSalesCount =
       eventIds.length === 0
@@ -461,7 +487,10 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       ticketSalesCount,
       ticketPaymentZar: Number(ticketPaymentZar.toFixed(2)),
       hostedTablePaymentZar: Number(hostedTablePaymentZar.toFixed(2)),
+      venueTablePaymentZar: Number(venueTablePaymentZar.toFixed(2)),
       otherPaymentZar: Number(otherPaymentZar.toFixed(2)),
+      eventsInPeriod,
+      upcomingEventsCount,
       revenueByDay: revenueByDaySorted,
     });
   } catch (e) {

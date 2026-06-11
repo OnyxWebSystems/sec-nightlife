@@ -110,6 +110,15 @@ export default function VenueAnalytics() {
   }, [events, selectedEventId]);
 
   const periodDays = Math.min(366, Math.max(1, parseInt(dateRange, 10) || 30));
+  const periodCutoff = useMemo(() => subDays(new Date(), periodDays), [periodDays]);
+
+  const scopedEvents = useMemo(() => {
+    let list = events.filter((e) => e.date && new Date(e.date) >= periodCutoff);
+    if (revenueScope === 'per_event' && selectedEventId) {
+      list = list.filter((e) => e.id === selectedEventId);
+    }
+    return list;
+  }, [events, periodCutoff, revenueScope, selectedEventId]);
 
   // Calculate metrics (revenue + tickets from server-side Payment / Transaction aggregation)
   const calculateMetrics = () => {
@@ -121,7 +130,7 @@ export default function VenueAnalytics() {
     const avgRating =
       reviews.length > 0 ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length : 0;
 
-    const eventTypeCounts = events.reduce((acc, event) => {
+    const eventTypeCounts = scopedEvents.reduce((acc, event) => {
       const title = (event.title || '').toLowerCase();
       const type = title.includes('concert')
         ? 'Concert'
@@ -134,7 +143,7 @@ export default function VenueAnalytics() {
       return acc;
     }, {});
 
-    const hourCounts = events.reduce((acc, event) => {
+    const hourCounts = scopedEvents.reduce((acc, event) => {
       if (event.start_time) {
         const hour = parseInt(String(event.start_time).split(':')[0], 10);
         if (!Number.isNaN(hour)) acc[hour] = (acc[hour] || 0) + 1;
@@ -144,15 +153,20 @@ export default function VenueAnalytics() {
 
     const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
 
-    const eventRevenueCount = revenueScope === 'per_event' ? 1 : Math.max(1, events.length);
+    const eventsInPeriod = Number(analytics?.eventsInPeriod ?? scopedEvents.length);
+    const eventRevenueCount = revenueScope === 'per_event' ? 1 : Math.max(1, eventsInPeriod);
     const avgRevenuePerEvent = eventRevenueCount > 0 ? activeRevenue / eventRevenueCount : 0;
 
     return {
       totalRevenue: activeRevenue,
       ticketSales,
       avgRating,
-      totalEvents: events.length,
-      upcomingEvents: events.filter((e) => new Date(e.date) >= new Date()).length,
+      totalEvents: eventsInPeriod,
+      upcomingEvents: Number(analytics?.upcomingEventsCount ?? 0),
+      ticketPaymentZar: Number(analytics?.ticketPaymentZar || 0),
+      hostedTablePaymentZar: Number(analytics?.hostedTablePaymentZar || 0),
+      venueTablePaymentZar: Number(analytics?.venueTablePaymentZar || 0),
+      otherPaymentZar: Number(analytics?.otherPaymentZar || 0),
       eventTypeCounts,
       peakHour: peakHour ? `${peakHour[0]}:00` : 'N/A',
       avgRevenuePerEvent,
@@ -382,7 +396,7 @@ export default function VenueAnalytics() {
                         {metrics.avgRating.toFixed(1)}
                       </p>
                       )}
-                      <p className="text-xs text-gray-500 mt-1">{reviews.length} reviews</p>
+                      <p className="text-xs text-gray-500 mt-1">{reviews.length} reviews (all time)</p>
                     </div>
                     <Star className="w-8 h-8" style={{ color: 'var(--sec-warning)' }} />
                   </div>
@@ -399,10 +413,37 @@ export default function VenueAnalytics() {
                       ) : (
                       <p className="text-3xl font-bold text-white mt-1">{metrics.totalEvents}</p>
                       )}
-                      <p className="text-xs mt-1" style={{ color: 'var(--sec-accent)' }}>{metrics.upcomingEvents} upcoming</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--sec-accent)' }}>{metrics.upcomingEvents} upcoming · last {dateRange} days</p>
                     </div>
                     <Calendar className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card className="glass-card border-[#262629]">
+                <CardContent className="pt-6">
+                  <p className="text-gray-500 text-sm">Ticket revenue</p>
+                  <p className="text-2xl font-bold text-white mt-1">R{metrics.ticketPaymentZar.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="glass-card border-[#262629]">
+                <CardContent className="pt-6">
+                  <p className="text-gray-500 text-sm">Hosted tables</p>
+                  <p className="text-2xl font-bold text-white mt-1">R{metrics.hostedTablePaymentZar.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="glass-card border-[#262629]">
+                <CardContent className="pt-6">
+                  <p className="text-gray-500 text-sm">Venue tables</p>
+                  <p className="text-2xl font-bold text-white mt-1">R{metrics.venueTablePaymentZar.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="glass-card border-[#262629]">
+                <CardContent className="pt-6">
+                  <p className="text-gray-500 text-sm">Other</p>
+                  <p className="text-2xl font-bold text-white mt-1">R{metrics.otherPaymentZar.toLocaleString()}</p>
                 </CardContent>
               </Card>
             </div>
@@ -470,12 +511,12 @@ export default function VenueAnalytics() {
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
                     <PieChartIcon className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
-                    Popular Event Types
+                    Popular Event Types (last {dateRange} days)
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {eventTypeChartData.length === 0 ? (
-                    <p className="text-sm text-gray-500 py-8 text-center">No events to classify yet.</p>
+                    <p className="text-sm text-gray-500 py-8 text-center">No events in this period yet.</p>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
                       <ChartContainer
@@ -544,11 +585,11 @@ export default function VenueAnalytics() {
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[#141416]">
-                    <p className="text-sm text-gray-400 mb-1">Hosted table payments (period)</p>
+                    <p className="text-sm text-gray-400 mb-1">Venue table payments (period)</p>
                     <p className="text-xl font-bold text-white">
-                      R{Math.round(Number(analytics?.hostedTablePaymentZar || 0)).toLocaleString()}
+                      R{Math.round(metrics.venueTablePaymentZar).toLocaleString()}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">From successful Paystack rows tagged for your venue</p>
+                    <p className="text-xs text-gray-500 mt-1">Direct venue slot checkouts in the last {dateRange} days</p>
                   </div>
                 </CardContent>
               </Card>

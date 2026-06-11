@@ -140,6 +140,7 @@ export default function BusinessBookings() {
       return apiGet(`/api/business/event-table-bookings?${params.toString()}`);
     },
     enabled: !!user && mainTab === 'tables' && tableSubTab === 'event',
+    refetchOnWindowFocus: true,
   });
 
   const { data: venueTableBookingsData, isLoading: venueBookingsLoading } = useQuery({
@@ -149,6 +150,7 @@ export default function BusinessBookings() {
       return apiGet(`/api/business/venue-table-bookings${q}`);
     },
     enabled: !!user && mainTab === 'tables' && tableSubTab === 'venue-day',
+    refetchOnWindowFocus: true,
   });
 
   const { data: ticketBookingsData, isLoading: ticketsLoading } = useQuery({
@@ -160,6 +162,7 @@ export default function BusinessBookings() {
       return apiGet(`/api/business/ticket-bookings?${params.toString()}`);
     },
     enabled: !!user && mainTab === 'tickets',
+    refetchOnWindowFocus: true,
   });
 
   const releaseMutation = useMutation({

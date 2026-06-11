@@ -17,7 +17,8 @@ import PlatformAnnouncementBanner from '@/components/home/PlatformAnnouncementBa
 import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
 import { toast } from 'sonner';
-import { launchPaystackInline, verifyPaystackReference } from '@/lib/paystackInline';
+import { launchPaystackInline } from '@/lib/paystackInline';
+import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { isEventEnded } from '@/lib/eventLifecycle';
 import { usePreferences } from '@/context/PreferencesContext';
 
@@ -312,10 +313,9 @@ export default function Home() {
           reference: r.reference,
           accessCode: r.access_code,
           onSuccess: async (payload) => {
-            await verifyPaystackReference(payload?.reference || r.reference);
+            await completePaystackCheckout({ reference: r.reference, payload, queryClient });
             queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
             queryClient.invalidateQueries({ queryKey: ['home-feed'] });
-            toast.success('Payment successful — your ticket is ready.');
           },
           onCancel: () => {
             toast.message('Checkout closed', {

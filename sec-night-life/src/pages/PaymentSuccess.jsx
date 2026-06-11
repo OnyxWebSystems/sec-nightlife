@@ -1,16 +1,42 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
-import { apiGet, apiPatch } from '@/api/client';
+import { apiPatch } from '@/api/client';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
+import { verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
+import { invalidatePostPaymentQueries } from '@/lib/completePaystackCheckout';
 
 const VENUE_PAYMENT_CONTEXT_KEY = 'sec-venue-onboarding-payment';
 
+function resolveNextPath(paymentType) {
+  if (paymentType === 'ticket') {
+    return `${createPageUrl('Profile')}?tab=tickets`;
+  }
+  if (
+    paymentType === 'TABLE_HOST_FEE' ||
+    paymentType === 'TABLE_CHECKOUT' ||
+    paymentType === 'VENUE_TABLE_JOIN' ||
+    paymentType === 'HOSTED_TABLE_JOIN'
+  ) {
+    return `${createPageUrl('HostDashboard')}?tab=tables`;
+  }
+  return createPageUrl('Home');
+}
+
+function resolveCtaLabel(nextPath) {
+  if (nextPath.includes('Profile')) return 'View your tickets';
+  if (nextPath.includes('HostDashboard')) return 'Go to Host Dashboard';
+  if (nextPath.includes('BusinessDashboard')) return 'Go to Business Dashboard';
+  return 'Back to Home';
+}
+
 export default function PaymentSuccess() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState('loading'); // loading | paid | failed | pending
+  const queryClient = useQueryClient();
+  const [status, setStatus] = useState('loading');
   const [message, setMessage] = useState('');
   const [nextPath, setNextPath] = useState(createPageUrl('Home'));
 
@@ -28,29 +54,61 @@ export default function PaymentSuccess() {
           authService.redirectToLogin(window.location.pathname + window.location.search);
           return;
         }
-        const r = await apiGet(`/api/payments/paystack/verify/${ref}`);
-        setStatus(r?.status || 'pending');
+
         const savedContextRaw = localStorage.getItem(VENUE_PAYMENT_CONTEXT_KEY);
         const savedContext = savedContextRaw ? JSON.parse(savedContextRaw) : null;
 
-        if (r?.status === 'paid' && savedContext?.nextPath) {
+        const r = await verifyPaystackReferenceWithRetry(ref, { retries: 8, baseDelayMs: 1200 });
+        const fulfilled =
+          r?.fulfillment?.applied === true ||
+          (r?.status === 'paid' && r?.fulfillment?.applied !== false);
+
+        if (fulfilled) {
+          invalidatePostPaymentQueries(queryClient);
+        }
+
+        if (r?.status === 'paid' && fulfilled && savedContext?.nextPath) {
           await apiPatch('/api/users/profile', {
             payment_setup_complete: true,
             onboarding_complete: true,
           });
           localStorage.removeItem(VENUE_PAYMENT_CONTEXT_KEY);
           setNextPath(savedContext.nextPath);
+          setStatus('paid');
           setMessage(`Payment confirmed. Your ${savedContext.planName || 'selected'} venue plan is now active.`);
           return;
         }
 
-        setMessage(r?.status === 'paid' ? 'Payment confirmed.' : r?.status === 'failed' ? 'Payment failed.' : 'Payment is pending.');
+        const paymentType = r?.payment_type;
+        const destination = resolveNextPath(paymentType);
+        setNextPath(destination);
+
+        if (r?.status === 'failed') {
+          setStatus('failed');
+          setMessage('Payment failed.');
+        } else if (fulfilled || r?.status === 'paid') {
+          setStatus('paid');
+          if (paymentType === 'ticket') {
+            setMessage('Payment confirmed. Your tickets are ready in Profile → Tickets.');
+          } else if (
+            paymentType === 'TABLE_HOST_FEE' ||
+            paymentType === 'TABLE_CHECKOUT' ||
+            paymentType === 'VENUE_TABLE_JOIN'
+          ) {
+            setMessage('Payment confirmed. Your table is live — check Host Dashboard and Profile → Tickets for your QR code.');
+          } else {
+            setMessage('Payment confirmed.');
+          }
+        } else {
+          setStatus('pending');
+          setMessage('Payment received. Your ticket is still being prepared — check Profile → Tickets in a moment.');
+        }
       } catch (e) {
         setStatus('failed');
         setMessage(e?.message || 'Payment verification failed.');
       }
     })();
-  }, []);
+  }, [queryClient]);
 
   const icon =
     status === 'paid' ? <CheckCircle2 size={42} strokeWidth={1.5} style={{ color: 'var(--sec-success)' }} /> :
@@ -75,10 +133,9 @@ export default function PaymentSuccess() {
           className="sec-btn sec-btn-primary w-full"
           style={{ height: 44, borderRadius: 12 }}
         >
-          {nextPath === createPageUrl('BusinessDashboard') ? 'Go to Business Dashboard' : 'Back to Home'}
+          {resolveCtaLabel(nextPath)}
         </button>
       </div>
     </div>
   );
 }
-
