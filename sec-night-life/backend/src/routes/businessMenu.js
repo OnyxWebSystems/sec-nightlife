@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { assertVenueBusinessAccess } from '../lib/access.js';
 import {
   clearExpiredMenuSpecials,
   formatVenueMenuItemForClient,
@@ -15,17 +16,8 @@ const router = Router();
 
 export { SPECIAL_OFFER_EXP_PREFIX, parseLegacySpecialSubCategory as parseSpecialOfferWindow };
 
-async function assertVenueOwner(venueId, userId) {
-  const venue = await prisma.venue.findFirst({
-    where: { id: venueId, ownerUserId: userId, deletedAt: null },
-    select: { id: true },
-  });
-  if (!venue) {
-    const err = new Error('Venue not found or access denied');
-    err.status = 404;
-    throw err;
-  }
-  return venue;
+async function assertVenueMenuAccess(venueId, userId) {
+  await assertVenueBusinessAccess(userId, venueId, 'menu');
 }
 
 function resolveAvailability(imageUrl, requestedAvailable) {
@@ -123,7 +115,7 @@ function buildSpecialPatchData(patch, existing) {
 
 router.get('/venues/:venueId/menu-items', authenticateToken, async (req, res, next) => {
   try {
-    await assertVenueOwner(req.params.venueId, req.userId);
+    await assertVenueMenuAccess(req.params.venueId, req.userId);
     await clearExpiredMenuSpecials();
     const rows = await prisma.venueMenuItem.findMany({
       where: { venueId: req.params.venueId },
@@ -139,7 +131,7 @@ router.get('/venues/:venueId/menu-items', authenticateToken, async (req, res, ne
 router.post('/venues/:venueId/menu-items', authenticateToken, async (req, res, next) => {
   try {
     const venueId = req.params.venueId;
-    await assertVenueOwner(venueId, req.userId);
+    await assertVenueMenuAccess(venueId, req.userId);
     const body = req.body;
     const items = Array.isArray(body?.items) ? body.items : Array.isArray(body) ? body : [body];
     const parsed = z.array(menuItemSchema).min(1).parse(items);
@@ -181,7 +173,7 @@ router.post('/venues/:venueId/menu-items', authenticateToken, async (req, res, n
 router.post('/venues/:venueId/menu-items/from-catalog', authenticateToken, async (req, res, next) => {
   try {
     const venueId = req.params.venueId;
-    await assertVenueOwner(venueId, req.userId);
+    await assertVenueMenuAccess(venueId, req.userId);
     const { items } = fromCatalogSchema.parse(req.body);
     const catalogIds = items.map((i) => i.catalog_item_id);
     const catalogRows = await prisma.menuCatalogItem.findMany({
@@ -263,7 +255,7 @@ router.post('/venues/:venueId/menu-items/from-catalog', authenticateToken, async
 router.patch('/venues/:venueId/menu-items/:itemId', authenticateToken, async (req, res, next) => {
   try {
     const { venueId, itemId } = req.params;
-    await assertVenueOwner(venueId, req.userId);
+    await assertVenueMenuAccess(venueId, req.userId);
     const patch = menuItemSchema.partial().parse(req.body);
     const existing = await prisma.venueMenuItem.findFirst({
       where: { id: itemId, venueId },
@@ -328,7 +320,7 @@ router.patch('/venues/:venueId/menu-items/:itemId', authenticateToken, async (re
 router.delete('/venues/:venueId/menu-items/:itemId', authenticateToken, async (req, res, next) => {
   try {
     const { venueId, itemId } = req.params;
-    await assertVenueOwner(venueId, req.userId);
+    await assertVenueMenuAccess(venueId, req.userId);
     const existing = await prisma.venueMenuItem.findFirst({
       where: { id: itemId, venueId },
     });

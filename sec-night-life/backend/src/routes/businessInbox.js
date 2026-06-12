@@ -1,22 +1,19 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { resolveAccessibleVenueIds } from '../lib/access.js';
 import { getTemplateLabel, MESSAGABLE_VENUE_MEMBER_STATUSES } from '../lib/venueTableMessageTemplates.js';
 import { ensurePromoterVenueThread } from '../lib/promoterVenueThread.js';
 
 const router = Router();
 
-async function ownedVenueIds(userId) {
-  const rows = await prisma.venue.findMany({
-    where: { ownerUserId: userId, deletedAt: null },
-    select: { id: true },
-  });
-  return rows.map((r) => r.id);
+async function accessibleMessageVenueIds(userId, venueIdFilter = null) {
+  return resolveAccessibleVenueIds(userId, { venueIdFilter, permission: 'messages' });
 }
 
 router.get('/unread-count', authenticateToken, async (req, res, next) => {
   try {
-    const venueIds = await ownedVenueIds(req.userId);
+    const venueIds = await accessibleMessageVenueIds(req.userId);
     if (!venueIds.length) return res.json({ count: 0 });
 
     const [jobUnread, tableThreadUnread, promoterVenueUnread] = await Promise.all([
@@ -61,7 +58,7 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
 
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const venueIds = await ownedVenueIds(req.userId);
+    const venueIds = await accessibleMessageVenueIds(req.userId);
     if (!venueIds.length) return res.json({ items: [] });
 
     const filter = typeof req.query.type === 'string' ? req.query.type : 'jobs';
@@ -211,7 +208,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
 
 router.delete('/threads/:threadId', authenticateToken, async (req, res, next) => {
   try {
-    const venueIds = await ownedVenueIds(req.userId);
+    const venueIds = await accessibleMessageVenueIds(req.userId);
     if (!venueIds.length) return res.status(403).json({ error: 'Forbidden' });
 
     const application = await prisma.jobApplication.findFirst({

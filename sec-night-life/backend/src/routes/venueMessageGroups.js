@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { normalizeUsername } from '../lib/username.js';
+import { staffHasVenuePermission } from '../lib/access.js';
 
 const router = Router({ mergeParams: true });
 
@@ -25,6 +26,9 @@ async function getVenueAccess(venueId, userId) {
   if (!venue) return { error: 'not_found' };
   const isOwner = venue.ownerUserId === userId;
   if (isOwner) return { venue, isOwner: true, isMember: true, isAdmin: true };
+  if (await staffHasVenuePermission(userId, venueId, 'messages')) {
+    return { venue, isOwner: false, isMember: true, isAdmin: false };
+  }
   const membership = await prisma.venueMessageGroupMember.findFirst({
     where: { userId, group: { venueId, deletedAt: null } },
   });

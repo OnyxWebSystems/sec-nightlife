@@ -143,13 +143,13 @@ function App() {
     <AuthProvider>
       <PreferencesProvider>
         <QueryClientProvider client={queryClientInstance}>
-          <ActiveVenueProvider>
-            <Router>
+          <Router>
+            <ActiveVenueProvider>
               <NavigationTracker />
               <AuthenticatedApp />
-            </Router>
-            <Toaster />
-          </ActiveVenueProvider>
+            </ActiveVenueProvider>
+          </Router>
+          <Toaster />
         </QueryClientProvider>
       </PreferencesProvider>
     </AuthProvider>

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
-import { applyEventVenueIsolation, canAccessVenue, isStaff } from '../lib/access.js';
+import { applyEventVenueIsolation, canAccessVenue, isStaff, staffHasVenuePermission, resolveAccessibleVenueIds } from '../lib/access.js';
 import { ensureGroupChatForEvent } from '../lib/groupChatHelpers.js';
 import { logger } from '../lib/logger.js';
 import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingConfig.js';
@@ -499,6 +499,21 @@ function mergePublishedNotEnded(where, now) {
   return where;
 }
 
+async function applyOwnedOrStaffEventIsolation(req, where) {
+  if (!req.userId) return;
+  const accessible = await resolveAccessibleVenueIds(req.userId);
+  if (!accessible.length) return;
+  if (req.query.venue_id) {
+    const ok = await canAccessVenue(req.query.venue_id, req.userId, req.userRole);
+    if (!ok) {
+      const err = new Error('Forbidden');
+      err.status = 403;
+      throw err;
+    }
+  }
+  await applyEventVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
+}
+
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const now = new Date();
@@ -506,10 +521,8 @@ router.get('/', optionalAuth, async (req, res, next) => {
     if (req.query.status) where.status = req.query.status;
     if (req.query.venue_id) where.venueId = req.query.venue_id;
     if (req.query.city) where.city = String(req.query.city);
-    if (req.userId && req.userRole === 'VENUE') {
-      const ok = await canAccessVenue(req.query.venue_id, req.userId, req.userRole);
-      if (!ok && req.query.venue_id) return res.status(403).json({ error: 'Forbidden' });
-      await applyEventVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
+    if (req.userId) {
+      await applyOwnedOrStaffEventIsolation(req, where);
     }
     const take = Math.min(parseInt(req.query.limit) || 50, 100);
     const sortDesc = req.query.sort === '-date';
@@ -595,10 +608,8 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     if (req.query.id) where.id = req.query.id;
     if (req.query.venue_id) where.venueId = req.query.venue_id;
     if (req.query.status) where.status = req.query.status;
-    if (req.userId && req.userRole === 'VENUE') {
-      const ok = await canAccessVenue(req.query.venue_id, req.userId, req.userRole);
-      if (!ok && req.query.venue_id) return res.status(403).json({ error: 'Forbidden' });
-      await applyEventVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
+    if (req.userId) {
+      await applyOwnedOrStaffEventIsolation(req, where);
     }
     const sort = String(req.query.sort || 'date');
     const sortDesc = sort === '-date';
@@ -648,23 +659,23 @@ router.get('/featured-details', optionalAuth, async (req, res, next) => {
 });
 
 async function getOwnedEventForPromoters(eventId, userId) {
-  return prisma.event.findFirst({
-    where: { id: eventId, deletedAt: null, venue: { ownerUserId: userId } },
+  const event = await prisma.event.findFirst({
+    where: { id: eventId, deletedAt: null },
     select: { id: true, venueId: true, title: true },
   });
+  if (!event) return null;
+  const ok = await staffHasVenuePermission(userId, event.venueId, 'events');
+  return ok ? event : null;
 }
 
 router.get('/venue/:venueId/promoter/:promoterUserId/assignments', authenticateToken, async (req, res, next) => {
   try {
-    const venue = await prisma.venue.findFirst({
-      where: { id: req.params.venueId, ownerUserId: req.userId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!venue) return res.status(403).json({ error: 'Forbidden' });
+    const ok = await staffHasVenuePermission(req.userId, req.params.venueId, 'events');
+    if (!ok) return res.status(403).json({ error: 'Forbidden' });
 
     const assignments = await prisma.eventPromoterAssignment.findMany({
       where: {
-        venueId: venue.id,
+        venueId: req.params.venueId,
         promoterUserId: req.params.promoterUserId,
         status: 'ACTIVE',
       },
@@ -694,14 +705,11 @@ router.get('/venue/:venueId/promoter/:promoterUserId/assignments', authenticateT
 
 router.get('/venue/:venueId/promoters', authenticateToken, async (req, res, next) => {
   try {
-    const venue = await prisma.venue.findFirst({
-      where: { id: req.params.venueId, ownerUserId: req.userId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!venue) return res.status(403).json({ error: 'Forbidden' });
+    const ok = await staffHasVenuePermission(req.userId, req.params.venueId, 'events');
+    if (!ok) return res.status(403).json({ error: 'Forbidden' });
 
     const roster = await prisma.venuePromoter.findMany({
-      where: { venueId: venue.id, status: 'ACTIVE' },
+      where: { venueId: req.params.venueId, status: 'ACTIVE' },
       include: {
         promoter: {
           select: {
@@ -887,14 +895,15 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
     if (!event) return res.status(404).json({ error: 'Event not found' });
     const endAt = eventEndsAtFromEvent(event);
     const now = new Date();
-    const isOwner = req.userId && event.venue.ownerUserId === req.userId;
-    if (event.status === 'published' && endAt && endAt < now && !isOwner && !isStaff(req.userRole)) {
+    const canManageEvents =
+      req.userId &&
+      (isStaff(req.userRole) ||
+        (await staffHasVenuePermission(req.userId, event.venue.id, 'events')));
+    if (event.status === 'published' && endAt && endAt < now && !canManageEvents) {
       return res.status(404).json({ error: 'Event not found' });
     }
-    if (event.status === 'draft' && req.userId) {
-      if (event.venue.ownerUserId !== req.userId && !isStaff(req.userRole)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
+    if (event.status === 'draft' && req.userId && !canManageEvents) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
     const stats = await computeEventStats(event.id, event.hostingConfig);
     res.json(mapEventDetail(event, stats));
@@ -913,7 +922,10 @@ router.post('/', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid input' });
     }
     const venue = await prisma.venue.findFirst({ where: { id: d.venue_id, deletedAt: null } });
-    if (!venue || venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Not authorized' });
+    const canCreate =
+      venue &&
+      (isStaff(req.userRole) || (await staffHasVenuePermission(req.userId, venue.id, 'events')));
+    if (!canCreate) return res.status(403).json({ error: 'Not authorized' });
     const resolvedLocationCity = d.location_city || d.city || venue.city;
     if (!resolvedLocationCity) return res.status(400).json({ error: 'Invalid input' });
 
@@ -992,7 +1004,11 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       where: { id: req.params.id, deletedAt: null },
       include: { venue: true },
     });
-    if (!event || (event.venue.ownerUserId !== req.userId && !isStaff(req.userRole))) {
+    if (
+      !event ||
+      (!isStaff(req.userRole) &&
+        !(await staffHasVenuePermission(req.userId, event.venue.id, 'events')))
+    ) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const parsed = eventSchema.partial().safeParse(req.body);
@@ -1130,7 +1146,11 @@ router.delete('/:id', authenticateToken, async (req, res, next) => {
       where: { id: req.params.id, deletedAt: null },
       include: { venue: true },
     });
-    if (!event || (event.venue.ownerUserId !== req.userId && !isStaff(req.userRole))) {
+    if (
+      !event ||
+      (!isStaff(req.userRole) &&
+        !(await staffHasVenuePermission(req.userId, event.venue.id, 'events')))
+    ) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     await prisma.event.update({

@@ -7,6 +7,7 @@ import { notifyAdmins } from '../lib/adminNotify.js';
 import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
 import { welcomePromoterThread, promoterVenueThreadPath } from '../lib/promoterVenueThread.js';
+import { staffHasVenuePermission } from '../lib/access.js';
 
 const router = Router();
 const USER_HOURLY_LIMIT = 5;
@@ -57,19 +58,34 @@ async function canApplyToJobs(userId, role) {
 }
 
 async function getVenueOwnedByUser(venueId, userId) {
+  const ok = await staffHasVenuePermission(userId, venueId, 'jobs');
+  if (!ok) return null;
   return prisma.venue.findFirst({
-    where: { id: venueId, ownerUserId: userId, deletedAt: null },
+    where: { id: venueId, deletedAt: null },
     select: { id: true, name: true, owner: { select: { id: true, email: true, fullName: true } } },
   });
 }
 
-async function getOwnedJob(jobId, ownerUserId) {
-  return prisma.jobPosting.findFirst({
-    where: { id: jobId, venue: { ownerUserId, deletedAt: null } },
+async function getOwnedJob(jobId, userId) {
+  const job = await prisma.jobPosting.findFirst({
+    where: { id: jobId, venue: { deletedAt: null } },
     include: {
       venue: { select: { id: true, name: true, city: true, venueType: true, ownerUserId: true, owner: { select: { email: true, fullName: true } } } },
     },
   });
+  if (!job) return null;
+  const ok = await staffHasVenuePermission(userId, job.venueId, 'jobs');
+  return ok ? job : null;
+}
+
+async function getApplicationForBusinessUser(applicationId, userId, include = {}) {
+  const application = await prisma.jobApplication.findFirst({
+    where: { id: applicationId },
+    include,
+  });
+  if (!application?.jobPosting) return null;
+  const ok = await staffHasVenuePermission(userId, application.jobPosting.venueId, 'jobs');
+  return ok ? application : null;
 }
 
 function publicJobWhere(query = {}) {
@@ -310,8 +326,10 @@ router.get('/my-applications', authenticateToken, async (req, res, next) => {
 router.get('/:jobId', authenticateToken, async (req, res, next) => {
   try {
     if (req.params.jobId === 'public') return next();
+    const owned = await getOwnedJob(req.params.jobId, req.userId);
+    if (!owned) return res.status(403).json({ error: 'Forbidden' });
     const job = await prisma.jobPosting.findFirst({
-      where: { id: req.params.jobId, venue: { ownerUserId: req.userId, deletedAt: null } },
+      where: { id: req.params.jobId, venue: { deletedAt: null } },
       include: {
         venue: { select: { id: true, name: true, city: true, venueType: true } },
         applications: {
@@ -399,12 +417,9 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
     const parsed = schema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-    const application = await prisma.jobApplication.findFirst({
-      where: { id: req.params.applicationId, jobPosting: { venue: { ownerUserId: req.userId } } },
-      include: {
-        applicant: { select: { id: true, email: true, fullName: true } },
-        jobPosting: { include: { venue: { include: { owner: { select: { email: true, fullName: true } } } } } },
-      },
+    const application = await getApplicationForBusinessUser(req.params.applicationId, req.userId, {
+      applicant: { select: { id: true, email: true, fullName: true } },
+      jobPosting: { include: { venue: { include: { owner: { select: { email: true, fullName: true } } } } } },
     });
     if (!application) return res.status(403).json({ error: 'Forbidden' });
 
@@ -601,9 +616,9 @@ router.patch('/applications/:applicationId/status', authenticateToken, async (re
 
 router.patch('/applications/:applicationId/complete', authenticateToken, async (req, res, next) => {
   try {
-    const application = await prisma.jobApplication.findFirst({
-      where: { id: req.params.applicationId, jobPosting: { venue: { ownerUserId: req.userId } } },
-      include: { jobPosting: { select: { id: true, title: true } }, applicant: { select: { id: true } } },
+    const application = await getApplicationForBusinessUser(req.params.applicationId, req.userId, {
+      jobPosting: { select: { id: true, title: true } },
+      applicant: { select: { id: true } },
     });
     if (!application) return res.status(403).json({ error: 'Forbidden' });
     if (application.status !== 'HIRED') {
@@ -622,13 +637,16 @@ router.patch('/applications/:applicationId/complete', authenticateToken, async (
 
 router.get('/applications/:applicationId/cv', authenticateToken, async (req, res, next) => {
   try {
-    const application = await prisma.jobApplication.findFirst({
-      where: { id: req.params.applicationId, jobPosting: { venue: { ownerUserId: req.userId } } },
+    const application = await getApplicationForBusinessUser(req.params.applicationId, req.userId, {
+      jobPosting: { select: { venueId: true } },
+    });
+    if (!application) return res.status(403).json({ error: 'Forbidden' });
+    const cvRow = await prisma.jobApplication.findUnique({
+      where: { id: application.id },
       select: { id: true, cvUrl: true, cvFileName: true },
     });
     logger.info('CV access attempt', { applicationId: req.params.applicationId, accessedBy: req.userId, accessedAt: new Date().toISOString() });
-    if (!application) return res.status(403).json({ error: 'Forbidden' });
-    const raw = application.cvUrl;
+    const raw = cvRow?.cvUrl;
     const viewUrl = raw
       ? (privateDownloadUrl(raw) || signCloudinaryUrl(raw) || raw)
       : null;

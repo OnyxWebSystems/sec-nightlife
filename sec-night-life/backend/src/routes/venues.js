@@ -18,7 +18,7 @@ async function syncProfileFollowedVenues(userId, venueId, following) {
     data: { followedVenues: [...set] },
   });
 }
-import { isStaff } from '../lib/access.js';
+import { isStaff, getStaffAssignmentsForUser } from '../lib/access.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 import { sendEmail } from '../lib/email.js';
 
@@ -181,15 +181,37 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
  */
 router.get('/mine', authenticateToken, async (req, res, next) => {
   try {
-    const where = { deletedAt: null, ownerUserId: req.userId };
-    const venues = await prisma.venue.findMany({
-      where,
-      orderBy: { name: 'asc' },
-      take: 100,
-    });
-    const stats = await safeVenueReviewStatsByVenueIds(venues.map((v) => v.id));
-    const fcMap = await safeVenueFollowerCountMap(venues.map((v) => v.id));
-    const list = venues.map((v) => formatVenueListRow(v, stats, fcMap.get(v.id) ?? 0));
+    const [ownedVenues, staffAssignments] = await Promise.all([
+      prisma.venue.findMany({
+        where: { deletedAt: null, ownerUserId: req.userId },
+        orderBy: { name: 'asc' },
+        take: 100,
+      }),
+      getStaffAssignmentsForUser(req.userId),
+    ]);
+
+    const ownedIds = new Set(ownedVenues.map((v) => v.id));
+    const staffVenues = staffAssignments
+      .filter((row) => row.venue && !ownedIds.has(row.venue.id))
+      .map((row) => ({ venue: row.venue, permissions: row.permissions }));
+
+    const allVenueRows = [
+      ...ownedVenues.map((v) => ({ venue: v, isOwner: true, staffPermissions: null })),
+      ...staffVenues.map(({ venue, permissions }) => ({
+        venue,
+        isOwner: false,
+        staffPermissions: permissions,
+      })),
+    ];
+
+    const stats = await safeVenueReviewStatsByVenueIds(allVenueRows.map((r) => r.venue.id));
+    const fcMap = await safeVenueFollowerCountMap(allVenueRows.map((r) => r.venue.id));
+    const list = allVenueRows.map(({ venue, isOwner, staffPermissions }) => ({
+      ...formatVenueListRow(venue, stats, fcMap.get(venue.id) ?? 0),
+      is_owner: isOwner,
+      is_staff_access: !isOwner,
+      staff_permissions: staffPermissions,
+    }));
     res.json(list);
   } catch (err) {
     next(err);

@@ -9,7 +9,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
 import { requireVerified } from '../middleware/requireVerified.js';
-import { canAccessVenue } from '../lib/access.js';
+import { canAccessVenue, staffHasVenuePermission } from '../lib/access.js';
 import { computeReputation } from '../lib/reputation.js';
 
 const router = Router();
@@ -60,10 +60,8 @@ router.get('/venue/:venueId', authenticateToken, requireVerified, requireRole('A
 
     // SECURITY: VENUE role can only see their own venue analytics
     if (req.userRole === 'VENUE') {
-      const venue = await prisma.venue.findFirst({
-        where: { id: venueId, ownerUserId: req.userId, deletedAt: null }
-      });
-      if (!venue) return res.status(403).json({ error: 'Not authorized to view this venue analytics' });
+      const ok = await staffHasVenuePermission(req.userId, venueId, 'analytics');
+      if (!ok) return res.status(403).json({ error: 'Not authorized to view this venue analytics' });
     }
 
     const [events, tables, reviews] = await Promise.all([
@@ -183,8 +181,8 @@ router.get('/report', authenticateToken, requireRole('ADMIN', 'VENUE'), async (r
 
     const where = { createdAt: { gte: since } };
     if (venue_id && req.userRole === 'VENUE') {
-      const v = await prisma.venue.findFirst({ where: { id: venue_id, ownerUserId: req.userId } });
-      if (!v) return res.status(403).json({ error: 'Not authorized' });
+      const ok = await staffHasVenuePermission(req.userId, venue_id, 'analytics');
+      if (!ok) return res.status(403).json({ error: 'Not authorized' });
       where.venueId = venue_id;
     } else if (venue_id) {
       where.venueId = venue_id;

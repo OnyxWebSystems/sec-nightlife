@@ -1,8 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { asArray, createPageUrl } from '@/utils';
+import { asArray, buildPageUrl } from '@/utils';
 import { apiGet } from '@/api/client';
+import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import {
   LayoutDashboard,
   BarChart3,
@@ -38,6 +39,7 @@ function permLabel(key) {
 }
 
 export default function StaffDashboard() {
+  const activeVenueCtx = useActiveVenueOptional();
   const { data: assignmentsRaw, isLoading } = useQuery({
     queryKey: ['staff-venues'],
     queryFn: () => apiGet('/api/staff/venues'),
@@ -133,10 +135,22 @@ export default function StaffDashboard() {
                         const meta = PERM_PAGES[key];
                         if (!meta) return null;
                         const Icon = meta.icon;
+                        const venueId = venue.id || row.venueId;
+                        const linkParams =
+                          key === 'venue_page' && venueId
+                            ? { id: venueId, venue_id: venueId }
+                            : venueId
+                              ? { venue_id: venueId }
+                              : undefined;
                         return (
                           <Link
                             key={key}
-                            to={createPageUrl(meta.page)}
+                            to={buildPageUrl(meta.page, linkParams)}
+                            onClick={() => {
+                              if (venueId && activeVenueCtx?.setActiveVenueId) {
+                                activeVenueCtx.setActiveVenueId(String(venueId));
+                              }
+                            }}
                             className="flex items-center gap-3 p-3 rounded-xl transition-colors"
                             style={{
                               backgroundColor: 'var(--sec-bg-elevated)',

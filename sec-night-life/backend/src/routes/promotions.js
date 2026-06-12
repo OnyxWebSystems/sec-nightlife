@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { isStaff } from '../lib/access.js';
+import { isStaff, staffHasVenuePermission } from '../lib/access.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { sendEmail } from '../lib/email.js';
@@ -74,6 +74,10 @@ async function assertPromotionsAccess(req, res) {
     where: { ownerUserId: req.userId, deletedAt: null },
   });
   if (ownedCount > 0) return true;
+  const staffCount = await prisma.venueStaffAssignment.count({
+    where: { userId: req.userId, revokedAt: null },
+  });
+  if (staffCount > 0) return true;
   res.status(403).json({ error: 'Only business owners can perform this action' });
   return false;
 }
@@ -257,10 +261,12 @@ router.post('/', authenticateToken, async (req, res, next) => {
     if (endsAt > new Date(startsAt.getTime() + 30 * 24 * 60 * 60 * 1000)) return res.status(400).json({ error: 'Promotion duration cannot exceed 30 days' });
 
     const venue = await prisma.venue.findFirst({
-      where: { id: data.venueId, ownerUserId: req.userId, deletedAt: null },
+      where: { id: data.venueId, deletedAt: null },
       include: { owner: { select: { email: true } } },
     });
-    if (!venue) return res.status(403).json({ error: 'You can only create promotions for your own venue' });
+    if (!venue || !(await staffHasVenuePermission(req.userId, venue.id, 'promotions'))) {
+      return res.status(403).json({ error: 'You can only create promotions for venues you manage' });
+    }
 
     if (data.eventId) {
       const event = await prisma.event.findFirst({ where: { id: data.eventId, venueId: data.venueId, deletedAt: null } });
@@ -303,8 +309,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
 router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
   try {
     if (!(await assertPromotionsAccess(req, res))) return;
-    const venue = await prisma.venue.findFirst({ where: { id: req.params.venueId, ownerUserId: req.userId, deletedAt: null } });
-    if (!venue) return res.status(403).json({ error: 'Forbidden' });
+    const canView = await staffHasVenuePermission(req.userId, req.params.venueId, 'promotions');
+    if (!canView) return res.status(403).json({ error: 'Forbidden' });
 
     const now = new Date();
     await prisma.promotion.updateMany({
@@ -345,7 +351,7 @@ router.patch('/:promotionId', authenticateToken, async (req, res, next) => {
 
     const existing = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, include: { venue: true } });
     if (!existing) return res.status(404).json({ error: 'Promotion not found' });
-    if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (existing.venue.ownerUserId !== req.userId && !(await staffHasVenuePermission(req.userId, existing.venueId, 'promotions'))) return res.status(403).json({ error: 'Forbidden' });
     if (existing.status === 'ENDED') {
       return res.status(400).json({ error: 'Ended promotions cannot be edited. Delete or create a new promotion.' });
     }
@@ -400,7 +406,7 @@ router.delete('/:promotionId', authenticateToken, async (req, res, next) => {
     if (!(await assertPromotionsAccess(req, res))) return;
     const existing = await prisma.promotion.findFirst({ where: { id: req.params.promotionId, deletedAt: null }, include: { venue: true } });
     if (!existing) return res.status(404).json({ error: 'Promotion not found' });
-    if (existing.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (existing.venue.ownerUserId !== req.userId && !(await staffHasVenuePermission(req.userId, existing.venueId, 'promotions'))) return res.status(403).json({ error: 'Forbidden' });
 
     await prisma.promotion.update({
       where: { id: existing.id },
@@ -454,7 +460,7 @@ router.post('/:promotionId/confirm-publish', authenticateToken, async (req, res,
       include: { venue: true },
     });
     if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
-    if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (promotion.venue.ownerUserId !== req.userId && !(await staffHasVenuePermission(req.userId, promotion.venueId, 'promotions'))) return res.status(403).json({ error: 'Forbidden' });
 
     const payment = await prisma.payment.findUnique({
       where: { reference: parsed.data.reference },
@@ -526,7 +532,7 @@ router.post('/:promotionId/sync-publish', authenticateToken, async (req, res, ne
       include: { venue: true },
     });
     if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
-    if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (promotion.venue.ownerUserId !== req.userId && !(await staffHasVenuePermission(req.userId, promotion.venueId, 'promotions'))) return res.status(403).json({ error: 'Forbidden' });
     if (!['DRAFT', 'ENDED'].includes(promotion.status)) {
       return res.json({
         ok: true,
@@ -616,7 +622,7 @@ router.post('/:promotionId/checkout', authenticateToken, async (req, res, next) 
       include: { venue: true },
     });
     if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
-    if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (promotion.venue.ownerUserId !== req.userId && !(await staffHasVenuePermission(req.userId, promotion.venueId, 'promotions'))) return res.status(403).json({ error: 'Forbidden' });
     if (promotion.status !== 'DRAFT') {
       return res.status(400).json({ error: 'Only draft promotions can be published from checkout. Create a new promotion to run again.' });
     }
@@ -720,7 +726,7 @@ router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => 
       include: { venue: true },
     });
     if (!promotion) return res.status(404).json({ error: 'Promotion not found' });
-    if (promotion.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (promotion.venue.ownerUserId !== req.userId && !(await staffHasVenuePermission(req.userId, promotion.venueId, 'promotions'))) return res.status(403).json({ error: 'Forbidden' });
     if (!['ACTIVE', 'PAUSED'].includes(promotion.status)) {
       return res.status(400).json({ error: 'Only live or paused promotions can be boosted' });
     }
