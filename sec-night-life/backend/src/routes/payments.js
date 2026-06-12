@@ -1240,7 +1240,8 @@ async function applyReferenceSideEffects(reference, paystackData) {
         : null;
       const entranceZar = Number(metadata.entrance_zar || getEventEntranceZar(htEvent));
       const joinZar = Number(metadata.join_zar ?? member?.hostedTable?.joiningFee ?? 0) || 0;
-      const expected = entranceZar + joinZar;
+      const menuZar = Number(metadata.menu_zar || metadata.menu_total_zar || 0) || 0;
+      const expected = entranceZar + joinZar + menuZar;
       if (
         member &&
         member.paystackReference !== reference &&

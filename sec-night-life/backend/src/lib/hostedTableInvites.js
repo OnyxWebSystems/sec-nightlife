@@ -61,3 +61,26 @@ export async function countPendingTableInvitesForTable(db, hostedTableId) {
   const map = await countPendingTableInvites(db, { hostedTableIds: [hostedTableId] });
   return map[hostedTableId] ?? 0;
 }
+
+/** Guest slots left for new invites (host counts as one seat). */
+export async function remainingInviteSlotsForTable(db, table) {
+  if (!table?.id) return 0;
+  const guestCapacity = Math.max(1, Number(table.guestQuantity) || 1);
+  const maxGuestSlots = Math.max(0, guestCapacity - 1);
+  let goingGuests = 0;
+  if (Array.isArray(table.members)) {
+    goingGuests = table.members.filter(
+      (m) => m.status === 'GOING' && m.userId !== table.hostUserId,
+    ).length;
+  } else {
+    goingGuests = await db.hostedTableMember.count({
+      where: {
+        hostedTableId: table.id,
+        status: 'GOING',
+        userId: { not: table.hostUserId },
+      },
+    });
+  }
+  const pendingInvites = await countPendingTableInvitesForTable(db, table.id);
+  return Math.max(0, maxGuestSlots - goingGuests - pendingInvites);
+}

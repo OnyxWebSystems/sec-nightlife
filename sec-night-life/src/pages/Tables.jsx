@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { apiGet } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Search, Plus, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { Users, Search, Plus, ChevronDown, ChevronUp, Sparkles, Crown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TableOfferingCard from '@/components/home/TableOfferingCard';
 
@@ -19,6 +19,18 @@ function getOrCreateSessionId() {
   } catch {
     return `sess_${Date.now()}`;
   }
+}
+
+function offeringHasVip(offering) {
+  if (offering?.hasVip) return true;
+  const items = [...(offering.tiers || []), ...(offering.tables || [])];
+  return items.some(
+    (t) =>
+      t.isVip === true ||
+      t.tableCategory === 'vip' ||
+      t.hostingCategory === 'VIP' ||
+      /vip/i.test(String(t.label || t.tableName || '')),
+  );
 }
 
 export default function Tables() {
@@ -38,18 +50,20 @@ export default function Tables() {
 
   const offerings = (data?.items || []).filter((o) => {
     const q = searchQuery.trim().toLowerCase();
-    if (filter === 'vip' && !String(o.subtitle || '').toLowerCase().includes('vip')) return false;
+    if (filter === 'vip' && !offeringHasVip(o)) return false;
     if (!q) return true;
     return (
       (o.title || '').toLowerCase().includes(q) ||
       (o.subtitle || '').toLowerCase().includes(q) ||
       (o.city || '').toLowerCase().includes(q) ||
-      (o.hostName || '').toLowerCase().includes(q)
+      (o.hostName || '').toLowerCase().includes(q) ||
+      (o.tiers || []).some((t) => String(t.label || t.tableName || '').toLowerCase().includes(q)) ||
+      (o.tables || []).some((t) => String(t.tableName || '').toLowerCase().includes(q))
     );
   });
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#0A0A0B', paddingBottom: 100 }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 100 }}>
       <header
         style={{
           padding: '20px 20px 12px',
@@ -58,17 +72,25 @@ export default function Tables() {
           position: 'sticky',
           top: 0,
           zIndex: 30,
-          background: 'linear-gradient(180deg, #0A0A0B 85%, transparent)',
+          background: 'linear-gradient(180deg, var(--sec-bg-base) 85%, transparent)',
         }}
       >
-        <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.03em', color: '#fff' }}>Tables</h1>
+        <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--sec-text-primary)' }}>
+          Tables
+        </h1>
         <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>
           Curated venue tables and community hosts — find your spot tonight.
         </p>
         <div className="relative mt-4">
           <Search
             size={16}
-            style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }}
+            style={{
+              position: 'absolute',
+              left: 12,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'var(--sec-text-muted)',
+            }}
           />
           <input
             type="search"
@@ -77,17 +99,17 @@ export default function Tables() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full h-11 pl-10 pr-3 rounded-xl border text-sm"
             style={{
-              backgroundColor: '#121214',
-              borderColor: 'rgba(212,175,55,0.15)',
+              backgroundColor: 'var(--sec-bg-card)',
+              borderColor: 'var(--sec-border)',
               color: 'var(--sec-text-primary)',
             }}
           />
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
           {[
-            ['all', 'All'],
-            ['vip', 'VIP'],
-          ].map(([key, label]) => (
+            ['all', 'All', null],
+            ['vip', 'VIP', Crown],
+          ].map(([key, label, Icon]) => (
             <button
               key={key}
               type="button"
@@ -95,13 +117,18 @@ export default function Tables() {
               style={{
                 fontSize: 12,
                 fontWeight: 600,
-                padding: '6px 12px',
+                padding: '6px 14px',
                 borderRadius: 999,
-                border: filter === key ? '1px solid rgba(212,175,55,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                background: filter === key ? 'rgba(212,175,55,0.12)' : 'transparent',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                border:
+                  filter === key ? '1px solid var(--sec-accent-border)' : '1px solid var(--sec-border)',
+                background: filter === key ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
                 color: filter === key ? 'var(--sec-accent)' : 'var(--sec-text-muted)',
               }}
             >
+              {Icon ? <Icon size={13} /> : null}
               {label}
             </button>
           ))}
@@ -117,18 +144,20 @@ export default function Tables() {
             style={{
               textAlign: 'center',
               padding: 48,
-              border: '1px solid rgba(212,175,55,0.12)',
-              background: 'linear-gradient(180deg, #141416, #101012)',
+              border: '1px solid var(--sec-border)',
+              background: 'var(--sec-bg-card)',
             }}
           >
             <Users size={36} style={{ margin: '0 auto 12px', opacity: 0.35, color: 'var(--sec-accent)' }} />
             <p style={{ color: 'var(--sec-text-muted)', fontSize: 15 }}>No open tables match your search.</p>
-            <p style={{ color: 'var(--sec-text-muted)', fontSize: 12, marginTop: 8 }}>Try a different filter or host your own.</p>
+            <p style={{ color: 'var(--sec-text-muted)', fontSize: 12, marginTop: 8 }}>
+              Try a different filter or host your own.
+            </p>
             <Link
-              to={createPageUrl('HostDashboard')}
-              className="sec-btn sec-btn-primary mt-5 inline-flex"
-              style={{ background: 'linear-gradient(135deg, #c9a227, #d4af37)', color: '#000' }}
+              to={`${createPageUrl('HostDashboard')}?create=table`}
+              className="sec-btn sec-btn-primary mt-5 inline-flex items-center gap-2"
             >
+              <Plus size={16} />
               Host a table
             </Link>
           </div>
@@ -142,14 +171,16 @@ export default function Tables() {
                 transition={{ delay: i * 0.03, duration: 0.25 }}
               >
                 <div
-                  className="overflow-hidden"
+                  className="sec-card overflow-hidden"
                   style={{
                     borderRadius: 16,
-                    background: 'linear-gradient(180deg, #141416 0%, #101012 100%)',
+                    background: offering.boosted
+                      ? 'linear-gradient(160deg, var(--sec-bg-elevated) 0%, var(--sec-bg-card) 100%)'
+                      : 'var(--sec-bg-card)',
                     border: offering.boosted
-                      ? '1px solid rgba(212,175,55,0.45)'
-                      : '1px solid rgba(255,255,255,0.06)',
-                    boxShadow: offering.boosted ? '0 8px 32px rgba(212,175,55,0.08)' : undefined,
+                      ? '1px solid var(--sec-accent-border)'
+                      : '1px solid var(--sec-border)',
+                    boxShadow: offering.boosted ? 'var(--shadow-card)' : undefined,
                   }}
                 >
                   <button
@@ -158,10 +189,40 @@ export default function Tables() {
                     onClick={() => setExpandedId(expandedId === offering.id ? null : offering.id)}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <p style={{ fontWeight: 600, fontSize: 15, color: '#fff' }}>{offering.title}</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <p style={{ fontWeight: 600, fontSize: 15, color: 'var(--sec-text-primary)' }}>
+                          {offering.title}
+                        </p>
+                        {offeringHasVip(offering) && (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              letterSpacing: '0.06em',
+                              textTransform: 'uppercase',
+                              color: 'var(--sec-accent)',
+                              background: 'var(--sec-accent-muted)',
+                              border: '1px solid var(--sec-accent-border)',
+                              borderRadius: 999,
+                              padding: '2px 8px',
+                            }}
+                          >
+                            <Crown size={11} /> VIP
+                          </span>
+                        )}
                         {offering.boosted && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--sec-accent)' }}>
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontSize: 10,
+                              color: 'var(--sec-accent)',
+                            }}
+                          >
                             <Sparkles size={12} /> Promoted
                           </span>
                         )}
@@ -176,15 +237,20 @@ export default function Tables() {
                             fontWeight: 600,
                             padding: '3px 8px',
                             borderRadius: 999,
-                            background: 'rgba(212,175,55,0.1)',
+                            background: 'var(--sec-accent-muted)',
                             color: 'var(--sec-accent)',
+                            border: '1px solid var(--sec-accent-border)',
                           }}
                         >
                           {offering.totalSpots} spots left
                         </span>
                       )}
                     </div>
-                    {expandedId === offering.id ? <ChevronUp size={18} color="var(--sec-accent)" /> : <ChevronDown size={18} />}
+                    {expandedId === offering.id ? (
+                      <ChevronUp size={18} color="var(--sec-accent)" />
+                    ) : (
+                      <ChevronDown size={18} color="var(--sec-text-muted)" />
+                    )}
                   </button>
                   <AnimatePresence initial={false}>
                     {expandedId === offering.id ? (
@@ -208,15 +274,17 @@ export default function Tables() {
                               fontSize: 11,
                               padding: '4px 10px',
                               borderRadius: 999,
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.06)',
+                              background: 'var(--sec-bg-elevated)',
+                              border: '1px solid var(--sec-border)',
                               color: 'var(--sec-text-secondary)',
                             }}
                           >
                             {t.label || t.tableName}
                           </span>
                         ))}
-                        <span style={{ fontSize: 11, color: 'var(--sec-accent)', fontWeight: 600 }}>Tap to expand</span>
+                        <span style={{ fontSize: 11, color: 'var(--sec-accent)', fontWeight: 600 }}>
+                          Tap to expand
+                        </span>
                       </div>
                     )}
                   </AnimatePresence>
@@ -229,22 +297,25 @@ export default function Tables() {
 
       <Link
         to={`${createPageUrl('HostDashboard')}?create=table`}
+        className="sec-btn sec-btn-primary"
         style={{
           position: 'fixed',
           bottom: 88,
           right: 20,
-          width: 54,
-          height: 54,
-          borderRadius: '50%',
-          background: 'linear-gradient(135deg, #c9a227, #d4af37)',
-          display: 'flex',
+          display: 'inline-flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 8px 24px rgba(212,175,55,0.25)',
+          gap: 8,
+          padding: '12px 18px',
+          borderRadius: 999,
+          fontSize: 14,
+          fontWeight: 600,
+          boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
+          zIndex: 40,
         }}
         aria-label="Host a table"
       >
-        <Plus size={22} color="#000" />
+        <Plus size={18} />
+        Host a table
       </Link>
     </div>
   );

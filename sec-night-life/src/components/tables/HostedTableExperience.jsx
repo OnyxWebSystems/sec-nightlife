@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl, getStoredPromoterRef } from '@/utils';
 import { apiPost } from '@/api/client';
@@ -82,6 +82,7 @@ export default function HostedTableExperience({
   user,
   userProfile,
   onBack,
+  autoOpenJoin = false,
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -103,6 +104,11 @@ export default function HostedTableExperience({
   const venueMenu = hostedTable.venue_menu || [];
   const goingMembers = (hostedTable.members || []).filter((m) => m.status === 'GOING');
   const mapQuery = hostedTable.resolvedAddress || hostedTable.venueAddress || hostedTable.venueName || '';
+
+  useEffect(() => {
+    if (!autoOpenJoin || isHost || isGoingMember) return;
+    setJoinWizardOpen(true);
+  }, [autoOpenJoin, isHost, isGoingMember]);
 
   const invalidateTableQueries = () => {
     queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
@@ -135,12 +141,13 @@ export default function HostedTableExperience({
         return;
       }
       if (r?.pendingPayment && r?.reference && r?.access_code) {
-        const amount = Number(r.amount_zar ?? totalOnline ?? 0);
+        const amount = Number(r.amount_zar ?? r.amount ?? totalOnline ?? 0);
         launchPaystackInline({
           email: user?.email,
           amount,
           reference: r.reference,
           accessCode: r.access_code,
+          authorizationUrl: r.authorization_url,
           onSuccess: async (payload) => {
             await completePaystackCheckout({ reference: r.reference, payload, queryClient });
             invalidateTableQueries();
@@ -179,6 +186,7 @@ export default function HostedTableExperience({
           amount: Number(r.amount_zar ?? 0),
           reference: r.reference,
           accessCode: r.access_code,
+          authorizationUrl: r.authorization_url,
           onSuccess: async (payloadRef) => {
             await completePaystackCheckout({ reference: r.reference, payload: payloadRef, queryClient, showToasts: false });
             invalidateTableQueries();
@@ -566,6 +574,7 @@ export default function HostedTableExperience({
           name: hostedTable.tableName,
           members: (hostedTable.members || []).map((m) => ({ user_id: m.userId, userId: m.userId })),
         }}
+        maxInvites={hostedTable.invite_slots_remaining ?? hostedTable.stats?.invite_slots_remaining}
         source="hosted"
       />
     </div>

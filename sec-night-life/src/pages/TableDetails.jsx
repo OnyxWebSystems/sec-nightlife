@@ -111,6 +111,19 @@ export default function TableDetails() {
     enabled: !!tableId,
   });
 
+  const { data: venueTable, isLoading: venueLoading } = useQuery({
+    queryKey: ['venue-table', tableId],
+    queryFn: async () => {
+      try {
+        return await apiGet(`/api/venue-tables/${tableId}`);
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!tableId && isVenueSource,
+    retry: false,
+  });
+
   const { data: hostedTable, isLoading: hostedLoading } = useQuery({
     queryKey: ['hosted-table-detail', tableId],
     queryFn: async () => {
@@ -122,14 +135,10 @@ export default function TableDetails() {
     },
     enabled:
       !!tableId &&
-      !isVenueSource &&
-      (source === 'hosted' || (!isLoading && !table)),
+      (source === 'hosted' ||
+        (!isVenueSource && !isLoading && !table) ||
+        (isVenueSource && !venueLoading && !venueTable)),
     retry: false,
-  });
-  const { data: venueTable, isLoading: venueLoading } = useQuery({
-    queryKey: ['venue-table', tableId],
-    queryFn: () => apiGet(`/api/venue-tables/${tableId}`),
-    enabled: !!tableId && isVenueSource,
   });
 
   const venueBookingMode = useMemo(() => {
@@ -138,6 +147,17 @@ export default function TableDetails() {
     if (venueTable?.isCustomListing || specs?.guestCount) return 'custom_host';
     return 'join';
   }, [bookingModeParam, venueTable?.myMembership?.userSpecs, venueTable?.isCustomListing]);
+
+  useEffect(() => {
+    if (!isVenueSource || venueLoading || !venueTable) return;
+    const isJoinMode = bookingModeParam === 'join' || (!bookingModeParam && venueBookingMode === 'join');
+    if (isJoinMode && venueTable.hostedTableId) {
+      navigate(
+        `${createPageUrl('TableDetails')}?id=${encodeURIComponent(venueTable.hostedTableId)}&source=hosted&join=1`,
+        { replace: true },
+      );
+    }
+  }, [isVenueSource, venueLoading, venueTable, bookingModeParam, venueBookingMode, navigate]);
 
   const [venueSettlementMode, setVenueSettlementMode] = useState(() =>
     settlementParam === 'PREPAY_LUMP' ? 'PREPAY_LUMP' : 'PREPAY_MENU',
@@ -273,9 +293,10 @@ export default function TableDetails() {
       if (pay?.reference && pay?.access_code) {
         await launchPaystackInline({
           email: user?.email,
-          amount: pay?.amount || 0,
+          amount: pay?.amount || pay?.amount_zar || 0,
           reference: pay.reference,
           accessCode: pay.access_code,
+          authorizationUrl: pay.authorization_url,
           onSuccess: async (payload) => {
             await completePaystackCheckout({
               reference: pay.reference,
@@ -475,7 +496,26 @@ export default function TableDetails() {
       );
     }
     if (!venueTable) {
-      return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Venue table not found</div>;
+      if (hostedLoading) {
+        return (
+          <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
+            <div className="sec-spinner" />
+          </div>
+        );
+      }
+      if (hostedTable?.kind === 'hosted') {
+        return (
+          <HostedTableExperience
+            tableId={tableId}
+            hostedTable={hostedTable}
+            user={user}
+            userProfile={userProfile}
+            autoOpenJoin={autoJoin === '1' || autoJoin === 'true'}
+            onBack={() => navigate(-1)}
+          />
+        );
+      }
+      return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', backgroundColor: 'var(--sec-bg-base)' }}>Venue table not found</div>;
     }
     const includedSeed = {};
     for (const inc of venueTable.includedItems || []) {
@@ -668,14 +708,27 @@ export default function TableDetails() {
           <>
             <button
               type="button"
-              className="sec-btn sec-btn-ghost"
-              style={{ marginTop: 14, marginBottom: 8 }}
+              className="sec-btn"
+              style={{
+                marginTop: 14,
+                marginBottom: 12,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 16px',
+                borderRadius: 12,
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--sec-accent)',
+                background: 'var(--sec-accent-muted)',
+                border: '1px solid var(--sec-accent-border)',
+              }}
               onClick={() => {
                 setVenueCheckoutStep('menu');
                 setVenueSettlementMode('PREPAY_MENU');
               }}
             >
-              ← Edit menu
+              ← Edit menu selection
             </button>
             <CheckoutCart
               lines={checkoutLines}
@@ -843,6 +896,7 @@ export default function TableDetails() {
         hostedTable={hostedTable}
         user={user}
         userProfile={userProfile}
+        autoOpenJoin={autoJoin === '1' || autoJoin === 'true'}
         onBack={() => navigate(-1)}
       />
     );

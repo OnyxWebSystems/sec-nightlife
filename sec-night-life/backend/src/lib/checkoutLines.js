@@ -73,8 +73,10 @@ export function linesFromLegacyMetadata(metadata) {
   if (type === 'HOSTED_TABLE_JOIN') {
     const entrance = Number(metadata.entrance_zar || 0);
     const join = Number(metadata.joining_fee_zar || metadata.join_fee_zar || metadata.join_zar || 0);
+    const menu = Number(metadata.menu_zar || metadata.menu_total_zar || 0);
     if (entrance > 0) lines.push(line('entrance', 'Entrance fee', entrance));
     if (join > 0) lines.push(line('joining_fee', 'Joining fee', join));
+    if (menu > 0) lines.push(line('menu', 'Menu', menu));
     return lines;
   }
 

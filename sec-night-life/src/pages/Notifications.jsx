@@ -217,7 +217,16 @@ export default function Notifications() {
 
     if (t === 'TABLE_INVITE' || t === 'table_invite') {
       const id = extractTableIdFromNotification(n, actionUrl);
-      if (id) return buildPageUrl('TableDetails', { id, source: 'venue' });
+      if (id) {
+        const isHostedInvite =
+          n.referenceType === 'TABLE_INVITE' ||
+          n.referenceType === 'HOSTED_TABLE' ||
+          !n.referenceType;
+        if (isHostedInvite) {
+          return buildPageUrl('TableDetails', { id, source: 'hosted', join: '1' });
+        }
+        return buildPageUrl('TableDetails', { id, source: 'venue' });
+      }
     }
     if (t === 'EVENT_INTEREST_REMINDER' && n.referenceId) {
       return `${createPageUrl('EventDetails')}?id=${n.referenceId}`;

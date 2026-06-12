@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import {
   Dialog,
   DialogContent,
@@ -40,7 +40,8 @@ export default function HostedTableJoinWizard({
     onConfirm?.(payload);
   };
 
-  const payTotal = totalOnline > 0 ? totalOnline : entranceZar + joinZar;
+  const menuTotal = menuSelectionChargeableTotal(venueMenu, menuSelected);
+  const payTotal = (totalOnline > 0 ? totalOnline : entranceZar + joinZar) + menuTotal;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -106,10 +107,11 @@ export default function HostedTableJoinWizard({
                 <span>R{joinZar.toFixed(0)}</span>
               </div>
             )}
-            {Object.keys(menuSelected).length > 0 && (
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
-                Menu items selected — included on your table pass.
-              </p>
+            {menuTotal > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-[var(--sec-text-muted)]">Menu items</span>
+                <span>R{menuTotal.toFixed(0)}</span>
+              </div>
             )}
             {payTotal > 0 && (
               <div className="flex justify-between font-bold text-base pt-2 border-t border-[var(--sec-border)]">

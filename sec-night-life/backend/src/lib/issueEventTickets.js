@@ -250,8 +250,10 @@ export async function issueEventTicketsFromPayment(db, {
         description: 'joined an event',
       });
       await upsertConfirmedAttendance(userId, event.id);
-      const { addUserToEventGroupChat } = await import('./groupChatHelpers.js');
-      await addUserToEventGroupChat(event.id, userId, event.title);
+      if (event.eventFormat !== 'TICKETING_ONLY') {
+        const { addUserToEventGroupChat } = await import('./groupChatHelpers.js');
+        await addUserToEventGroupChat(event.id, userId, event.title);
+      }
 
       await createNotification({
         userId: event.venue?.ownerUserId,

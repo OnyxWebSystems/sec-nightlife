@@ -29,6 +29,7 @@ import {
   reconcileTableInvitesOnLeave,
   countPendingTableInvites,
   countPendingTableInvitesForTable,
+  remainingInviteSlotsForTable,
 } from '../lib/hostedTableInvites.js';
 import {
   resolveVenueMenuSelections,
@@ -464,6 +465,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       : null;
     const goingMembers = t.members.filter((m) => m.status === 'GOING');
     const pendingInviteCount = await countPendingTableInvitesForTable(prisma, t.id);
+    const inviteSlotsRemaining = await remainingInviteSlotsForTable(prisma, t);
     const membersWithMenu = await resolveMemberMenuLines(t.members, venueId);
     const hostMember = membersWithMenu.find((m) => m.userId === t.hostUserId) || null;
     const menuProgress =
@@ -503,7 +505,9 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
         member_count: goingMembers.length,
         pending_invite_count: pendingInviteCount,
         guest_capacity: t.guestQuantity,
+        invite_slots_remaining: inviteSlotsRemaining,
       },
+      invite_slots_remaining: inviteSlotsRemaining,
       spotsRemaining: t.spotsRemaining,
       guestQuantity: t.guestQuantity,
       hasJoiningFee: t.hasJoiningFee,
@@ -2175,7 +2179,10 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
         return res.status(400).json({ error: 'Already a member' });
       }
     }
-    if (!t.isPublic) {
+    const pendingInvite = await prisma.tableInvite.findFirst({
+      where: { hostedTableId: t.id, inviteeUserId: req.userId, status: 'PENDING' },
+    });
+    if (!t.isPublic && !pendingInvite) {
       if (t.spotsRemaining <= 0) return res.status(400).json({ error: 'Table not available' });
       if (!existing) {
         await prisma.hostedTableMember.create({
@@ -2212,7 +2219,9 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
     }
     const entranceZarJoin = getEventEntranceZar(joinEvent);
     const joinZarJoin = t.hasJoiningFee && Number(t.joiningFee || 0) > 0 ? Number(t.joiningFee) : 0;
-    if (entranceZarJoin + joinZarJoin > 0) {
+    const menuZarJoin = Number(menuResolved.totalZar || 0);
+    const payZarJoin = entranceZarJoin + joinZarJoin + menuZarJoin;
+    if (payZarJoin > 0) {
       let memberId;
       if (!existing) {
         const member = await prisma.hostedTableMember.create({
@@ -2237,7 +2246,7 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       }
       const pay = await initializePaystackPayment({
         userId: req.userId,
-        amountZar: entranceZarJoin + joinZarJoin,
+        amountZar: payZarJoin,
         metadata: {
           type: 'HOSTED_TABLE_JOIN',
           hosted_table_id: t.id,
@@ -2246,13 +2255,14 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           venue_id: joinEvent?.venueId || null,
           entrance_zar: entranceZarJoin,
           join_zar: joinZarJoin,
-          amount_total_zar: entranceZarJoin + joinZarJoin,
+          menu_zar: menuZarJoin,
+          amount_total_zar: payZarJoin,
           user_id: req.userId,
           selected_menu_items: menuResolved.items.length ? menuResolved.items : undefined,
           ...promoterMetaFromBody(req.body),
         },
       });
-      return res.json({ joined: false, pendingPayment: true, ...pay });
+      return res.json({ joined: false, pendingPayment: true, amount_zar: payZarJoin, ...pay });
     }
     if (t.spotsRemaining <= 0) return res.status(400).json({ error: 'Table not available' });
     if (existing && !(resurrectedFromCancelled && existing.status === 'PENDING')) {
@@ -2446,6 +2456,10 @@ router.post('/tables/:tableId/invite', authenticateToken, async (req, res, next)
       where: { hostedTableId_inviteeUserId: { hostedTableId: table.id, inviteeUserId } },
     });
     if (pendingInv?.status === 'PENDING') return res.status(400).json({ error: 'Invite already pending' });
+    const inviteSlotsLeft = await remainingInviteSlotsForTable(prisma, table);
+    if (inviteSlotsLeft <= 0) {
+      return res.status(400).json({ error: 'No invite slots remaining for this table' });
+    }
     if (pendingInv && (pendingInv.status === 'ACCEPTED' || pendingInv.status === 'DECLINED')) {
       const inv = await prisma.tableInvite.update({
         where: { id: pendingInv.id },
@@ -2580,6 +2594,41 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
       where: { id: req.userId },
       include: { userProfile: { select: { username: true } } },
     });
+    const hostUser = await prisma.user.findUnique({
+      where: { id: table.hostUserId },
+      select: { fullName: true, username: true, userProfile: { select: { username: true } } },
+    });
+    const payer = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+    });
+    const memberRow = await prisma.hostedTableMember.findUnique({
+      where: { hostedTableId_userId: { hostedTableId: table.id, userId: req.userId } },
+    });
+    const freeRef = `hosted-invite-free-${memberRow?.id || inv.id}`;
+    const joinSummary = buildHostedTableJoinTicketSummary({
+      hostedTable: table,
+      hostUser,
+      entranceZar: 0,
+      joinZar: 0,
+      menuItems: [],
+    });
+    await issueTicketAndNotify(prisma, {
+      userId: req.userId,
+      email: payer?.email,
+      paystackReference: freeRef,
+      kind: 'HOSTED_TABLE_JOIN',
+      title: `${table.tableName} — Join ticket`,
+      subtitle: table.venueName,
+      visibleUntil: visibleUntilAfterHostedTable(table),
+      hostedTableId: table.id,
+      eventId: table.eventId || null,
+      quantity: 1,
+      holderDisplayName: holderDisplayNameFromUser(payer),
+      tableSpecsSummary: joinSummary,
+      eventStartsAt: inviteEvent ? eventStartsAtFromEvent(inviteEvent) : eventStartsAtFromHostedTable(table),
+      eventEndsAt: inviteEvent ? eventEndsAtFromEvent(inviteEvent) : null,
+    });
     const un = invitee?.userProfile?.username || invitee?.username || 'someone';
     await createInAppNotification({
       userId: table.hostUserId,
@@ -2588,6 +2637,14 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
       body: `@${un} accepted your table invite`,
       referenceId: table.id,
       referenceType: 'HOSTED_TABLE',
+    });
+    recordTableHistory({
+      userId: req.userId,
+      role: 'JOINED',
+      hostedTableId: table.id,
+      eventId: table.eventId || inviteEvent?.id || null,
+      tableName: table.tableName,
+      eventTitle: inviteEvent?.title || null,
     });
     const updated = await prisma.tableInvite.findUnique({ where: { id: inv.id } });
     res.json(updated);

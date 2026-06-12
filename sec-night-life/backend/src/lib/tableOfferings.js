@@ -199,15 +199,20 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
   for (const t of openVenueRows) {
     if (t.isCustomListing && !t.allowsCustomRequests) continue;
     const spots = Math.max(0, t.guestCapacity - t.currentOccupancy);
+    const tierLabel = t.tierLabel || t.tableName;
+    const isVip =
+      t.tableCategory === 'vip' || /vip/i.test(String(tierLabel || t.tableName || ''));
     const tier = {
       tableId: t.id,
-      label: t.tierLabel || t.tableName,
+      label: tierLabel,
       tableName: t.tableName,
       minSpend: t.minimumSpend,
       bookingFeeZar: t.bookingFeeZar,
       spotsRemaining: spots,
       isCustomListing: t.isCustomListing,
       allowsCustomRequests: t.allowsCustomRequests,
+      tableCategory: t.tableCategory,
+      isVip,
     };
 
     if (t.eventId && t.event) {
@@ -238,6 +243,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
       g.tiers.push(tier);
       g.totalSpots += spots;
       g.tableCount += 1;
+      if (isVip) g.hasVip = true;
       const bf = Number(t.bookingFeeZar || 0);
       if (bf > 0 && (g.minBookingFeeZar == null || bf < g.minBookingFeeZar)) {
         g.minBookingFeeZar = bf;
@@ -270,6 +276,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
         g.totalSpots += spots;
       }
       g.tableCount += 1;
+      if (isVip) g.hasVip = true;
       const bf = Number(t.bookingFeeZar || 0);
       if (bf > 0 && (g.minBookingFeeZar == null || bf < g.minBookingFeeZar)) {
         g.minBookingFeeZar = bf;
@@ -282,6 +289,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
 
   for (const t of hostedRows) {
     const spots = t.spotsRemaining;
+    const isVipHosted = t.hostingCategory === 'VIP';
     const tableSummary = {
       id: t.id,
       tableName: t.tableName,
@@ -291,6 +299,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
       joiningFee: t.joiningFee,
       isPublic: t.isPublic,
       hostingCategory: t.hostingCategory,
+      isVip: isVipHosted,
       photo: t.photo,
     };
     const boosted = isBoostActive(t);
@@ -324,6 +333,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
       g.tables.push(tableSummary);
       g.totalSpots += spots;
       g.tableCount += 1;
+      if (isVipHosted) g.hasVip = true;
       if (boosted) {
         g.boosted = true;
         if (t.photo) g.imageUrl = t.photo;
@@ -361,6 +371,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
         g.tables.push(tableSummary);
         g.totalSpots += spots;
         g.tableCount += 1;
+        if (isVipHosted) g.hasVip = true;
         if (boosted) {
           g.boosted = true;
           if (t.photo) g.imageUrl = t.photo;

@@ -24,7 +24,7 @@ function useDebouncedValue(value, delay = 300) {
   return debounced;
 }
 
-export default function InviteFriendsDialog({ open, onOpenChange, table, event, source = 'legacy' }) {
+export default function InviteFriendsDialog({ open, onOpenChange, table, event, source = 'legacy', maxInvites = null }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -122,6 +122,9 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event, 
 
   const inviteMutation = useMutation({
     mutationFn: async () => {
+      if (inviteCap != null && selectedFriends.length > inviteCap) {
+        throw new Error(`You can only invite ${inviteCap} guest${inviteCap === 1 ? '' : 's'}`);
+      }
       if (source === 'hosted') {
         for (const friendId of selectedFriends) {
           await apiPost(`/api/host/tables/${table.id}/invite`, { inviteeUserId: friendId });
@@ -143,10 +146,17 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event, 
     },
   });
 
+  const inviteCap = maxInvites != null && Number.isFinite(Number(maxInvites)) ? Math.max(0, Number(maxInvites)) : null;
+
   const toggleFriend = (friendId) => {
-    setSelectedFriends((prev) =>
-      prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId],
-    );
+    setSelectedFriends((prev) => {
+      if (prev.includes(friendId)) return prev.filter((id) => id !== friendId);
+      if (inviteCap != null && prev.length >= inviteCap) {
+        toast.error(`You can only invite ${inviteCap} more guest${inviteCap === 1 ? '' : 's'}`);
+        return prev;
+      }
+      return [...prev, friendId];
+    });
   };
 
   const genderLabel = (value) =>
@@ -159,6 +169,7 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event, 
           <DialogTitle className="text-[var(--sec-text-primary)]">Invite to table</DialogTitle>
           <DialogDescription>
             Search users or pick friends for {table?.name || table?.tableName || 'this table'}
+            {inviteCap != null ? ` · ${inviteCap} invite slot${inviteCap === 1 ? '' : 's'} left` : ''}
           </DialogDescription>
         </DialogHeader>
 
