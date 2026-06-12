@@ -23,7 +23,12 @@ import {
 } from '../lib/eventWallClock.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from '../lib/hostedTableSecFees.js';
-import { addUserToHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
+import { addUserToHostedTableGroupChat, removeUserFromHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
+import {
+  reconcileTableInvitesOnJoin,
+  countPendingTableInvites,
+  countPendingTableInvitesForTable,
+} from '../lib/hostedTableInvites.js';
 import {
   resolveVenueMenuSelections,
   resolveTierIncludedItems,
@@ -451,7 +456,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       ? t.members.find((m) => m.userId === uid)
       : null;
     const goingMembers = t.members.filter((m) => m.status === 'GOING');
-    const pendingInviteCount = t.members.filter((m) => m.status === 'PENDING' || m.status === 'INVITED').length;
+    const pendingInviteCount = await countPendingTableInvitesForTable(prisma, t.id);
     const membersWithMenu = await resolveMemberMenuLines(t.members, venueId);
     const hostMember = membersWithMenu.find((m) => m.userId === t.hostUserId) || null;
     const menuProgress =
@@ -1679,19 +1684,10 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             _count: true,
           });
     const pendingByTable = Object.fromEntries(pendingRows.map((r) => [r.hostedTableId, r._count]));
-    const invitePendingRows =
-      ids.length === 0
-        ? []
-        : await prisma.tableInvite.groupBy({
-            by: ['hostedTableId'],
-            where: {
-              hostedTableId: { in: ids },
-              inviterUserId: req.userId,
-              status: 'PENDING',
-            },
-            _count: true,
-          });
-    const pendingInvitesByTable = Object.fromEntries(invitePendingRows.map((r) => [r.hostedTableId, r._count]));
+    const pendingInvitesByTable = await countPendingTableInvites(prisma, {
+      hostedTableIds: ids,
+      inviterUserId: req.userId,
+    });
     const out = tables.map((t) => ({
       ...t,
       isPast: !shouldShowHostedTableOnHostDashboard(t, t.event),
@@ -1922,6 +1918,7 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
         where: { id: member.id },
         data: { status: 'GOING', hostReviewedAt: new Date() },
       });
+      await reconcileTableInvitesOnJoin(tx, table.id, targetUserId);
       const nextSpots = table.spotsRemaining - 1;
       await tx.hostedTable.update({
         where: { id: table.id },
@@ -2267,6 +2264,7 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           ...(nextSpots <= 0 ? { status: 'FULL' } : {}),
         },
       });
+      await reconcileTableInvitesOnJoin(tx, t.id, req.userId);
     });
     await addUserToHostedTableGroupChat(t.id, req.userId);
     const joiner = await prisma.user.findUnique({
@@ -2350,6 +2348,7 @@ router.post('/tables/:tableId/leave', authenticateToken, async (req, res, next) 
     if (!mem || mem.status !== 'GOING') {
       return res.status(400).json({ error: 'You are not an active member of this table' });
     }
+    const now = new Date();
     await prisma.$transaction(async (tx) => {
       await tx.hostedTableMember.update({
         where: { id: mem.id },
@@ -2362,7 +2361,33 @@ router.post('/tables/:tableId/leave', authenticateToken, async (req, res, next) 
           status: 'ACTIVE',
         },
       });
+      await tx.ticket.updateMany({
+        where: {
+          userId: req.userId,
+          hostedTableId: tableId,
+          hiddenFromHistoryAt: null,
+        },
+        data: { hiddenFromHistoryAt: now },
+      });
+      await tx.userTableHistory.updateMany({
+        where: {
+          userId: req.userId,
+          hostedTableId: tableId,
+          role: 'JOINED',
+          hiddenAt: null,
+        },
+        data: { hiddenAt: now },
+      });
+      await tx.tableInvite.updateMany({
+        where: {
+          hostedTableId: tableId,
+          inviteeUserId: req.userId,
+          status: 'PENDING',
+        },
+        data: { status: 'DECLINED', respondedAt: now },
+      });
     });
+    await removeUserFromHostedTableGroupChat(tableId, req.userId);
     res.json({ left: true });
   } catch (e) {
     next(e);

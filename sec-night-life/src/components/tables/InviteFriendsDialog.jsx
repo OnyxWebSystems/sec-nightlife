@@ -154,9 +154,9 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#121214] border border-[rgba(212,175,55,0.18)] max-w-md">
+      <DialogContent className="bg-[var(--sec-bg-card)] border border-[var(--sec-border)] max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-white">Invite to table</DialogTitle>
+          <DialogTitle className="text-[var(--sec-text-primary)]">Invite to table</DialogTitle>
           <DialogDescription>
             Search users or pick friends for {table?.name || table?.tableName || 'this table'}
           </DialogDescription>
@@ -169,7 +169,7 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event, 
               placeholder={source === 'hosted' ? 'Search by username or name…' : 'Search friends…'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-[#0A0A0B] border-[rgba(212,175,55,0.15)]"
+              className="pl-10 bg-[var(--sec-bg-base)] border-[var(--sec-border)]"
             />
             {searchLoading && source === 'hosted' && (
               <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-[var(--sec-accent)]" />
@@ -188,10 +188,10 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event, 
                     className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors ${
                       isSelected
                         ? 'bg-[var(--sec-accent)]/20 border border-[var(--sec-accent)]'
-                        : 'bg-[#0A0A0B] hover:bg-white/5 border border-transparent'
+                        : 'bg-[var(--sec-bg-base)] hover:bg-white/5 border border-transparent'
                     }`}
                   >
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--sec-accent)]/40 to-[var(--sec-accent)]/10 overflow-hidden flex-shrink-0 border border-[rgba(212,175,55,0.25)]">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--sec-accent)]/40 to-[var(--sec-accent)]/10 overflow-hidden flex-shrink-0 border border-[var(--sec-accent-border)]">
                       {friend.avatarUrl ? (
                         <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
                       ) : (
@@ -236,14 +236,14 @@ export default function InviteFriendsDialog({ open, onOpenChange, table, event, 
             )}
           </div>
 
-          <div className="flex gap-3 pt-4 border-t border-[rgba(212,175,55,0.12)]">
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1 border-[#262629]">
+          <div className="flex gap-3 pt-4 border-t border-[var(--sec-border)]">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1 border-[var(--sec-border)]">
               Cancel
             </Button>
             <Button
               onClick={() => inviteMutation.mutate()}
               disabled={selectedFriends.length === 0 || inviteMutation.isPending}
-              className="flex-1 bg-gradient-to-r from-[#c9a227] to-[#d4af37] text-black font-semibold"
+              className="flex-1 sec-btn-accent font-semibold"
             >
               {inviteMutation.isPending ? 'Sending…' : `Invite (${selectedFriends.length})`}
             </Button>

@@ -50,6 +50,7 @@ import {
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { issueEventTicketsFromPayment, ensureEventTicketsForPayment } from '../lib/issueEventTickets.js';
 import { ensureVenueTableFulfillmentForPayment } from '../lib/ensureVenueTableFulfillment.js';
+import { reconcileTableInvitesOnJoin } from '../lib/hostedTableInvites.js';
 import { promoterUserIdFromMetadata, recordPromoterConversion } from '../lib/promoterAttribution.js';
 
 async function applyPromoterAttribution({ metadata, eventId, buyerUserId, conversionType, amountZar, reference, quantity = 1 }) {
@@ -1192,6 +1193,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 ...(nextSpots <= 0 ? { status: 'FULL' } : {}),
               },
             });
+            await reconcileTableInvitesOnJoin(tx, htRow.id, String(userId));
           });
           const memFresh = await prisma.hostedTableMember.findUnique({
             where: { id: String(memberId) },

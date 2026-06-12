@@ -30,8 +30,8 @@ function MemberAvatar({ user, size = 44 }) {
         borderRadius: '50%',
         overflow: 'hidden',
         flexShrink: 0,
-        background: 'linear-gradient(135deg, rgba(212,175,55,0.35), rgba(212,175,55,0.08))',
-        border: '1px solid rgba(212,175,55,0.35)',
+        background: 'var(--sec-accent-muted)',
+        border: '1px solid var(--sec-accent-border)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -109,6 +109,10 @@ export default function HostedTableExperience({
     queryClient.invalidateQueries({ queryKey: ['host-tables'] });
     queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
     queryClient.invalidateQueries({ queryKey: ['biz-event-table-bookings'] });
+    queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+    if (userProfile?.id) {
+      queryClient.invalidateQueries({ queryKey: ['table-history', userProfile.id] });
+    }
   };
 
   const executeJoin = async (menuPayload = []) => {
@@ -217,21 +221,21 @@ export default function HostedTableExperience({
   const cardStyle = {
     padding: 16,
     borderRadius: 16,
-    background: 'linear-gradient(180deg, #161618 0%, #121214 100%)',
-    border: '1px solid rgba(212,175,55,0.12)',
+    background: 'var(--sec-bg-card)',
+    border: '1px solid var(--sec-border)',
     marginTop: 14,
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#0A0A0B', paddingBottom: 120 }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 120 }}>
       <header
         style={{
           position: 'sticky',
           top: 0,
           zIndex: 40,
-          background: 'rgba(10,10,11,0.94)',
+          background: 'rgba(0,0,0,0.94)',
           backdropFilter: 'blur(12px)',
-          borderBottom: '1px solid rgba(212,175,55,0.15)',
+          borderBottom: '1px solid var(--sec-border)',
           padding: '0 16px',
           height: 56,
           display: 'flex',
@@ -246,7 +250,7 @@ export default function HostedTableExperience({
       {hostedTable.photo ? (
         <div style={{ position: 'relative', height: 220, overflow: 'hidden' }}>
           <img src={hostedTable.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 40%, #0A0A0B 100%)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 40%, var(--sec-bg-base) 100%)' }} />
         </div>
       ) : null}
 
@@ -260,8 +264,8 @@ export default function HostedTableExperience({
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
               color: 'var(--sec-accent)',
-              background: 'rgba(212,175,55,0.12)',
-              border: '1px solid rgba(212,175,55,0.25)',
+              background: 'var(--sec-accent-muted)',
+              border: '1px solid var(--sec-accent-border)',
               borderRadius: 999,
               padding: '4px 10px',
               marginBottom: 10,
@@ -270,7 +274,7 @@ export default function HostedTableExperience({
             {hostedTable.event.title}
           </span>
         )}
-        <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', color: '#fff' }}>
+        <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--sec-text-primary)' }}>
           {hostedTable.tableName}
         </h1>
         {hostedTable.tableDescription && (
@@ -287,8 +291,8 @@ export default function HostedTableExperience({
             marginTop: 16,
             padding: '12px 14px',
             borderRadius: 14,
-            background: 'rgba(212,175,55,0.06)',
-            border: '1px solid rgba(212,175,55,0.18)',
+            background: 'var(--sec-accent-muted)',
+            border: '1px solid var(--sec-accent-border)',
           }}
         >
           <StatPill icon={<Users size={14} />} label={`${stats.spots_remaining ?? hostedTable.spotsRemaining ?? 0} spots left`} />
@@ -357,7 +361,7 @@ export default function HostedTableExperience({
                     textTransform: 'uppercase',
                     padding: '3px 8px',
                     borderRadius: 999,
-                    background: m.role === 'HOST' ? 'rgba(212,175,55,0.2)' : 'rgba(255,255,255,0.06)',
+                    background: m.role === 'HOST' ? 'var(--sec-accent-muted)' : 'rgba(255,255,255,0.06)',
                     color: m.role === 'HOST' ? 'var(--sec-accent)' : 'var(--sec-text-muted)',
                   }}
                 >
@@ -446,15 +450,15 @@ export default function HostedTableExperience({
             left: 0,
             right: 0,
             padding: '12px 20px 24px',
-            background: 'linear-gradient(180deg, transparent, #0A0A0B 30%)',
-            borderTop: '1px solid rgba(212,175,55,0.12)',
+            background: 'linear-gradient(180deg, transparent, var(--sec-bg-base) 30%)',
+            borderTop: '1px solid var(--sec-border)',
           }}
         >
           {isHost ? (
             <div style={{ display: 'flex', gap: 10 }}>
               <Button
                 variant="outline"
-                className="flex-1 border-[rgba(212,175,55,0.3)]"
+                className="flex-1 border-[var(--sec-accent-border)]"
                 onClick={() => setShowInvite(true)}
               >
                 <UserPlus size={16} className="mr-2" />
@@ -472,7 +476,7 @@ export default function HostedTableExperience({
               <div style={{ display: 'flex', gap: 10 }}>
                 <Button
                   variant="outline"
-                  className="flex-1 border-[rgba(212,175,55,0.3)]"
+                  className="flex-1 border-[var(--sec-accent-border)]"
                   disabled
                   style={{ opacity: 0.7 }}
                 >
@@ -481,7 +485,7 @@ export default function HostedTableExperience({
                 </Button>
                 <Button
                   variant="outline"
-                  className="flex-1 border-[rgba(212,175,55,0.3)]"
+                  className="flex-1 border-[var(--sec-accent-border)]"
                   onClick={() => setShowInvite(true)}
                 >
                   <UserPlus size={16} className="mr-2" />
@@ -509,7 +513,7 @@ export default function HostedTableExperience({
             </div>
           ) : (
             <Button
-              className="w-full h-12 bg-gradient-to-r from-[#c9a227] to-[#d4af37] text-black font-semibold hover:opacity-90"
+              className="w-full h-12 sec-btn-accent font-semibold"
               disabled={isProcessingPayment}
               onClick={openJoinWizard}
             >
@@ -520,9 +524,9 @@ export default function HostedTableExperience({
       )}
 
       <Dialog open={joinWizardOpen} onOpenChange={setJoinWizardOpen}>
-        <DialogContent className="bg-[#121214] border border-[rgba(212,175,55,0.2)] max-w-md">
+        <DialogContent className="bg-[var(--sec-bg-card)] border border-[var(--sec-border)] max-w-md">
           <DialogHeader>
-            <DialogTitle style={{ color: '#fff' }}>
+            <DialogTitle style={{ color: 'var(--sec-text-primary)' }}>
               {joinStep === 'choice' && 'Join this table'}
               {joinStep === 'menu' && 'Choose menu items'}
               {joinStep === 'checkout' && 'Review & pay'}
@@ -580,7 +584,7 @@ export default function HostedTableExperience({
                   Menu items selected — included on your ticket QR.
                 </p>
               )}
-              <div className="flex justify-between font-bold text-base pt-2 border-t border-[#262629]">
+              <div className="flex justify-between font-bold text-base pt-2 border-t border-[var(--sec-border)]">
                 <span>Total</span>
                 <span>R{totalOnline.toFixed(0)}</span>
               </div>
@@ -603,7 +607,7 @@ export default function HostedTableExperience({
       </Dialog>
 
       <Dialog open={leaveConfirmOpen} onOpenChange={setLeaveConfirmOpen}>
-        <DialogContent className="bg-[#121214] border border-[#262629] max-w-sm">
+        <DialogContent className="bg-[var(--sec-bg-card)] border border-[var(--sec-border)] max-w-sm">
           <DialogHeader>
             <DialogTitle>Leave table?</DialogTitle>
             <DialogDescription>
@@ -650,7 +654,7 @@ function StatPill({ icon, label, muted }) {
         fontWeight: 600,
         padding: '6px 10px',
         borderRadius: 999,
-        background: muted ? 'rgba(255,255,255,0.04)' : 'rgba(212,175,55,0.1)',
+        background: muted ? 'rgba(255,255,255,0.04)' : 'var(--sec-accent-muted)',
         color: muted ? 'var(--sec-text-muted)' : 'var(--sec-accent)',
       }}
     >

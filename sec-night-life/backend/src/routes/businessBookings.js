@@ -3,6 +3,11 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { splitPlatformGross } from '../lib/platformSplit.js';
+import {
+  flattenPaymentMetadata,
+  basePaymentReference,
+  classifyVenuePaymentRevenue,
+} from '../lib/paymentMetadata.js';
 
 const router = Router();
 
@@ -282,24 +287,6 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
   }
 });
 
-function classifyVenuePaymentRevenue(mtype, pType, amount, counters) {
-  const t = String(mtype || '');
-  const amt = Number(amount) || 0;
-  if (
-    t === 'HOSTED_TABLE_JOIN' ||
-    t === 'TABLE_HOST_FEE' ||
-    t === 'HOSTED_TABLE_EXTERNAL_LISTING'
-  ) {
-    counters.hostedTablePaymentZar += amt;
-  } else if (t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN') {
-    counters.venueTablePaymentZar += amt;
-  } else if (t === 'ticket' || pType === 'ticket' || t.includes('TICKET') || t === 'event') {
-    counters.ticketPaymentZar += amt;
-  } else {
-    counters.otherPaymentZar += amt;
-  }
-}
-
 router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
   try {
     const venueId = String(req.query.venue_id || '').trim();
@@ -342,14 +329,30 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     });
 
     const ledgerRefs = [...new Set(ledgerRows.map((r) => r.paymentReference).filter(Boolean))];
+    const ledgerBaseRefs = [...new Set(ledgerRefs.map((r) => basePaymentReference(r)).filter(Boolean))];
+    const ledgerLookupRefs = [...new Set([...ledgerRefs, ...ledgerBaseRefs])];
     const ledgerPayments =
-      ledgerRefs.length > 0
+      ledgerLookupRefs.length > 0
         ? await prisma.payment.findMany({
-            where: { reference: { in: ledgerRefs } },
-            select: { reference: true, metadata: true },
+            where: { reference: { in: ledgerLookupRefs } },
+            select: { reference: true, metadata: true, type: true },
           })
         : [];
-    const paymentMetaByRef = new Map(ledgerPayments.map((p) => [p.reference, p.metadata]));
+    const paymentMetaByRef = new Map();
+    const paymentTypeByRef = new Map();
+    for (const p of ledgerPayments) {
+      paymentMetaByRef.set(p.reference, flattenPaymentMetadata(p.metadata));
+      paymentTypeByRef.set(p.reference, p.type);
+    }
+
+    const resolveLedgerPaymentMeta = (ref) => {
+      const base = basePaymentReference(ref);
+      return paymentMetaByRef.get(ref) || paymentMetaByRef.get(base) || {};
+    };
+    const resolveLedgerPaymentType = (ref) => {
+      const base = basePaymentReference(ref);
+      return paymentTypeByRef.get(ref) ?? paymentTypeByRef.get(base) ?? null;
+    };
 
     const matchesEventFilterMeta = (meta) => {
       if (!eventId) return true;
@@ -370,17 +373,25 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const matchedPaymentRefs = new Set();
 
     for (const row of ledgerRows) {
-      const meta = paymentMetaByRef.get(row.paymentReference);
-      if (meta && !matchesEventFilterMeta(meta)) continue;
+      const meta = resolveLedgerPaymentMeta(row.paymentReference);
+      if (!matchesEventFilterMeta(meta)) continue;
       const gross = Number(row.grossAmount) || 0;
       const net = Number(row.recipientAmount) || 0;
       grossTotal += gross;
       netTotal += net;
-      if (row.paymentReference) matchedPaymentRefs.add(row.paymentReference);
+      if (row.paymentReference) {
+        matchedPaymentRefs.add(row.paymentReference);
+        matchedPaymentRefs.add(basePaymentReference(row.paymentReference));
+      }
       const dayKey = row.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + gross;
 
-      classifyVenuePaymentRevenue(meta?.type, null, gross, revenueCounters);
+      classifyVenuePaymentRevenue(
+        meta?.type,
+        resolveLedgerPaymentType(row.paymentReference),
+        gross,
+        revenueCounters,
+      );
     }
 
     const venuePaymentOr = [
@@ -421,7 +432,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     };
 
     for (const p of payments) {
-      const meta = p.metadata && typeof p.metadata === 'object' ? p.metadata : {};
+      const meta = flattenPaymentMetadata(p.metadata);
       if (!matchesVenueScope(meta) || !matchesEventFilter(meta)) continue;
       if (p.reference && matchedPaymentRefs.has(p.reference)) continue;
       const amt = Number(p.amount) || 0;
@@ -454,7 +465,12 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       netTotal += recipientAmount;
       const dayKey = t.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
-      revenueCounters.otherPaymentZar += amt;
+      const txMeta = flattenPaymentMetadata(t.metadata);
+      if (txMeta && Object.keys(txMeta).length) {
+        classifyVenuePaymentRevenue(txMeta.type, null, amt, revenueCounters);
+      } else {
+        revenueCounters.otherPaymentZar += amt;
+      }
     }
 
     const { ticketPaymentZar, hostedTablePaymentZar, venueTablePaymentZar, otherPaymentZar } = revenueCounters;
@@ -684,8 +700,13 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
     let eventsInScope = [];
     if (eventIdFilter) {
       const ev = await prisma.event.findFirst({
-        where: { id: eventIdFilter, venueId: { in: scopedVenueIds }, deletedAt: null },
-        select: { id: true, title: true, date: true, ticketTiers: true },
+        where: {
+          id: eventIdFilter,
+          venueId: { in: scopedVenueIds },
+          deletedAt: null,
+          eventFormat: 'TICKETING_ONLY',
+        },
+        select: { id: true, title: true, date: true, startTime: true, city: true, ticketTiers: true },
       });
       if (!ev) return res.status(404).json({ error: 'Event not found' });
       const isPast = eventDateIsPast(ev.date, startToday);
@@ -713,15 +734,16 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         where: {
           venueId: { in: scopedVenueIds },
           deletedAt: null,
+          eventFormat: 'TICKETING_ONLY',
           ...(dateWhere ? { date: dateWhere } : {}),
         },
-        select: { id: true, title: true, date: true, ticketTiers: true },
+        select: { id: true, title: true, date: true, startTime: true, city: true, ticketTiers: true },
       });
     }
 
     const eventIds = eventsInScope.map((e) => e.id);
     const eventSummaries = eventsInScope
-      .map((e) => ({ id: e.id, title: e.title, date: e.date }))
+      .map((e) => ({ id: e.id, title: e.title, date: e.date, startTime: e.startTime, city: e.city }))
       .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 
     if (!eventIds.length) {
@@ -798,8 +820,8 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
           id: baseRef,
           paystackReference: baseRef,
           event: ev
-            ? { id: ev.id, title: ev.title, date: ev.date }
-            : { id: t.eventId, title: t.title, date: null },
+            ? { id: ev.id, title: ev.title, date: ev.date, startTime: ev.startTime, city: ev.city }
+            : { id: t.eventId, title: t.title, date: null, startTime: null, city: null },
           tierName: t.subtitle || meta.ticket_tier_name || 'Ticket',
           purchaser: {
             id: t.user.id,

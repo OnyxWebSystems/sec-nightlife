@@ -1,0 +1,50 @@
+/**
+ * Keep table_invites in sync when guests join outside the invite-respond flow.
+ * @param {import('@prisma/client').Prisma.TransactionClient | typeof import('./prisma.js').prisma} tx
+ */
+export async function reconcileTableInvitesOnJoin(tx, hostedTableId, userId) {
+  if (!hostedTableId || !userId) return;
+  await tx.tableInvite.updateMany({
+    where: {
+      hostedTableId: String(hostedTableId),
+      inviteeUserId: String(userId),
+      status: 'PENDING',
+    },
+    data: { status: 'ACCEPTED', respondedAt: new Date() },
+  });
+}
+
+/** Count pending invites excluding invitees who are already GOING members. */
+export async function countPendingTableInvites(db, { hostedTableIds, inviterUserId = null }) {
+  if (!hostedTableIds?.length) return {};
+  const pendingInvites = await db.tableInvite.findMany({
+    where: {
+      hostedTableId: { in: hostedTableIds },
+      status: 'PENDING',
+      ...(inviterUserId ? { inviterUserId } : {}),
+    },
+    select: { hostedTableId: true, inviteeUserId: true },
+  });
+  if (!pendingInvites.length) return {};
+
+  const goingMembers = await db.hostedTableMember.findMany({
+    where: {
+      hostedTableId: { in: hostedTableIds },
+      status: 'GOING',
+    },
+    select: { hostedTableId: true, userId: true },
+  });
+  const goingSet = new Set(goingMembers.map((m) => `${m.hostedTableId}:${m.userId}`));
+
+  const counts = {};
+  for (const inv of pendingInvites) {
+    if (goingSet.has(`${inv.hostedTableId}:${inv.inviteeUserId}`)) continue;
+    counts[inv.hostedTableId] = (counts[inv.hostedTableId] || 0) + 1;
+  }
+  return counts;
+}
+
+export async function countPendingTableInvitesForTable(db, hostedTableId) {
+  const map = await countPendingTableInvites(db, { hostedTableIds: [hostedTableId] });
+  return map[hostedTableId] ?? 0;
+}

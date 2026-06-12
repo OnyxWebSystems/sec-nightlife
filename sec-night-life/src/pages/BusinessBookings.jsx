@@ -16,6 +16,28 @@ import {
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { format, parseISO } from 'date-fns';
+
+function formatEventWhen(event) {
+  if (!event?.date && !event?.startTime) return null;
+  try {
+    const datePart = event.date ? format(parseISO(event.date), 'EEE d MMM yyyy') : 'Date TBC';
+    if (event.startTime) return `${datePart} · ${event.startTime}`;
+    return datePart;
+  } catch {
+    return event?.date || null;
+  }
+}
+
+function ticketScopeNotice(notice) {
+  if (notice === 'past_event_use_past_scope') {
+    return 'This event is in the past. Switch to Past events to see its ticket sales.';
+  }
+  if (notice === 'upcoming_event_use_active_scope') {
+    return 'This event is upcoming. Switch to Active events to see its ticket sales.';
+  }
+  return null;
+}
 
 function StatusBadge({ status, label }) {
   const classMap = {
@@ -119,6 +141,7 @@ export default function BusinessBookings() {
   const [ticketSearch, setTicketSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [eventTimeScope, setEventTimeScope] = useState('active');
+  const [ticketEventTimeScope, setTicketEventTimeScope] = useState('all');
   const [selectedEventId, setSelectedEventId] = useState('all');
   const [ticketEventId, setTicketEventId] = useState('all');
   const [detailTable, setDetailTable] = useState(null);
@@ -157,9 +180,9 @@ export default function BusinessBookings() {
   });
 
   const { data: ticketBookingsData, isLoading: ticketsLoading } = useQuery({
-    queryKey: ['biz-ticket-bookings', user?.id, ticketEventId, eventTimeScope, activeVenueId],
+    queryKey: ['biz-ticket-bookings', user?.id, ticketEventId, ticketEventTimeScope, activeVenueId],
     queryFn: () => {
-      const params = new URLSearchParams({ event_scope: eventTimeScope });
+      const params = new URLSearchParams({ event_scope: ticketEventTimeScope });
       if (ticketEventId !== 'all') params.set('event_id', ticketEventId);
       if (activeVenueId) params.set('venue_id', activeVenueId);
       return apiGet(`/api/business/ticket-bookings?${params.toString()}`);
@@ -198,8 +221,11 @@ export default function BusinessBookings() {
 
   useEffect(() => {
     setSelectedEventId('all');
-    setTicketEventId('all');
   }, [eventTimeScope, activeVenueId]);
+
+  useEffect(() => {
+    setTicketEventId('all');
+  }, [ticketEventTimeScope, activeVenueId]);
 
   const filteredEventTables = eventTables
     .filter((t) => statusFilter === 'all' || t.role === statusFilter)
@@ -502,17 +528,29 @@ export default function BusinessBookings() {
 
           <TabsContent value="tickets" className="mt-0">
             <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              Ticket purchases for your ticketing events — tier, quantity, and door check-in status.
+              Ticket purchases for your ticketing events — tier, quantity, and check-in status.
             </p>
+
+            {ticketScopeNotice(ticketBookingsData?.notice) && (
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  border: '1px solid var(--sec-accent-border)',
+                  background: 'var(--sec-accent-muted)',
+                  fontSize: 13,
+                  color: 'var(--sec-text-secondary)',
+                }}
+              >
+                {ticketScopeNotice(ticketBookingsData.notice)}
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
               <StatTile label="Orders" value={ticketSummary?.orderCount ?? 0} accent />
               <StatTile label="Tickets sold" value={ticketSummary?.ticketCount ?? 0} />
-              <StatTile
-                label="Checked in at door"
-                value={ticketSummary?.admittedCount ?? 0}
-                subtitle="Scanned via door verify"
-              />
+              <StatTile label="Checked in" value={ticketSummary?.admittedCount ?? 0} />
               <StatTile label="Your share" value={`R${Number(ticketSummary?.totalVenueShareZar || 0).toFixed(0)}`} accent />
             </div>
 
@@ -527,7 +565,7 @@ export default function BusinessBookings() {
                   style={selectTriggerStyle}
                 />
               </div>
-              <Select value={eventTimeScope} onValueChange={setEventTimeScope}>
+              <Select value={ticketEventTimeScope} onValueChange={setTicketEventTimeScope}>
                 <SelectTrigger className="w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
                   <SelectValue />
                 </SelectTrigger>
@@ -582,6 +620,12 @@ export default function BusinessBookings() {
                         <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {order.event?.title || 'Ticket order'}
                         </div>
+                        {formatEventWhen(order.event) && (
+                          <div style={{ fontSize: 12, color: 'var(--sec-text-secondary)', marginTop: 2 }}>
+                            {formatEventWhen(order.event)}
+                            {order.event?.city ? ` · ${order.event.city}` : ''}
+                          </div>
+                        )}
                         <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                           {order.tierName} · {order.quantity} ticket{order.quantity === 1 ? '' : 's'} · @{order.purchaser?.username || 'guest'}
                         </div>
@@ -591,7 +635,7 @@ export default function BusinessBookings() {
                           R{Number(order.venueShareZar || order.amountPaidZar || 0).toFixed(0)}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>
-                          {order.admittedCount}/{order.quantity} admitted
+                          {order.admittedCount}/{order.quantity} checked in
                         </div>
                       </div>
                       {order.admittedCount === order.quantity ? (
@@ -640,6 +684,15 @@ export default function BusinessBookings() {
           {detailTicket && (
             <div className="space-y-3 mt-2">
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Event</span><span className="text-sm font-semibold text-right max-w-[60%]">{detailTicket.event?.title}</span></div>
+              {formatEventWhen(detailTicket.event) && (
+                <div className="flex justify-between">
+                  <span className="text-sm text-[var(--sec-text-muted)]">When</span>
+                  <span className="text-sm font-semibold text-right max-w-[60%]">
+                    {formatEventWhen(detailTicket.event)}
+                    {detailTicket.event?.city ? ` · ${detailTicket.event.city}` : ''}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Tier</span><span className="text-sm font-semibold">{detailTicket.tierName}</span></div>
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Buyer</span><span className="text-sm font-semibold">@{detailTicket.purchaser?.username || 'guest'}</span></div>
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Quantity</span><span className="text-sm font-semibold">{detailTicket.quantity}</span></div>

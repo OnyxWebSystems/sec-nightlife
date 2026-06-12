@@ -112,6 +112,22 @@ export async function admitTicketTx(tx, { ticketId, staffUserId, staffRole }) {
     };
   }
 
+  if (t.hostedTableId && t.userId) {
+    const member = await tx.hostedTableMember.findUnique({
+      where: {
+        hostedTableId_userId: { hostedTableId: t.hostedTableId, userId: t.userId },
+      },
+      select: { status: true },
+    });
+    if (!member || member.status !== 'GOING') {
+      return {
+        ok: false,
+        status: 403,
+        error: 'This ticket is no longer valid — you are not an active member of this table.',
+      };
+    }
+  }
+
   const door = await buildTicketDoorContext(tx, t);
   const perm = await assertAdmitPermission(tx, staffUserId, staffRole, t, door);
   if (!perm.ok) return { ok: false, status: 403, error: perm.reason };
