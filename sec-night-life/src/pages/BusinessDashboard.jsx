@@ -131,6 +131,12 @@ export default function BusinessDashboard() {
   const { venues, activeVenue: venue, isLoading: venuesLoading, setActiveVenueId, refreshVenues } = useActiveVenue();
   const { isVenueOwner, isStaffOnly, can } = useVenueStaffAccess();
 
+  useEffect(() => {
+    if (isStaffOnly) {
+      navigate(createPageUrl('StaffDashboard'), { replace: true });
+    }
+  }, [isStaffOnly, navigate]);
+
   const DOC_TYPES = [
     { type: 'LIQUOR_LICENCE', label: 'Liquor Licence' },
     { type: 'BUSINESS_REGISTRATION', label: 'Business Registration' },
@@ -161,11 +167,11 @@ export default function BusinessDashboard() {
     staleTime: 3 * 60_000,
   });
 
-  const { data: tablesRaw } = useQuery({
-    queryKey: ['biz-tables', venue?.id],
-    queryFn: () => dataService.Table.filter({ venue_id: venue.id }),
+  const { data: bookingStatsRaw, isLoading: bookingStatsLoading } = useQuery({
+    queryKey: ['biz-dashboard-booking-stats', venue?.id],
+    queryFn: () => apiGet(`/api/business/dashboard-booking-stats?venue_id=${encodeURIComponent(venue.id)}`),
     enabled: !!venue && (!isStaffOnly || can('bookings')),
-    staleTime: 3 * 60_000,
+    staleTime: 2 * 60_000,
   });
 
   const { data: reviewsRaw } = useQuery({
@@ -183,9 +189,10 @@ export default function BusinessDashboard() {
   });
 
   const events = asArray(eventsRaw);
-  const tables = asArray(tablesRaw);
   const reviews = asArray(reviewsRaw);
   const jobs = asArray(jobsRaw);
+  const bookingStats = bookingStatsRaw || {};
+  const recentBookings = asArray(bookingStats.recentBookings);
 
   const jobStatusMutation = useMutation({
     mutationFn: ({ jobId, status }) => apiPatch(`/api/jobs/${jobId}`, { status }),
@@ -283,12 +290,12 @@ export default function BusinessDashboard() {
     .filter(e => e.date >= today && e.status === 'published')
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 5);
-  const totalBookings = tables.length;
-  const activeBookings = tables.filter(t => t.status === 'open' || t.status === 'active').length;
+  const totalBookings = bookingStats.totalBookings ?? 0;
+  const activeBookings = bookingStats.activeBookings ?? 0;
   const avgRating = reviews.length > 0
     ? (reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length).toFixed(1)
     : '—';
-  const totalGuests = tables.reduce((s, t) => s + (t.current_guests || 0), 0);
+  const totalGuests = bookingStats.totalGuests ?? 0;
 
   const complianceCompleteFromApi = complianceLatest
     ? isVenueComplianceComplete(complianceLatest)
@@ -821,15 +828,20 @@ export default function BusinessDashboard() {
             <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Recent Bookings</h3>
             <Link to={createPageUrl('BusinessBookings')} style={{ fontSize: 12, color: 'var(--sec-accent)', textDecoration: 'none' }}>View all</Link>
           </div>
-          {tables.length === 0 ? (
+          {bookingStatsLoading ? (
+            <div style={{ padding: '20px 0', textAlign: 'center' }}>
+              <Loader2 size={24} className="animate-spin" style={{ color: 'var(--sec-text-muted)', margin: '0 auto 8px' }} />
+              <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>Loading bookings…</p>
+            </div>
+          ) : recentBookings.length === 0 ? (
             <div style={{ padding: '20px 0', textAlign: 'center' }}>
               <BookOpen size={24} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 8px' }} />
               <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No table bookings yet</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {tables.slice(0, 5).map(t => (
-                <div key={t.id} style={{
+              {recentBookings.map((t) => (
+                <div key={`${t.type}-${t.id}`} style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
                   borderRadius: 10, backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)',
                 }}>
@@ -841,15 +853,15 @@ export default function BusinessDashboard() {
                     <Users size={16} style={{ color: 'var(--sec-accent)' }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
-                      {t.current_guests || 0}/{t.max_guests || '—'} guests
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.tableName}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>
-                      Min spend: R{t.min_spend || 0}
+                      {t.guestCount}{t.capacity ? `/${t.capacity}` : ''} guests · {t.subLabel}
                     </div>
                   </div>
-                  <span className={`sec-badge ${t.status === 'open' ? 'sec-badge-success' : 'sec-badge-muted'}`}>
-                    {t.status}
+                  <span className={`sec-badge ${['ACTIVE', 'PARTIALLY_FILLED', 'FULL'].includes(String(t.status || '').toUpperCase()) ? 'sec-badge-success' : 'sec-badge-muted'}`}>
+                    {String(t.status || 'booked').toLowerCase().replace(/_/g, ' ')}
                   </span>
                 </div>
               ))}

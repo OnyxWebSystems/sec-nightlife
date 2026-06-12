@@ -659,6 +659,188 @@ router.get('/venue-table-reservations', authenticateToken, async (req, res, next
   }
 });
 
+/** Dashboard table booking totals (event + venue/day tables). */
+router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next) => {
+  try {
+    const venueIdFilter =
+      typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
+        ? req.query.venue_id.trim()
+        : null;
+    const venueIds = await resolveAccessibleVenueIds(req.userId, {
+      venueIdFilter,
+      permission: 'bookings',
+    });
+    if (!venueIds.length) {
+      if (venueIdFilter) return res.status(404).json({ error: 'Venue not found' });
+      return res.json({
+        totalBookings: 0,
+        activeBookings: 0,
+        totalGuests: 0,
+        recentBookings: [],
+      });
+    }
+
+    const eventsInScope = await prisma.event.findMany({
+      where: { venueId: { in: venueIds }, deletedAt: null },
+      select: { id: true },
+    });
+    const eventIds = eventsInScope.map((e) => e.id);
+
+    let eventTableCount = 0;
+    let eventGoingHeadcount = 0;
+    let eventActiveBookings = 0;
+    let recentEventBookings = [];
+
+    if (eventIds.length) {
+      const hostedInScope = await prisma.hostedTable.findMany({
+        where: { eventId: { in: eventIds }, tableType: 'IN_APP_EVENT' },
+        select: { id: true, status: true, tableName: true, guestQuantity: true, spotsRemaining: true },
+      });
+      const hostedIds = hostedInScope.map((h) => h.id);
+      const hostedById = new Map(hostedInScope.map((h) => [h.id, h]));
+
+      eventActiveBookings = hostedInScope.filter((h) => h.status === 'ACTIVE' || h.status === 'FULL').length;
+
+      if (hostedIds.length) {
+        eventGoingHeadcount = await prisma.hostedTableMember.count({
+          where: { hostedTableId: { in: hostedIds }, status: 'GOING' },
+        });
+        const pendingJoin = await prisma.hostedTableMember.count({
+          where: { hostedTableId: { in: hostedIds }, status: 'PENDING' },
+        });
+        eventActiveBookings += pendingJoin;
+      }
+
+      const bookingRows = await prisma.eventVenueTableBooking.findMany({
+        where: { venueId: { in: venueIds }, eventId: { in: eventIds } },
+        select: {
+          id: true,
+          role: true,
+          createdAt: true,
+          hostedTableId: true,
+          event: { select: { title: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+      eventTableCount = new Set(bookingRows.map((r) => r.hostedTableId).filter(Boolean)).size;
+
+      const eventGroups = groupEventTableBookingsByTable(
+        bookingRows
+          .filter((r) => r.hostedTableId)
+          .map((r) => {
+            const ht = hostedById.get(r.hostedTableId);
+            return {
+              id: r.id,
+              role: r.role,
+              createdAt: r.createdAt,
+              lineTotalZar: 0,
+              hostedTable: ht
+                ? {
+                    id: ht.id,
+                    tableName: ht.tableName,
+                    status: ht.status,
+                    guestQuantity: ht.guestQuantity,
+                    spotsRemaining: ht.spotsRemaining,
+                  }
+                : { id: r.hostedTableId },
+              event: r.event,
+            };
+          }),
+      );
+      recentEventBookings = eventGroups.slice(0, 5).map((g) => ({
+        id: g.id,
+        type: 'event',
+        tableName: g.hostedTable?.tableName || 'Event table',
+        guestCount: (g.rolesSummary?.hosts || 0) + (g.rolesSummary?.guests || 0),
+        capacity: g.hostedTable?.guestQuantity || null,
+        status: g.hostedTable?.status || 'ACTIVE',
+        subLabel: g.event?.title || 'Event',
+        sortAt: g.lastActivityAt,
+      }));
+    }
+
+    const venueConfirmedMembers = await prisma.venueTableMember.findMany({
+      where: {
+        status: 'CONFIRMED',
+        venueTable: { venueId: { in: venueIds } },
+      },
+      select: {
+        id: true,
+        paidAt: true,
+        joinedAt: true,
+        venueTable: {
+          select: {
+            id: true,
+            tableName: true,
+            minimumSpend: true,
+            status: true,
+            currentOccupancy: true,
+            guestCapacity: true,
+          },
+        },
+      },
+      orderBy: { paidAt: 'desc' },
+      take: 120,
+    });
+
+    const venueTableIds = new Set(venueConfirmedMembers.map((m) => m.venueTable.id));
+    const venueGuestCount = venueConfirmedMembers.length;
+
+    const venuePendingCount = await prisma.venueTableMember.count({
+      where: {
+        status: { in: ['PENDING_VENUE_REVIEW', 'PENDING_PAYMENT', 'APPROVED'] },
+        venueTable: { venueId: { in: venueIds } },
+      },
+    });
+
+    const venueActiveTables = await prisma.venueTable.count({
+      where: {
+        venueId: { in: venueIds },
+        status: { in: ['PARTIALLY_FILLED', 'FULL'] },
+      },
+    });
+
+    const tableOccupancy = new Map();
+    for (const m of venueConfirmedMembers) {
+      const tid = m.venueTable.id;
+      tableOccupancy.set(tid, (tableOccupancy.get(tid) || 0) + 1);
+    }
+
+    const recentVenueBookings = [...tableOccupancy.entries()]
+      .map(([tableId, count]) => {
+        const member = venueConfirmedMembers.find((m) => m.venueTable.id === tableId);
+        const table = member?.venueTable;
+        if (!table) return null;
+        return {
+          id: tableId,
+          type: 'venue',
+          tableName: table.tableName || 'Table',
+          guestCount: count,
+          capacity: table.guestCapacity || null,
+          status: table.status,
+          subLabel: table.minimumSpend ? `Min spend: R${table.minimumSpend}` : 'Venue table',
+          sortAt: member.paidAt || member.joinedAt,
+        };
+      })
+      .filter(Boolean);
+
+    const recentBookings = [...recentEventBookings, ...recentVenueBookings]
+      .sort((a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime())
+      .slice(0, 5)
+      .map(({ sortAt, ...rest }) => rest);
+
+    res.json({
+      totalBookings: eventTableCount + venueTableIds.size,
+      activeBookings: eventActiveBookings + venueActiveTables + venuePendingCount,
+      totalGuests: eventGoingHeadcount + venueGuestCount,
+      recentBookings,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /** Paid venue & day table bookings (incl. custom tables after guest checkout). */
 router.get('/venue-table-bookings', authenticateToken, async (req, res, next) => {
   try {

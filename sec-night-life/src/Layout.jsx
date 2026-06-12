@@ -144,25 +144,30 @@ export default function Layout({ children, currentPageName }) {
       try {
         await flushPendingLegalAccepts();
       } catch {}
-      let hasBusiness = user.role === 'VENUE';
+      let ownsVenue = user.role === 'VENUE';
       try {
         const rolesRes = await apiGet('/api/user-roles/me');
-        if (rolesRes?.business) hasBusiness = true;
+        if (rolesRes?.business) ownsVenue = true;
       } catch {}
-      if (!hasBusiness) {
+      if (!ownsVenue) {
         try {
           const venues = await dataService.Venue.mine();
-          hasBusiness = Array.isArray(venues) && venues.length > 0;
+          const list = Array.isArray(venues) ? venues : [];
+          ownsVenue = list.some((v) => v.is_owner === true || v.isOwner === true);
         } catch {}
       }
       if (cancelled) return;
-      setUserRoles({ partygoer: true, host: true, business: hasBusiness });
+      setUserRoles({ partygoer: true, host: true, business: ownsVenue });
 
       const saved = localStorage.getItem('sec_active_mode');
       let defaultMode = 'partygoer';
-      if (saved === 'business' && hasBusiness) defaultMode = 'business';
+      if (saved === 'business' && ownsVenue) defaultMode = 'business';
       else if (saved === 'partygoer') defaultMode = 'partygoer';
-      else if (hasBusiness) defaultMode = 'business';
+      else if (ownsVenue) defaultMode = 'business';
+      else defaultMode = 'partygoer';
+      if (saved === 'business' && !ownsVenue) {
+        localStorage.setItem('sec_active_mode', 'partygoer');
+      }
       setActiveMode(defaultMode);
 
       try {
@@ -220,7 +225,12 @@ export default function Layout({ children, currentPageName }) {
     activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : 'partygoer');
 
   useEffect(() => {
-    if (!user || modeForGuard !== 'business' || !staffAccess.isStaffOnly) return;
+    if (!user || !staffAccess.isStaffOnly) return;
+    if (currentPageName === 'BusinessDashboard') {
+      navigate(createPageUrl('StaffDashboard'), { replace: true });
+      return;
+    }
+    if (modeForGuard !== 'business') return;
     const perm = BUSINESS_PAGE_PERMISSIONS[currentPageName];
     if (perm && !staffAccess.can(perm)) {
       navigate(createPageUrl('StaffDashboard'), { replace: true });
