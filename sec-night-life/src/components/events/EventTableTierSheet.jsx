@@ -161,11 +161,15 @@ export default function EventTableTierSheet({
                   const hostName = ht.host?.username || ht.host?.fullName || 'Host';
                   const joinLabel = ht.isPublic ? 'Join' : 'Request';
                   const feeNote = ht.hasJoiningFee && ht.joiningFee ? ` · Join fee R${Number(ht.joiningFee).toLocaleString()}` : '';
+                  const spotsLabel =
+                    ht.isCustomTable && ht.guestCapacity
+                      ? `${ht.spotsRemaining} of ${ht.guestCapacity} guest spots`
+                      : `${ht.spotsRemaining} spots left`;
                   return (
                     <SlotRow
                       key={`hosted-${ht.id}`}
                       label={ht.tableName}
-                      sub={`Hosted by ${hostName} · ${ht.spotsRemaining} spots left${feeNote}`}
+                      sub={`Hosted by ${hostName} · ${spotsLabel}${feeNote}`}
                       actionLabel={joinLabel}
                       onAction={() => goHosted(ht.id)}
                     />

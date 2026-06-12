@@ -5,6 +5,28 @@ import { authenticateToken } from '../middleware/auth.js';
 import { normalizeUsername } from '../lib/username.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 
+async function notifyStaffRemoved({ targetUserId, venue, removedByUserId }) {
+  const remover = await prisma.user.findUnique({
+    where: { id: removedByUserId },
+    select: {
+      fullName: true,
+      username: true,
+      userProfile: { select: { username: true } },
+    },
+  });
+  const rawLabel =
+    remover?.userProfile?.username || remover?.username || remover?.fullName || 'The venue owner';
+  const removerLabel = rawLabel.startsWith('@') ? rawLabel : `@${rawLabel}`;
+  await createInAppNotification({
+    userId: targetUserId,
+    type: 'VENUE_STAFF_ASSIGNED',
+    title: 'Staff access removed',
+    body: `${removerLabel} removed your staff access at ${venue.name}.`,
+    referenceId: venue.id,
+    referenceType: 'VENUE_STAFF',
+  });
+}
+
 const router = Router({ mergeParams: true });
 
 const STAFF_PERMISSION_KEYS = [
@@ -315,10 +337,24 @@ router.delete('/:userId', authenticateToken, async (req, res, next) => {
       return res.status(404).json({ error: 'Staff assignment not found' });
     }
 
+    const venue = await prisma.venue.findFirst({
+      where: { id: venueId, deletedAt: null },
+      select: { id: true, name: true },
+    });
+
     await prisma.venueStaffAssignment.update({
       where: { id: assignment.id },
       data: { revokedAt: new Date() },
     });
+
+    if (venue) {
+      await notifyStaffRemoved({
+        targetUserId: targetUserId,
+        venue,
+        removedByUserId: req.userId,
+      }).catch(() => {});
+    }
+
     res.json({ revoked: true });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: e.message });

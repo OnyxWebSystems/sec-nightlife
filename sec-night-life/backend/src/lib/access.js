@@ -23,6 +23,13 @@ export function isStaff(role) {
   return role && STAFF_ROLES.includes(role);
 }
 
+/** Party-goer-style accounts that may join or pay for venue/hosted tables. */
+export function canJoinTablesAsGuest(role) {
+  if (!role) return false;
+  if (['USER', 'VENUE', 'FREELANCER'].includes(role)) return true;
+  return isStaff(role);
+}
+
 export function parseStaffPermissions(raw) {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
@@ -66,7 +73,7 @@ export async function getStaffAssignmentsForUser(userId) {
 }
 
 /**
- * Owner always passes. Staff pass when they hold the permission (or dashboard umbrella).
+ * Owner always passes. Staff pass only when they hold the specific permission key.
  */
 export async function staffHasVenuePermission(userId, venueId, permission = null) {
   if (!userId || !venueId) return false;
@@ -81,7 +88,6 @@ export async function staffHasVenuePermission(userId, venueId, permission = null
   const perms = parseStaffPermissions(row.permissions);
   if (!permission) return Object.values(perms).some(Boolean);
   if (perms[permission] === true) return true;
-  if (permission !== 'dashboard' && perms.dashboard === true) return true;
   if (permission === 'posts' && perms.promotions === true) return true;
   return false;
 }
@@ -108,7 +114,7 @@ export async function resolveAccessibleVenueIds(userId, { venueIdFilter = null, 
       if (Object.values(perms).some(Boolean)) ids.add(row.venueId);
       continue;
     }
-    if (perms[permission] === true || perms.dashboard === true) {
+    if (perms[permission] === true) {
       ids.add(row.venueId);
       continue;
     }

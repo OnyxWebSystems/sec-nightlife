@@ -46,6 +46,7 @@ const BUSINESS_ONLY_PAGES = new Set([
   'BusinessMessages',
   'BusinessVenueTables',
   'FeedbackInsights',
+  'VenueProfile',
 ]);
 
 const LayoutWrapper = ({ children, currentPageName }) => Layout ?

@@ -12,12 +12,24 @@ import {
   Calendar, BookOpen, Megaphone, BarChart3,
   Star, Users, ArrowRight, Building2, Plus,
   ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload, UtensilsCrossed, Armchair, Wallet,
-  Settings, UserPlus,
+  Settings,
 } from 'lucide-react';
 import VenueSecWallet from '@/components/wallet/VenueSecWallet';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import AddStaffModal from '@/components/business/AddStaffModal';
+import VenueStaffPanel from '@/components/business/VenueStaffPanel';
+import { useVenueStaffAccess } from '@/hooks/useVenueStaffAccess';
+
+const QUICK_ACTIONS = [
+  { icon: Plus, label: 'Create Event', page: 'BusinessEvents', perm: 'events' },
+  { icon: BookOpen, label: 'Manage Bookings', page: 'BusinessBookings', perm: 'bookings' },
+  { icon: Armchair, label: 'Tables & day bookings', page: 'BusinessVenueTables', perm: 'bookings' },
+  { icon: BarChart3, label: 'View Analytics', page: 'VenueAnalytics', perm: 'analytics' },
+  { icon: Megaphone, label: 'Promotions', page: 'BusinessPromotions', perm: 'promotions' },
+  { icon: UtensilsCrossed, label: 'Menu Maker', page: 'BusinessMenu', perm: 'menu' },
+  { icon: Briefcase, label: 'Post a Job', page: 'CreateJob', perm: 'jobs' },
+];
 
 /** Matches backend REQUIRED_DOC_TYPES (excludes optional OTHER). */
 const REQUIRED_COMPLIANCE_DOC_TYPES = [
@@ -117,6 +129,7 @@ export default function BusinessDashboard() {
   }, [user?.email]);
 
   const { venues, activeVenue: venue, isLoading: venuesLoading, setActiveVenueId, refreshVenues } = useActiveVenue();
+  const { isVenueOwner, isStaffOnly, can } = useVenueStaffAccess();
 
   const DOC_TYPES = [
     { type: 'LIQUOR_LICENCE', label: 'Liquor Licence' },
@@ -138,34 +151,34 @@ export default function BusinessDashboard() {
   const { data: complianceLatest, refetch: refetchCompliance } = useQuery({
     queryKey: ['biz-compliance-latest', venue?.id],
     queryFn: async () => apiGet(`/api/compliance-documents/venue/${venue.id}/latest`),
-    enabled: !!venue,
+    enabled: !!venue && isVenueOwner,
   });
 
   const { data: eventsRaw } = useQuery({
     queryKey: ['biz-events', venue?.id],
     queryFn: () => dataService.Event.filter({ venue_id: venue.id }),
-    enabled: !!venue,
+    enabled: !!venue && (!isStaffOnly || can('events')),
     staleTime: 3 * 60_000,
   });
 
   const { data: tablesRaw } = useQuery({
     queryKey: ['biz-tables', venue?.id],
     queryFn: () => dataService.Table.filter({ venue_id: venue.id }),
-    enabled: !!venue,
+    enabled: !!venue && (!isStaffOnly || can('bookings')),
     staleTime: 3 * 60_000,
   });
 
   const { data: reviewsRaw } = useQuery({
     queryKey: ['biz-reviews', venue?.id],
     queryFn: () => dataService.Review.filter({ venue_id: venue.id }),
-    enabled: !!venue,
+    enabled: !!venue && (!isStaffOnly || can('analytics')),
     staleTime: 5 * 60_000,
   });
 
   const { data: jobsRaw } = useQuery({
     queryKey: ['biz-jobs', venue?.id],
     queryFn: () => apiGet(`/api/jobs/venue/${venue.id}`),
-    enabled: !!venue,
+    enabled: !!venue && (!isStaffOnly || can('jobs')),
     staleTime: 2 * 60_000,
   });
 
@@ -217,6 +230,30 @@ export default function BusinessDashboard() {
   }
 
   if (!venue) {
+    if (isStaffOnly) {
+      return (
+        <div style={{ padding: 24, maxWidth: 500, margin: '60px auto', textAlign: 'center' }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: 16, margin: '0 auto 20px',
+            backgroundColor: 'var(--sec-accent-muted)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Users size={28} style={{ color: 'var(--sec-accent)' }} />
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No venue assigned</h2>
+          <p style={{ color: 'var(--sec-text-muted)', fontSize: 14, marginBottom: 24 }}>
+            You don&apos;t have active staff access to any venue. Check your Staff Dashboard for assignments.
+          </p>
+          <Button
+            onClick={() => navigate(createPageUrl('StaffDashboard'))}
+            className="sec-btn sec-btn-primary h-12 px-8 rounded-xl"
+          >
+            Go to Staff Dashboard
+            <ArrowRight size={16} className="ml-2" />
+          </Button>
+        </div>
+      );
+    }
     return (
       <div style={{ padding: 24, maxWidth: 500, margin: '60px auto', textAlign: 'center' }}>
         <div style={{
@@ -332,6 +369,11 @@ export default function BusinessDashboard() {
     }
   };
 
+  const visibleQuickActions = QUICK_ACTIONS.filter((a) => !isStaffOnly || can(a.perm));
+  const showEventsStats = !isStaffOnly || can('events');
+  const showBookingsStats = !isStaffOnly || can('bookings');
+  const showAnalyticsStats = !isStaffOnly || can('analytics');
+
   return (
     <div className="pb-10" style={{ padding: 'var(--space-6) var(--space-5)', maxWidth: 1100, margin: '0 auto' }}>
       {/* Header */}
@@ -395,6 +437,7 @@ export default function BusinessDashboard() {
             </div>
           </div>
 
+          {isVenueOwner ? (
           <div
             style={{
               display: 'grid',
@@ -419,19 +462,6 @@ export default function BusinessDashboard() {
             </button>
             <button
               type="button"
-              className="biz-dash-action biz-dash-action-accent"
-              onClick={() => setStaffModalOpen(true)}
-            >
-              <span className="biz-dash-action-icon">
-                <UserPlus size={16} />
-              </span>
-              <span className="biz-dash-action-text">
-                <span className="biz-dash-action-label">Invite staff</span>
-                <span className="biz-dash-action-hint">Search &amp; assign permissions</span>
-              </span>
-            </button>
-            <button
-              type="button"
               className="biz-dash-action"
               onClick={() => navigate(createPageUrl('VenueOnboarding') + '?new=1')}
             >
@@ -444,9 +474,19 @@ export default function BusinessDashboard() {
               </span>
             </button>
           </div>
+          ) : isStaffOnly ? (
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0 }}>
+              Staff view — you only see tools assigned to you for this venue.
+            </p>
+          ) : null}
         </div>
       </div>
-      {!venue?.paystack_recipient_code && !venue?.paystackRecipientCode ? (
+
+      {isVenueOwner ? (
+        <VenueStaffPanel venueId={venue.id} onInvite={() => setStaffModalOpen(true)} />
+      ) : null}
+
+      {isVenueOwner && !venue?.paystack_recipient_code && !venue?.paystackRecipientCode ? (
         <div style={{
           padding: '12px 16px',
           borderRadius: 12,
@@ -461,7 +501,7 @@ export default function BusinessDashboard() {
       ) : null}
 
       {/* Compliance Notice */}
-      {showComplianceSection &&
+      {isVenueOwner && showComplianceSection &&
         (complianceLatest ? !complianceCompleteFromApi : venue.compliance_status !== 'approved') && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
@@ -476,7 +516,7 @@ export default function BusinessDashboard() {
       )}
 
       {/* Compliance Documents Upload */}
-      {showComplianceSection && (
+      {isVenueOwner && showComplianceSection && (
       <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: 'var(--sec-accent-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -574,27 +614,36 @@ export default function BusinessDashboard() {
       )}
 
       {/* Stat Cards */}
+      {(showEventsStats || showBookingsStats || showAnalyticsStats) && (
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: 24 }}>
-        <StatCard icon={Calendar} label="Total Events" value={events.length} sub={`${upcomingEvents.length} upcoming`} />
-        <StatCard icon={BookOpen} label="Table Bookings" value={totalBookings} sub={`${activeBookings} active`} />
-        <StatCard icon={Star} label="Average Rating" value={avgRating} sub={`${reviews.length} reviews`} />
-        <StatCard icon={Users} label="Total Guests" value={totalGuests} />
+        {showEventsStats ? (
+          <StatCard icon={Calendar} label="Total Events" value={events.length} sub={`${upcomingEvents.length} upcoming`} />
+        ) : null}
+        {showBookingsStats ? (
+          <>
+            <StatCard icon={BookOpen} label="Table Bookings" value={totalBookings} sub={`${activeBookings} active`} />
+            <StatCard icon={Users} label="Total Guests" value={totalGuests} />
+          </>
+        ) : null}
+        {showAnalyticsStats ? (
+          <StatCard icon={Star} label="Average Rating" value={avgRating} sub={`${reviews.length} reviews`} />
+        ) : null}
       </div>
+      )}
 
       {/* Quick Actions */}
+      {visibleQuickActions.length > 0 && (
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Quick Actions</h3>
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          <QuickAction icon={Plus} label="Create Event" page="BusinessEvents" />
-          <QuickAction icon={BookOpen} label="Manage Bookings" page="BusinessBookings" />
-          <QuickAction icon={Armchair} label="Tables & day bookings" page="BusinessVenueTables" />
-          <QuickAction icon={BarChart3} label="View Analytics" page="VenueAnalytics" />
-          <QuickAction icon={Megaphone} label="Promotions" page="BusinessPromotions" />
-          <QuickAction icon={UtensilsCrossed} label="Menu Maker" page="BusinessMenu" />
-          <QuickAction icon={Briefcase} label="Post a Job" page="CreateJob" />
+          {visibleQuickActions.map((action) => (
+            <QuickAction key={action.page} icon={action.icon} label={action.label} page={action.page} />
+          ))}
         </div>
       </div>
+      )}
 
+      {(!isStaffOnly || can('jobs')) && (
       <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
           <h3 style={{ fontSize: 15, fontWeight: 700 }}>Jobs</h3>
@@ -685,8 +734,10 @@ export default function BusinessDashboard() {
           </div>
         )}
       </div>
+      )}
 
       {/* Sec Wallet */}
+      {isVenueOwner ? (
       <div className="sec-card" style={{ padding: 20, marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
           <div style={{
@@ -708,10 +759,13 @@ export default function BusinessDashboard() {
           onVenuesUpdated={() => qc.invalidateQueries({ queryKey: ['biz-venues', user?.id] })}
         />
       </div>
+      ) : null}
 
       {/* Two-Column Layout */}
+      {((!isStaffOnly || can('events')) || (!isStaffOnly || can('bookings'))) && (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="biz-grid-responsive">
         {/* Upcoming Events */}
+        {(!isStaffOnly || can('events')) ? (
         <div className="sec-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Upcoming Events</h3>
@@ -758,8 +812,10 @@ export default function BusinessDashboard() {
             </div>
           )}
         </div>
+        ) : null}
 
         {/* Recent Bookings */}
+        {(!isStaffOnly || can('bookings')) ? (
         <div className="sec-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>Recent Bookings</h3>
@@ -800,9 +856,13 @@ export default function BusinessDashboard() {
             </div>
           )}
         </div>
+        ) : null}
       </div>
+      )}
 
+      {isVenueOwner ? (
       <AddStaffModal open={staffModalOpen} onOpenChange={setStaffModalOpen} venueId={venue?.id} />
+      ) : null}
 
       <style>{`
         .biz-dash-action {

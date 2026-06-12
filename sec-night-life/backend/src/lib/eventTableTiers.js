@@ -1,6 +1,36 @@
 import { prisma } from './prisma.js';
 import { normalizeHostingConfig } from './hostingConfig.js';
 import { ensureEventCustomListing } from './syncEventVenueTables.js';
+import { parseGuestCountFromSpecs } from './venueTableHostAfterPayment.js';
+
+function buildHostedTablePayload(ht, { goingCount = null, requestedGuestCount = null } = {}) {
+  const going =
+    goingCount != null
+      ? Math.max(0, Number(goingCount) || 0)
+      : Math.max(0, Number(ht.guestQuantity) - Number(ht.spotsRemaining));
+  const capacity =
+    requestedGuestCount != null && requestedGuestCount >= 1
+      ? Math.round(requestedGuestCount)
+      : Math.max(1, Number(ht.guestQuantity) || 1);
+  const spotsRemaining = Math.max(0, capacity - going);
+
+  return {
+    id: ht.id,
+    tableName: ht.tableName,
+    isPublic: ht.isPublic,
+    hasJoiningFee: ht.hasJoiningFee,
+    joiningFee: ht.joiningFee,
+    guestCapacity: capacity,
+    spotsRemaining,
+    isCustomTable: Boolean(requestedGuestCount),
+    host: {
+      id: ht.host?.id,
+      username: ht.host?.userProfile?.username || ht.host?.username,
+      fullName: ht.host?.fullName,
+      avatarUrl: ht.host?.userProfile?.avatarUrl || null,
+    },
+  };
+}
 
 /**
  * Build grouped table tier payloads for Event Details.
@@ -41,6 +71,48 @@ export async function buildEventTableTiers(eventId) {
     },
   });
 
+  const hostedIds = hostedTables.map((ht) => ht.id);
+  const goingByHostedId = new Map();
+  if (hostedIds.length > 0) {
+    const goingRows = await prisma.hostedTableMember.groupBy({
+      by: ['hostedTableId'],
+      where: { hostedTableId: { in: hostedIds }, status: 'GOING' },
+      _count: { _all: true },
+    });
+    for (const row of goingRows) {
+      goingByHostedId.set(row.hostedTableId, row._count._all);
+    }
+  }
+
+  const customGuestByHostedId = new Map();
+  const customGuestByHostUserId = new Map();
+  const customListing = await prisma.venueTable.findFirst({
+    where: { eventId, isCustomListing: true, isActive: true },
+    select: { id: true, hostedTableId: true },
+  });
+  if (customListing) {
+    const hostMembers = await prisma.venueTableMember.findMany({
+      where: { venueTableId: customListing.id, memberRole: 'HOST' },
+      select: { userId: true, userSpecs: true },
+    });
+    for (const member of hostMembers) {
+      const guestCount = parseGuestCountFromSpecs(member.userSpecs);
+      if (!guestCount) continue;
+      customGuestByHostUserId.set(member.userId, guestCount);
+      const linkedHosted = hostedTables.find(
+        (ht) =>
+          ht.hostUserId === member.userId &&
+          (ht.id === customListing.hostedTableId || ht.tableName === 'Custom table request'),
+      );
+      if (linkedHosted) customGuestByHostedId.set(linkedHosted.id, guestCount);
+    }
+  }
+
+  const hostedSpotContext = (ht) => ({
+    goingCount: goingByHostedId.get(ht.id) ?? null,
+    requestedGuestCount: customGuestByHostedId.get(ht.id) ?? customGuestByHostUserId.get(ht.hostUserId) ?? null,
+  });
+
   const hostedByTierIndex = new Map();
   for (const ht of hostedTables) {
     const cat = ht.hostingCategory === 'VIP' ? 'vip' : 'general';
@@ -79,26 +151,13 @@ export async function buildEventTableTiers(eventId) {
 
         let hostedTablePayload = null;
         if (linkedHosted) {
-          hostedTablePayload = {
-            id: linkedHosted.id,
-            tableName: linkedHosted.tableName,
-            isPublic: linkedHosted.isPublic,
-            hasJoiningFee: linkedHosted.hasJoiningFee,
-            joiningFee: linkedHosted.joiningFee,
-            spotsRemaining: linkedHosted.spotsRemaining,
-            host: {
-              id: linkedHosted.host?.id,
-              username: linkedHosted.host?.userProfile?.username || linkedHosted.host?.username,
-              fullName: linkedHosted.host?.fullName,
-              avatarUrl: linkedHosted.host?.userProfile?.avatarUrl || null,
-            },
-          };
+          hostedTablePayload = buildHostedTablePayload(linkedHosted, hostedSpotContext(linkedHosted));
         }
 
         return {
           venueTableId: vt.id,
           tableName: vt.tableName,
-          spotsRemaining,
+          spotsRemaining: hostedTablePayload?.spotsRemaining ?? spotsRemaining,
           isHosted,
           hostedTable: hostedTablePayload,
         };
@@ -110,26 +169,14 @@ export async function buildEventTableTiers(eventId) {
       const linkedHostedIds = new Set(slots.map((s) => s.hostedTable?.id).filter(Boolean));
       const orphanHosted = (hostedByTierIndex.get(tierKey) || []).filter((ht) => !linkedHostedIds.has(ht.id));
       for (const ht of orphanHosted) {
-        if (ht.spotsRemaining <= 0) continue;
+        const payload = buildHostedTablePayload(ht, hostedSpotContext(ht));
+        if (payload.spotsRemaining <= 0) continue;
         slots.push({
           venueTableId: null,
           tableName: ht.tableName,
-          spotsRemaining: ht.spotsRemaining,
+          spotsRemaining: payload.spotsRemaining,
           isHosted: true,
-          hostedTable: {
-            id: ht.id,
-            tableName: ht.tableName,
-            isPublic: ht.isPublic,
-            hasJoiningFee: ht.hasJoiningFee,
-            joiningFee: ht.joiningFee,
-            spotsRemaining: ht.spotsRemaining,
-            host: {
-              id: ht.host?.id,
-              username: ht.host?.userProfile?.username || ht.host?.username,
-              fullName: ht.host?.fullName,
-              avatarUrl: ht.host?.userProfile?.avatarUrl || null,
-            },
-          },
+          hostedTable: payload,
         });
       }
 
@@ -162,7 +209,7 @@ export async function buildEventTableTiers(eventId) {
 
   await ensureEventCustomListing(eventId);
 
-  const customListing = await prisma.venueTable.findFirst({
+  const customListingRow = await prisma.venueTable.findFirst({
     where: {
       eventId,
       isActive: true,
@@ -174,8 +221,8 @@ export async function buildEventTableTiers(eventId) {
 
   return {
     tiers,
-    customListingId: customListing?.id ?? null,
-    allowsCustomRequests: tiers.some((t) => t.allowsCustomRequests) || Boolean(customListing),
+    customListingId: customListingRow?.id ?? null,
+    allowsCustomRequests: tiers.some((t) => t.allowsCustomRequests) || Boolean(customListingRow),
   };
 }
 

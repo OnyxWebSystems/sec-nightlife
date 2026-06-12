@@ -143,6 +143,7 @@ export default function TableDetails() {
 
   const venueBookingMode = useMemo(() => {
     if (bookingModeParam === 'host') return 'host';
+    if (bookingModeParam === 'join') return 'join';
     const specs = venueTable?.myMembership?.userSpecs;
     if (venueTable?.isCustomListing || specs?.guestCount) return 'custom_host';
     return 'join';
@@ -567,8 +568,8 @@ export default function TableDetails() {
       venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
     const isCustomHostCheckout = venueBookingMode === 'custom_host';
     const needsVenueApprovalBeforePay =
-      venueTable.isCustomListing ||
-      (isCustomHostCheckout && !isHostCheckout);
+      (venueTable.isCustomListing && venueBookingMode !== 'join' && !isHostCheckout) ||
+      (isCustomHostCheckout && !isHostCheckout && venueBookingMode !== 'join');
     const approvalOk =
       !needsVenueApprovalBeforePay ||
       isHostCheckout ||

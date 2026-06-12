@@ -9,6 +9,7 @@ import { apiGet } from '@/api/client';
 import { flushPendingLegalAccepts } from '@/lib/pendingLegalAccept';
 import SecLogo from '@/components/ui/SecLogo';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
+import { BUSINESS_PAGE_PERMISSIONS, useVenueStaffAccess } from '@/hooks/useVenueStaffAccess';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
@@ -22,9 +23,19 @@ const MODES = [
   { id: 'business', label: 'Business', icon: Building2 },
 ];
 
+function filterBusinessNav(items, canAccessPage, can) {
+  return items.filter((item) => {
+    if (item.isCreate) return can('events');
+    if (!item.page) return false;
+    if (item.page === 'Settings' || item.page === 'Notifications') return true;
+    return canAccessPage(item.page);
+  });
+}
+
 export default function Layout({ children, currentPageName }) {
   const navigate = useNavigate();
   const { user, userProfile } = useAuth();
+  const staffAccess = useVenueStaffAccess();
   const [notificationCount, setNotificationCount] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
   const [hostUnread, setHostUnread] = useState(0);
@@ -205,6 +216,17 @@ export default function Layout({ children, currentPageName }) {
     if (page) prefetchPage(page);
   };
 
+  const modeForGuard =
+    activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : 'partygoer');
+
+  useEffect(() => {
+    if (!user || modeForGuard !== 'business' || !staffAccess.isStaffOnly) return;
+    const perm = BUSINESS_PAGE_PERMISSIONS[currentPageName];
+    if (perm && !staffAccess.can(perm)) {
+      navigate(createPageUrl('StaffDashboard'), { replace: true });
+    }
+  }, [user, modeForGuard, staffAccess.isStaffOnly, staffAccess.can, currentPageName, navigate]);
+
   const hideNav =
     ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName) ||
     (currentPageName === 'Home' && !user);
@@ -263,8 +285,13 @@ export default function Layout({ children, currentPageName }) {
     },
   };
 
-  const mode = activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : 'partygoer');
+  const mode = modeForGuard;
   const { primary: primaryNav, secondary: secondaryNav } = NAV[mode];
+
+  const filterNavForStaff = (items) =>
+    mode === 'business' && staffAccess.isStaffOnly
+      ? filterBusinessNav(items, staffAccess.canAccessPage, staffAccess.can)
+      : items;
 
   const withMessageBadge = (items) =>
     items.map((item) => {
@@ -274,8 +301,8 @@ export default function Layout({ children, currentPageName }) {
       if (item.page === 'HostDashboard' && hostUnread > 0) return { ...item, badge: hostUnread };
       return item;
     });
-  const primaryNavB = withMessageBadge(primaryNav);
-  const secondaryNavB = withMessageBadge(secondaryNav);
+  const primaryNavB = withMessageBadge(filterNavForStaff(primaryNav));
+  const secondaryNavB = withMessageBadge(filterNavForStaff(secondaryNav));
 
   // Mobile: Unified 5-tab bottom nav — Home, Events, Create, Messages, Profile
   let mobileNav = mode === 'business'
@@ -293,7 +320,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ];
-  mobileNav = withMessageBadge(mobileNav);
+  mobileNav = withMessageBadge(filterNavForStaff(mobileNav));
 
   const isActive = (page) => {
     if (page === 'CreateJob' && currentPageName === 'CreateJob') return true;

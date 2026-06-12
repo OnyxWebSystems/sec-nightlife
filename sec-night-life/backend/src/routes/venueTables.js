@@ -12,6 +12,7 @@ import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfterPayment.js';
 import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
+import { canJoinTablesAsGuest } from '../lib/access.js';
 
 const router = Router();
 
@@ -631,7 +632,12 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
 
 router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
   try {
-    if (!['USER', 'VENUE'].includes(req.userRole)) return res.status(403).json({ error: 'Forbidden' });
+    if (!canJoinTablesAsGuest(req.userRole)) {
+      return res.status(403).json({
+        error: 'This account cannot join tables. Use a party goer or business owner profile.',
+        code: 'ACCOUNT_TYPE_NOT_ELIGIBLE',
+      });
+    }
     const payload = z
       .object({
         selectedMenuItems: z
@@ -654,7 +660,12 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'Table not available' });
     }
     if (table.currentOccupancy >= table.guestCapacity) return res.status(400).json({ error: 'Table is full' });
-    if (table.venue.ownerUserId === req.userId) return res.status(403).json({ error: 'Venue owners cannot join their own table' });
+    if (table.venue.ownerUserId === req.userId) {
+      return res.status(403).json({
+        error: 'Venue owners cannot join or pay for tables at their own venue. Use a guest account to test checkout.',
+        code: 'VENUE_OWNER_SELF_JOIN',
+      });
+    }
     const existing = await prisma.venueTableMember.findUnique({
       where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
     });
@@ -675,7 +686,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     // Inventory "host this table" checkout must not require a prior venue custom-table approval.
     const needsVenueApproval =
       bookingModeForGate === 'custom_host' ||
-      (table.isCustomListing && bookingModeForGate !== 'host');
+      (table.isCustomListing && bookingModeForGate !== 'host' && bookingModeForGate !== 'join');
     if (needsVenueApproval) {
       if (!existing || existing.status === 'PENDING_VENUE_REVIEW') {
         return res.status(400).json({ error: 'Submit a table request and wait for venue approval before checkout' });

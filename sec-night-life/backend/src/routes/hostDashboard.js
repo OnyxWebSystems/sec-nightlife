@@ -40,6 +40,8 @@ import {
 } from '../lib/menuHelpers.js';
 import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
+import { canJoinTablesAsGuest } from '../lib/access.js';
+import { parseGuestCountFromSpecs } from '../lib/venueTableHostAfterPayment.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { buildHostedTableJoinTicketSummary } from '../lib/ticketMemberSummary.js';
@@ -95,7 +97,7 @@ const messageSchema = z.object({
 });
 
 function assertHostEligibleRole(req, res) {
-  if (['SUPER_ADMIN', 'USER', 'VENUE'].includes(req.userRole)) {
+  if (canJoinTablesAsGuest(req.userRole)) {
     return true;
   }
   res.status(403).json({ error: 'Only party goer, business owner, and super admin accounts can host parties or tables.' });
@@ -464,8 +466,31 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       ? t.members.find((m) => m.userId === uid)
       : null;
     const goingMembers = t.members.filter((m) => m.status === 'GOING');
+    let effectiveGuestQty = gq;
+    let effectiveSpots = t.spotsRemaining;
+    if (t.tableName === 'Custom table request' && t.eventId) {
+      const customListing = await prisma.venueTable.findFirst({
+        where: { eventId: t.eventId, isCustomListing: true },
+        select: { id: true },
+      });
+      if (customListing) {
+        const hostVenueMember = await prisma.venueTableMember.findFirst({
+          where: { venueTableId: customListing.id, userId: t.hostUserId, memberRole: 'HOST' },
+          select: { userSpecs: true },
+        });
+        const requested = parseGuestCountFromSpecs(hostVenueMember?.userSpecs);
+        if (requested) {
+          effectiveGuestQty = requested;
+          effectiveSpots = Math.max(0, requested - goingMembers.length);
+        }
+      }
+    }
     const pendingInviteCount = await countPendingTableInvitesForTable(prisma, t.id);
-    const inviteSlotsRemaining = await remainingInviteSlotsForTable(prisma, t);
+    const inviteSlotsRemaining = await remainingInviteSlotsForTable(prisma, {
+      ...t,
+      guestQuantity: effectiveGuestQty,
+      members: t.members,
+    });
     const membersWithMenu = await resolveMemberMenuLines(t.members, venueId);
     const hostMember = membersWithMenu.find((m) => m.userId === t.hostUserId) || null;
     const menuProgress =
@@ -501,15 +526,15 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
         : null,
       host: await formatPublicHost(t.host),
       stats: {
-        spots_remaining: t.spotsRemaining,
+        spots_remaining: effectiveSpots,
         member_count: goingMembers.length,
         pending_invite_count: pendingInviteCount,
-        guest_capacity: t.guestQuantity,
+        guest_capacity: effectiveGuestQty,
         invite_slots_remaining: inviteSlotsRemaining,
       },
       invite_slots_remaining: inviteSlotsRemaining,
-      spotsRemaining: t.spotsRemaining,
-      guestQuantity: t.guestQuantity,
+      spotsRemaining: effectiveSpots,
+      guestQuantity: effectiveGuestQty,
       hasJoiningFee: t.hasJoiningFee,
       joiningFee: t.joiningFee,
       tier_min_spend_zar: tierMin,
