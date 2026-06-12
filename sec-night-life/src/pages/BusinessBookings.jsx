@@ -627,6 +627,7 @@ export default function BusinessBookings() {
                         )}
                         <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                           {order.tierName} · {order.quantity} ticket{order.quantity === 1 ? '' : 's'} · @{order.purchaser?.username || 'guest'}
+                          {order.fulfillmentPending ? ' · Preparing tickets' : ''}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -692,6 +693,11 @@ export default function BusinessBookings() {
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Checked in</span><span className="text-sm font-semibold">{detailTicket.admittedCount} / {detailTicket.quantity}</span></div>
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Your share</span><span className="text-sm font-semibold text-[var(--sec-accent)]">R{Number(detailTicket.venueShareZar || 0).toFixed(0)}</span></div>
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Gross paid</span><span className="text-sm font-semibold">R{Number(detailTicket.grossPaidZar || detailTicket.amountPaidZar || 0).toFixed(0)}</span></div>
+              {detailTicket.fulfillmentPending ? (
+                <p className="text-xs text-amber-200/90 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2">
+                  Payment received — ticket QR codes are still being prepared. Refresh this page in a moment.
+                </p>
+              ) : null}
               {detailTicket.tickets?.length > 0 ? (
                 <div className="pt-2 border-t border-[var(--sec-border)]">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--sec-text-muted)] mb-2">Ticket holders</p>

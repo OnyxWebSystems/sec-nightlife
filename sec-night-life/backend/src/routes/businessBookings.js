@@ -664,29 +664,112 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
 });
 
 function basePaystackRef(ref) {
-  return String(ref || '').replace(/-\d+$/, '');
+  return basePaymentReference(ref).replace(/-\d+$/, '');
 }
 
-/** Ticket purchases for ticketing events at owned venues. */
+function emptyTicketBookingsSummary() {
+  return {
+    orderCount: 0,
+    ticketCount: 0,
+    admittedCount: 0,
+    totalRevenueZar: 0,
+    totalVenueShareZar: 0,
+    totalGrossZar: 0,
+  };
+}
+
+function venueShareFromPayment(pay) {
+  const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
+  if (meta.venue_share_zar != null) return Number(meta.venue_share_zar) || 0;
+  if (meta.recipient_amount != null) return Number(meta.recipient_amount) || 0;
+  const gross = Number(pay?.amount) || 0;
+  return splitPlatformGross(gross).recipientAmount;
+}
+
+function platformFeeFromPayment(pay) {
+  const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
+  if (meta.platform_fee_zar != null) return Number(meta.platform_fee_zar) || 0;
+  if (meta.sec_amount != null) return Number(meta.sec_amount) || 0;
+  const gross = Number(pay?.amount) || 0;
+  return splitPlatformGross(gross).secAmount;
+}
+
+function paymentEventId(meta) {
+  const m = flattenPaymentMetadata(meta);
+  return m.event_id || m.eventId || null;
+}
+
+async function resolveAccessibleVenueIds(userId, venueIdFilter = null) {
+  const [ownedVenues, staffRows] = await Promise.all([
+    prisma.venue.findMany({
+      where: { ownerUserId: userId, deletedAt: null },
+      select: { id: true },
+    }),
+    prisma.venueStaffAssignment.findMany({
+      where: { userId, revokedAt: null },
+      select: { venueId: true, permissions: true },
+    }),
+  ]);
+
+  const ids = new Set(ownedVenues.map((v) => v.id));
+  for (const row of staffRows) {
+    const perms = row.permissions && typeof row.permissions === 'object' ? row.permissions : {};
+    if (perms.bookings === true || perms.dashboard === true) ids.add(row.venueId);
+  }
+
+  const allIds = [...ids];
+  if (venueIdFilter) {
+    return allIds.includes(venueIdFilter) ? [venueIdFilter] : [];
+  }
+  return allIds;
+}
+
+async function repairTicketPaymentsForVenues(venueIds) {
+  if (!venueIds.length) return;
+  const { ensureEventTicketsForPayment } = await import('../lib/issueEventTickets.js');
+  const events = await prisma.event.findMany({
+    where: { venueId: { in: venueIds }, deletedAt: null },
+    select: { id: true },
+  });
+  const eventIds = new Set(events.map((e) => e.id));
+  if (!eventIds.size) return;
+
+  const payments = await prisma.payment.findMany({
+    where: {
+      status: { in: ['success', 'pending'] },
+      type: { in: ['ticket', 'event'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 80,
+    select: { reference: true, metadata: true },
+  });
+
+  const toRepair = payments.filter((p) => {
+    const eid = paymentEventId(p.metadata);
+    return eid && eventIds.has(String(eid));
+  });
+
+  await Promise.all(
+    toRepair.map((p) =>
+      ensureEventTicketsForPayment(p.reference, { status: 'success' }).catch(() => null),
+    ),
+  );
+}
+
+/** Ticket purchases for events at venues the user owns or staffs. */
 router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
   try {
-    const ownedVenues = await prisma.venue.findMany({
-      where: { ownerUserId: req.userId, deletedAt: null },
-      select: { id: true, name: true },
-    });
-    if (!ownedVenues.length) {
-      return res.json({
-        items: [],
-        eventSummaries: [],
-        summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0, totalVenueShareZar: 0, totalGrossZar: 0 },
-      });
-    }
-    const venueIds = ownedVenues.map((v) => v.id);
     const venueIdFilter =
       typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
         ? req.query.venue_id.trim()
         : null;
-    const scopedVenueIds = venueIdFilter && venueIds.includes(venueIdFilter) ? [venueIdFilter] : venueIds;
+    const scopedVenueIds = await resolveAccessibleVenueIds(req.userId, venueIdFilter);
+    if (!scopedVenueIds.length) {
+      if (venueIdFilter) return res.status(404).json({ error: 'Venue not found' });
+      return res.json({ items: [], eventSummaries: [], summary: emptyTicketBookingsSummary() });
+    }
+
+    await repairTicketPaymentsForVenues(scopedVenueIds);
 
     const eventIdFilter =
       typeof req.query.event_id === 'string' && req.query.event_id.trim()
@@ -698,23 +781,17 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
     const dateWhere =
       eventScope === 'active' ? { gte: startToday } : eventScope === 'past' ? { lt: startToday } : undefined;
 
-    let eventsInScope = [];
+    const eventWhere = {
+      venueId: { in: scopedVenueIds },
+      deletedAt: null,
+      ...(eventIdFilter ? { id: eventIdFilter } : {}),
+      ...(dateWhere ? { date: dateWhere } : {}),
+    };
+
     if (eventIdFilter) {
       const ev = await prisma.event.findFirst({
-        where: {
-          id: eventIdFilter,
-          venueId: { in: scopedVenueIds },
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-          title: true,
-          date: true,
-          startTime: true,
-          city: true,
-          ticketTiers: true,
-          eventFormat: true,
-        },
+        where: eventWhere,
+        select: { id: true, date: true },
       });
       if (!ev) return res.status(404).json({ error: 'Event not found' });
       const isPast = eventDateIsPast(ev.date, startToday);
@@ -722,7 +799,7 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         return res.json({
           items: [],
           eventSummaries: [],
-          summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0 },
+          summary: emptyTicketBookingsSummary(),
           eventScope,
           notice: 'past_event_use_past_scope',
         });
@@ -731,119 +808,77 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         return res.json({
           items: [],
           eventSummaries: [],
-          summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0 },
+          summary: emptyTicketBookingsSummary(),
           eventScope,
           notice: 'upcoming_event_use_active_scope',
         });
       }
-      eventsInScope = [ev];
-    } else {
-      eventsInScope = await prisma.event.findMany({
-        where: {
-          venueId: { in: scopedVenueIds },
-          deletedAt: null,
-          ...(dateWhere ? { date: dateWhere } : {}),
-        },
-        select: {
-          id: true,
-          title: true,
-          date: true,
-          startTime: true,
-          city: true,
-          ticketTiers: true,
-          eventFormat: true,
-        },
-      });
     }
 
-    const soldEventRows = await prisma.ticket.findMany({
-      where: {
-        kind: 'EVENT_TICKET',
-        hiddenFromHistoryAt: null,
-        event: {
-          venueId: { in: scopedVenueIds },
-          deletedAt: null,
-          ...(dateWhere ? { date: dateWhere } : {}),
-        },
+    const eventsAtVenue = await prisma.event.findMany({
+      where: eventWhere,
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        startTime: true,
+        city: true,
+        ticketTiers: true,
+        eventFormat: true,
       },
-      select: { eventId: true },
-      distinct: ['eventId'],
     });
-    const soldEventIds = new Set(soldEventRows.map((row) => row.eventId).filter(Boolean));
+    const eventIds = eventsAtVenue.map((e) => e.id);
 
-    eventsInScope = eventsInScope.filter((ev) => {
-      if (ev.eventFormat === 'TICKETING_ONLY') return true;
-      if (soldEventIds.has(ev.id)) return true;
-      return normalizeTicketTiers(ev.ticketTiers).length > 0;
-    });
+    const ticketWhere =
+      eventIds.length > 0
+        ? {
+            kind: 'EVENT_TICKET',
+            hiddenFromHistoryAt: null,
+            eventId: { in: eventIds },
+          }
+        : null;
 
-    const eventIds = eventsInScope.map((e) => e.id);
-    const eventSummaries = eventsInScope
-      .map((e) => ({ id: e.id, title: e.title, date: e.date, startTime: e.startTime, city: e.city }))
-      .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    const [ticketCount, admittedCount, tickets] = ticketWhere
+      ? await Promise.all([
+          prisma.ticket.count({ where: ticketWhere }),
+          prisma.ticket.count({ where: { ...ticketWhere, admittedAt: { not: null } } }),
+          prisma.ticket.findMany({
+            where: ticketWhere,
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  username: true,
+                  userProfile: { select: { username: true, avatarUrl: true } },
+                },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 2000,
+          }),
+        ])
+      : [0, 0, []];
 
-    if (!eventIds.length) {
-      return res.json({
-        items: [],
-        eventSummaries,
-        summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0 },
-        eventScope,
-      });
-    }
+    const eventById = new Map(eventsAtVenue.map((e) => [e.id, e]));
+    const ticketEventIds = new Set(tickets.map((t) => t.eventId).filter(Boolean));
 
-    const ticketWhere = {
-      kind: 'EVENT_TICKET',
-      eventId: { in: eventIds },
-      hiddenFromHistoryAt: null,
-    };
-
-    const [ticketCount, admittedCount] = await Promise.all([
-      prisma.ticket.count({ where: ticketWhere }),
-      prisma.ticket.count({ where: { ...ticketWhere, admittedAt: { not: null } } }),
-    ]);
-
-    const tickets = await prisma.ticket.findMany({
-      where: ticketWhere,
-      include: {
-        user: {
-          select: {
-            id: true,
-            fullName: true,
-            username: true,
-            userProfile: { select: { username: true, avatarUrl: true } },
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 2000,
-    });
-
-    function venueShareFromPayment(pay) {
-      const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
-      if (meta.venue_share_zar != null) return Number(meta.venue_share_zar) || 0;
-      if (meta.recipient_amount != null) return Number(meta.recipient_amount) || 0;
-      const gross = Number(pay?.amount) || 0;
-      return splitPlatformGross(gross).recipientAmount;
-    }
-
-    function platformFeeFromPayment(pay) {
-      const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
-      if (meta.platform_fee_zar != null) return Number(meta.platform_fee_zar) || 0;
-      if (meta.sec_amount != null) return Number(meta.sec_amount) || 0;
-      const gross = Number(pay?.amount) || 0;
-      return splitPlatformGross(gross).secAmount;
-    }
-
-    const eventById = new Map(eventsInScope.map((e) => [e.id, e]));
     const refs = [...new Set(tickets.map((t) => basePaystackRef(t.paystackReference)).filter(Boolean))];
-    const payments =
+    const paymentsByRef =
       refs.length > 0
         ? await prisma.payment.findMany({
             where: { reference: { in: refs }, status: 'success' },
-            select: { reference: true, amount: true, metadata: true, createdAt: true },
+            select: {
+              reference: true,
+              amount: true,
+              metadata: true,
+              createdAt: true,
+              userId: true,
+              email: true,
+            },
           })
         : [];
-    const paymentByRef = new Map(payments.map((p) => [p.reference, p]));
+    const paymentByRef = new Map(paymentsByRef.map((p) => [p.reference, p]));
 
     const groups = new Map();
     for (const t of tickets) {
@@ -874,6 +909,7 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
           amountPaidZar: pay ? Number(pay.amount) || 0 : 0,
           purchasedAt: pay?.createdAt || t.createdAt,
           menuAddons: [],
+          fulfillmentPending: false,
         });
       }
       const g = groups.get(baseRef);
@@ -887,13 +923,98 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
       if (t.admittedAt) g.admittedCount += 1;
     }
 
+    const scopedEventIds = new Set(eventsAtVenue.map((e) => e.id));
+    const recentPayments = await prisma.payment.findMany({
+      where: { status: 'success', type: { in: ['ticket', 'event'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 400,
+      select: {
+        reference: true,
+        amount: true,
+        metadata: true,
+        createdAt: true,
+        userId: true,
+        email: true,
+      },
+    });
+
+    const paymentOnlyRefs = recentPayments.filter((pay) => {
+      if (groups.has(pay.reference)) return false;
+      const eid = paymentEventId(pay.metadata);
+      return eid && scopedEventIds.has(String(eid));
+    });
+
+    const payerIds = [...new Set(paymentOnlyRefs.map((p) => p.userId).filter(Boolean))];
+    const payers =
+      payerIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: payerIds } },
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+              email: true,
+              userProfile: { select: { username: true, avatarUrl: true } },
+            },
+          })
+        : [];
+    const payerById = new Map(payers.map((u) => [u.id, u]));
+
+    for (const pay of paymentOnlyRefs) {
+      const eid = paymentEventId(pay.metadata);
+      const ev = eid ? eventById.get(String(eid)) : null;
+      if (!ev) continue;
+      const meta = flattenPaymentMetadata(pay.metadata);
+      const payer = payerById.get(pay.userId);
+      const qty = Math.max(1, parseInt(String(meta.quantity || '1'), 10) || 1);
+      groups.set(pay.reference, {
+        id: pay.reference,
+        paystackReference: pay.reference,
+        event: {
+          id: ev.id,
+          title: ev.title,
+          date: ev.date,
+          startTime: ev.startTime,
+          city: ev.city,
+        },
+        tierName: meta.ticket_tier_name || meta.ticketTierName || 'Ticket',
+        purchaser: {
+          id: pay.userId,
+          username: payer?.userProfile?.username || payer?.username || pay.email,
+          fullName: payer?.fullName || null,
+          avatarUrl: payer?.userProfile?.avatarUrl || null,
+        },
+        tickets: [],
+        quantity: qty,
+        admittedCount: 0,
+        grossPaidZar: Number(pay.amount) || 0,
+        venueShareZar: venueShareFromPayment(pay),
+        platformFeeZar: platformFeeFromPayment(pay),
+        amountPaidZar: Number(pay.amount) || 0,
+        purchasedAt: pay.createdAt,
+        menuAddons: [],
+        fulfillmentPending: true,
+      });
+      ticketEventIds.add(ev.id);
+    }
+
+    const eventSummaries = eventsAtVenue
+      .filter(
+        (ev) =>
+          ticketEventIds.has(ev.id) ||
+          ev.eventFormat === 'TICKETING_ONLY' ||
+          normalizeTicketTiers(ev.ticketTiers).length > 0,
+      )
+      .map((e) => ({ id: e.id, title: e.title, date: e.date, startTime: e.startTime, city: e.city }))
+      .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+
     const items = [...groups.values()].sort(
       (a, b) => new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime(),
     );
 
     const summary = {
       orderCount: items.length,
-      ticketCount,
+      ticketCount: ticketCount || items.reduce((s, i) => s + Number(i.quantity || 0), 0),
       admittedCount,
       totalRevenueZar: items.reduce((s, i) => s + Number(i.grossPaidZar || 0), 0),
       totalGrossZar: items.reduce((s, i) => s + Number(i.grossPaidZar || 0), 0),
