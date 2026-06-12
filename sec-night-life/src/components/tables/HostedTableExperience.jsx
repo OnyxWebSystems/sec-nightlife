@@ -11,6 +11,7 @@ import { launchPaystackInline } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
+import HostedTableJoinWizard from '@/components/tables/HostedTableJoinWizard';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -87,8 +88,6 @@ export default function HostedTableExperience({
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [joinWizardOpen, setJoinWizardOpen] = useState(false);
-  const [joinStep, setJoinStep] = useState('choice');
-  const [joinMenuSelected, setJoinMenuSelected] = useState({});
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [hostedMenuSelected, setHostedMenuSelected] = useState({});
@@ -214,8 +213,6 @@ export default function HostedTableExperience({
       authServiceRedirect();
       return;
     }
-    setJoinStep(venueMenu.length ? 'choice' : 'checkout');
-    setJoinMenuSelected({});
     setJoinWizardOpen(true);
   };
 
@@ -526,88 +523,17 @@ export default function HostedTableExperience({
         </footer>
       )}
 
-      <Dialog open={joinWizardOpen} onOpenChange={setJoinWizardOpen}>
-        <DialogContent className="bg-[var(--sec-bg-card)] border border-[var(--sec-border)] max-w-md">
-          <DialogHeader>
-            <DialogTitle style={{ color: 'var(--sec-text-primary)' }}>
-              {joinStep === 'choice' && 'Join this table'}
-              {joinStep === 'menu' && 'Choose menu items'}
-              {joinStep === 'checkout' && 'Review & pay'}
-            </DialogTitle>
-            <DialogDescription>
-              {joinStep === 'choice' && 'Would you like to add menu items to your order?'}
-              {joinStep === 'menu' && 'Optional — items appear on your join ticket QR.'}
-              {joinStep === 'checkout' && 'Confirm before joining.'}
-            </DialogDescription>
-          </DialogHeader>
-
-          {joinStep === 'choice' && (
-            <div className="flex flex-col gap-3 pt-2">
-              <Button
-                className="bg-[var(--sec-accent)] text-black"
-                onClick={() => setJoinStep('menu')}
-              >
-                Choose items
-              </Button>
-              <Button variant="outline" onClick={() => setJoinStep('checkout')}>
-                Skip menu
-              </Button>
-            </div>
-          )}
-
-          {joinStep === 'menu' && (
-            <div className="max-h-72 overflow-y-auto">
-              <MenuPicker
-                items={venueMenu}
-                selected={joinMenuSelected}
-                onChange={(id, qty) => setJoinMenuSelected((s) => ({ ...s, [id]: qty }))}
-              />
-              <Button className="w-full mt-4 bg-[var(--sec-accent)] text-black" onClick={() => setJoinStep('checkout')}>
-                Continue
-              </Button>
-            </div>
-          )}
-
-          {joinStep === 'checkout' && (
-            <div className="space-y-3 pt-2">
-              {entranceZ > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-[var(--sec-text-muted)]">Entrance</span>
-                  <span>R{entranceZ.toFixed(0)}</span>
-                </div>
-              )}
-              {joinZ > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-[var(--sec-text-muted)]">Joining fee</span>
-                  <span>R{joinZ.toFixed(0)}</span>
-                </div>
-              )}
-              {Object.keys(joinMenuSelected).length > 0 && (
-                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
-                  Menu items selected — included on your ticket QR.
-                </p>
-              )}
-              <div className="flex justify-between font-bold text-base pt-2 border-t border-[var(--sec-border)]">
-                <span>Total</span>
-                <span>R{totalOnline.toFixed(0)}</span>
-              </div>
-              <Button
-                className="w-full bg-[var(--sec-accent)] text-black"
-                disabled={isProcessingPayment}
-                onClick={() => {
-                  const payload = menuSelectionToPayload(venueMenu, joinMenuSelected).map((p) => ({
-                    menuItemId: p.menuItemId,
-                    quantity: p.quantity,
-                  }));
-                  executeJoin(payload);
-                }}
-              >
-                {isProcessingPayment ? 'Processing…' : totalOnline > 0 ? 'Pay and join' : 'Join table'}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <HostedTableJoinWizard
+        open={joinWizardOpen}
+        onOpenChange={setJoinWizardOpen}
+        tableName={hostedTable.tableName || 'this table'}
+        venueMenu={venueMenu}
+        entranceZar={entranceZ}
+        joinZar={joinZ}
+        totalOnline={totalOnline}
+        isProcessing={isProcessingPayment}
+        onConfirm={(menuPayload) => executeJoin(menuPayload)}
+      />
 
       <Dialog open={leaveConfirmOpen} onOpenChange={setLeaveConfirmOpen}>
         <DialogContent className="bg-[var(--sec-bg-card)] border border-[var(--sec-border)] max-w-sm">

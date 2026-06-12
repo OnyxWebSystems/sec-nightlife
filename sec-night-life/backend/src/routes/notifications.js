@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { isStaff } from '../lib/access.js';
+import { dedupeInAppRows, filterDuplicateLegacyRows } from '../lib/notificationMerge.js';
 
 const router = Router();
 
@@ -80,11 +81,19 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
       isRead: false,
       ...(type ? { type } : { NOT: { type: { in: EXCLUDED_IN_APP_TYPES } } }),
     };
-    const [inApp, legacy] = await Promise.all([
-      prisma.inAppNotification.count({ where: inAppWhere }),
-      prisma.notification.count({ where: legacyWhere }),
+    const [inAppRows, legacyRows] = await Promise.all([
+      prisma.inAppNotification.findMany({
+        where: inAppWhere,
+        select: { id: true, type: true, title: true, body: true, referenceType: true, createdAt: true },
+      }),
+      prisma.notification.findMany({
+        where: legacyWhere,
+        select: { id: true, type: true, title: true, body: true, createdAt: true },
+      }),
     ]);
-    res.json({ count: inApp + legacy });
+    const uniqueInApp = dedupeInAppRows(inAppRows);
+    const dedupedLegacy = filterDuplicateLegacyRows(legacyRows, uniqueInApp);
+    res.json({ count: uniqueInApp.length + dedupedLegacy.length });
   } catch (err) {
     next(err);
   }
@@ -112,9 +121,12 @@ router.get('/', authenticateToken, async (req, res, next) => {
       }),
     ]);
 
-    const merged = [...inAppRows.map(mapInApp), ...legacyRows.map(mapLegacy)].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
+    const uniqueInApp = dedupeInAppRows(inAppRows);
+    const filteredLegacy = filterDuplicateLegacyRows(legacyRows, uniqueInApp);
+    const merged = [
+      ...uniqueInApp.map(mapInApp),
+      ...filteredLegacy.map(mapLegacy),
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     const slice = merged.slice((page - 1) * limit, page * limit);
     res.json(slice.map(({ _source, ...rest }) => rest));

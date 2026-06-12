@@ -240,11 +240,24 @@ export default function Notifications() {
       }
     }
 
+    if (n.referenceType === 'TICKET') {
+      return `${createPageUrl('Profile')}?tab=tickets`;
+    }
+
     if (t === 'TABLE_JOINED' || t === 'EVENT_JOINED') {
+      if (n.referenceType === 'HOSTED_TABLE' && n.referenceId) {
+        return buildPageUrl('TableDetails', { id: n.referenceId, source: 'hosted' });
+      }
       if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
         return n.referenceId;
       }
-      if (actionUrl) return actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
+      if (actionUrl) {
+        if (actionUrl.includes('Profile') || actionUrl.includes('Tickets')) {
+          return `${createPageUrl('Profile')}?tab=tickets`;
+        }
+        return actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
+      }
+      return `${createPageUrl('Profile')}?tab=tickets`;
     }
 
     if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {

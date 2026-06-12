@@ -1,15 +1,63 @@
 import QRCode from 'qrcode';
 import { sendEmail } from './email.js';
-import { createNotification } from './notifications.js';
 import { createInAppNotification } from './inAppNotifications.js';
 import {
   generateQrToken,
   visibleUntilFromEventStartsAt,
   holderDisplayNameFromUser,
+  hideSupersededHostedTableGuestTickets,
+  hideSupersededVenueTableGuestTickets,
 } from './ticketHelpers.js';
 import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { buildTicketVerifyUrlWithHints, ticketVerifyPublicOrigin } from './ticketVerifyUrl.js';
 import { logger } from './logger.js';
+
+function notificationCopyForTicketKind(kind, title) {
+  switch (kind) {
+    case 'EVENT_TICKET':
+      return {
+        legacyTitle: 'Your ticket is ready',
+        legacyBody: `${title} — open Profile → Tickets to view your QR code.`,
+        inAppTitle: 'Ticket confirmed',
+        inAppBody: `${title}. View it under Profile → Tickets.`,
+        inAppType: 'EVENT_JOINED',
+      };
+    case 'HOSTED_TABLE_JOIN':
+    case 'VENUE_TABLE_JOIN':
+    case 'TABLE_JOIN':
+      return {
+        legacyTitle: 'Table pass ready',
+        legacyBody: `${title} — open Profile → Tickets for your table QR code.`,
+        inAppTitle: 'Table join confirmed',
+        inAppBody: `${title}. Your table pass is in Profile → Tickets.`,
+        inAppType: 'TABLE_JOINED',
+      };
+    case 'TABLE_HOST_FEE':
+      return {
+        legacyTitle: 'Host pass ready',
+        legacyBody: `${title} — open Profile → Tickets for your host QR code.`,
+        inAppTitle: 'Hosting confirmed',
+        inAppBody: `${title}. Your host pass is in Profile → Tickets.`,
+        inAppType: 'TABLE_JOINED',
+      };
+    case 'HOUSE_PARTY':
+      return {
+        legacyTitle: 'Party pass ready',
+        legacyBody: `${title} — open Profile → Tickets to view your QR code.`,
+        inAppTitle: 'Party pass confirmed',
+        inAppBody: `${title}. View it under Profile → Tickets.`,
+        inAppType: 'EVENT_JOINED',
+      };
+    default:
+      return {
+        legacyTitle: 'Pass ready',
+        legacyBody: `${title} — open Profile → Tickets to view your QR code.`,
+        inAppTitle: 'Pass confirmed',
+        inAppBody: `${title}. View it under Profile → Tickets.`,
+        inAppType: 'TABLE_JOINED',
+      };
+  }
+}
 
 /**
  * Create a ticket row once per Paystack reference and notify the user.
@@ -42,6 +90,12 @@ export async function issueTicketAndNotify(db, params) {
     where: { paystackReference },
   });
   if (existing) return existing;
+
+  if (hostedTableId && kind === 'HOSTED_TABLE_JOIN') {
+    await hideSupersededHostedTableGuestTickets(db, { userId, hostedTableId });
+  } else if (venueTableId && kind === 'VENUE_TABLE_JOIN') {
+    await hideSupersededVenueTableGuestTickets(db, { userId, venueTableId });
+  }
 
   let holderDisplayName = holderParam;
   if (holderDisplayName == null || holderDisplayName === '') {
@@ -115,19 +169,13 @@ export async function issueTicketAndNotify(db, params) {
   const profileUrl = baseUrl ? `${baseUrl}/Profile` : '/Profile';
   const verifyUrl = qrContent.startsWith('http') ? qrContent : baseUrl ? `${baseUrl}${qrContent}` : qrContent;
 
-  await createNotification({
-    userId,
-    type: 'payment',
-    title: 'Your ticket is ready',
-    body: `${title} — open Profile → Tickets to view your QR code.`,
-    actionUrl: `/Profile`,
-  });
+  const notice = notificationCopyForTicketKind(kind, title);
 
   await createInAppNotification({
     userId,
-    type: 'EVENT_JOINED',
-    title: 'Ticket confirmed',
-    body: `${title}. View it under Profile → Tickets.`,
+    type: notice.inAppType,
+    title: notice.inAppTitle,
+    body: notice.inAppBody,
     referenceId: ticket.id,
     referenceType: 'TICKET',
   });

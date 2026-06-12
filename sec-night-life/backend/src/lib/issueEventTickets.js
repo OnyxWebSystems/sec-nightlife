@@ -83,9 +83,14 @@ export async function issueEventTicketsFromPayment(db, {
   const eventId = metadata.event_id || metadata.eventId;
   const ticketTier = metadata.ticket_tier_name || metadata.ticketTierName;
   const qty = Math.max(1, parseInt(String(metadata.quantity || '1'), 10) || 1);
+  const paymentType = String(metadata.type || '');
 
   if (!eventId || !ticketTier || !userId) {
     return { issued: 0, skipped: true, reason: 'missing_metadata' };
+  }
+
+  if (paymentType && paymentType !== 'ticket' && paymentType !== 'event') {
+    return { issued: 0, skipped: true, reason: 'wrong_payment_type' };
   }
 
   const refs = ticketReferencesForPayment(reference, qty);
@@ -126,13 +131,6 @@ export async function issueEventTicketsFromPayment(db, {
   const soldIncrement = skipSoldUpdate ? 0 : toIssue;
 
   if (!skipSideNotifications) {
-    await createNotification({
-      userId,
-      type: 'payment',
-      title: 'Tickets confirmed',
-      body: `Your ticket purchase for "${event.title}" was confirmed.`,
-      actionUrl: `/Profile?tab=tickets`,
-    });
     logFriendActivity({
       userId,
       activityType: 'JOINED_EVENT',
@@ -299,7 +297,8 @@ export async function ensureEventTicketsForPayment(reference, paystackData = nul
 
   const metadata = pay.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
   const type = metadata.type;
-  if (type !== 'ticket' && !(metadata.event_id && metadata.ticket_tier_name)) {
+  const ticketTier = metadata.ticket_tier_name || metadata.ticketTierName;
+  if ((type !== 'ticket' && type !== 'event') || !ticketTier) {
     return { repaired: false };
   }
 

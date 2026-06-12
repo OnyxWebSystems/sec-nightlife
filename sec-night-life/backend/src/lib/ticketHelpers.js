@@ -173,6 +173,42 @@ export function formatSpecsFromHostedTable(ht, members) {
 }
 
 /**
+ * Hide older guest passes for the same hosted table so Profile → Tickets shows one current QR.
+ */
+export async function hideSupersededHostedTableGuestTickets(db, { userId, hostedTableId }) {
+  if (!userId || !hostedTableId) return { hidden: 0 };
+  const now = new Date();
+  const result = await db.ticket.updateMany({
+    where: {
+      userId: String(userId),
+      hostedTableId: String(hostedTableId),
+      kind: 'HOSTED_TABLE_JOIN',
+      hiddenFromHistoryAt: null,
+    },
+    data: { hiddenFromHistoryAt: now },
+  });
+  return { hidden: result.count };
+}
+
+/**
+ * Hide older guest passes for the same venue table (menu top-ups, re-joins).
+ */
+export async function hideSupersededVenueTableGuestTickets(db, { userId, venueTableId }) {
+  if (!userId || !venueTableId) return { hidden: 0 };
+  const now = new Date();
+  const result = await db.ticket.updateMany({
+    where: {
+      userId: String(userId),
+      venueTableId: String(venueTableId),
+      kind: 'VENUE_TABLE_JOIN',
+      hiddenFromHistoryAt: null,
+    },
+    data: { hiddenFromHistoryAt: now },
+  });
+  return { hidden: result.count };
+}
+
+/**
  * @deprecated Do not overwrite all guest join tickets with table-wide menu text.
  * Menu orders get their own ticket per payment (see payments HOSTED_TABLE_MENU).
  */

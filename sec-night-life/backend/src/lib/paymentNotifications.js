@@ -1,4 +1,3 @@
-import { createNotification } from './notifications.js';
 import { createInAppNotification } from './inAppNotifications.js';
 import { sendEmail } from './email.js';
 
@@ -16,13 +15,6 @@ export async function notifyPaymentSuccess({
   emailSubject = null,
 }) {
   if (!userId) return;
-  await createNotification({
-    userId,
-    type: 'payment',
-    title,
-    body,
-    actionUrl,
-  });
   await createInAppNotification({
     userId,
     type: 'TABLE_JOINED',
@@ -62,13 +54,6 @@ export async function notifyUserAlert({
   emailHtml = null,
 }) {
   if (!userId) return;
-  await createNotification({
-    userId,
-    type: type || 'system',
-    title,
-    body,
-    actionUrl,
-  });
   await createInAppNotification({
     userId,
     type: inAppType || 'TABLE_JOINED',

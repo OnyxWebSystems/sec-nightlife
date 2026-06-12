@@ -328,6 +328,21 @@
     line-height: 1.25;
   }
 
+  @media (min-width: 480px) {
+    .hosted-table-card-actions {
+      flex-direction: row !important;
+    }
+    .hosted-table-card-actions .sec-btn-full {
+      width: auto;
+      flex: 1;
+    }
+  }
+
+  .event-host-tables-page {
+    width: 100%;
+    overflow-x: hidden;
+  }
+
   /* ─── Sticky bottom CTA bar — price left / button right ─── */
   .sec-bottom-bar {
     position: fixed;

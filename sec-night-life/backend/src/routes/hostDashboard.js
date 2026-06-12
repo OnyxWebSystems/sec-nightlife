@@ -657,6 +657,7 @@ router.get('/tables/host-at-event', optionalAuth, async (req, res, next) => {
             coverImageUrl: true,
             hasEntranceFee: true,
             entranceFeeAmount: true,
+            venueId: true,
           },
         },
         members: {
@@ -673,6 +674,12 @@ router.get('/tables/host-at-event', optionalAuth, async (req, res, next) => {
       return 0;
     });
     const host = rows[0] ? await formatPublicHost(rows[0].host) : null;
+    const venueId = rows[0]?.event?.venueId || null;
+    let venueMenu = [];
+    if (venueId) {
+      venueMenu = await fetchGuestVenueMenuItems(venueId);
+    }
+    const entranceZar = getEventEntranceZar(rows[0]?.event);
     res.json({
       host,
       event: rows[0]?.event
@@ -685,8 +692,18 @@ router.get('/tables/host-at-event', optionalAuth, async (req, res, next) => {
             cover_image_url: rows[0].event.coverImageUrl,
             has_entrance_fee: rows[0].event.hasEntranceFee,
             entrance_fee_amount: rows[0].event.entranceFeeAmount,
+            venue_id: venueId,
           }
         : null,
+      venue_menu: venueMenu.map((m) => ({
+        id: m.id,
+        name: m.name,
+        category: m.category,
+        sub_category: m.sub_category,
+        price: m.price,
+        image_url: m.image_url,
+      })),
+      entrance_zar: entranceZar,
       tables: rows.map((t) => ({
         id: t.id,
         tableName: t.tableName,

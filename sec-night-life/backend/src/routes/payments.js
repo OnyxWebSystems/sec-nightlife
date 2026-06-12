@@ -949,13 +949,6 @@ async function applyReferenceSideEffects(reference, paystackData) {
           }
           await refreshHostedTableTickets(prisma, hosted.id);
           if (hosted.event?.venue?.ownerUserId) {
-            await createNotification({
-              userId: hosted.event.venue.ownerUserId,
-              type: 'table_update',
-              title: 'New hosted table',
-              body: `${hosted.tableName} is now active for ${hosted.event?.title || 'your event'}.`,
-              actionUrl: `/BusinessBookings`,
-            });
             await createInAppNotification({
               userId: hosted.event.venue.ownerUserId,
               type: 'TABLE_JOINED',
@@ -1348,23 +1341,8 @@ async function applyReferenceSideEffects(reference, paystackData) {
               });
             }
             const payerName = payer?.fullName || payer?.username || 'A guest';
-            const joinChatId = await addUserToHostedTableGroupChat(htFinal.id, String(userId));
-            await createInAppNotification({
-              userId: String(userId),
-              type: 'JOIN_REQUEST_ACCEPTED',
-              title: 'Table join confirmed',
-              body: `Your payment for "${htFinal.tableName}" succeeded. Open the table chat to coordinate — your ticket QR is ready at the door.`,
-              referenceId: joinChatId || htFinal.id,
-              referenceType: joinChatId ? 'HOSTED_TABLE_GROUP_CHAT' : 'HOSTED_TABLE',
-            });
+            await addUserToHostedTableGroupChat(htFinal.id, String(userId));
             if (htEvent?.venue?.ownerUserId) {
-              await createNotification({
-                userId: htEvent.venue.ownerUserId,
-                type: 'payment',
-                title: 'Hosted table guest paid',
-                body: `${payerName} completed payment to join "${htFinal.tableName}"${htEvent.title ? ` (${htEvent.title})` : ''}.`,
-                actionUrl: `/BusinessBookings`,
-              });
               await createInAppNotification({
                 userId: htEvent.venue.ownerUserId,
                 type: 'TABLE_JOINED',
@@ -1375,13 +1353,6 @@ async function applyReferenceSideEffects(reference, paystackData) {
               });
             }
             if (htFinal.hostUserId && String(htFinal.hostUserId) !== String(userId)) {
-              await createNotification({
-                userId: htFinal.hostUserId,
-                type: 'payment',
-                title: 'New guest on your table',
-                body: `${payerName} paid and joined "${htFinal.tableName}".`,
-                actionUrl: `/HostDashboard`,
-              });
               await createInAppNotification({
                 userId: htFinal.hostUserId,
                 type: 'TABLE_JOINED',
@@ -1519,7 +1490,8 @@ async function applyReferenceSideEffects(reference, paystackData) {
 
   if (
     userId &&
-    (type === 'ticket' || (metadata.event_id && metadata.ticket_tier_name))
+    (type === 'ticket' || type === 'event') &&
+    (metadata.ticket_tier_name || metadata.ticketTierName)
   ) {
     await issueEventTicketsFromPayment(prisma, {
       reference,
@@ -1592,7 +1564,10 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
   if (paidMeta.side_effects_applied) return true;
 
   const type = paidMeta.type || '';
-  if (type === 'ticket' || (paidMeta.event_id && paidMeta.ticket_tier_name)) {
+  if (
+    (type === 'ticket' || type === 'event') &&
+    (paidMeta.ticket_tier_name || paidMeta.ticketTierName)
+  ) {
     const qty = Math.max(1, parseInt(String(paidMeta.quantity || '1'), 10) || 1);
     const refs =
       qty <= 1
