@@ -35,6 +35,7 @@ export async function issueTicketAndNotify(db, params) {
     eventStartsAt: eventStartsAtParam = null,
     eventEndsAt: eventEndsAtParam = null,
     promoterUserId = null,
+    skipEmail = false,
   } = params;
 
   const existing = await db.ticket.findUnique({
@@ -131,7 +132,7 @@ export async function issueTicketAndNotify(db, params) {
     referenceType: 'TICKET',
   });
 
-  if (email) {
+  if (email && !skipEmail) {
     sendEmail({
       to: email,
       subject: `Your SEC ticket — ${title}`,
@@ -155,4 +156,66 @@ export async function issueTicketAndNotify(db, params) {
   }
 
   return ticket;
+}
+
+/**
+ * Send one email with multiple ticket QRs (multi-ticket purchases).
+ */
+export async function sendConsolidatedEventTicketsEmail({
+  to,
+  eventTitle,
+  tierName,
+  tickets = [],
+}) {
+  if (!to || !tickets.length) return;
+
+  const base = ticketVerifyPublicOrigin();
+  const profileUrl = base ? `${base}/Profile` : '/Profile';
+
+  const qrSections = [];
+  const attachments = [];
+
+  for (let i = 0; i < tickets.length; i += 1) {
+    const t = tickets[i];
+    const door = t.door || {};
+    const qrContent = buildTicketVerifyUrlWithHints(base, t.qrToken, {
+      venueName: door.venue_name,
+      eventStartsAt: t.eventStartsAt,
+    });
+    const verifyUrl = qrContent.startsWith('http') ? qrContent : base ? `${base}${qrContent}` : qrContent;
+    const cid = `sec-ticket-qr-${i + 1}`;
+    let qrPngBuffer = null;
+    try {
+      qrPngBuffer = await QRCode.toBuffer(qrContent, { type: 'png', width: 200, margin: 1, errorCorrectionLevel: 'M' });
+    } catch (e) {
+      logger.warn('QR generation failed', { err: e?.message });
+    }
+    if (qrPngBuffer) {
+      attachments.push({ filename: `ticket-${i + 1}.png`, content: qrPngBuffer, contentId: cid });
+    }
+    qrSections.push(`
+      <div style="margin:20px 0;padding:16px;border:1px solid #333;border-radius:10px;">
+        <p style="margin:0 0 8px;font-weight:600;">${t.holderLabel || `Guest ${i + 1}`}</p>
+        ${qrPngBuffer ? `<img src="cid:${cid}" alt="QR ${i + 1}" width="180" height="180" style="display:block;border-radius:8px;" />` : ''}
+        <p style="margin:8px 0 0;font-size:12px;"><a href="${verifyUrl}" style="color:#8cf;word-break:break-all;">${verifyUrl}</a></p>
+        <p style="font-size:11px;color:#666;margin:4px 0 0;">Ref: ${t.paystackReference}</p>
+      </div>
+    `);
+  }
+
+  sendEmail({
+    to,
+    subject: `Your SEC tickets — ${eventTitle}`,
+    text: `Your ${tickets.length} ticket(s) for "${eventTitle}" (${tierName}) are confirmed.\n\nOpen Profile → Tickets: ${profileUrl}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#111;color:#eee;padding:24px;">
+        <h2 style="margin:0 0 12px;">Tickets confirmed</h2>
+        <p style="margin:0 0 8px;"><strong>${eventTitle}</strong></p>
+        <p style="color:#aaa;margin:0 0 16px;">${tierName} · ${tickets.length} ticket${tickets.length > 1 ? 's' : ''}</p>
+        <p style="margin:0 0 16px;">Open <a href="${profileUrl}" style="color:#8cf;">Profile → Tickets</a> in the SEC app.</p>
+        ${qrSections.join('')}
+      </div>
+    `,
+    attachments: attachments.length ? attachments : undefined,
+  }).catch((e) => logger.warn('consolidated ticket email failed', { err: e?.message }));
 }

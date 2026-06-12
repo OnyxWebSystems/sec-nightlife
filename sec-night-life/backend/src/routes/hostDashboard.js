@@ -33,6 +33,15 @@ import {
 } from '../lib/menuHelpers.js';
 import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
+import { issueTicketAndNotify } from '../lib/issueTicket.js';
+import { buildHostedTableJoinTicketSummary } from '../lib/ticketMemberSummary.js';
+import {
+  eventStartsAtFromEvent,
+  eventEndsAtFromEvent,
+  visibleUntilAfterHostedTable,
+  eventStartsAtFromHostedTable,
+  holderDisplayNameFromUser,
+} from '../lib/ticketHelpers.js';
 
 const router = Router();
 const EXTERNAL_HOSTED_LISTING_ZAR = 200;
@@ -308,6 +317,50 @@ router.get('/parties/public', optionalAuth, async (req, res, next) => {
   }
 });
 
+async function resolveMemberMenuLines(members, venueId) {
+  if (!venueId || !Array.isArray(members)) return members;
+  return Promise.all(
+    members.map(async (m) => {
+      const raw = m.selectedMenuItems;
+      if (!Array.isArray(raw) || raw.length === 0) {
+        return { ...m, menuLines: [], menuLineTotalZar: 0 };
+      }
+      const hasPrices = raw.every((line) => line.unitPrice != null || line.lineTotalZar != null);
+      if (hasPrices) {
+        const menuLines = raw.map((line) => ({
+          name: line.name || 'Item',
+          quantity: Number(line.quantity) || 1,
+          unitPrice: Number(line.unitPrice) || 0,
+          lineTotalZar: Number(line.lineTotalZar) || (Number(line.unitPrice) || 0) * (Number(line.quantity) || 1),
+        }));
+        return {
+          ...m,
+          menuLines,
+          menuLineTotalZar: menuLines.reduce((s, l) => s + l.lineTotalZar, 0),
+        };
+      }
+      try {
+        const resolved = await resolveVenueMenuSelections(
+          raw.map((line) => ({
+            menuItemId: line.menuItemId || line.menu_item_id || line.id,
+            quantity: line.quantity,
+          })),
+          venueId,
+        );
+        const menuLines = resolved.items.map((line) => ({
+          name: line.name,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          lineTotalZar: line.lineTotalZar,
+        }));
+        return { ...m, menuLines, menuLineTotalZar: resolved.totalZar };
+      } catch {
+        return { ...m, menuLines: [], menuLineTotalZar: 0 };
+      }
+    }),
+  );
+}
+
 /** Public-ish detail for TableDetails when id is a HostedTable (not legacy `tables`). */
 router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
   try {
@@ -322,7 +375,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
                 id: true,
                 username: true,
                 fullName: true,
-                userProfile: { select: { avatarUrl: true } },
+                userProfile: { select: { avatarUrl: true, username: true } },
               },
             },
           },
@@ -348,6 +401,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
                 province: true,
                 latitude: true,
                 longitude: true,
+                ownerUserId: true,
               },
             },
           },
@@ -356,12 +410,15 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     });
     if (!t) return res.status(404).json({ error: 'Not found' });
     const uid = req.userId;
+    const venueOwnerUserId = t.event?.venue?.ownerUserId || null;
+    const isVenueOwner = Boolean(uid && venueOwnerUserId && uid === venueOwnerUserId);
     if (t.status === 'DRAFT') {
-      if (uid !== t.hostUserId) return res.status(404).json({ error: 'Not found' });
+      if (uid !== t.hostUserId && !isVenueOwner) return res.status(404).json({ error: 'Not found' });
     } else if (t.status === 'CLOSED') {
       const allowed =
         uid &&
         (t.hostUserId === uid ||
+          isVenueOwner ||
           (await prisma.hostedTableMember.findFirst({
             where: { hostedTableId: t.id, userId: uid },
           })));
@@ -393,6 +450,10 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     const myMembership = uid
       ? t.members.find((m) => m.userId === uid)
       : null;
+    const goingMembers = t.members.filter((m) => m.status === 'GOING');
+    const pendingInviteCount = t.members.filter((m) => m.status === 'PENDING' || m.status === 'INVITED').length;
+    const membersWithMenu = await resolveMemberMenuLines(t.members, venueId);
+    const hostMember = membersWithMenu.find((m) => m.userId === t.hostUserId) || null;
     const menuProgress =
       tierMin != null && tierMin > 0
         ? Math.min(100, (Number(t.menuSpendTotal || 0) / tierMin) * 100)
@@ -425,6 +486,12 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
           }
         : null,
       host: await formatPublicHost(t.host),
+      stats: {
+        spots_remaining: t.spotsRemaining,
+        member_count: goingMembers.length,
+        pending_invite_count: pendingInviteCount,
+        guest_capacity: t.guestQuantity,
+      },
       spotsRemaining: t.spotsRemaining,
       guestQuantity: t.guestQuantity,
       hasJoiningFee: t.hasJoiningFee,
@@ -444,20 +511,30 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
         price: m.price,
         image_url: m.image_url,
       })),
-      members: t.members.map((m) => ({
+      members: membersWithMenu.map((m) => ({
         userId: m.userId,
         status: m.status,
+        role: m.userId === t.hostUserId ? 'HOST' : 'GUEST',
         selectedMenuItems: m.selectedMenuItems,
+        menuLines: m.menuLines || [],
+        menuLineTotalZar: m.menuLineTotalZar || 0,
         menuSpendPaid: m.menuSpendPaid,
         user: m.user
           ? {
               id: m.user.id,
-              username: m.user.username,
+              username: m.user.userProfile?.username || m.user.username,
               full_name: m.user.fullName,
               avatar_url: m.user.userProfile?.avatarUrl,
             }
           : null,
       })),
+      host_orders: hostMember
+        ? {
+            menuLines: hostMember.menuLines || [],
+            menuLineTotalZar: hostMember.menuLineTotalZar || 0,
+            minSpendZar: tierMin,
+          }
+        : null,
       my_membership: myMembership
         ? {
             status: myMembership.status,
@@ -466,6 +543,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
           }
         : null,
       is_host: Boolean(uid && uid === t.hostUserId),
+      is_venue_owner: isVenueOwner,
       checkout: {
         entrance_zar: entranceZar,
         joining_fee_zar: joinZar,
@@ -2023,10 +2101,31 @@ router.delete('/tables/:tableId', authenticateToken, async (req, res, next) => {
 router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (req, res, next) => {
   try {
     if (!assertHostEligibleRole(req, res)) return;
+    const joinBodySchema = z.object({
+      selectedMenuItems: z
+        .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) }))
+        .optional(),
+    });
+    const joinBody = joinBodySchema.safeParse(req.body || {});
+    const selectedMenuInput = joinBody.success ? joinBody.data.selectedMenuItems : undefined;
+
     const t = await prisma.hostedTable.findFirst({ where: { id: req.params.tableId } });
     if (!t) return res.status(404).json({ error: 'Not found' });
     if (t.hostUserId === req.userId) return res.status(403).json({ error: 'Cannot join your own table' });
     if (t.status !== 'ACTIVE') return res.status(400).json({ error: 'Table not available' });
+
+    const joinEvent = t.eventId
+      ? await prisma.event.findFirst({
+          where: { id: t.eventId, deletedAt: null },
+          select: { id: true, title: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true, date: true, startTime: true, endsAt: true },
+        })
+      : null;
+
+    let menuResolved = { items: [], totalZar: 0 };
+    if (selectedMenuInput?.length && joinEvent?.venueId) {
+      menuResolved = await resolveVenueMenuSelections(selectedMenuInput, joinEvent.venueId);
+    }
+
     let existing = await prisma.hostedTableMember.findUnique({
       where: { hostedTableId_userId: { hostedTableId: t.id, userId: req.userId } },
     });
@@ -2039,6 +2138,7 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           hostReviewedAt: null,
           paystackReference: null,
           joinFeePaid: null,
+          selectedMenuItems: menuResolved.items.length ? menuResolved.items : undefined,
         },
       });
       resurrectedFromCancelled = true;
@@ -2058,7 +2158,12 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       if (t.spotsRemaining <= 0) return res.status(400).json({ error: 'Table not available' });
       if (!existing) {
         await prisma.hostedTableMember.create({
-          data: { hostedTableId: t.id, userId: req.userId, status: 'PENDING' },
+          data: {
+            hostedTableId: t.id,
+            userId: req.userId,
+            status: 'PENDING',
+            selectedMenuItems: menuResolved.items.length ? menuResolved.items : undefined,
+          },
         });
       }
       const joiner = await prisma.user.findUnique({
@@ -2084,23 +2189,28 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       });
       return res.json({ joined: false, pending: true });
     }
-    const joinEvent = t.eventId
-      ? await prisma.event.findFirst({
-          where: { id: t.eventId, deletedAt: null },
-          select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
-        })
-      : null;
     const entranceZarJoin = getEventEntranceZar(joinEvent);
     const joinZarJoin = t.hasJoiningFee && Number(t.joiningFee || 0) > 0 ? Number(t.joiningFee) : 0;
     if (entranceZarJoin + joinZarJoin > 0) {
       let memberId;
       if (!existing) {
         const member = await prisma.hostedTableMember.create({
-          data: { hostedTableId: t.id, userId: req.userId, status: 'PENDING' },
+          data: {
+            hostedTableId: t.id,
+            userId: req.userId,
+            status: 'PENDING',
+            selectedMenuItems: menuResolved.items.length ? menuResolved.items : undefined,
+          },
         });
         memberId = member.id;
       } else if (resurrectedFromCancelled && existing.status === 'PENDING') {
         memberId = existing.id;
+        if (menuResolved.items.length) {
+          await prisma.hostedTableMember.update({
+            where: { id: existing.id },
+            data: { selectedMenuItems: menuResolved.items },
+          });
+        }
       } else {
         return res.status(400).json({ error: 'Already a member' });
       }
@@ -2117,6 +2227,7 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           join_zar: joinZarJoin,
           amount_total_zar: entranceZarJoin + joinZarJoin,
           user_id: req.userId,
+          selected_menu_items: menuResolved.items.length ? menuResolved.items : undefined,
           ...promoterMetaFromBody(req.body),
         },
       });
@@ -2126,16 +2237,27 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
     if (existing && !(resurrectedFromCancelled && existing.status === 'PENDING')) {
       return res.status(400).json({ error: 'Invalid membership state' });
     }
+    let memberId;
     await prisma.$transaction(async (tx) => {
       if (!existing) {
-        await tx.hostedTableMember.create({
-          data: { hostedTableId: t.id, userId: req.userId, status: 'GOING' },
+        const member = await tx.hostedTableMember.create({
+          data: {
+            hostedTableId: t.id,
+            userId: req.userId,
+            status: 'GOING',
+            selectedMenuItems: menuResolved.items.length ? menuResolved.items : undefined,
+          },
         });
+        memberId = member.id;
       } else {
         await tx.hostedTableMember.update({
           where: { id: existing.id },
-          data: { status: 'GOING' },
+          data: {
+            status: 'GOING',
+            selectedMenuItems: menuResolved.items.length ? menuResolved.items : existing.selectedMenuItems,
+          },
         });
+        memberId = existing.id;
       }
       const nextSpots = t.spotsRemaining - 1;
       await tx.hostedTable.update({
@@ -2150,6 +2272,38 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
     const joiner = await prisma.user.findUnique({
       where: { id: req.userId },
       include: { userProfile: { select: { username: true } } },
+    });
+    const hostUser = await prisma.user.findUnique({
+      where: { id: t.hostUserId },
+      select: { fullName: true, username: true, userProfile: { select: { username: true } } },
+    });
+    const payer = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+    });
+    const freeRef = `hosted-join-free-${memberId}`;
+    const joinSummary = buildHostedTableJoinTicketSummary({
+      hostedTable: t,
+      hostUser,
+      entranceZar: 0,
+      joinZar: 0,
+      menuItems: menuResolved.items,
+    });
+    await issueTicketAndNotify(prisma, {
+      userId: req.userId,
+      email: payer?.email,
+      paystackReference: freeRef,
+      kind: 'HOSTED_TABLE_JOIN',
+      title: `${t.tableName} — Join ticket`,
+      subtitle: t.venueName,
+      visibleUntil: visibleUntilAfterHostedTable(t),
+      hostedTableId: t.id,
+      eventId: joinEvent?.id || null,
+      quantity: 1,
+      holderDisplayName: holderDisplayNameFromUser(payer),
+      tableSpecsSummary: joinSummary,
+      eventStartsAt: joinEvent ? eventStartsAtFromEvent(joinEvent) : eventStartsAtFromHostedTable(t),
+      eventEndsAt: joinEvent ? eventEndsAtFromEvent(joinEvent) : null,
     });
     const uname = joiner?.userProfile?.username || joiner?.username || 'someone';
     await createInAppNotification({
@@ -2176,6 +2330,40 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       eventTitle: joinEvent?.title || null,
     });
     res.json({ joined: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/tables/:tableId/leave', authenticateToken, async (req, res, next) => {
+  try {
+    if (!assertHostEligibleRole(req, res)) return;
+    const tableId = req.params.tableId;
+    const t = await prisma.hostedTable.findFirst({ where: { id: tableId } });
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (t.hostUserId === req.userId) {
+      return res.status(400).json({ error: 'Hosts cannot leave their own table. Close the table instead.' });
+    }
+    const mem = await prisma.hostedTableMember.findUnique({
+      where: { hostedTableId_userId: { hostedTableId: tableId, userId: req.userId } },
+    });
+    if (!mem || mem.status !== 'GOING') {
+      return res.status(400).json({ error: 'You are not an active member of this table' });
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.hostedTableMember.update({
+        where: { id: mem.id },
+        data: { status: 'CANCELLED' },
+      });
+      await tx.hostedTable.update({
+        where: { id: tableId },
+        data: {
+          spotsRemaining: { increment: 1 },
+          status: 'ACTIVE',
+        },
+      });
+    });
+    res.json({ left: true });
   } catch (e) {
     next(e);
   }

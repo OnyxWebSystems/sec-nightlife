@@ -34,7 +34,7 @@ function StatusBadge({ status, label }) {
   );
 }
 
-function StatTile({ label, value, accent }) {
+function StatTile({ label, value, accent, subtitle }) {
   return (
     <div
       className="sec-card"
@@ -49,6 +49,9 @@ function StatTile({ label, value, accent }) {
       <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4, letterSpacing: '0.02em' }}>
         {label}
       </div>
+      {subtitle ? (
+        <div style={{ fontSize: 10, color: 'var(--sec-text-muted)', marginTop: 2, opacity: 0.85 }}>{subtitle}</div>
+      ) : null}
     </div>
   );
 }
@@ -499,14 +502,18 @@ export default function BusinessBookings() {
 
           <TabsContent value="tickets" className="mt-0">
             <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              Ticket purchases for your ticketing events — tier, quantity, and door admission status.
+              Ticket purchases for your ticketing events — tier, quantity, and door check-in status.
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
               <StatTile label="Orders" value={ticketSummary?.orderCount ?? 0} accent />
               <StatTile label="Tickets sold" value={ticketSummary?.ticketCount ?? 0} />
-              <StatTile label="Admitted" value={ticketSummary?.admittedCount ?? 0} />
-              <StatTile label="Revenue" value={`R${Number(ticketSummary?.totalRevenueZar || 0).toFixed(0)}`} accent />
+              <StatTile
+                label="Checked in at door"
+                value={ticketSummary?.admittedCount ?? 0}
+                subtitle="Scanned via door verify"
+              />
+              <StatTile label="Your share" value={`R${Number(ticketSummary?.totalVenueShareZar || 0).toFixed(0)}`} accent />
             </div>
 
             <FilterBar>
@@ -581,7 +588,7 @@ export default function BusinessBookings() {
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-accent)' }}>
-                          R{Number(order.amountPaidZar || 0).toFixed(0)}
+                          R{Number(order.venueShareZar || order.amountPaidZar || 0).toFixed(0)}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>
                           {order.admittedCount}/{order.quantity} admitted
@@ -636,8 +643,9 @@ export default function BusinessBookings() {
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Tier</span><span className="text-sm font-semibold">{detailTicket.tierName}</span></div>
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Buyer</span><span className="text-sm font-semibold">@{detailTicket.purchaser?.username || 'guest'}</span></div>
               <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Quantity</span><span className="text-sm font-semibold">{detailTicket.quantity}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Admitted</span><span className="text-sm font-semibold">{detailTicket.admittedCount} / {detailTicket.quantity}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Paid</span><span className="text-sm font-semibold text-[var(--sec-accent)]">R{Number(detailTicket.amountPaidZar || 0).toFixed(0)}</span></div>
+              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Checked in</span><span className="text-sm font-semibold">{detailTicket.admittedCount} / {detailTicket.quantity}</span></div>
+              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Your share</span><span className="text-sm font-semibold text-[var(--sec-accent)]">R{Number(detailTicket.venueShareZar || 0).toFixed(0)}</span></div>
+              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Gross paid</span><span className="text-sm font-semibold">R{Number(detailTicket.grossPaidZar || detailTicket.amountPaidZar || 0).toFixed(0)}</span></div>
               {detailTicket.tickets?.length > 0 ? (
                 <div className="pt-2 border-t border-[var(--sec-border)]">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--sec-text-muted)] mb-2">Ticket holders</p>
@@ -645,7 +653,7 @@ export default function BusinessBookings() {
                     {detailTicket.tickets.map((t) => (
                       <li key={t.id} className="flex justify-between text-sm">
                         <span>{t.holderDisplayName || 'Guest'}</span>
-                        {t.admittedAt ? <StatusBadge status="admitted" label="Admitted" /> : <StatusBadge status="pending" label="Not admitted" />}
+                        {t.admittedAt ? <StatusBadge status="admitted" label="Checked in" /> : <StatusBadge status="pending" label="Not checked in" />}
                       </li>
                     ))}
                   </ul>

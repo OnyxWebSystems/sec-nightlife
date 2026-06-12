@@ -1,5 +1,5 @@
 import { prisma } from './prisma.js';
-import { issueTicketAndNotify } from './issueTicket.js';
+import { issueTicketAndNotify, sendConsolidatedEventTicketsEmail } from './issueTicket.js';
 import { createNotification } from './notifications.js';
 import { logFriendActivity } from './friendActivity.js';
 import { upsertConfirmedAttendance } from './eventAttendance.js';
@@ -11,6 +11,7 @@ import {
 } from './ticketHelpers.js';
 import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForVenue, splitSecPlatform } from './paystackPayout.js';
 import { promoterUserIdFromMetadata, recordPromoterConversion } from './promoterAttribution.js';
+import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { logger } from './logger.js';
 
 export function normalizeTicketTiers(raw) {
@@ -44,9 +45,27 @@ function parseTicketMenuItems(meta) {
   return [];
 }
 
-function ticketReferencesForPayment(reference, qty) {
+export function ticketReferencesForPayment(reference, qty) {
   if (qty <= 1) return [reference];
   return Array.from({ length: qty }, (_, i) => `${reference}-${i + 1}`);
+}
+
+async function syncTierSoldFromTickets(db, eventId, ticketTier) {
+  const event = await db.event.findUnique({ where: { id: eventId }, select: { ticketTiers: true } });
+  if (!event) return;
+  const tiers = normalizeTicketTiers(event.ticketTiers);
+  const tierRow = tiers.find((t) => t.name === ticketTier);
+  if (!tierRow) return;
+  const actualCount = await db.ticket.count({
+    where: { eventId, kind: 'EVENT_TICKET', subtitle: ticketTier, hiddenFromHistoryAt: null },
+  });
+  const currentSold = Number(tierRow.sold) || 0;
+  if (actualCount > currentSold) {
+    const updatedTiers = tiers.map((t) =>
+      t.name === ticketTier ? { ...t, sold: actualCount } : t,
+    );
+    await db.event.update({ where: { id: eventId }, data: { ticketTiers: updatedTiers } });
+  }
 }
 
 /**
@@ -74,8 +93,10 @@ export async function issueEventTicketsFromPayment(db, {
     where: { paystackReference: { in: refs } },
     select: { id: true, paystackReference: true },
   });
-  if (existing.length >= qty) {
-    return { issued: 0, skipped: true, reason: 'already_issued', existing: existing.length };
+  const existingCount = existing.length;
+  if (existingCount >= qty) {
+    await syncTierSoldFromTickets(db, eventId, ticketTier);
+    return { issued: 0, skipped: true, reason: 'already_issued', existing: existingCount };
   }
 
   const event = await db.event.findFirst({
@@ -101,15 +122,8 @@ export async function issueEventTicketsFromPayment(db, {
     return { issued: 0, skipped: true, reason: 'tier_not_found' };
   }
 
-  if (!skipSoldUpdate) {
-    const updatedTiers = tiers.map((t) =>
-      t.name === ticketTier ? { ...t, sold: (Number(t.sold) || 0) + qty } : t,
-    );
-    await db.event.update({
-      where: { id: event.id },
-      data: { ticketTiers: updatedTiers },
-    });
-  }
+  const toIssue = qty - existingCount;
+  const soldIncrement = skipSoldUpdate ? 0 : toIssue;
 
   if (!skipSideNotifications) {
     await createNotification({
@@ -176,45 +190,79 @@ export async function issueEventTicketsFromPayment(db, {
   ].filter(Boolean);
 
   const existingRefs = new Set(existing.map((t) => t.paystackReference));
+  const issuedTickets = [];
   let issued = 0;
 
-  for (let i = 0; i < qty; i++) {
-    const payRef = refs[i];
-    if (existingRefs.has(payRef)) continue;
-
-    const holder = String(holderNames[i] || '').trim() || holderDisplayNameFromUser(payerEv);
-    const summaryLines = [
-      ticketTier,
-      tierRow.description ? String(tierRow.description) : null,
-      `R${Number(tierRow.price || 0).toLocaleString('en-ZA')}`,
-      holder ? `Guest: ${holder}` : null,
-      event.title,
-      locParts.length ? locParts.join(', ') : null,
-    ];
-    if (menuItems.length > 0 && i === 0) {
-      summaryLines.push('Menu add-ons:');
-      for (const m of menuItems) {
-        summaryLines.push(`${m.quantity}× ${m.name}`);
-      }
+  await db.$transaction(async (tx) => {
+    if (soldIncrement > 0) {
+      const fresh = await tx.event.findUnique({ where: { id: event.id }, select: { ticketTiers: true } });
+      const freshTiers = normalizeTicketTiers(fresh?.ticketTiers);
+      const updatedTiers = freshTiers.map((t) =>
+        t.name === ticketTier ? { ...t, sold: (Number(t.sold) || 0) + soldIncrement } : t,
+      );
+      await tx.event.update({ where: { id: event.id }, data: { ticketTiers: updatedTiers } });
     }
 
-    await issueTicketAndNotify(db, {
-      userId: String(userId),
-      email: i === 0 ? payerEv?.email || email : null,
-      paystackReference: payRef,
-      kind: 'EVENT_TICKET',
-      title: event.title,
-      subtitle: ticketTier,
-      visibleUntil: visEv,
-      eventId: event.id,
-      quantity: 1,
-      holderDisplayName: holder,
-      tableSpecsSummary: summaryLines.filter(Boolean).join('\n'),
-      eventStartsAt,
-      eventEndsAt,
-      promoterUserId: ticketPromoterId,
+    for (let i = 0; i < qty; i += 1) {
+      const payRef = refs[i];
+      if (existingRefs.has(payRef)) continue;
+
+      const holder = String(holderNames[i] || '').trim() || holderDisplayNameFromUser(payerEv);
+      const summaryLines = [
+        ticketTier,
+        tierRow.description ? String(tierRow.description) : null,
+        `R${Number(tierRow.price || 0).toLocaleString('en-ZA')}`,
+        holder ? `Guest: ${holder}` : null,
+        event.title,
+        locParts.length ? locParts.join(', ') : null,
+      ];
+      if (menuItems.length > 0 && i === 0) {
+        summaryLines.push('Menu add-ons:');
+        for (const m of menuItems) {
+          summaryLines.push(`${m.quantity}× ${m.name}`);
+        }
+      }
+
+      const ticket = await issueTicketAndNotify(tx, {
+        userId: String(userId),
+        email: null,
+        skipEmail: true,
+        paystackReference: payRef,
+        kind: 'EVENT_TICKET',
+        title: event.title,
+        subtitle: ticketTier,
+        visibleUntil: visEv,
+        eventId: event.id,
+        quantity: 1,
+        holderDisplayName: holder,
+        tableSpecsSummary: summaryLines.filter(Boolean).join('\n'),
+        eventStartsAt,
+        eventEndsAt,
+        promoterUserId: ticketPromoterId,
+      });
+      issuedTickets.push({ ticket, holderLabel: holder ? `Guest: ${holder}` : `Guest ${i + 1}` });
+      issued += 1;
+    }
+  });
+
+  if (issuedTickets.length > 0) {
+    const emailPayload = [];
+    for (const { ticket, holderLabel } of issuedTickets) {
+      const door = await buildTicketDoorContext(db, ticket);
+      emailPayload.push({
+        qrToken: ticket.qrToken,
+        paystackReference: ticket.paystackReference,
+        eventStartsAt: ticket.eventStartsAt,
+        holderLabel,
+        door,
+      });
+    }
+    await sendConsolidatedEventTicketsEmail({
+      to: payerEv?.email || email,
+      eventTitle: event.title,
+      tierName: ticketTier,
+      tickets: emailPayload,
     });
-    issued += 1;
   }
 
   if (issued > 0) {
@@ -230,6 +278,10 @@ export async function issueEventTicketsFromPayment(db, {
         quantity: qty,
       }).catch(() => {});
     }
+  }
+
+  if (skipSoldUpdate && issued === 0 && existingCount > 0) {
+    await syncTierSoldFromTickets(db, eventId, ticketTier);
   }
 
   return { issued, skipped: issued === 0, reason: issued ? 'ok' : 'partial_or_none' };
@@ -258,7 +310,7 @@ export async function ensureEventTicketsForPayment(reference, paystackData = nul
     email: pay.email,
     amount,
     metadata,
-    skipSoldUpdate: true,
+    skipSoldUpdate: false,
     skipSideNotifications: true,
   });
   return { repaired: result.issued > 0, ...result };

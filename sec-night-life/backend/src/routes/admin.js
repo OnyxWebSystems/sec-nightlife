@@ -335,9 +335,56 @@ router.get('/audit-logs', async (req, res, next) => {
 
 // ── Payments ───────────────────────────────────────────────────────────────
 
+function basePaymentReference(ref) {
+  const s = String(ref || '');
+  const idx = s.indexOf(':');
+  return idx >= 0 ? s.slice(0, idx) : s;
+}
+
+function aggregateLedgersForPayments(payments, ledgers) {
+  const byBase = new Map();
+  for (const row of ledgers) {
+    const base = basePaymentReference(row.paymentReference);
+    if (!byBase.has(base)) {
+      byBase.set(base, { grossZar: 0, secAmountZar: 0, recipientAmountZar: 0, statuses: [] });
+    }
+    const agg = byBase.get(base);
+    agg.grossZar += Number(row.grossAmount) || 0;
+    agg.secAmountZar += Number(row.secAmount) || 0;
+    agg.recipientAmountZar += Number(row.recipientAmount) || 0;
+    if (row.status) agg.statuses.push(row.status);
+  }
+
+  return payments.map((p) => {
+    const agg = byBase.get(p.reference);
+    const statuses = agg?.statuses || [];
+    const pendingStatuses = new Set(['PENDING', 'FAILED', 'SKIPPED_NO_RECIPIENT']);
+    let transferStatus = null;
+    if (statuses.length) {
+      if (statuses.every((s) => s === 'COMPLETED' || s === 'SKIPPED_NO_RECIPIENT')) {
+        transferStatus = statuses.some((s) => s === 'COMPLETED') ? 'COMPLETED' : 'SKIPPED';
+      } else if (statuses.some((s) => pendingStatuses.has(s))) {
+        transferStatus = 'PENDING';
+      } else {
+        transferStatus = 'MIXED';
+      }
+    }
+    const grossZar = Number(p.amount) || 0;
+    return {
+      ...p,
+      grossZar,
+      secAmountZar: agg?.secAmountZar ?? null,
+      recipientAmountZar: agg?.recipientAmountZar ?? null,
+      ledgerGrossZar: agg?.grossZar ?? null,
+      transferStatus,
+      no_ledger: p.status === 'success' && !agg,
+    };
+  });
+}
+
 router.get('/payments', async (req, res, next) => {
   try {
-    const { status, type, limit = 50, offset = 0 } = req.query;
+    const { status, type, limit = 50, offset = 0, from, to } = req.query;
     const where = {};
     const rawStatus = status != null && String(status) !== '' ? String(status) : '';
     if (rawStatus === 'all') {
@@ -345,10 +392,14 @@ router.get('/payments', async (req, res, next) => {
     } else if (rawStatus) {
       where.status = rawStatus;
     } else {
-      // Default: completed or failed charges only (exclude abandoned-checkout "pending" noise).
       where.status = { in: ['success', 'failed'] };
     }
     if (type) where.type = String(type);
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(String(from));
+      if (to) where.createdAt.lte = new Date(String(to));
+    }
 
     const payments = await prisma.payment.findMany({
       where,
@@ -357,13 +408,90 @@ router.get('/payments', async (req, res, next) => {
       skip: parseInt(offset) || 0,
     });
     const total = await prisma.payment.count({ where });
+
+    const refs = payments.map((p) => p.reference);
+    const ledgers =
+      refs.length > 0
+        ? await prisma.payoutLedger.findMany({
+            where: {
+              OR: refs.flatMap((ref) => [
+                { paymentReference: ref },
+                { paymentReference: { startsWith: `${ref}:` } },
+              ]),
+            },
+          })
+        : [];
+
+    const enriched = aggregateLedgersForPayments(payments, ledgers);
+
+    const successWhere = { ...where, status: 'success' };
+    const [grossAgg, ledgerAgg, pendingTransfers] = await Promise.all([
+      prisma.payment.aggregate({ where: successWhere, _sum: { amount: true }, _count: true }),
+      prisma.payoutLedger.aggregate({
+        _sum: { grossAmount: true, secAmount: true, recipientAmount: true },
+      }),
+      prisma.payoutLedger.count({ where: { status: { in: ['PENDING', 'FAILED'] } } }),
+    ]);
+
     const totalsByStatus = await prisma.payment.groupBy({
       by: ['status'],
       where,
       _sum: { amount: true },
       _count: true,
     });
-    res.json({ payments, total, summary: totalsByStatus });
+
+    res.json({
+      payments: enriched,
+      total,
+      summary: totalsByStatus,
+      revenue: {
+        totalGrossZar: grossAgg._sum?.amount ?? 0,
+        totalSecRevenueZar: ledgerAgg._sum?.secAmount ?? 0,
+        totalRecipientShareZar: ledgerAgg._sum?.recipientAmount ?? 0,
+        pendingTransfers,
+        paymentCount: grossAgg._count ?? 0,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/payouts', async (req, res, next) => {
+  try {
+    const { from, to, limit = 50, offset = 0 } = req.query;
+    const where = {};
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(String(from));
+      if (to) where.createdAt.lte = new Date(String(to));
+    }
+    const [rows, total, agg] = await Promise.all([
+      prisma.payoutLedger.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(parseInt(limit) || 50, 200),
+        skip: parseInt(offset) || 0,
+        include: {
+          recipientUser: { select: { id: true, email: true, fullName: true } },
+          recipientVenue: { select: { id: true, name: true } },
+        },
+      }),
+      prisma.payoutLedger.count({ where }),
+      prisma.payoutLedger.aggregate({
+        where,
+        _sum: { grossAmount: true, secAmount: true, recipientAmount: true },
+      }),
+    ]);
+    res.json({
+      rows,
+      total,
+      summary: {
+        totalGrossZar: agg._sum?.grossAmount ?? 0,
+        totalSecRevenueZar: agg._sum?.secAmount ?? 0,
+        totalRecipientShareZar: agg._sum?.recipientAmount ?? 0,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -831,6 +959,19 @@ router.get('/dashboard', async (req, res, next) => {
         fallback: { _sum: { amount: null }, _count: 0 },
       },
       {
+        name: 'ledgerAggregate',
+        run: () =>
+          prisma.payoutLedger.aggregate({
+            _sum: { grossAmount: true, secAmount: true, recipientAmount: true },
+          }),
+        fallback: { _sum: { grossAmount: null, secAmount: null, recipientAmount: null } },
+      },
+      {
+        name: 'pendingTransfers',
+        run: () => prisma.payoutLedger.count({ where: { status: { in: ['PENDING', 'FAILED'] } } }),
+        fallback: 0,
+      },
+      {
         name: 'recentAuditLogs',
         run: () =>
           prisma.auditLog.findMany({
@@ -862,6 +1003,8 @@ router.get('/dashboard', async (req, res, next) => {
       pendingVenues,
       pendingUserVerifications,
       totalPaymentsSuccess,
+      ledgerAggregate,
+      pendingTransfers,
       recentAuditLogs,
     ] = values;
 
@@ -877,6 +1020,10 @@ router.get('/dashboard', async (req, res, next) => {
         pendingUserVerifications,
         totalPaymentAmount: totalPaymentsSuccess._sum?.amount ?? 0,
         totalPaymentCount: totalPaymentsSuccess._count ?? 0,
+        totalGrossZar: totalPaymentsSuccess._sum?.amount ?? 0,
+        totalSecRevenueZar: ledgerAggregate._sum?.secAmount ?? 0,
+        totalRecipientShareZar: ledgerAggregate._sum?.recipientAmount ?? 0,
+        pendingTransfers,
       },
       recentActivity: recentAuditLogs,
     });

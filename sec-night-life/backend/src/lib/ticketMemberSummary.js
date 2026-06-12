@@ -99,7 +99,7 @@ export async function buildVenueTableMemberTicketSummary(prisma, {
 /**
  * Build summary for hosted table join ticket (no host menu lines).
  */
-export function buildHostedTableJoinTicketSummary({ hostedTable, hostUser, entranceZar, joinZar }) {
+export function buildHostedTableJoinTicketSummary({ hostedTable, hostUser, entranceZar, joinZar, menuItems = [] }) {
   const lines = ['Table guest'];
   if (hostedTable?.tableName) lines.push(hostedTable.tableName);
   const hostLabel = holderDisplayNameFromUser(hostUser);
@@ -110,7 +110,11 @@ export function buildHostedTableJoinTicketSummary({ hostedTable, hostUser, entra
   const join = formatZar(joinZar);
   if (ent) lines.push(`Entrance paid ${ent}`);
   if (join) lines.push(`Join fee paid ${join}`);
-  lines.push('Add menu items in the app for a separate order QR.');
+  const menuLines = formatMenuLines(menuItems);
+  if (menuLines.length) {
+    lines.push('Your order:');
+    lines.push(...menuLines);
+  }
   if (hostedTable?.venueName) lines.push(hostedTable.venueName);
   return lines.filter(Boolean).join('\n');
 }

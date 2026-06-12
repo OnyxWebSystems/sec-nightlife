@@ -658,7 +658,11 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
       select: { id: true, name: true },
     });
     if (!ownedVenues.length) {
-      return res.json({ items: [], eventSummaries: [], summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0 } });
+      return res.json({
+        items: [],
+        eventSummaries: [],
+        summary: { orderCount: 0, ticketCount: 0, admittedCount: 0, totalRevenueZar: 0, totalVenueShareZar: 0, totalGrossZar: 0 },
+      });
     }
     const venueIds = ownedVenues.map((v) => v.id);
     const venueIdFilter =
@@ -729,12 +733,19 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
       });
     }
 
+    const ticketWhere = {
+      kind: 'EVENT_TICKET',
+      eventId: { in: eventIds },
+      hiddenFromHistoryAt: null,
+    };
+
+    const [ticketCount, admittedCount] = await Promise.all([
+      prisma.ticket.count({ where: ticketWhere }),
+      prisma.ticket.count({ where: { ...ticketWhere, admittedAt: { not: null } } }),
+    ]);
+
     const tickets = await prisma.ticket.findMany({
-      where: {
-        kind: 'EVENT_TICKET',
-        eventId: { in: eventIds },
-        hiddenFromHistoryAt: null,
-      },
+      where: ticketWhere,
       include: {
         user: {
           select: {
@@ -746,8 +757,24 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 800,
+      take: 2000,
     });
+
+    function venueShareFromPayment(pay) {
+      const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
+      if (meta.venue_share_zar != null) return Number(meta.venue_share_zar) || 0;
+      if (meta.recipient_amount != null) return Number(meta.recipient_amount) || 0;
+      const gross = Number(pay?.amount) || 0;
+      return splitPlatformGross(gross).recipientAmount;
+    }
+
+    function platformFeeFromPayment(pay) {
+      const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
+      if (meta.platform_fee_zar != null) return Number(meta.platform_fee_zar) || 0;
+      if (meta.sec_amount != null) return Number(meta.sec_amount) || 0;
+      const gross = Number(pay?.amount) || 0;
+      return splitPlatformGross(gross).secAmount;
+    }
 
     const eventById = new Map(eventsInScope.map((e) => [e.id, e]));
     const refs = [...new Set(tickets.map((t) => basePaystackRef(t.paystackReference)).filter(Boolean))];
@@ -783,6 +810,9 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
           tickets: [],
           quantity: 0,
           admittedCount: 0,
+          grossPaidZar: pay ? Number(pay.amount) || 0 : 0,
+          venueShareZar: pay ? venueShareFromPayment(pay) : 0,
+          platformFeeZar: pay ? platformFeeFromPayment(pay) : 0,
           amountPaidZar: pay ? Number(pay.amount) || 0 : 0,
           purchasedAt: pay?.createdAt || t.createdAt,
           menuAddons: [],
@@ -805,9 +835,11 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
 
     const summary = {
       orderCount: items.length,
-      ticketCount: tickets.length,
-      admittedCount: tickets.filter((t) => t.admittedAt).length,
-      totalRevenueZar: items.reduce((s, i) => s + Number(i.amountPaidZar || 0), 0),
+      ticketCount,
+      admittedCount,
+      totalRevenueZar: items.reduce((s, i) => s + Number(i.grossPaidZar || 0), 0),
+      totalGrossZar: items.reduce((s, i) => s + Number(i.grossPaidZar || 0), 0),
+      totalVenueShareZar: items.reduce((s, i) => s + Number(i.venueShareZar || 0), 0),
     };
 
     res.json({ items, eventSummaries, summary, eventScope });

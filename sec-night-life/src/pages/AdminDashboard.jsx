@@ -53,6 +53,8 @@ export default function AdminDashboard() {
   const [user, setUser] = useState(null);
   const [stats, setStats] = useState(null);
   const [payments, setPayments] = useState([]);
+  const [paymentRevenue, setPaymentRevenue] = useState(null);
+  const [expandedPaymentId, setExpandedPaymentId] = useState(null);
   const [userVerifications, setUserVerifications] = useState([]);
   const [venueVerifications, setVenueVerifications] = useState([]);
   const [tab, setTab] = useState(searchParams.get('tab') || 'overview');
@@ -224,6 +226,7 @@ export default function AdminDashboard() {
                   break;
                 case 'payments':
                   setPayments(data?.payments || []);
+                  setPaymentRevenue(data?.revenue || null);
                   break;
                 case 'users':
                   setUserVerifications(data?.profiles || []);
@@ -734,8 +737,18 @@ export default function AdminDashboard() {
               </div>
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <CreditCard size={20} className="text-[var(--sec-success)] mb-2" />
-                <p className="text-2xl font-bold">R{(s.totalPaymentAmount ?? 0).toLocaleString()}</p>
-                <p className="text-xs text-[var(--sec-text-muted)]">{s.totalPaymentCount ?? 0} payments</p>
+                <p className="text-2xl font-bold">R{(s.totalGrossZar ?? s.totalPaymentAmount ?? 0).toLocaleString()}</p>
+                <p className="text-xs text-[var(--sec-text-muted)]">Gross collected · {s.totalPaymentCount ?? 0} payments</p>
+              </div>
+              <div className="p-4 rounded-xl bg-[#141416] border border-[rgba(212,175,55,0.25)]">
+                <CreditCard size={20} className="text-[var(--sec-accent)] mb-2" />
+                <p className="text-2xl font-bold text-[var(--sec-accent)]">R{(s.totalSecRevenueZar ?? 0).toLocaleString()}</p>
+                <p className="text-xs text-[var(--sec-text-muted)]">SEC platform revenue</p>
+              </div>
+              <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
+                <Building2 size={20} className="text-emerald-400 mb-2" />
+                <p className="text-2xl font-bold">R{(s.totalRecipientShareZar ?? 0).toLocaleString()}</p>
+                <p className="text-xs text-[var(--sec-text-muted)]">Recipient share · {s.pendingTransfers ?? 0} pending transfers</p>
               </div>
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <Shield size={20} className="text-amber-500 mb-2" />
@@ -1117,8 +1130,27 @@ export default function AdminDashboard() {
         )}
 
         {tab === 'payments' && (
-          <div className="space-y-3">
-            <h3 className="font-semibold">Recent payments</h3>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
+                <p className="text-xs text-[var(--sec-text-muted)] uppercase tracking-wide">Gross collected</p>
+                <p className="text-xl font-bold mt-1">R{Number(paymentRevenue?.totalGrossZar || 0).toLocaleString()}</p>
+              </div>
+              <div className="p-4 rounded-xl bg-[#141416] border border-[rgba(212,175,55,0.25)]">
+                <p className="text-xs text-[var(--sec-text-muted)] uppercase tracking-wide">SEC revenue</p>
+                <p className="text-xl font-bold mt-1 text-[var(--sec-accent)]">R{Number(paymentRevenue?.totalSecRevenueZar || 0).toLocaleString()}</p>
+              </div>
+              <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
+                <p className="text-xs text-[var(--sec-text-muted)] uppercase tracking-wide">Recipient share</p>
+                <p className="text-xl font-bold mt-1">R{Number(paymentRevenue?.totalRecipientShareZar || 0).toLocaleString()}</p>
+              </div>
+              <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
+                <p className="text-xs text-[var(--sec-text-muted)] uppercase tracking-wide">Pending transfers</p>
+                <p className="text-xl font-bold mt-1">{paymentRevenue?.pendingTransfers ?? 0}</p>
+              </div>
+            </div>
+
+            <h3 className="font-semibold">Payment ledger</h3>
             {payments.length === 0 ? (
               <p className="text-sm text-[var(--sec-text-muted)]">No payments yet</p>
             ) : (
@@ -1134,20 +1166,71 @@ export default function AdminDashboard() {
                   </h4>
                   {paymentBuckets[key].length === 0 ? (
                     <p className="text-xs text-[var(--sec-text-muted)]">No payments</p>
-                  ) : paymentBuckets[key].map((p) => (
-                    <div
-                      key={p.id}
-                      className="p-4 rounded-xl bg-[#141416] border border-[#262629] flex justify-between items-center"
-                    >
-                      <div>
-                        <p className="font-medium">R{p.amount?.toLocaleString()} · {p.type}</p>
-                        <p className="text-xs text-[var(--sec-text-muted)]">{p.email} · {p.status}</p>
+                  ) : paymentBuckets[key].map((p) => {
+                    const expanded = expandedPaymentId === p.id;
+                    return (
+                      <div
+                        key={p.id}
+                        className="rounded-xl bg-[#141416] border border-[#262629] overflow-hidden"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setExpandedPaymentId(expanded ? null : p.id)}
+                          className="w-full p-4 flex justify-between items-center text-left hover:bg-[#1a1a1c] transition-colors"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium truncate">
+                              R{Number(p.grossZar ?? p.amount ?? 0).toLocaleString()} · {p.type}
+                            </p>
+                            <p className="text-xs text-[var(--sec-text-muted)] truncate">
+                              {p.email} · {p.status}
+                              {p.no_ledger ? ' · no ledger' : ''}
+                            </p>
+                          </div>
+                          <div className="text-right ml-3 flex-shrink-0">
+                            <p className="text-xs text-[var(--sec-accent)]">
+                              SEC R{Number(p.secAmountZar ?? 0).toLocaleString()}
+                            </p>
+                            <p className="text-xs text-[var(--sec-text-muted)]">
+                              {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ''}
+                            </p>
+                          </div>
+                        </button>
+                        {expanded && (
+                          <div className="px-4 pb-4 pt-0 border-t border-[#262629] text-sm space-y-2">
+                            <div className="grid grid-cols-2 gap-2 pt-3">
+                              <div>
+                                <p className="text-xs text-[var(--sec-text-muted)]">Gross</p>
+                                <p className="font-medium">R{Number(p.grossZar ?? p.amount ?? 0).toLocaleString()}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-[var(--sec-text-muted)]">SEC fee</p>
+                                <p className="font-medium text-[var(--sec-accent)]">
+                                  {p.secAmountZar != null ? `R${Number(p.secAmountZar).toLocaleString()}` : '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-[var(--sec-text-muted)]">Recipient share</p>
+                                <p className="font-medium">
+                                  {p.recipientAmountZar != null ? `R${Number(p.recipientAmountZar).toLocaleString()}` : '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-[var(--sec-text-muted)]">Transfer</p>
+                                <p className="font-medium">{p.transferStatus || (p.no_ledger ? 'N/A' : '—')}</p>
+                              </div>
+                            </div>
+                            <p className="text-xs text-[var(--sec-text-muted)] break-all">Ref: {p.reference}</p>
+                            {p.metadata && typeof p.metadata === 'object' ? (
+                              <pre className="text-[10px] text-[var(--sec-text-muted)] bg-[#0A0A0B] p-2 rounded-lg overflow-x-auto max-h-32">
+                                {JSON.stringify(p.metadata, null, 2)}
+                              </pre>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-xs text-[var(--sec-text-muted)]">
-                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ''}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ))
             )}

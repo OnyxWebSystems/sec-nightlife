@@ -9,6 +9,7 @@ import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingC
 import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
 import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
 import { buildEventTableTiers, statsFromEventTableTiers } from '../lib/eventTableTiers.js';
+import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
 
 const router = Router();
 
@@ -1026,7 +1027,17 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (d.status != null) updates.status = d.status;
     if (d.cover_image_url !== undefined) updates.coverImageUrl = d.cover_image_url;
     if (d.banner_url !== undefined) updates.bannerUrl = d.banner_url;
-    if (d.ticket_tiers != null) updates.ticketTiers = d.ticket_tiers;
+    if (d.ticket_tiers != null) {
+      const existingTiers = normalizeTicketTiers(event.ticketTiers);
+      const incoming = normalizeTicketTiers(d.ticket_tiers);
+      updates.ticketTiers = incoming.map((t) => {
+        const prev = existingTiers.find((e) => e.name === t.name);
+        if (prev != null && prev.sold != null) {
+          return { ...t, sold: prev.sold };
+        }
+        return t;
+      });
+    }
     if (d.start_time !== undefined) updates.startTime = d.start_time;
     if (d.ends_at !== undefined) updates.endsAt = d.ends_at ? new Date(d.ends_at) : null;
     const nextFormat =

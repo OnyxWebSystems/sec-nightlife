@@ -119,6 +119,48 @@ export default function TableOfferingCard({ offering, wide = false }) {
           </motion.div>
         )}
 
+        {isHosted && offering.hostName && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 12,
+              right: offering.boosted ? 100 : 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px 4px 4px',
+              borderRadius: 999,
+              background: 'rgba(0,0,0,0.65)',
+              border: '1px solid rgba(212,175,55,0.25)',
+            }}
+          >
+            <div
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: '50%',
+                overflow: 'hidden',
+                background: 'rgba(212,175,55,0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 10,
+                fontWeight: 700,
+                color: 'var(--sec-accent)',
+              }}
+            >
+              {offering.hostAvatarUrl ? (
+                <img src={offering.hostAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                (offering.hostName || '?')[0]
+              )}
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#fff', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              @{offering.hostName}
+            </span>
+          </div>
+        )}
+
         <div
           style={{
             position: 'absolute',

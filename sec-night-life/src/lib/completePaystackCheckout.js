@@ -1,15 +1,20 @@
 import { toast } from 'sonner';
 import { verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
 
-export function invalidatePostPaymentQueries(queryClient) {
+export function invalidatePostPaymentQueries(queryClient, { eventId } = {}) {
   if (!queryClient) return;
   queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
   queryClient.invalidateQueries({ queryKey: ['host-tables'] });
   queryClient.invalidateQueries({ queryKey: ['business-bookings'] });
+  queryClient.invalidateQueries({ queryKey: ['biz-ticket-bookings'] });
   queryClient.invalidateQueries({ queryKey: ['venue-table'] });
   queryClient.invalidateQueries({ queryKey: ['event-table-tiers'] });
+  queryClient.invalidateQueries({ queryKey: ['venue-events'] });
   queryClient.invalidateQueries({ queryKey: ['notifications'] });
   queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
+  if (eventId) {
+    queryClient.invalidateQueries({ queryKey: ['event', eventId] });
+  }
 }
 
 /**
@@ -31,7 +36,12 @@ export async function completePaystackCheckout({
     (result?.status === 'paid' && result?.fulfillment?.applied !== false);
 
   if (fulfilled) {
-    invalidatePostPaymentQueries(queryClient);
+    const eventId =
+      payload?.metadata?.event_id ||
+      payload?.metadata?.eventId ||
+      result?.metadata?.event_id ||
+      result?.metadata?.eventId;
+    invalidatePostPaymentQueries(queryClient, { eventId: eventId || undefined });
   }
 
   if (showToasts) {

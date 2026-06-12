@@ -1179,6 +1179,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 paystackReference: reference,
                 joinFeePaid: joinZar,
                 hostReviewedAt: new Date(),
+                ...(Array.isArray(metadata.selected_menu_items) && metadata.selected_menu_items.length
+                  ? { selectedMenuItems: metadata.selected_menu_items }
+                  : {}),
               },
             });
             const nextSpots = htRow.spotsRemaining - 1;
@@ -1236,11 +1239,17 @@ async function applyReferenceSideEffects(reference, paystackData) {
             const eventStartsAt =
               (htEvent && eventStartsAtFromEvent(htEvent)) || eventStartsAtFromHostedTable(htFinal);
             const eventEndsAt = htEvent ? eventEndsAtFromEvent(htEvent) : null;
+            const joinMenuItems = Array.isArray(metadata.selected_menu_items)
+              ? metadata.selected_menu_items
+              : Array.isArray(metadata.selectedMenuItems)
+                ? metadata.selectedMenuItems
+                : [];
             const joinSummary = buildHostedTableJoinTicketSummary({
               hostedTable: htFinal,
               hostUser,
               entranceZar,
               joinZar,
+              menuItems: joinMenuItems,
             });
             const joinPromoterId = promoterUserIdFromMetadata(metadata);
             await issueTicketAndNotify(prisma, {
@@ -1527,8 +1536,13 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
 
   const type = paidMeta.type || '';
   if (type === 'ticket' || (paidMeta.event_id && paidMeta.ticket_tier_name)) {
-    const ticket = await prisma.ticket.findFirst({ where: { paystackReference: reference } });
-    return Boolean(ticket);
+    const qty = Math.max(1, parseInt(String(paidMeta.quantity || '1'), 10) || 1);
+    const refs =
+      qty <= 1
+        ? [reference]
+        : Array.from({ length: qty }, (_, i) => `${reference}-${i + 1}`);
+    const count = await prisma.ticket.count({ where: { paystackReference: { in: refs } } });
+    return count >= qty;
   }
 
   if (type === 'TABLE_CHECKOUT' || type === 'VENUE_TABLE_JOIN') {
