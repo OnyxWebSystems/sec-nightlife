@@ -7,14 +7,32 @@ import { Users, Search, Plus, ChevronDown, ChevronUp, Sparkles } from 'lucide-re
 import { motion, AnimatePresence } from 'framer-motion';
 import TableOfferingCard from '@/components/home/TableOfferingCard';
 
+function getOrCreateSessionId() {
+  const key = 'sec_session_id';
+  try {
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return `sess_${Date.now()}`;
+  }
+}
+
 export default function Tables() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [sessionId] = useState(() => getOrCreateSessionId());
 
   const { data, isLoading } = useQuery({
-    queryKey: ['home-table-offerings', 'browse'],
-    queryFn: () => apiGet('/api/home/table-offerings?limit=60'),
+    queryKey: ['home-table-offerings', 'browse', sessionId],
+    queryFn: () =>
+      apiGet(`/api/home/table-offerings?limit=60&sessionId=${encodeURIComponent(sessionId)}`, {
+        headers: { 'x-session-id': sessionId },
+      }),
     staleTime: 45_000,
   });
 

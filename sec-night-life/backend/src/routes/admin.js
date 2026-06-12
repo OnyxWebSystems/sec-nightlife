@@ -361,8 +361,8 @@ function aggregateLedgersForPayments(payments, ledgers) {
     const pendingStatuses = new Set(['PENDING', 'FAILED', 'SKIPPED_NO_RECIPIENT']);
     let transferStatus = null;
     if (statuses.length) {
-      if (statuses.every((s) => s === 'COMPLETED' || s === 'SKIPPED_NO_RECIPIENT')) {
-        transferStatus = statuses.some((s) => s === 'COMPLETED') ? 'COMPLETED' : 'SKIPPED';
+      if (statuses.every((s) => s === 'COMPLETED' || s === 'TRANSFERRED' || s === 'SKIPPED_NO_RECIPIENT')) {
+        transferStatus = statuses.some((s) => s === 'COMPLETED' || s === 'TRANSFERRED') ? 'COMPLETED' : 'SKIPPED';
       } else if (statuses.some((s) => pendingStatuses.has(s))) {
         transferStatus = 'PENDING';
       } else {
@@ -384,6 +384,19 @@ function aggregateLedgersForPayments(payments, ledgers) {
 
 router.get('/payments', async (req, res, next) => {
   try {
+    const { ensureEventTicketsForPayment } = await import('../lib/issueEventTickets.js');
+    const stuckPending = await prisma.payment.findMany({
+      where: { status: 'pending' },
+      take: 40,
+      orderBy: { createdAt: 'desc' },
+      select: { reference: true },
+    });
+    await Promise.all(
+      stuckPending.map((p) =>
+        ensureEventTicketsForPayment(p.reference, { status: 'success' }).catch(() => null),
+      ),
+    );
+
     const { status, type, limit = 50, offset = 0, from, to } = req.query;
     const where = {};
     const rawStatus = status != null && String(status) !== '' ? String(status) : '';
@@ -392,7 +405,7 @@ router.get('/payments', async (req, res, next) => {
     } else if (rawStatus) {
       where.status = rawStatus;
     } else {
-      where.status = { in: ['success', 'failed'] };
+      where.status = { in: ['success', 'failed', 'pending'] };
     }
     if (type) where.type = String(type);
     if (from || to) {

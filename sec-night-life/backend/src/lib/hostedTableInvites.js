@@ -14,6 +14,19 @@ export async function reconcileTableInvitesOnJoin(tx, hostedTableId, userId) {
   });
 }
 
+/** Clear invite state when a guest leaves so stale pending badges do not reappear. */
+export async function reconcileTableInvitesOnLeave(tx, hostedTableId, userId) {
+  if (!hostedTableId || !userId) return;
+  await tx.tableInvite.updateMany({
+    where: {
+      hostedTableId: String(hostedTableId),
+      inviteeUserId: String(userId),
+      status: { in: ['PENDING', 'ACCEPTED'] },
+    },
+    data: { status: 'DECLINED', respondedAt: new Date() },
+  });
+}
+
 /** Count pending invites excluding invitees who are already GOING members. */
 export async function countPendingTableInvites(db, { hostedTableIds, inviterUserId = null }) {
   if (!hostedTableIds?.length) return {};
@@ -27,18 +40,18 @@ export async function countPendingTableInvites(db, { hostedTableIds, inviterUser
   });
   if (!pendingInvites.length) return {};
 
-  const goingMembers = await db.hostedTableMember.findMany({
+  const activeMembers = await db.hostedTableMember.findMany({
     where: {
       hostedTableId: { in: hostedTableIds },
-      status: 'GOING',
+      status: { in: ['GOING', 'PENDING'] },
     },
     select: { hostedTableId: true, userId: true },
   });
-  const goingSet = new Set(goingMembers.map((m) => `${m.hostedTableId}:${m.userId}`));
+  const activeMemberSet = new Set(activeMembers.map((m) => `${m.hostedTableId}:${m.userId}`));
 
   const counts = {};
   for (const inv of pendingInvites) {
-    if (goingSet.has(`${inv.hostedTableId}:${inv.inviteeUserId}`)) continue;
+    if (activeMemberSet.has(`${inv.hostedTableId}:${inv.inviteeUserId}`)) continue;
     counts[inv.hostedTableId] = (counts[inv.hostedTableId] || 0) + 1;
   }
   return counts;

@@ -37,16 +37,21 @@ async function paystackFetch(path, { method = 'GET', body } = {}) {
 
 /**
  * Record ledger row and attempt Paystack transfer of recipient share to a transfer recipient code.
- * @param {object} opts
- * @param {string} opts.paymentReference
- * @param {number} opts.grossZar
- * @param {number} opts.secAmount
- * @param {number} opts.recipientAmount
- * @param {'USER'|'VENUE'|'PLATFORM'} opts.recipientType
- * @param {string|null} [opts.recipientUserId]
- * @param {string|null} [opts.recipientVenueId]
- * @param {string|null} [opts.paystackRecipientCode]
  */
+/** Record 100% SEC revenue (promotions, boosts, platform fees) — no recipient transfer. */
+export async function recordSecPlatformRevenue(paymentReference, grossZar) {
+  const gross = Number(grossZar) || 0;
+  if (gross <= 0) return { skipped: true };
+  return recordPayoutAndMaybeTransfer({
+    paymentReference,
+    grossZar: gross,
+    secAmount: gross,
+    recipientAmount: 0,
+    recipientType: 'PLATFORM',
+  });
+}
+
+/** Record ledger row and attempt Paystack transfer of recipient share to a transfer recipient code. */
 export async function recordPayoutAndMaybeTransfer(opts) {
   const existing = await prisma.payoutLedger.findFirst({ where: { paymentReference: opts.paymentReference } });
   if (existing) {

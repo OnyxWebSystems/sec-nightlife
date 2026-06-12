@@ -26,6 +26,7 @@ import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from 
 import { addUserToHostedTableGroupChat, removeUserFromHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
 import {
   reconcileTableInvitesOnJoin,
+  reconcileTableInvitesOnLeave,
   countPendingTableInvites,
   countPendingTableInvitesForTable,
 } from '../lib/hostedTableInvites.js';
@@ -176,15 +177,18 @@ const publicHostSelect = {
 
 async function formatPublicHost(user) {
   if (!user || typeof user !== 'object') {
-    return { username: null, fullName: null, avatarUrl: null, averageRating: null };
+    return { id: null, username: null, fullName: null, full_name: null, avatarUrl: null, avatar_url: null, averageRating: null };
   }
   const profile = user.userProfile;
   const username = profile?.username || user.username;
   const avatarUrl = profile?.avatarUrl || null;
   return {
+    id: user.id,
     username,
     fullName: user.fullName ?? null,
+    full_name: user.fullName ?? null,
     avatarUrl,
+    avatar_url: avatarUrl,
     averageRating: profile?.serviceRatingAvg != null ? Number(profile.serviceRatingAvg) : null,
   };
 }
@@ -2378,14 +2382,7 @@ router.post('/tables/:tableId/leave', authenticateToken, async (req, res, next) 
         },
         data: { hiddenAt: now },
       });
-      await tx.tableInvite.updateMany({
-        where: {
-          hostedTableId: tableId,
-          inviteeUserId: req.userId,
-          status: 'PENDING',
-        },
-        data: { status: 'DECLINED', respondedAt: now },
-      });
+      await reconcileTableInvitesOnLeave(tx, tableId, req.userId);
     });
     await removeUserFromHostedTableGroupChat(tableId, req.userId);
     res.json({ left: true });
@@ -2420,19 +2417,38 @@ router.post('/tables/:tableId/invite', authenticateToken, async (req, res, next)
     });
     if (already?.status === 'GOING') return res.status(400).json({ error: 'User already a member' });
     if (already?.status === 'PENDING') return res.status(400).json({ error: 'User already has a pending request' });
-    const pendingInv = await prisma.tableInvite.findUnique({
-      where: { hostedTableId_inviteeUserId: { hostedTableId: table.id, inviteeUserId } },
-    });
-    if (pendingInv && pendingInv.status === 'PENDING') return res.status(400).json({ error: 'Invite already pending' });
-    const inviteeMustBeFriend = table.isPublic || !isHost;
-    if (inviteeMustBeFriend && !(await areFriends(req.userId, inviteeUserId))) {
-      return res.status(400).json({ error: 'You must be friends with this user' });
-    }
     const inviter = await prisma.user.findUnique({
       where: { id: req.userId },
       include: { userProfile: { select: { username: true } } },
     });
     const inviterUsername = inviter?.userProfile?.username || inviter?.username || 'Someone';
+    const pendingInv = await prisma.tableInvite.findUnique({
+      where: { hostedTableId_inviteeUserId: { hostedTableId: table.id, inviteeUserId } },
+    });
+    if (pendingInv?.status === 'PENDING') return res.status(400).json({ error: 'Invite already pending' });
+    if (pendingInv && (pendingInv.status === 'ACCEPTED' || pendingInv.status === 'DECLINED')) {
+      const inv = await prisma.tableInvite.update({
+        where: { id: pendingInv.id },
+        data: {
+          status: 'PENDING',
+          inviterUserId: req.userId,
+          respondedAt: null,
+        },
+      });
+      await createInAppNotification({
+        userId: inviteeUserId,
+        type: 'TABLE_INVITE',
+        title: `Table invite from @${inviterUsername}`,
+        body: `@${inviterUsername} invited you to join their table at ${table.venueName}`,
+        referenceId: table.id,
+        referenceType: 'TABLE_INVITE',
+      });
+      return res.status(201).json(inv);
+    }
+    const inviteeMustBeFriend = table.isPublic || !isHost;
+    if (inviteeMustBeFriend && !(await areFriends(req.userId, inviteeUserId))) {
+      return res.status(400).json({ error: 'You must be friends with this user' });
+    }
     const inv = await prisma.tableInvite.create({
       data: {
         hostedTableId: table.id,

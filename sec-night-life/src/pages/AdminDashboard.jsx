@@ -747,8 +747,8 @@ export default function AdminDashboard() {
               </div>
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <Building2 size={20} className="text-emerald-400 mb-2" />
-                <p className="text-2xl font-bold">R{(s.totalRecipientShareZar ?? 0).toLocaleString()}</p>
-                <p className="text-xs text-[var(--sec-text-muted)]">Recipient share · {s.pendingTransfers ?? 0} pending transfers</p>
+                <p className="text-2xl font-bold">{s.pendingTransfers ?? 0}</p>
+                <p className="text-xs text-[var(--sec-text-muted)]">Pending transfers</p>
               </div>
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <Shield size={20} className="text-amber-500 mb-2" />
@@ -1131,7 +1131,7 @@ export default function AdminDashboard() {
 
         {tab === 'payments' && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <p className="text-xs text-[var(--sec-text-muted)] uppercase tracking-wide">Gross collected</p>
                 <p className="text-xl font-bold mt-1">R{Number(paymentRevenue?.totalGrossZar || 0).toLocaleString()}</p>
@@ -1139,10 +1139,6 @@ export default function AdminDashboard() {
               <div className="p-4 rounded-xl bg-[#141416] border border-[rgba(212,175,55,0.25)]">
                 <p className="text-xs text-[var(--sec-text-muted)] uppercase tracking-wide">SEC revenue</p>
                 <p className="text-xl font-bold mt-1 text-[var(--sec-accent)]">R{Number(paymentRevenue?.totalSecRevenueZar || 0).toLocaleString()}</p>
-              </div>
-              <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
-                <p className="text-xs text-[var(--sec-text-muted)] uppercase tracking-wide">Recipient share</p>
-                <p className="text-xl font-bold mt-1">R{Number(paymentRevenue?.totalRecipientShareZar || 0).toLocaleString()}</p>
               </div>
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <p className="text-xs text-[var(--sec-text-muted)] uppercase tracking-wide">Pending transfers</p>
@@ -1207,12 +1203,6 @@ export default function AdminDashboard() {
                                 <p className="text-xs text-[var(--sec-text-muted)]">SEC fee</p>
                                 <p className="font-medium text-[var(--sec-accent)]">
                                   {p.secAmountZar != null ? `R${Number(p.secAmountZar).toLocaleString()}` : '—'}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-[var(--sec-text-muted)]">Recipient share</p>
-                                <p className="font-medium">
-                                  {p.recipientAmountZar != null ? `R${Number(p.recipientAmountZar).toLocaleString()}` : '—'}
                                 </p>
                               </div>
                               <div>

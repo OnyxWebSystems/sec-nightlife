@@ -419,8 +419,11 @@ export default function Home() {
   });
 
   const { data: tableOfferingsData, isLoading: tablesLoading } = useQuery({
-    queryKey: ['home-table-offerings'],
-    queryFn: () => apiGet('/api/home/table-offerings?limit=24'),
+    queryKey: ['home-table-offerings', sessionId],
+    queryFn: () =>
+      apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}`, {
+        headers: { 'x-session-id': sessionId },
+      }),
     staleTime: listStale,
     enabled: !isLoadingAuth,
   });

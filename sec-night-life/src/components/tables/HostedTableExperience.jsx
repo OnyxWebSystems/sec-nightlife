@@ -17,7 +17,8 @@ import {
 import { Button } from '@/components/ui/button';
 
 function profileHref(userId) {
-  return createPageUrl(`Profile?userId=${userId}`);
+  if (!userId) return null;
+  return `${createPageUrl('UserProfile')}?id=${encodeURIComponent(userId)}`;
 }
 
 function MemberAvatar({ user, size = 44 }) {
@@ -308,7 +309,8 @@ export default function HostedTableExperience({
               Host
             </p>
             <Link
-              to={profileHref(hostedTable.host.id)}
+              to={profileHref(hostedTable.host.id) || '#'}
+              onClick={(e) => { if (!hostedTable.host.id) e.preventDefault(); }}
               style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit' }}
             >
               <MemberAvatar user={hostedTable.host} size={48} />
@@ -335,7 +337,8 @@ export default function HostedTableExperience({
             goingMembers.map((m) => (
               <Link
                 key={m.userId}
-                to={profileHref(m.userId)}
+                to={profileHref(m.user?.id || m.userId) || '#'}
+                onClick={(e) => { if (!m.user?.id && !m.userId) e.preventDefault(); }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',

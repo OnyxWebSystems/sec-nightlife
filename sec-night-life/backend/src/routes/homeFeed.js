@@ -232,7 +232,13 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
 router.get('/table-offerings', optionalAuth, async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 60);
-    const items = await buildTableOfferings({ userId: req.userId || null, limit });
+    const sessionSeed =
+      req.headers['x-session-id'] || req.query.sessionId || req.query.session_id || 'anon-session';
+    const items = await buildTableOfferings({
+      userId: req.userId || null,
+      limit,
+      sessionSeed: `${sessionSeed}|tables`,
+    });
     res.json({ items });
   } catch (err) {
     next(err);

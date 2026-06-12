@@ -81,7 +81,7 @@ function parseTicketMenuItems(meta) {
   return [];
 }
 import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
-import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
+import { recordPayoutAndMaybeTransfer, recordSecPlatformRevenue, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
 import { ensureHostedTableLiveAfterListingPayment } from '../lib/hostedTableAfterListingPaid.js';
 import { addUserToHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
 import {
@@ -173,6 +173,36 @@ function flattenPaymentMetadata(value) {
   return { ...nested, ...value };
 }
 
+async function finalizePaymentIfFulfilled(reference, paystackData = null) {
+  const pay = await prisma.payment.findUnique({
+    where: { reference },
+    select: { status: true, metadata: true, amount: true },
+  });
+  if (!pay) return;
+  const meta = flattenPaymentMetadata(pay.metadata);
+  if (pay.status === 'success' && meta.side_effects_applied) return;
+
+  const paystackOk = paystackData?.status === 'success';
+  const fulfillmentComplete = await isPaymentFulfillmentComplete(reference, meta);
+  if (!paystackOk && !fulfillmentComplete) return;
+  if (!fulfillmentComplete && pay.status === 'success') return;
+
+  const amount = paystackData?.amount ? paystackData.amount / 100 : Number(pay.amount) || 0;
+  const { side_effects_processing: _sp, side_effects_processing_at: _spa, ...metaBase } = meta;
+  await prisma.payment.updateMany({
+    where: { reference },
+    data: {
+      status: 'success',
+      ...(amount > 0 ? { amount } : {}),
+      metadata: {
+        ...metaBase,
+        side_effects_applied: fulfillmentComplete,
+        side_effects_processing: false,
+      },
+    },
+  });
+}
+
 async function applyReferenceSideEffects(reference, paystackData) {
   const priorPay = await prisma.payment.findUnique({
     where: { reference },
@@ -182,6 +212,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
   const priorMeta = flattenPaymentMetadata(priorPay.metadata);
   if (priorMeta.side_effects_applied) {
     await runPaymentRepairPaths(reference, paystackData);
+    await finalizePaymentIfFulfilled(reference, paystackData);
     return;
   }
 
@@ -200,7 +231,11 @@ async function applyReferenceSideEffects(reference, paystackData) {
       },
     },
   });
-  if (claimed.count === 0) return;
+  if (claimed.count === 0) {
+    await runPaymentRepairPaths(reference, paystackData);
+    await finalizePaymentIfFulfilled(reference, paystackData);
+    return;
+  }
 
   const userId = priorPay.userId || metadata.user_id || metadata.userId || null;
   const email =
@@ -247,6 +282,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
           ? `Promotion activation failed: ${activation.reason}`
           : 'Promotion activation failed after payment',
       );
+    }
+    if (amount > 0) {
+      await recordSecPlatformRevenue(reference, amount);
     }
   } else if ((metadata.sec_kind === 'BOOST' || metadata.type === 'BOOST') && promoId) {
     const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
@@ -297,6 +335,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
         });
       }
     }
+    if (amount > 0) {
+      await recordSecPlatformRevenue(reference, amount);
+    }
   }
 
   const housePartyIdMeta = metadata.housePartyId || metadata.house_party_id;
@@ -319,6 +360,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
         referenceId: party.id,
         referenceType: 'HOUSE_PARTY',
       });
+      if (amount > 0) {
+        await recordSecPlatformRevenue(reference, amount);
+      }
     }
   }
 
@@ -343,6 +387,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
         referenceId: party.id,
         referenceType: 'HOUSE_PARTY',
       });
+      if (amount > 0) {
+        await recordSecPlatformRevenue(reference, amount);
+      }
     }
   }
 
@@ -360,6 +407,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
           boostPaystackRef: reference,
         },
       });
+      if (amount > 0) {
+        await recordSecPlatformRevenue(reference, amount);
+      }
     }
   }
 
@@ -805,13 +855,16 @@ async function applyReferenceSideEffects(reference, paystackData) {
             eventTitle: hosted.event?.title || null,
           });
           const venueCode = hosted.event?.venueId ? await resolveRecipientCodeForVenue(hosted.event.venueId) : null;
-          const totalZar = Number(amount || 0);
-          if (totalZar > 0 && hosted.event?.venueId && venueCode) {
-            const { secAmount: secTotal, recipientAmount: venueTotal } = splitSecPlatform(totalZar);
+          if (hostFeeZar > 0) {
+            await recordSecPlatformRevenue(`${reference}:hostfee`, hostFeeZar);
+          }
+          const venueShareZar = entranceZar + menuZar;
+          if (venueShareZar > 0 && hosted.event?.venueId) {
+            const { secAmount: secVenue, recipientAmount: venueTotal } = splitSecPlatform(venueShareZar);
             await recordPayoutAndMaybeTransfer({
-              paymentReference: `${reference}:host_listing_total`,
-              grossZar: totalZar,
-              secAmount: secTotal,
+              paymentReference: `${reference}:venue_share`,
+              grossZar: venueShareZar,
+              secAmount: secVenue,
               recipientAmount: venueTotal,
               recipientType: 'VENUE',
               recipientVenueId: hosted.event.venueId,
@@ -1053,6 +1106,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
             tableSpecsSummary: formatSpecsFromHostedTable(ht),
             eventStartsAt,
           });
+          await recordSecPlatformRevenue(reference, Number(amount || EXTERNAL_HOSTED_LISTING_ZAR));
         }
       }
     }
@@ -1531,6 +1585,7 @@ async function runPaymentRepairPaths(reference, paystackData) {
   await ensureVenueTableFulfillmentForPayment(reference, paystackData).catch((e) => {
     console.warn('ensureVenueTableFulfillmentForPayment repair failed', e?.message);
   });
+  await finalizePaymentIfFulfilled(reference, paystackData);
 }
 
 async function isPaymentFulfillmentComplete(reference, paidMeta) {

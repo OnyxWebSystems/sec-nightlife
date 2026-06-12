@@ -313,5 +313,30 @@ export async function ensureEventTicketsForPayment(reference, paystackData = nul
     skipSoldUpdate: false,
     skipSideNotifications: true,
   });
+
+  if (result.issued > 0 || result.skipped) {
+    const qty = Math.max(1, parseInt(String(metadata.quantity || '1'), 10) || 1);
+    const refs =
+      qty <= 1
+        ? [reference]
+        : Array.from({ length: qty }, (_, i) => `${reference}-${i + 1}`);
+    const ticketCount = await prisma.ticket.count({ where: { paystackReference: { in: refs } } });
+    if (ticketCount >= qty) {
+      const priorMeta = metadata && typeof metadata === 'object' ? metadata : {};
+      await prisma.payment.updateMany({
+        where: { reference },
+        data: {
+          status: 'success',
+          metadata: {
+            ...priorMeta,
+            side_effects_applied: true,
+            side_effects_processing: false,
+            repaired_at: new Date().toISOString(),
+          },
+        },
+      });
+    }
+  }
+
   return { repaired: result.issued > 0, ...result };
 }

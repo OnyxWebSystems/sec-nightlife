@@ -55,24 +55,51 @@ function isEventEndedForListing(event) {
   return false;
 }
 
-function sortOfferings(list, friendIds) {
-  list.sort((a, b) => {
-    if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
-    const aFriend = a.hostUserId && friendIds.has(a.hostUserId);
-    const bFriend = b.hostUserId && friendIds.has(b.hostUserId);
-    if (aFriend !== bFriend) return aFriend ? -1 : 1;
-    const ad = a.eventDate ? new Date(a.eventDate).getTime() : 0;
-    const bd = b.eventDate ? new Date(b.eventDate).getTime() : 0;
-    if (ad !== bd) return ad - bd;
-    return String(a.id).localeCompare(String(b.id));
+function sortOfferings(list, friendIds, sessionSeed = 'default') {
+  const BOOSTED_WEIGHT = 3;
+  const ORGANIC_WEIGHT = 1;
+
+  function hashString(input) {
+    let h = 2166136261;
+    for (let i = 0; i < input.length; i += 1) {
+      h ^= input.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  function seededRandom(seed) {
+    let state = (seed >>> 0) || 1;
+    return () => {
+      state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+  }
+
+  const rand = seededRandom(hashString(String(sessionSeed)));
+  const prepared = list.map((item) => {
+    const aFriend = item.hostUserId && friendIds.has(item.hostUserId);
+    const weight = item.boosted ? BOOSTED_WEIGHT : ORGANIC_WEIGHT;
+    const u = Math.max(rand(), Number.EPSILON);
+    const key = Math.pow(u, 1 / weight) + (aFriend ? 0.001 : 0);
+    return { item, key };
   });
-  return list;
+
+  prepared.sort((a, b) => {
+    if (a.key !== b.key) return b.key - a.key;
+    const ad = a.item.eventDate ? new Date(a.item.eventDate).getTime() : 0;
+    const bd = b.item.eventDate ? new Date(b.item.eventDate).getTime() : 0;
+    if (ad !== bd) return ad - bd;
+    return String(a.item.id).localeCompare(String(b.item.id));
+  });
+
+  return prepared.map((x) => x.item);
 }
 
 /**
  * Grouped table offerings for Home / Tables browse.
  */
-export async function buildTableOfferings({ userId, limit = 40 } = {}) {
+export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'default' } = {}) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -345,6 +372,6 @@ export async function buildTableOfferings({ userId, limit = 40 } = {}) {
   for (const g of hostedHostMap.values()) offerings.push(g);
   for (const g of hostedSoloMap.values()) offerings.push(g);
 
-  const sorted = sortOfferings(offerings, friendIds);
+  const sorted = sortOfferings(offerings, friendIds, sessionSeed);
   return sorted.slice(0, Math.min(limit, 60));
 }

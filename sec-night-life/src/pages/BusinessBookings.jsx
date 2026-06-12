@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import {
-  BookOpen, Users, Search, Loader2, ChevronRight, Eye, Ticket, Armchair, CalendarDays, CheckCircle2,
+  BookOpen, Users, Search, Loader2, ChevronRight, Eye, Ticket, Armchair, CalendarDays,
 } from 'lucide-react';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
@@ -550,7 +550,6 @@ export default function BusinessBookings() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
               <StatTile label="Orders" value={ticketSummary?.orderCount ?? 0} accent />
               <StatTile label="Tickets sold" value={ticketSummary?.ticketCount ?? 0} />
-              <StatTile label="Checked in" value={ticketSummary?.admittedCount ?? 0} />
               <StatTile label="Your share" value={`R${Number(ticketSummary?.totalVenueShareZar || 0).toFixed(0)}`} accent />
             </div>
 
@@ -634,15 +633,9 @@ export default function BusinessBookings() {
                         <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-accent)' }}>
                           R{Number(order.venueShareZar || order.amountPaidZar || 0).toFixed(0)}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>
-                          {order.admittedCount}/{order.quantity} checked in
-                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>Your share</div>
                       </div>
-                      {order.admittedCount === order.quantity ? (
-                        <CheckCircle2 size={18} style={{ color: 'var(--sec-success, #22c55e)', flexShrink: 0 }} />
-                      ) : (
-                        <StatusBadge status="pending" label="Pending" />
-                      )}
+                      <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
                     </div>
                   </div>
                 ))}
