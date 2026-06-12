@@ -84,6 +84,7 @@ export async function issueTicketAndNotify(db, params) {
     eventEndsAt: eventEndsAtParam = null,
     promoterUserId = null,
     skipEmail = false,
+    skipNotification = false,
   } = params;
 
   const existing = await db.ticket.findUnique({
@@ -169,16 +170,20 @@ export async function issueTicketAndNotify(db, params) {
   const profileUrl = baseUrl ? `${baseUrl}/Profile` : '/Profile';
   const verifyUrl = qrContent.startsWith('http') ? qrContent : baseUrl ? `${baseUrl}${qrContent}` : qrContent;
 
-  const notice = notificationCopyForTicketKind(kind, title);
-
-  await createInAppNotification({
-    userId,
-    type: notice.inAppType,
-    title: notice.inAppTitle,
-    body: notice.inAppBody,
-    referenceId: ticket.id,
-    referenceType: 'TICKET',
-  });
+  if (!skipNotification) {
+    const notice = notificationCopyForTicketKind(kind, title);
+    await createInAppNotification(
+      {
+        userId,
+        type: notice.inAppType,
+        title: notice.inAppTitle,
+        body: notice.inAppBody,
+        referenceId: ticket.id,
+        referenceType: 'TICKET',
+      },
+      db,
+    );
+  }
 
   if (email && !skipEmail) {
     sendEmail({

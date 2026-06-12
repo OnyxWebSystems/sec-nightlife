@@ -26,6 +26,9 @@ export async function addUserToEventGroupChat(eventId, userId, eventTitle) {
   try {
     const gc = await prisma.groupChat.findUnique({ where: { eventId } });
     if (!gc) return;
+    const existingMember = await prisma.groupChatMember.findUnique({
+      where: { groupChatId_userId: { groupChatId: gc.id, userId } },
+    });
     await prisma.groupChatMember.upsert({
       where: {
         groupChatId_userId: { groupChatId: gc.id, userId },
@@ -33,14 +36,16 @@ export async function addUserToEventGroupChat(eventId, userId, eventTitle) {
       create: { groupChatId: gc.id, userId },
       update: {},
     });
-    await createInAppNotification({
-      userId,
-      type: 'JOIN_REQUEST_ACCEPTED',
-      title: "You're in! Join the group chat",
-      body: `Your request to join ${eventTitle || 'an event'} was accepted. You can now chat with other attendees.`,
-      referenceId: gc.id,
-      referenceType: 'GROUP_CHAT',
-    });
+    if (!existingMember) {
+      await createInAppNotification({
+        userId,
+        type: 'JOIN_REQUEST_ACCEPTED',
+        title: "You're in! Join the group chat",
+        body: `Your request to join ${eventTitle || 'an event'} was accepted. You can now chat with other attendees.`,
+        referenceId: gc.id,
+        referenceType: 'GROUP_CHAT',
+      });
+    }
   } catch (e) {
     logger.warn('addUserToEventGroupChat failed', { eventId, userId, message: e?.message });
   }

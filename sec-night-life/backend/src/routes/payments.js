@@ -207,6 +207,17 @@ async function finalizePaymentIfFulfilled(reference, paystackData = null) {
   });
 }
 
+const SIDE_EFFECTS_PROCESSING_STALE_MS = 2 * 60 * 1000;
+
+function sideEffectsProcessingIsStale(meta) {
+  if (!meta?.side_effects_processing) return true;
+  const started = meta.side_effects_processing_at
+    ? new Date(meta.side_effects_processing_at).getTime()
+    : 0;
+  if (!started || Number.isNaN(started)) return true;
+  return Date.now() - started > SIDE_EFFECTS_PROCESSING_STALE_MS;
+}
+
 async function applyReferenceSideEffects(reference, paystackData) {
   const priorPay = await prisma.payment.findUnique({
     where: { reference },
@@ -215,6 +226,12 @@ async function applyReferenceSideEffects(reference, paystackData) {
   if (!priorPay) return;
   const priorMeta = flattenPaymentMetadata(priorPay.metadata);
   if (priorMeta.side_effects_applied) {
+    await runPaymentRepairPaths(reference, paystackData);
+    await finalizePaymentIfFulfilled(reference, paystackData);
+    return;
+  }
+
+  if (priorMeta.side_effects_processing && !sideEffectsProcessingIsStale(priorMeta)) {
     await runPaymentRepairPaths(reference, paystackData);
     await finalizePaymentIfFulfilled(reference, paystackData);
     return;
@@ -236,6 +253,16 @@ async function applyReferenceSideEffects(reference, paystackData) {
     },
   });
   if (claimed.count === 0) {
+    const latest = await prisma.payment.findUnique({
+      where: { reference },
+      select: { metadata: true },
+    });
+    const latestMeta = flattenPaymentMetadata(latest?.metadata);
+    if (latestMeta.side_effects_processing && !sideEffectsProcessingIsStale(latestMeta)) {
+      await runPaymentRepairPaths(reference, paystackData);
+      await finalizePaymentIfFulfilled(reference, paystackData);
+      return;
+    }
     await runPaymentRepairPaths(reference, paystackData);
     await finalizePaymentIfFulfilled(reference, paystackData);
     return;
@@ -1514,7 +1541,15 @@ async function applyReferenceSideEffects(reference, paystackData) {
   const rawFinalMeta =
     refreshedPay?.metadata && typeof refreshedPay.metadata === 'object' ? refreshedPay.metadata : metadata;
   const { side_effects_processing: _sp, side_effects_processing_at: _spa, ...finalMetaBase } = rawFinalMeta;
-  const finalMeta = { ...finalMetaBase, side_effects_applied: true };
+  const fulfillmentComplete = await isPaymentFulfillmentComplete(reference, {
+    ...finalMetaBase,
+    type: finalMetaBase.type || type,
+  });
+  const finalMeta = {
+    ...finalMetaBase,
+    side_effects_applied: fulfillmentComplete,
+    side_effects_processing: false,
+  };
   const pmUp = await prisma.payment.updateMany({
     where: { reference },
     data: {

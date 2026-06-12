@@ -1,9 +1,9 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 
-export async function createInAppNotification(data) {
+export async function createInAppNotification(data, db = prisma) {
   try {
-    return await prisma.inAppNotification.create({
+    return await db.inAppNotification.create({
       data: {
         userId: data.userId,
         type: data.type,

@@ -8,6 +8,7 @@ import {
   basePaymentReference,
   classifyVenuePaymentRevenue,
 } from '../lib/paymentMetadata.js';
+import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
 
 const router = Router();
 
@@ -704,9 +705,16 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
           id: eventIdFilter,
           venueId: { in: scopedVenueIds },
           deletedAt: null,
-          eventFormat: 'TICKETING_ONLY',
         },
-        select: { id: true, title: true, date: true, startTime: true, city: true, ticketTiers: true },
+        select: {
+          id: true,
+          title: true,
+          date: true,
+          startTime: true,
+          city: true,
+          ticketTiers: true,
+          eventFormat: true,
+        },
       });
       if (!ev) return res.status(404).json({ error: 'Event not found' });
       const isPast = eventDateIsPast(ev.date, startToday);
@@ -734,12 +742,40 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         where: {
           venueId: { in: scopedVenueIds },
           deletedAt: null,
-          eventFormat: 'TICKETING_ONLY',
           ...(dateWhere ? { date: dateWhere } : {}),
         },
-        select: { id: true, title: true, date: true, startTime: true, city: true, ticketTiers: true },
+        select: {
+          id: true,
+          title: true,
+          date: true,
+          startTime: true,
+          city: true,
+          ticketTiers: true,
+          eventFormat: true,
+        },
       });
     }
+
+    const soldEventRows = await prisma.ticket.findMany({
+      where: {
+        kind: 'EVENT_TICKET',
+        hiddenFromHistoryAt: null,
+        event: {
+          venueId: { in: scopedVenueIds },
+          deletedAt: null,
+          ...(dateWhere ? { date: dateWhere } : {}),
+        },
+      },
+      select: { eventId: true },
+      distinct: ['eventId'],
+    });
+    const soldEventIds = new Set(soldEventRows.map((row) => row.eventId).filter(Boolean));
+
+    eventsInScope = eventsInScope.filter((ev) => {
+      if (ev.eventFormat === 'TICKETING_ONLY') return true;
+      if (soldEventIds.has(ev.id)) return true;
+      return normalizeTicketTiers(ev.ticketTiers).length > 0;
+    });
 
     const eventIds = eventsInScope.map((e) => e.id);
     const eventSummaries = eventsInScope

@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { issueTicketAndNotify, sendConsolidatedEventTicketsEmail } from './issueTicket.js';
+import { createInAppNotification } from './inAppNotifications.js';
 import { createNotification } from './notifications.js';
 import { logFriendActivity } from './friendActivity.js';
 import { upsertConfirmedAttendance } from './eventAttendance.js';
@@ -130,40 +131,6 @@ export async function issueEventTicketsFromPayment(db, {
   const toIssue = qty - existingCount;
   const soldIncrement = skipSoldUpdate ? 0 : toIssue;
 
-  if (!skipSideNotifications) {
-    logFriendActivity({
-      userId,
-      activityType: 'JOINED_EVENT',
-      referenceId: event.id,
-      referenceType: 'EVENT',
-      description: 'joined an event',
-    });
-    await upsertConfirmedAttendance(userId, event.id);
-    const { addUserToEventGroupChat } = await import('./groupChatHelpers.js');
-    await addUserToEventGroupChat(event.id, userId, event.title);
-
-    await createNotification({
-      userId: event.venue?.ownerUserId,
-      type: 'payment',
-      title: 'Ticket purchase',
-      body: `${qty} ticket(s) sold for "${event.title}" at ${event.venue?.name || 'your venue'}.`,
-      actionUrl: `/BusinessEvents`,
-    });
-
-    const { secAmount: eSec, recipientAmount: eRec } = splitSecPlatform(Number(amount || 0));
-    const vCode = await resolveRecipientCodeForVenue(event.venueId);
-    await recordPayoutAndMaybeTransfer({
-      paymentReference: reference,
-      grossZar: Number(amount || 0),
-      secAmount: eSec,
-      recipientAmount: eRec,
-      recipientType: 'VENUE',
-      recipientVenueId: event.venueId,
-      recipientUserId: null,
-      paystackRecipientCode: vCode,
-    });
-  }
-
   const payerEv = await db.user.findUnique({
     where: { id: String(userId) },
     select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
@@ -225,6 +192,7 @@ export async function issueEventTicketsFromPayment(db, {
         userId: String(userId),
         email: null,
         skipEmail: true,
+        skipNotification: true,
         paystackReference: payRef,
         kind: 'EVENT_TICKET',
         title: event.title,
@@ -255,12 +223,57 @@ export async function issueEventTicketsFromPayment(db, {
         door,
       });
     }
+
+    const ticketWord = issued === 1 ? 'ticket' : 'tickets';
+    await createInAppNotification({
+      userId: String(userId),
+      type: 'EVENT_JOINED',
+      title: issued === 1 ? 'Ticket confirmed' : `${issued} tickets confirmed`,
+      body: `${event.title}. View your ${ticketWord} under Profile → Tickets.`,
+      referenceId: issuedTickets[0].ticket.id,
+      referenceType: 'TICKET',
+    });
+
     await sendConsolidatedEventTicketsEmail({
       to: payerEv?.email || email,
       eventTitle: event.title,
       tierName: ticketTier,
       tickets: emailPayload,
     });
+
+    if (!skipSideNotifications) {
+      logFriendActivity({
+        userId,
+        activityType: 'JOINED_EVENT',
+        referenceId: event.id,
+        referenceType: 'EVENT',
+        description: 'joined an event',
+      });
+      await upsertConfirmedAttendance(userId, event.id);
+      const { addUserToEventGroupChat } = await import('./groupChatHelpers.js');
+      await addUserToEventGroupChat(event.id, userId, event.title);
+
+      await createNotification({
+        userId: event.venue?.ownerUserId,
+        type: 'payment',
+        title: 'Ticket purchase',
+        body: `${qty} ticket(s) sold for "${event.title}" at ${event.venue?.name || 'your venue'}.`,
+        actionUrl: `/BusinessEvents`,
+      });
+
+      const { secAmount: eSec, recipientAmount: eRec } = splitSecPlatform(Number(amount || 0));
+      const vCode = await resolveRecipientCodeForVenue(event.venueId);
+      await recordPayoutAndMaybeTransfer({
+        paymentReference: reference,
+        grossZar: Number(amount || 0),
+        secAmount: eSec,
+        recipientAmount: eRec,
+        recipientType: 'VENUE',
+        recipientVenueId: event.venueId,
+        recipientUserId: null,
+        paystackRecipientCode: vCode,
+      });
+    }
   }
 
   if (issued > 0) {
@@ -310,7 +323,7 @@ export async function ensureEventTicketsForPayment(reference, paystackData = nul
     amount,
     metadata,
     skipSoldUpdate: false,
-    skipSideNotifications: true,
+    skipSideNotifications: false,
   });
 
   if (result.issued > 0 || result.skipped) {

@@ -397,6 +397,18 @@ router.get('/payments', async (req, res, next) => {
       ),
     );
 
+    const incompleteTicketPayments = await prisma.payment.findMany({
+      where: { status: 'success', type: { in: ['ticket', 'event'] } },
+      take: 30,
+      orderBy: { createdAt: 'desc' },
+      select: { reference: true },
+    });
+    await Promise.all(
+      incompleteTicketPayments.map((p) =>
+        ensureEventTicketsForPayment(p.reference, { status: 'success' }).catch(() => null),
+      ),
+    );
+
     const { status, type, limit = 50, offset = 0, from, to } = req.query;
     const where = {};
     const rawStatus = status != null && String(status) !== '' ? String(status) : '';
