@@ -19,6 +19,7 @@ import {
   Star,
   Archive,
   RotateCcw,
+  Shield,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow, parseISO } from 'date-fns';
@@ -38,6 +39,8 @@ const NOTIFICATION_ICONS = {
   TABLE_INVITE: Users,
   IDENTITY_VERIFICATION_REMINDER: Bell,
   EVENT_INTEREST_REMINDER: Calendar,
+  PROMOTER_EVENT_ASSIGNED: Calendar,
+  VENUE_STAFF_ASSIGNED: Shield,
   table_request: Users,
   TABLE_REQUEST: Users,
   TABLE_APPROVED: Users,
@@ -75,6 +78,7 @@ const NOTIFICATION_COLORS = {
   compliance: 'sec-badge-gold',
   system: 'sec-badge-muted',
   EVENT_INTEREST_REMINDER: 'sec-badge-silver',
+  VENUE_STAFF_ASSIGNED: 'sec-badge-gold',
 };
 
 export default function Notifications() {
@@ -196,6 +200,10 @@ export default function Notifications() {
       }
       if (actionUrl) return actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
       return createPageUrl('Messages');
+    }
+
+    if (t === 'VENUE_STAFF_ASSIGNED') {
+      return createPageUrl('StaffDashboard');
     }
 
     if (t === 'DIRECT_MESSAGE' && n.referenceId) {

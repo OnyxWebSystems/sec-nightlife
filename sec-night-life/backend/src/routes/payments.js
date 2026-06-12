@@ -1308,6 +1308,28 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 paystackRecipientCode: hostCode,
               });
             }
+            if (menuZar > 0 && htEvent?.venueId) {
+              const venueMenuCode = await resolveRecipientCodeForVenue(htEvent.venueId);
+              const { secAmount: sMenu, recipientAmount: rMenu } = splitSecPlatform(menuZar);
+              await recordPayoutAndMaybeTransfer({
+                paymentReference: `${reference}:menu`,
+                grossZar: menuZar,
+                secAmount: sMenu,
+                recipientAmount: rMenu,
+                recipientType: 'VENUE',
+                recipientUserId: null,
+                recipientVenueId: htEvent.venueId,
+                paystackRecipientCode: venueMenuCode,
+              });
+              await prisma.hostedTableMember.update({
+                where: { id: String(memberId) },
+                data: { menuSpendPaid: { increment: menuZar } },
+              });
+              await prisma.hostedTable.update({
+                where: { id: htFinal.id },
+                data: { menuSpendTotal: { increment: menuZar } },
+              });
+            }
             const payer = await prisma.user.findUnique({
               where: { id: String(userId) },
               select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },

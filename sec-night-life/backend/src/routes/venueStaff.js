@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { normalizeUsername } from '../lib/username.js';
+import { createInAppNotification } from '../lib/inAppNotifications.js';
 
 const router = Router({ mergeParams: true });
 
@@ -18,6 +19,61 @@ const STAFF_PERMISSION_KEYS = [
   'messages',
   'venue_page',
 ];
+
+const STAFF_PERMISSION_LABELS = {
+  dashboard: 'Dashboard',
+  analytics: 'Analytics',
+  bookings: 'Bookings',
+  promotions: 'Promotions',
+  events: 'Events',
+  menu: 'Menu',
+  jobs: 'Jobs',
+  posts: 'Posts',
+  messages: 'Messages',
+  venue_page: 'Venue page',
+};
+
+function summarizeStaffPermissions(permissions) {
+  const active = STAFF_PERMISSION_KEYS.filter((key) => permissions[key]);
+  if (!active.length) return 'general access';
+  const labels = active.slice(0, 4).map((key) => STAFF_PERMISSION_LABELS[key] || key);
+  const extra = active.length > 4 ? ` +${active.length - 4} more` : '';
+  return `${labels.join(', ')}${extra}`;
+}
+
+async function notifyStaffAssignment({
+  targetUserId,
+  venue,
+  permissions,
+  invitedByUserId,
+  isReinvite = false,
+}) {
+  const inviter = await prisma.user.findUnique({
+    where: { id: invitedByUserId },
+    select: {
+      fullName: true,
+      username: true,
+      userProfile: { select: { username: true } },
+    },
+  });
+  const rawLabel =
+    inviter?.userProfile?.username || inviter?.username || inviter?.fullName || 'A venue owner';
+  const inviterLabel = rawLabel.startsWith('@') ? rawLabel : `@${rawLabel}`;
+  const permSummary = summarizeStaffPermissions(permissions);
+  const title = isReinvite ? 'Staff access restored' : "You're venue staff";
+  const body = isReinvite
+    ? `${inviterLabel} re-added you as staff at ${venue.name}. Permissions: ${permSummary}.`
+    : `${inviterLabel} added you as staff at ${venue.name}. Permissions: ${permSummary}.`;
+
+  await createInAppNotification({
+    userId: targetUserId,
+    type: 'VENUE_STAFF_ASSIGNED',
+    title,
+    body,
+    referenceId: venue.id,
+    referenceType: 'VENUE_STAFF',
+  });
+}
 
 const permissionsSchema = z
   .object(
@@ -188,6 +244,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
     });
 
     let assignment;
+    const isReinvite = Boolean(existing?.revokedAt);
     if (existing) {
       if (!existing.revokedAt) {
         return res.status(409).json({ error: 'User is already on staff' });
@@ -230,6 +287,14 @@ router.post('/', authenticateToken, async (req, res, next) => {
         },
       });
     }
+
+    await notifyStaffAssignment({
+      targetUserId: target.id,
+      venue,
+      permissions,
+      invitedByUserId: req.userId,
+      isReinvite,
+    });
 
     res.status(existing ? 200 : 201).json(formatAssignment({ ...assignment, venue }));
   } catch (e) {

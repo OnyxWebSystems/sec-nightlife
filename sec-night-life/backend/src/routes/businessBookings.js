@@ -94,11 +94,34 @@ function eventDateIsPast(eventDate, startToday) {
 
 function tableInUse(table, hostedTable = null) {
   if (!table) return false;
+  if (hostedTable && hostedTable.status !== 'CLOSED') return true;
   if (table.currentOccupancy > 0) return true;
   if (table.hostUserId) return true;
   if (table.hostedTableId) return true;
-  if (hostedTable && hostedTable.status !== 'CLOSED') return true;
   return false;
+}
+
+/** Guest count for event table manager — hosted tables use live member totals, not venue slot occupancy alone. */
+function resolveEventTableGuestStats(table, hostedTable = null, goingMemberCount = null) {
+  const capacity = Math.max(
+    1,
+    Number(hostedTable?.guestQuantity) || Number(table?.guestCapacity) || 1,
+  );
+  if (hostedTable && hostedTable.status !== 'CLOSED') {
+    const fromMembers =
+      goingMemberCount != null ? Number(goingMemberCount) : null;
+    const fromSpots = Math.max(
+      0,
+      capacity - Math.max(0, Number(hostedTable.spotsRemaining) || 0),
+    );
+    const memberCount = Math.max(0, fromMembers != null ? fromMembers : fromSpots);
+    return { memberCount, capacity, isHosted: true };
+  }
+  return {
+    memberCount: Math.max(0, Number(table?.currentOccupancy) || 0),
+    capacity,
+    isHosted: false,
+  };
 }
 
 function canHideTableFromListings(table, hostedTable = null) {
@@ -1159,39 +1182,97 @@ router.get('/event-venue-tables', authenticateToken, async (req, res, next) => {
       hostedIds.length > 0
         ? await prisma.hostedTable.findMany({
             where: { id: { in: hostedIds } },
-            select: { id: true, status: true, tableName: true, hostUserId: true, spotsRemaining: true },
+            select: {
+              id: true,
+              status: true,
+              tableName: true,
+              hostUserId: true,
+              spotsRemaining: true,
+              guestQuantity: true,
+              hostingCategory: true,
+              hasJoiningFee: true,
+              joiningFee: true,
+              host: {
+                select: {
+                  fullName: true,
+                  username: true,
+                  userProfile: { select: { username: true } },
+                },
+              },
+            },
           })
         : [];
     const hostedById = new Map(hostedRows.map((h) => [h.id, h]));
 
+    const goingByHostedId = new Map();
+    if (hostedIds.length > 0) {
+      const goingRows = await prisma.hostedTableMember.groupBy({
+        by: ['hostedTableId'],
+        where: { hostedTableId: { in: hostedIds }, status: 'GOING' },
+        _count: { _all: true },
+      });
+      for (const row of goingRows) {
+        goingByHostedId.set(row.hostedTableId, row._count._all);
+      }
+    }
+
+    const items = tables.map((t) => {
+      const hosted = t.hostedTableId ? hostedById.get(t.hostedTableId) : null;
+      const goingCount = hosted ? goingByHostedId.get(hosted.id) ?? null : null;
+      const { memberCount, capacity, isHosted } = resolveEventTableGuestStats(t, hosted, goingCount);
+      const inUse = tableInUse(t, hosted);
+      const spotsLeft = Math.max(0, capacity - memberCount);
+      const fillPercent = capacity > 0 ? Math.min(100, Math.round((memberCount / capacity) * 100)) : 0;
+      const hostLabel = hosted?.host
+        ? hosted.host.userProfile?.username || hosted.host.username || hosted.host.fullName || 'Host'
+        : null;
+      let usageLabel;
+      if (inUse) {
+        usageLabel =
+          memberCount > 0
+            ? `${memberCount}/${capacity} guest${memberCount === 1 ? '' : 's'}`
+            : isHosted
+              ? 'Hosted — awaiting guests'
+              : 'In use';
+      } else if (t.isActive) {
+        usageLabel = 'Available';
+      } else {
+        usageLabel = 'Hidden from listings';
+      }
+      return {
+        id: t.id,
+        tableName: t.tableName,
+        tierLabel: t.tierLabel,
+        hostingTierKey: t.hostingTierKey,
+        isActive: t.isActive,
+        currentOccupancy: memberCount,
+        guestCapacity: capacity,
+        spotsRemaining: spotsLeft,
+        fillPercent,
+        status: t.status,
+        inUse,
+        isHosted,
+        hostLabel,
+        hostingCategory: hosted?.hostingCategory || null,
+        hasJoiningFee: Boolean(hosted?.hasJoiningFee),
+        joiningFee: hosted?.hasJoiningFee ? Number(hosted.joiningFee || 0) : 0,
+        usageLabel,
+        canHideFromListings: canHideTableFromListings(t, hosted),
+        canRestoreToListings: !t.isActive && !inUse,
+      };
+    });
+
+    const summary = {
+      total: items.length,
+      inUse: items.filter((i) => i.inUse).length,
+      available: items.filter((i) => i.isActive && !i.inUse).length,
+      hidden: items.filter((i) => !i.isActive).length,
+    };
+
     res.json({
       event: { id: event.id, title: event.title, status: event.status, date: event.date },
-      items: tables.map((t) => {
-        const hosted = t.hostedTableId ? hostedById.get(t.hostedTableId) : null;
-        const inUse = tableInUse(t, hosted);
-        return {
-          id: t.id,
-          tableName: t.tableName,
-          tierLabel: t.tierLabel,
-          hostingTierKey: t.hostingTierKey,
-          isActive: t.isActive,
-          currentOccupancy: t.currentOccupancy,
-          guestCapacity: t.guestCapacity,
-          status: t.status,
-          inUse,
-          usageLabel: inUse
-            ? t.currentOccupancy > 0
-              ? `In use · ${t.currentOccupancy}/${t.guestCapacity} guests`
-              : t.hostUserId || t.hostedTableId
-                ? 'Hosted — active'
-                : 'In use'
-            : t.isActive
-              ? 'Available'
-              : 'Hidden from listings',
-          canHideFromListings: canHideTableFromListings(t, hosted),
-          canRestoreToListings: !t.isActive && !inUse,
-        };
-      }),
+      summary,
+      items,
     });
   } catch (e) {
     next(e);

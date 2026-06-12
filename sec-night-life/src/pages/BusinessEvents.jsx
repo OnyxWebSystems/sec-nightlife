@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2, Armchair
+  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2, Armchair, Users, Crown, UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiGet, apiPut, apiPost, uploadFile } from '@/api/client';
@@ -1400,57 +1400,173 @@ export default function BusinessEvents() {
       {/* Event table listings */}
       <Dialog open={!!tablesEventId} onOpenChange={(open) => !open && setTablesEventId(null)}>
         <DialogContent
-          className="text-white sm:max-w-[520px] max-h-[85vh] overflow-y-auto"
+          className="text-white sm:max-w-[560px] max-h-[85vh] overflow-y-auto p-0 gap-0"
           style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}
         >
-          <DialogHeader>
-            <DialogTitle>Event tables</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-400 mt-1">
-            {tablesEvent?.title || 'Event'} — see which tables are in use. Remove empty tables from guest listings without affecting guests already booked.
-          </p>
+          <div className="p-6 pb-4 border-b" style={{ borderColor: 'var(--sec-border)' }}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Armchair size={18} style={{ color: 'var(--sec-accent)' }} />
+                Event tables
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-400 mt-2 leading-relaxed">
+              {tablesEvent?.title || 'Event'} — live guest counts per table. Remove empty slots from listings without affecting guests already booked.
+            </p>
+            {eventTablesData?.summary ? (
+              <div className="flex flex-wrap gap-2 mt-4">
+                {[
+                  ['In use', eventTablesData.summary.inUse, 'var(--sec-accent)'],
+                  ['Available', eventTablesData.summary.available, '#34d399'],
+                  ['Hidden', eventTablesData.summary.hidden, '#9ca3af'],
+                ].map(([label, count, color]) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+                    style={{
+                      background: 'var(--sec-bg-elevated)',
+                      border: '1px solid var(--sec-border)',
+                      color,
+                    }}
+                  >
+                    {label}: {count}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
           {eventTablesLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="animate-spin" />
+            <div className="flex justify-center py-12">
+              <Loader2 className="animate-spin" style={{ color: 'var(--sec-accent)' }} />
             </div>
           ) : (eventTablesData?.items || []).length === 0 ? (
-            <p className="text-sm text-gray-500 py-8 text-center">No table slots for this event yet. Publish with hosting tiers to generate listings.</p>
+            <p className="text-sm text-gray-500 py-10 px-6 text-center">
+              No table slots for this event yet. Publish with hosting tiers to generate listings.
+            </p>
           ) : (
-            <div className="space-y-2 mt-4">
-              {(eventTablesData?.items || []).map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between gap-3 p-3 rounded-xl border"
-                  style={{ borderColor: 'var(--sec-border)', background: 'var(--sec-bg-elevated)' }}
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">{t.tableName}</p>
-                    <p className="text-xs text-gray-500">{t.tierLabel || 'Table slot'}</p>
-                    <p className={`text-xs mt-1 ${t.inUse ? 'text-amber-400' : t.isActive ? 'text-emerald-400' : 'text-gray-500'}`}>
-                      {t.usageLabel}
-                    </p>
+            <div className="space-y-3 p-4">
+              {(eventTablesData?.items || []).map((t) => {
+                const isVip =
+                  t.hostingCategory === 'VIP' ||
+                  String(t.hostingTierKey || '').startsWith('vip') ||
+                  /vip/i.test(String(t.tierLabel || t.tableName || ''));
+                const statusColor = t.inUse
+                  ? 'var(--sec-accent)'
+                  : t.isActive
+                    ? '#34d399'
+                    : '#9ca3af';
+                return (
+                  <div
+                    key={t.id}
+                    className="rounded-2xl border overflow-hidden"
+                    style={{
+                      borderColor: t.inUse ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                      background: t.inUse
+                        ? 'linear-gradient(160deg, var(--sec-bg-elevated) 0%, var(--sec-bg-card) 100%)'
+                        : 'var(--sec-bg-elevated)',
+                    }}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-sm truncate">{t.tableName}</p>
+                            {isVip ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full"
+                                style={{ color: 'var(--sec-accent)', background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)' }}>
+                                <Crown size={10} /> VIP
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">{t.tierLabel || 'Table slot'}</p>
+                          {t.hostLabel ? (
+                            <p className="text-xs mt-1.5 inline-flex items-center gap-1 text-gray-400">
+                              <UserCheck size={12} style={{ color: 'var(--sec-accent)' }} />
+                              Host: {t.hostLabel}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span
+                          className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full shrink-0"
+                          style={{
+                            color: statusColor,
+                            background: `${statusColor}18`,
+                            border: `1px solid ${statusColor}44`,
+                          }}
+                        >
+                          {t.inUse ? 'In use' : t.isActive ? 'Available' : 'Hidden'}
+                        </span>
+                      </div>
+
+                      {t.inUse ? (
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between text-xs mb-1.5">
+                            <span className="inline-flex items-center gap-1.5 text-gray-300">
+                              <Users size={13} style={{ color: 'var(--sec-accent)' }} />
+                              {t.usageLabel}
+                            </span>
+                            <span className="text-gray-500">{t.spotsRemaining ?? 0} spots left</span>
+                          </div>
+                          <div
+                            className="h-1.5 rounded-full overflow-hidden"
+                            style={{ background: 'rgba(255,255,255,0.06)' }}
+                          >
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${t.fillPercent ?? 0}%`,
+                                background: 'linear-gradient(90deg, var(--sec-accent), #e8c547)',
+                              }}
+                            />
+                          </div>
+                          {t.hasJoiningFee && t.joiningFee > 0 ? (
+                            <p className="text-[11px] text-gray-500 mt-2">
+                              Joining fee: R{Number(t.joiningFee).toFixed(0)}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <p className="text-xs mt-2 text-gray-500">{t.usageLabel}</p>
+                      )}
+                    </div>
+
+                    {(t.canHideFromListings || t.canRestoreToListings) && (
+                      <div
+                        className="px-4 py-3 border-t flex justify-end"
+                        style={{ borderColor: 'var(--sec-border)', background: 'rgba(0,0,0,0.2)' }}
+                      >
+                        {t.canHideFromListings ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={hidingTableId === t.id}
+                            className="h-8 text-xs"
+                            style={{ borderColor: 'var(--sec-border)' }}
+                            onClick={() => hideTableFromListings(t.id)}
+                          >
+                            {hidingTableId === t.id ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              'Remove from listings'
+                            )}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={hidingTableId === t.id}
+                            className="h-8 text-xs"
+                            style={{ borderColor: 'var(--sec-accent-border)', color: 'var(--sec-accent)' }}
+                            onClick={() => restoreTableToListings(t.id)}
+                          >
+                            Restore to listings
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {t.canHideFromListings ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={hidingTableId === t.id}
-                      onClick={() => hideTableFromListings(t.id)}
-                    >
-                      {hidingTableId === t.id ? <Loader2 size={14} className="animate-spin" /> : 'Remove'}
-                    </Button>
-                  ) : t.canRestoreToListings ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={hidingTableId === t.id}
-                      onClick={() => restoreTableToListings(t.id)}
-                    >
-                      Restore
-                    </Button>
-                  ) : null}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </DialogContent>
