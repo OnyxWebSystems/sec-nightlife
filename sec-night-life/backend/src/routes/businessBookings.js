@@ -7,6 +7,7 @@ import {
   flattenPaymentMetadata,
   basePaymentReference,
   classifyVenuePaymentRevenue,
+  isTicketPaymentMeta,
 } from '../lib/paymentMetadata.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
 
@@ -288,6 +289,31 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
   }
 });
 
+function paymentMatchesVenueScope(meta, venueId, eventIdSet) {
+  if (!meta || typeof meta !== 'object') return false;
+  const vid = meta.venue_id ?? meta.venueId;
+  if (vid != null && String(vid) === venueId) return true;
+  const eid = meta.event_id ?? meta.eventId;
+  return eid != null && eventIdSet.has(String(eid));
+}
+
+function paymentMatchesEventFilter(meta, eventId) {
+  if (!eventId) return true;
+  if (!meta || typeof meta !== 'object') return false;
+  const eid = meta.event_id ?? meta.eventId;
+  return eid != null && String(eid) === eventId;
+}
+
+function netAmountFromPayment(meta, gross) {
+  if (meta?.venue_share_zar != null) return Number(meta.venue_share_zar) || 0;
+  if (meta?.recipient_amount != null) return Number(meta.recipient_amount) || 0;
+  return splitPlatformGross(gross).recipientAmount;
+}
+
+function ticketQuantityFromMeta(meta) {
+  return Math.max(1, parseInt(String(meta?.quantity || '1'), 10) || 1);
+}
+
 router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
   try {
     const venueId = String(req.query.venue_id || '').trim();
@@ -295,11 +321,10 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const eventId = typeof req.query.event_id === 'string' && req.query.event_id.trim() ? req.query.event_id.trim() : null;
     if (!venueId) return res.status(400).json({ error: 'venue_id is required' });
 
-    const venue = await prisma.venue.findFirst({
-      where: { id: venueId, ownerUserId: req.userId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!venue) return res.status(403).json({ error: 'Forbidden' });
+    const accessibleVenueIds = await resolveAccessibleVenueIds(req.userId, venueId);
+    if (!accessibleVenueIds.length) return res.status(403).json({ error: 'Forbidden' });
+
+    await repairTicketPaymentsForVenues(accessibleVenueIds);
 
     const events = await prisma.event.findMany({
       where: { venueId, deletedAt: null, ...(eventId ? { id: eventId } : {}) },
@@ -395,55 +420,41 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       );
     }
 
-    const venuePaymentOr = [
-      { metadata: { path: ['venue_id'], equals: venueId } },
-      { metadata: { path: ['venueId'], equals: venueId } },
-      ...eventIds.flatMap((id) => [
-        { metadata: { path: ['event_id'], equals: id } },
-        { metadata: { path: ['eventId'], equals: id } },
-      ]),
-    ];
+    const eventIdSet = new Set(eventIds.map(String));
 
     const payments = await prisma.payment.findMany({
       where: {
         status: 'success',
         createdAt: { gte: cutoff },
-        ...(venuePaymentOr.length ? { OR: venuePaymentOr } : {}),
       },
       select: { amount: true, type: true, metadata: true, createdAt: true, reference: true },
-      take: 12000,
+      orderBy: { createdAt: 'desc' },
+      take: 2500,
     });
 
-    const eventIdSet = new Set(eventIds);
-
-    const matchesVenueScope = (meta) => {
-      if (!meta || typeof meta !== 'object') return false;
-      const vid = meta.venue_id ?? meta.venueId;
-      if (vid != null && String(vid) === venueId) return true;
-      const eid = meta.event_id ?? meta.eventId;
-      if (eid != null && eventIdSet.has(String(eid))) return true;
-      return false;
-    };
-
-    const matchesEventFilter = (meta) => {
-      if (!eventId) return true;
-      if (!meta || typeof meta !== 'object') return false;
-      const eid = meta.event_id ?? meta.eventId;
-      return eid != null && String(eid) === eventId;
-    };
+    let ticketSalesFromPayments = 0;
 
     for (const p of payments) {
       const meta = flattenPaymentMetadata(p.metadata);
-      if (!matchesVenueScope(meta) || !matchesEventFilter(meta)) continue;
+      if (!paymentMatchesVenueScope(meta, venueId, eventIdSet)) continue;
+      if (!paymentMatchesEventFilter(meta, eventId)) continue;
       if (p.reference && matchedPaymentRefs.has(p.reference)) continue;
       const amt = Number(p.amount) || 0;
-      const { recipientAmount } = splitPlatformGross(amt);
       grossTotal += amt;
-      netTotal += recipientAmount;
+      netTotal += netAmountFromPayment(meta, amt);
       const dayKey = p.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
 
       classifyVenuePaymentRevenue(meta.type, p.type, amt, revenueCounters);
+
+      if (p.reference) {
+        matchedPaymentRefs.add(p.reference);
+        matchedPaymentRefs.add(basePaymentReference(p.reference));
+      }
+
+      if (isTicketPaymentMeta(meta, p.type)) {
+        ticketSalesFromPayments += ticketQuantityFromMeta(meta);
+      }
     }
 
     const paidTx = await prisma.transaction.findMany({
@@ -459,33 +470,47 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     for (const t of paidTx) {
       const ref = t.stripeId || (t.metadata && typeof t.metadata === 'object' ? t.metadata.reference : null);
-      if (ref && matchedPaymentRefs.has(String(ref))) continue;
+      const baseRef = ref ? basePaymentReference(String(ref)) : null;
+      if (ref && (matchedPaymentRefs.has(String(ref)) || (baseRef && matchedPaymentRefs.has(baseRef)))) {
+        continue;
+      }
+      const txMeta = flattenPaymentMetadata(t.metadata);
+      if (!paymentMatchesVenueScope(txMeta, venueId, eventIdSet)) continue;
+      if (!paymentMatchesEventFilter(txMeta, eventId)) continue;
       const amt = Number(t.amount) || 0;
-      const { recipientAmount } = splitPlatformGross(amt);
       grossTotal += amt;
-      netTotal += recipientAmount;
+      netTotal += netAmountFromPayment(txMeta, amt);
       const dayKey = t.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
-      const txMeta = flattenPaymentMetadata(t.metadata);
       if (txMeta && Object.keys(txMeta).length) {
         classifyVenuePaymentRevenue(txMeta.type, null, amt, revenueCounters);
+        if (isTicketPaymentMeta(txMeta, null)) {
+          ticketSalesFromPayments += ticketQuantityFromMeta(txMeta);
+        }
       } else {
         revenueCounters.otherPaymentZar += amt;
+      }
+      if (ref) {
+        matchedPaymentRefs.add(String(ref));
+        if (baseRef) matchedPaymentRefs.add(baseRef);
       }
     }
 
     const { ticketPaymentZar, hostedTablePaymentZar, venueTablePaymentZar, otherPaymentZar } = revenueCounters;
 
-    const ticketSalesCount =
+    const ticketSalesCountFromRows =
       eventIds.length === 0
         ? 0
         : await prisma.ticket.count({
             where: {
+              kind: 'EVENT_TICKET',
               eventId: { in: eventIds },
               createdAt: { gte: cutoff },
               hiddenFromHistoryAt: null,
             },
           });
+
+    const ticketSalesCount = Math.max(ticketSalesCountFromRows, ticketSalesFromPayments);
 
     const revenueByDaySorted = Object.entries(revenueByDay)
       .sort(([a], [b]) => a.localeCompare(b))

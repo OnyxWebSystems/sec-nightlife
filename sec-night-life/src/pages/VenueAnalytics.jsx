@@ -28,6 +28,12 @@ const REVENUE_CHART_CONFIG = {
 
 const EVENT_TYPE_COLORS = ['#d4af37', '#c0c0c0', '#a78bfa', '#64748b', '#22c55e'];
 
+function isTicketingEvent(event) {
+  const tiers = event?.ticket_tiers;
+  const hasTiers = Array.isArray(tiers) ? tiers.length > 0 : Boolean(tiers && Object.keys(tiers).length);
+  return event?.event_format === 'TICKETING_ONLY' || hasTiers;
+}
+
 export default function VenueAnalytics() {
   const [user, setUser] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
@@ -99,15 +105,27 @@ export default function VenueAnalytics() {
     setSelectedEventId('');
   }, [selectedVenue]);
 
+  const ticketingEvents = useMemo(
+    () => events.filter(isTicketingEvent),
+    [events],
+  );
+
+  const eventSelectionOptions = useMemo(() => {
+    const ticketingIds = new Set(ticketingEvents.map((e) => e.id));
+    const nonTicketing = events.filter((e) => !ticketingIds.has(e.id));
+    return [...ticketingEvents, ...nonTicketing];
+  }, [events, ticketingEvents]);
+
   useEffect(() => {
     if (!events.length) {
       setSelectedEventId('');
       return;
     }
+    const preferredPool = ticketingEvents.length ? ticketingEvents : events;
     if (!selectedEventId || !events.some((event) => event.id === selectedEventId)) {
-      setSelectedEventId(events[0].id);
+      setSelectedEventId(preferredPool[0].id);
     }
-  }, [events, selectedEventId]);
+  }, [events, ticketingEvents, selectedEventId]);
 
   const periodDays = Math.min(366, Math.max(1, parseInt(dateRange, 10) || 30));
   const periodCutoff = useMemo(() => subDays(new Date(), periodDays), [periodDays]);
@@ -333,9 +351,10 @@ export default function VenueAnalytics() {
                       />
                     </SelectTrigger>
                     <SelectContent className="bg-[#141416] border-[#262629] text-white">
-                      {events.map((event) => (
+                      {eventSelectionOptions.map((event) => (
                         <SelectItem key={event.id} value={event.id}>
                           {event.title || (event.date ? `Untitled event (${format(new Date(event.date), 'MMM dd')})` : 'Untitled event')}
+                          {isTicketingEvent(event) ? ' · Tickets' : ''}
                         </SelectItem>
                       ))}
                     </SelectContent>
