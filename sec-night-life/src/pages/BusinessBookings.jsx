@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import {
-  BookOpen, Users, Search, Loader2, ChevronRight, Eye, Ticket, Armchair, CalendarDays,
+  Users, Search, Loader2, ChevronRight, Ticket, Armchair, CalendarDays,
 } from 'lucide-react';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
@@ -95,6 +95,25 @@ function FilterBar({ children }) {
       {children}
     </div>
   );
+}
+
+const dialogContentStyle = {
+  backgroundColor: 'var(--sec-bg-elevated)',
+  border: '1px solid var(--sec-border)',
+  borderRadius: 'var(--radius-xl)',
+  color: 'var(--sec-text-primary)',
+  padding: 0,
+  overflow: 'hidden',
+};
+
+function ticketPaidZar(order) {
+  return Number(order?.grossPaidZar ?? order?.amountPaidZar ?? 0);
+}
+
+function roleLabel(role) {
+  if (role === 'HOST') return 'Host fee';
+  if (role === 'GUEST') return 'Guest join';
+  return role || 'Payment';
 }
 
 function EmptyState({ icon: Icon, title, description }) {
@@ -228,15 +247,20 @@ export default function BusinessBookings() {
   }, [ticketEventTimeScope, activeVenueId]);
 
   const filteredEventTables = eventTables
-    .filter((t) => statusFilter === 'all' || t.role === statusFilter)
-    .filter((t) => {
+    .filter((group) => {
+      if (statusFilter === 'all') return true;
+      return (group.transactions || []).some((t) => t.role === statusFilter);
+    })
+    .filter((group) => {
       if (!search) return true;
       const q = search.toLowerCase();
-      return (
-        (t?.event?.title || '').toLowerCase().includes(q) ||
-        (t?.hostedTable?.tableName || '').toLowerCase().includes(q) ||
-        (t?.user?.username || '').toLowerCase().includes(q)
+      const matchesTable =
+        (group?.event?.title || '').toLowerCase().includes(q) ||
+        (group?.hostedTable?.tableName || '').toLowerCase().includes(q);
+      const matchesGuest = (group.transactions || []).some((t) =>
+        (t?.user?.username || '').toLowerCase().includes(q),
       );
+      return matchesTable || matchesGuest;
     });
 
   const filteredVenueTables = venueTableBookings.filter((row) => {
@@ -260,12 +284,10 @@ export default function BusinessBookings() {
     );
   });
 
-  const roleKey = statusFilter === 'all' ? 'all' : statusFilter;
-  const roleStats = eventSummary?.statsByRole?.[roleKey] || { bookingRowCount: 0, totalPaidZar: 0 };
-
   const eventTableStats = {
-    bookingRows: roleStats.bookingRowCount ?? 0,
-    totalRevenue: roleStats.totalPaidZar ?? 0,
+    tableCount: filteredEventTables.length,
+    totalRevenue: filteredEventTables.reduce((s, g) => s + Number(g.totalPaidZar || 0), 0),
+    transactionCount: filteredEventTables.reduce((s, g) => s + Number(g.transactionCount || 0), 0),
     open: eventSummary?.hostedTablesOpen ?? 0,
     full: eventSummary?.hostedTablesFull ?? 0,
     pendingRequests: eventSummary?.pendingJoinRequests ?? 0,
@@ -339,11 +361,12 @@ export default function BusinessBookings() {
                 </p>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
-                  <StatTile label="Booking lines" value={eventTableStats.bookingRows} accent />
+                  <StatTile label="Tables" value={eventTableStats.tableCount} accent />
+                  <StatTile label="Transactions" value={eventTableStats.transactionCount} />
                   <StatTile label="Open tables" value={eventTableStats.open} />
                   <StatTile label="Full tables" value={eventTableStats.full} />
                   <StatTile label="Join requests" value={eventTableStats.pendingRequests} />
-                  <StatTile label="Paid (filter)" value={`R${Number(eventTableStats.totalRevenue || 0).toFixed(0)}`} accent />
+                  <StatTile label="Paid" value={`R${Number(eventTableStats.totalRevenue || 0).toFixed(0)}`} accent />
                 </div>
 
                 <FilterBar>
@@ -400,13 +423,13 @@ export default function BusinessBookings() {
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {filteredEventTables.map((t) => (
+                    {filteredEventTables.map((group) => (
                       <div
-                        key={t.id}
+                        key={group.id}
                         className="sec-card"
                         style={{ padding: '14px 16px', border: '1px solid var(--sec-border)', cursor: 'pointer' }}
-                        onClick={() => setDetailTable(t)}
-                        onKeyDown={(e) => e.key === 'Enter' && setDetailTable(t)}
+                        onClick={() => setDetailTable(group)}
+                        onKeyDown={(e) => e.key === 'Enter' && setDetailTable(group)}
                         role="button"
                         tabIndex={0}
                       >
@@ -420,15 +443,25 @@ export default function BusinessBookings() {
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {t.event?.title || 'Event booking'}
+                              {group.hostedTable?.tableName || 'Hosted table'}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--sec-text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {group.event?.title || 'Event booking'}
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-                              {t.hostedTable?.tableName || 'Hosted table'} · {t.role}
-                              {Number(t.lineTotalZar || 0) > 0 ? ` · R${Number(t.lineTotalZar).toFixed(0)}` : ''}
+                              {group.transactionCount} transaction{group.transactionCount === 1 ? '' : 's'}
+                              {group.rolesSummary?.hosts ? ` · ${group.rolesSummary.hosts} host` : ''}
+                              {group.rolesSummary?.guests ? ` · ${group.rolesSummary.guests} guest${group.rolesSummary.guests === 1 ? '' : 's'}` : ''}
                             </div>
                           </div>
-                          <StatusBadge status={(t.hostedTable?.status || '').toLowerCase()} />
-                          <Eye size={16} style={{ color: 'var(--sec-text-muted)' }} />
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-accent)' }}>
+                              R{Number(group.totalPaidZar || 0).toFixed(0)}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>Paid</div>
+                          </div>
+                          <StatusBadge status={(group.hostedTable?.status || '').toLowerCase()} />
+                          <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
                         </div>
                       </div>
                     ))}
@@ -528,7 +561,7 @@ export default function BusinessBookings() {
 
           <TabsContent value="tickets" className="mt-0">
             <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              Ticket purchases for your ticketing events — tier, quantity, and check-in status.
+              Ticket purchases for your ticketing events — tier, quantity, and buyer details.
             </p>
 
             {ticketScopeNotice(ticketBookingsData?.notice) && (
@@ -550,7 +583,7 @@ export default function BusinessBookings() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
               <StatTile label="Orders" value={ticketSummary?.orderCount ?? 0} accent />
               <StatTile label="Tickets sold" value={ticketSummary?.ticketCount ?? 0} />
-              <StatTile label="Your share" value={`R${Number(ticketSummary?.totalVenueShareZar || 0).toFixed(0)}`} accent />
+              <StatTile label="Paid" value={`R${Number(ticketSummary?.totalGrossZar ?? ticketSummary?.totalRevenueZar ?? 0).toFixed(0)}`} accent />
             </div>
 
             <FilterBar>
@@ -632,9 +665,9 @@ export default function BusinessBookings() {
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-accent)' }}>
-                          R{Number(order.venueShareZar || order.amountPaidZar || 0).toFixed(0)}
+                          R{ticketPaidZar(order).toFixed(0)}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>Your share</div>
+                        <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>Paid</div>
                       </div>
                       <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
                     </div>
@@ -648,70 +681,197 @@ export default function BusinessBookings() {
 
       {/* Event table detail */}
       <Dialog open={!!detailTable} onOpenChange={() => setDetailTable(null)}>
-        <DialogContent className="sm:max-w-[440px]" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}>
-          <DialogHeader>
-            <DialogTitle>Table booking details</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-[480px] p-0 gap-0" style={dialogContentStyle}>
           {detailTable && (
-            <div className="space-y-3 mt-2">
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Status</span><StatusBadge status={(detailTable.hostedTable?.status || '').toLowerCase()} /></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Role</span><span className="text-sm font-semibold">{detailTable.role}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Total paid</span><span className="text-sm font-semibold">R {Number(detailTable.lineTotalZar ?? 0).toFixed(0)}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Reference</span><span className="text-xs font-mono">{detailTable.paystackReference || '—'}</span></div>
-              <Button
-                onClick={() => { setDetailTable(null); navigate(createPageUrl('TableDetails') + `?id=${detailTable.hostedTable?.id}&source=hosted`); }}
-                className="w-full h-10 rounded-xl font-semibold sec-btn-accent mt-2"
-              >
-                Manage table <ChevronRight size={15} className="ml-1" />
-              </Button>
-            </div>
+            <>
+              <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--sec-border)' }}>
+                <DialogHeader className="space-y-1 text-left">
+                  <DialogTitle style={{ fontSize: 17, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
+                    {detailTable.hostedTable?.tableName || 'Hosted table'}
+                  </DialogTitle>
+                  <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0 }}>
+                    {detailTable.event?.title || 'Event booking'}
+                  </p>
+                </DialogHeader>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+                  <StatusBadge status={(detailTable.hostedTable?.status || '').toLowerCase()} />
+                  <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
+                    {detailTable.transactionCount} transaction{detailTable.transactionCount === 1 ? '' : 's'}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)', marginLeft: 'auto' }}>
+                    R{Number(detailTable.totalPaidZar || 0).toFixed(0)} paid
+                  </span>
+                </div>
+              </div>
+              <div style={{ padding: '16px 20px', maxHeight: 'min(50vh, 360px)', overflowY: 'auto' }}>
+                <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 10 }}>
+                  Activity on this table
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(detailTable.transactions || []).map((tx) => (
+                    <div
+                      key={tx.id}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 12,
+                        background: 'var(--sec-bg-card)',
+                        border: '1px solid var(--sec-border)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+                            {roleLabel(tx.role)}
+                          </p>
+                          <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                            @{tx.user?.username || 'guest'}
+                          </p>
+                          {tx.createdAt ? (
+                            <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                              {format(parseISO(tx.createdAt), 'EEE d MMM yyyy · HH:mm')}
+                            </p>
+                          ) : null}
+                        </div>
+                        <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)', flexShrink: 0 }}>
+                          R{Number(tx.lineTotalZar || 0).toFixed(0)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ padding: '16px 20px 20px', borderTop: '1px solid var(--sec-border)' }}>
+                <Button
+                  onClick={() => {
+                    setDetailTable(null);
+                    navigate(createPageUrl('TableDetails') + `?id=${detailTable.hostedTable?.id}&source=hosted`);
+                  }}
+                  className="w-full h-11 rounded-xl font-semibold sec-btn-accent"
+                >
+                  Manage table <ChevronRight size={15} className="ml-1" />
+                </Button>
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
 
       {/* Ticket order detail */}
       <Dialog open={!!detailTicket} onOpenChange={() => setDetailTicket(null)}>
-        <DialogContent className="sm:max-w-[440px]" style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}>
-          <DialogHeader>
-            <DialogTitle>Ticket order</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-[480px] p-0 gap-0" style={dialogContentStyle}>
           {detailTicket && (
-            <div className="space-y-3 mt-2">
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Event</span><span className="text-sm font-semibold text-right max-w-[60%]">{detailTicket.event?.title}</span></div>
-              {formatEventWhen(detailTicket.event) && (
-                <div className="flex justify-between">
-                  <span className="text-sm text-[var(--sec-text-muted)]">When</span>
-                  <span className="text-sm font-semibold text-right max-w-[60%]">
-                    {formatEventWhen(detailTicket.event)}
-                    {detailTicket.event?.city ? ` · ${detailTicket.event.city}` : ''}
-                  </span>
+            <>
+              <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--sec-border)' }}>
+                <DialogHeader className="space-y-1 text-left">
+                  <DialogTitle style={{ fontSize: 17, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
+                    Ticket order
+                  </DialogTitle>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '8px 0 0', lineHeight: 1.4 }}>
+                    {detailTicket.event?.title}
+                  </p>
+                  {formatEventWhen(detailTicket.event) ? (
+                    <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: '6px 0 0' }}>
+                      {formatEventWhen(detailTicket.event)}
+                      {detailTicket.event?.city ? ` · ${detailTicket.event.city}` : ''}
+                    </p>
+                  ) : null}
+                </DialogHeader>
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: '14px 16px',
+                    borderRadius: 12,
+                    background: 'var(--sec-accent-muted)',
+                    border: '1px solid var(--sec-accent-border)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div>
+                    <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--sec-text-muted)', margin: 0 }}>
+                      Paid
+                    </p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--sec-accent)', margin: '4px 0 0' }}>
+                      R{ticketPaidZar(detailTicket).toFixed(0)}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: 0 }}>{detailTicket.quantity} ticket{detailTicket.quantity === 1 ? '' : 's'}</p>
+                    <p style={{ fontSize: 12, color: 'var(--sec-text-secondary)', margin: '4px 0 0' }}>@{detailTicket.purchaser?.username || 'guest'}</p>
+                  </div>
                 </div>
-              )}
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Tier</span><span className="text-sm font-semibold">{detailTicket.tierName}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Buyer</span><span className="text-sm font-semibold">@{detailTicket.purchaser?.username || 'guest'}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Quantity</span><span className="text-sm font-semibold">{detailTicket.quantity}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Checked in</span><span className="text-sm font-semibold">{detailTicket.admittedCount} / {detailTicket.quantity}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Your share</span><span className="text-sm font-semibold text-[var(--sec-accent)]">R{Number(detailTicket.venueShareZar || 0).toFixed(0)}</span></div>
-              <div className="flex justify-between"><span className="text-sm text-[var(--sec-text-muted)]">Gross paid</span><span className="text-sm font-semibold">R{Number(detailTicket.grossPaidZar || detailTicket.amountPaidZar || 0).toFixed(0)}</span></div>
-              {detailTicket.fulfillmentPending ? (
-                <p className="text-xs text-amber-200/90 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2">
-                  Payment received — ticket QR codes are still being prepared. Refresh this page in a moment.
-                </p>
-              ) : null}
-              {detailTicket.tickets?.length > 0 ? (
-                <div className="pt-2 border-t border-[var(--sec-border)]">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--sec-text-muted)] mb-2">Ticket holders</p>
-                  <ul className="space-y-2">
-                    {detailTicket.tickets.map((t) => (
-                      <li key={t.id} className="flex justify-between text-sm">
-                        <span>{t.holderDisplayName || 'Guest'}</span>
-                        {t.admittedAt ? <StatusBadge status="admitted" label="Checked in" /> : <StatusBadge status="pending" label="Not checked in" />}
-                      </li>
-                    ))}
-                  </ul>
+              </div>
+              <div style={{ padding: '16px 20px' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 10,
+                    marginBottom: detailTicket.fulfillmentPending || (detailTicket.tickets?.length > 0) ? 16 : 0,
+                  }}
+                >
+                  <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+                    <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', margin: 0 }}>Tier</p>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '6px 0 0', lineHeight: 1.4 }}>
+                      {detailTicket.tierName}
+                    </p>
+                  </div>
+                  <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+                    <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', margin: 0 }}>Buyer</p>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '6px 0 0' }}>
+                      @{detailTicket.purchaser?.username || 'guest'}
+                    </p>
+                  </div>
                 </div>
-              ) : null}
-            </div>
+                {detailTicket.fulfillmentPending ? (
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--sec-text-secondary)',
+                      borderRadius: 12,
+                      border: '1px solid var(--sec-accent-border)',
+                      background: 'var(--sec-accent-muted)',
+                      padding: '10px 12px',
+                      marginBottom: 16,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    Payment received — ticket QR codes are still being prepared. Refresh this page in a moment.
+                  </p>
+                ) : null}
+                {detailTicket.tickets?.length > 0 ? (
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 10 }}>
+                      Ticket holders
+                    </p>
+                    <ul style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: 0, padding: 0, listStyle: 'none' }}>
+                      {detailTicket.tickets.map((t, index) => (
+                        <li
+                          key={t.id}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            background: 'var(--sec-bg-card)',
+                            border: '1px solid var(--sec-border)',
+                            fontSize: 13,
+                            color: 'var(--sec-text-primary)',
+                          }}
+                        >
+                          <span style={{ color: 'var(--sec-text-muted)', marginRight: 8 }}>{index + 1}.</span>
+                          {t.holderDisplayName || 'Guest'}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {detailTicket.paystackReference ? (
+                  <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 16, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                    Ref: {detailTicket.paystackReference}
+                  </p>
+                ) : null}
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>

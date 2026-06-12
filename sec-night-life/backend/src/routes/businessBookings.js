@@ -29,6 +29,41 @@ function rollBookingStats(rows) {
   };
 }
 
+function groupEventTableBookingsByTable(mapped) {
+  const groups = new Map();
+  for (const row of mapped) {
+    const tableId = row.hostedTable?.id;
+    if (!tableId) continue;
+    if (!groups.has(tableId)) {
+      groups.set(tableId, {
+        id: tableId,
+        hostedTable: row.hostedTable,
+        event: row.event,
+        venue: row.venue,
+        totalPaidZar: 0,
+        transactionCount: 0,
+        lastActivityAt: row.createdAt,
+        transactions: [],
+        rolesSummary: { hosts: 0, guests: 0 },
+      });
+    }
+    const g = groups.get(tableId);
+    const lineTotal = Number(row.lineTotalZar || 0);
+    g.totalPaidZar = Math.round((g.totalPaidZar + lineTotal) * 100) / 100;
+    g.transactionCount += 1;
+    if (new Date(row.createdAt) > new Date(g.lastActivityAt)) g.lastActivityAt = row.createdAt;
+    g.transactions.push(row);
+    if (row.role === 'HOST') g.rolesSummary.hosts += 1;
+    else if (row.role === 'GUEST') g.rolesSummary.guests += 1;
+  }
+  for (const g of groups.values()) {
+    g.transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+  return [...groups.values()].sort(
+    (a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime(),
+  );
+}
+
 function emptyEventTableBookingsSummary() {
   return {
     configuredTableSlots: 0,
@@ -270,12 +305,16 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       componentZar: r.componentZar,
     }));
 
+    const groupedItems = groupEventTableBookingsByTable(mapped);
+
     const summary = {
       configuredTableSlots,
       hostedTablesOpen,
       hostedTablesFull,
       totalGoingHeadcount,
       pendingJoinRequests,
+      tableCount: groupedItems.length,
+      totalPaidZar: groupedItems.reduce((s, g) => s + Number(g.totalPaidZar || 0), 0),
       statsByRole: {
         all: rollBookingStats(rawForStats),
         HOST: rollBookingStats(rawForStats.filter((x) => x.role === 'HOST')),
@@ -283,7 +322,7 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       },
     };
 
-    res.json({ items: mapped, eventSummaries, summary, eventScope });
+    res.json({ items: groupedItems, eventSummaries, summary, eventScope });
   } catch (e) {
     next(e);
   }
