@@ -25,18 +25,34 @@ export function isTicketPaymentMeta(meta, paymentType = null) {
   return Boolean(eventId && tier);
 }
 
-export function classifyVenuePaymentRevenue(mtype, pType, amount, counters) {
+/** Host / custom-table checkout via venue inventory (creates a hosted table). */
+export function isHostedTableVenuePayment(meta) {
+  if (!isObjectRecord(meta)) return false;
+  const bookingMode = meta.booking_mode || meta.bookingMode;
+  if (bookingMode === 'host' || bookingMode === 'custom_host') return true;
+  if (meta.hosted_table_id || meta.hostedTableId) return true;
+  const memberRole = meta.member_role || meta.memberRole;
+  return memberRole === 'HOST';
+}
+
+export function classifyVenuePaymentRevenue(mtype, pType, amount, counters, metadata = null) {
   const t = String(mtype || '');
   const amt = Number(amount) || 0;
-  if (t === 'TABLE_HOST_FEE' || t === 'HOSTED_TABLE_EXTERNAL_LISTING') {
+  const meta = isObjectRecord(metadata) ? metadata : {};
+
+  if (
+    t === 'TABLE_HOST_FEE' ||
+    t === 'HOSTED_TABLE_EXTERNAL_LISTING' ||
+    t === 'HOSTED_TABLE_JOIN' ||
+    t === 'HOSTED_TABLE_MENU' ||
+    isHostedTableVenuePayment(meta)
+  ) {
     counters.hostedTablePaymentZar += amt;
   } else if (t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN' || t === 'table') {
     counters.venueTablePaymentZar += amt;
   } else if (isTicketPaymentMeta({ type: t }, pType)) {
     counters.ticketPaymentZar += amt;
   } else if (
-    t === 'HOSTED_TABLE_JOIN' ||
-    t === 'HOSTED_TABLE_MENU' ||
     t === 'TABLE_BOOST' ||
     t === 'HOUSE_PARTY_ENTRANCE' ||
     t === 'HOUSE_PARTY_PUBLISH' ||

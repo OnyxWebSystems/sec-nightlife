@@ -456,6 +456,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         resolveLedgerPaymentType(row.paymentReference),
         gross,
         revenueCounters,
+        meta,
       );
     }
 
@@ -484,7 +485,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       const dayKey = p.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
 
-      classifyVenuePaymentRevenue(meta.type, p.type, amt, revenueCounters);
+      classifyVenuePaymentRevenue(meta.type, p.type, amt, revenueCounters, meta);
 
       if (p.reference) {
         matchedPaymentRefs.add(p.reference);
@@ -522,7 +523,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       const dayKey = t.createdAt.toISOString().slice(0, 10);
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
       if (txMeta && Object.keys(txMeta).length) {
-        classifyVenuePaymentRevenue(txMeta.type, null, amt, revenueCounters);
+        classifyVenuePaymentRevenue(txMeta.type, null, amt, revenueCounters, txMeta);
         if (isTicketPaymentMeta(txMeta, null)) {
           ticketSalesFromPayments += ticketQuantityFromMeta(txMeta);
         }
