@@ -11,6 +11,7 @@ import { sendEmail } from '../lib/email.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfterPayment.js';
 import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
+import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
 
 const router = Router();
 
@@ -38,13 +39,15 @@ async function initializePaystackPayment({ userId, amountZar, metadata }) {
   const res = await fetch('https://api.paystack.co/transaction/initialize', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email,
-      amount: Math.round(amountZar * 100),
-      reference,
-      metadata: { user_id: userId, ...metadata },
-      callback_url: process.env.APP_URL ? `${process.env.APP_URL}/PaymentSuccess?ref=${reference}` : undefined,
-    }),
+    body: JSON.stringify(
+      buildPaystackInitializeBody({
+        email,
+        amountInCents: Math.round(amountZar * 100),
+        reference,
+        userId,
+        metadata,
+      }),
+    ),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok || !data?.status) throw new Error(data?.message || 'Could not initialize payment');

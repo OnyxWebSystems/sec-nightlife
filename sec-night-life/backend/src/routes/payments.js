@@ -89,6 +89,10 @@ import {
   isPromotionPublishPayment,
   resolvePromotionIdFromMetadata,
 } from '../lib/promotionPublishAfterPayment.js';
+import {
+  abandonSupersededPendingPayments,
+  buildPaystackInitializeBody,
+} from '../lib/paystackInitialize.js';
 
 const router = Router();
 
@@ -1890,6 +1894,15 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
       });
     }
 
+    if (type === 'ticket' || type === 'event') {
+      await abandonSupersededPendingPayments(prisma, {
+        userId: req.userId,
+        paymentType: PAYMENT_TYPES.includes(type) ? type : 'ticket',
+        eventId: meta.event_id || meta.eventId || d.event_id || null,
+        ticketTier: meta.ticket_tier_name || meta.ticketTierName || null,
+      });
+    }
+
     // Create Payment (pending)
     await prisma.payment.create({
       data: {
@@ -1920,13 +1933,13 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
 
     const paystackResp = await paystackFetch('/transaction/initialize', {
       method: 'POST',
-      body: {
+      body: buildPaystackInitializeBody({
         email,
-        amount: amountInCents,
+        amountInCents,
         reference,
-        metadata: { user_id: req.userId, type, description: d.description, ...meta },
-        callback_url: process.env.APP_URL ? `${process.env.APP_URL}/PaymentSuccess?ref=${reference}` : undefined,
-      },
+        userId: req.userId,
+        metadata: { type, description: d.description, ...meta },
+      }),
     });
 
     res.json({
@@ -1981,6 +1994,14 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         code: 'IDENTITY_NOT_VERIFIED',
       });
     }
+    if (type === 'ticket' || type === 'event') {
+      await abandonSupersededPendingPayments(prisma, {
+        userId: req.userId,
+        paymentType: PAYMENT_TYPES.includes(type) ? type : 'ticket',
+        eventId: meta.event_id || meta.eventId || d.event_id || null,
+        ticketTier: meta.ticket_tier_name || meta.ticketTierName || null,
+      });
+    }
     await prisma.payment.create({
       data: { userId: req.userId, email, amount: d.amount, reference, status: 'pending', type: PAYMENT_TYPES.includes(type) ? type : 'other', metadata: { description: d.description, venue_id: d.venue_id, event_id: d.event_id, ...meta } },
     });
@@ -1989,7 +2010,13 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
     });
     const paystackResp = await paystackFetch('/transaction/initialize', {
       method: 'POST',
-      body: { email, amount: amountInCents, reference, metadata: { user_id: req.userId, type, description: d.description, ...meta }, callback_url: process.env.APP_URL ? `${process.env.APP_URL}/PaymentSuccess?ref=${reference}` : undefined },
+      body: buildPaystackInitializeBody({
+        email,
+        amountInCents,
+        reference,
+        userId: req.userId,
+        metadata: { type, description: d.description, ...meta },
+      }),
     });
     res.json({ reference, authorization_url: paystackResp.data.authorization_url, access_code: paystackResp.data.access_code });
   } catch (err) {

@@ -96,6 +96,7 @@ export default function TablePayment() {
           amount: totalAmount,
           reference: res.reference,
           accessCode: res.access_code,
+          authorizationUrl: res.authorization_url,
           onSuccess: async (payload) => {
             await completePaystackCheckout({ reference: res.reference, payload, queryClient, showToasts: false });
             navigate(`${createPageUrl('PaymentSuccess')}?ref=${encodeURIComponent(res.reference)}`);

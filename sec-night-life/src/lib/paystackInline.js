@@ -82,7 +82,15 @@ async function resolvePaystackPublicKey() {
  * Opens Paystack **on the same page** (overlay). Uses Inline v2 `resumeTransaction`
  * with the `access_code` from your backend — no navigation to checkout.paystack.com.
  */
-export async function launchPaystackInline({ email, amount, reference, accessCode, onSuccess, onCancel }) {
+export async function launchPaystackInline({
+  email,
+  amount,
+  reference,
+  accessCode,
+  authorizationUrl,
+  onSuccess,
+  onCancel,
+}) {
   const key = await resolvePaystackPublicKey();
   if (!key) {
     const err = new Error(
@@ -121,7 +129,20 @@ export async function launchPaystackInline({ email, amount, reference, accessCod
       popup.resumeTransaction(String(accessCode), {
         onSuccess: (transaction) => void handleSuccess(transaction),
         onCancel: handleCancel,
-        onError: handleError,
+        onError: (error) => {
+          const fallbackUrl =
+            authorizationUrl ||
+            (reference
+              ? `https://checkout.paystack.com/${encodeURIComponent(String(accessCode))}`
+              : null);
+          if (fallbackUrl && typeof window !== 'undefined') {
+            console.warn('Paystack inline failed, redirecting to hosted checkout', error);
+            toast.message('Opening Paystack checkout…');
+            window.location.assign(fallbackUrl);
+            return;
+          }
+          handleError(error);
+        },
       });
       return;
     }

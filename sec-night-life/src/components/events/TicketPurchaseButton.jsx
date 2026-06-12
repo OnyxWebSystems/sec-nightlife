@@ -109,14 +109,18 @@ export default function TicketPurchaseButton({ event }) {
         metadata,
       });
       if (res?.reference && res?.access_code) {
+        setIsOpen(false);
+        await new Promise((resolve) => {
+          requestAnimationFrame(() => setTimeout(resolve, 120));
+        });
         await launchPaystackInline({
           email: user?.email,
           amount: totalPrice,
           reference: res.reference,
           accessCode: res.access_code,
+          authorizationUrl: res.authorization_url,
           onSuccess: async (payload) => {
             await completePaystackCheckout({ reference: res.reference, payload, queryClient });
-            setIsOpen(false);
           },
           onCancel: () => toast.message('Checkout cancelled'),
         });

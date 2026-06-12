@@ -38,6 +38,7 @@ import {
   fetchGuestVenueMenuItems,
 } from '../lib/menuHelpers.js';
 import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
+import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { buildHostedTableJoinTicketSummary } from '../lib/ticketMemberSummary.js';
@@ -146,13 +147,15 @@ async function initializePaystackPayment({ userId, amountZar, metadata }) {
   const res = await fetch('https://api.paystack.co/transaction/initialize', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email,
-      amount: amountInCents,
-      reference,
-      metadata: { user_id: userId, ...metadata },
-      callback_url: process.env.APP_URL ? `${process.env.APP_URL}/PaymentSuccess?ref=${reference}` : undefined,
-    }),
+    body: JSON.stringify(
+      buildPaystackInitializeBody({
+        email,
+        amountInCents,
+        reference,
+        userId,
+        metadata,
+      }),
+    ),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok || !data?.status) {
