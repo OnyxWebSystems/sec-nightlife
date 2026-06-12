@@ -43,12 +43,16 @@ export function classifyVenuePaymentRevenue(mtype, pType, amount, counters, meta
   if (
     t === 'TABLE_HOST_FEE' ||
     t === 'HOSTED_TABLE_EXTERNAL_LISTING' ||
-    t === 'HOSTED_TABLE_JOIN' ||
     t === 'HOSTED_TABLE_MENU' ||
     isHostedTableVenuePayment(meta)
   ) {
     counters.hostedTablePaymentZar += amt;
-  } else if (t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN' || t === 'table') {
+  } else if (
+    t === 'HOSTED_TABLE_JOIN' ||
+    t === 'TABLE_CHECKOUT' ||
+    t === 'VENUE_TABLE_JOIN' ||
+    t === 'table'
+  ) {
     counters.venueTablePaymentZar += amt;
   } else if (isTicketPaymentMeta({ type: t }, pType)) {
     counters.ticketPaymentZar += amt;

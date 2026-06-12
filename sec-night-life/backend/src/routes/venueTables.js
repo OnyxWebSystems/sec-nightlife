@@ -674,7 +674,8 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     const bookingModeForGate = resolveBookingMode(payload.bookingMode, table, specsForGate);
     // Inventory "host this table" checkout must not require a prior venue custom-table approval.
     const needsVenueApproval =
-      (table.allowsCustomRequests || table.isCustomListing) && bookingModeForGate !== 'host';
+      bookingModeForGate === 'custom_host' ||
+      (table.isCustomListing && bookingModeForGate !== 'host');
     if (needsVenueApproval) {
       if (!existing || existing.status === 'PENDING_VENUE_REVIEW') {
         return res.status(400).json({ error: 'Submit a table request and wait for venue approval before checkout' });
@@ -794,6 +795,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     metadata.venueId = table.venueId;
     metadata.selectedMenuItems = menuSelections;
     metadata.booking_mode = bookingMode;
+    metadata.member_role = isHost ? 'HOST' : 'GUEST';
     metadata.booking_fee_zar = Number(table.bookingFeeZar || 0);
     metadata.host_table_fee_zar = Number(table.hostTableFeeZar || 0);
     metadata.minimum_spend_zar = Number(table.minimumSpend || 0);

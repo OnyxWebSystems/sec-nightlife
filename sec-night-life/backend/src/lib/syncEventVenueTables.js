@@ -56,7 +56,7 @@ export async function syncEventVenueTables(eventId) {
           tierLabel: tier.tier_name || null,
           hostingTierKey,
           includedItems: includedItems.length ? includedItems : null,
-          allowsCustomRequests: allowsCustom,
+          allowsCustomRequests: false,
           isActive: true,
         };
 
@@ -69,7 +69,6 @@ export async function syncEventVenueTables(eventId) {
                   tableName: data.tableName,
                   tierLabel: data.tierLabel,
                   includedItems: data.includedItems,
-                  allowsCustomRequests: data.allowsCustomRequests,
                   isActive: true,
                 }
               : data,

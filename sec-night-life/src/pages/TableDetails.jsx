@@ -245,6 +245,10 @@ export default function TableDetails() {
   }, [isVenueSource, venueTable?.id, venueTable?.myMembership?.status, checkoutParam]);
 
   const joinVenueTable = async () => {
+    if (!user?.id) {
+      authService.redirectToLogin(window.location.href);
+      return;
+    }
     const membership = venueTable?.myMembership;
     if (membership?.status === 'PENDING_VENUE_REVIEW') {
       toast.error('Awaiting venue approval before checkout');
@@ -558,21 +562,27 @@ export default function TableDetails() {
       selectedMenuItems,
       includedForPicker,
     );
-    const minSpendMet =
-      minSpendZar <= 0 ||
-      venueSettlementMode === 'PREPAY_LUMP' ||
-      chargeableTotal >= minSpendZar;
     const checkoutLines = venueCheckoutPreview?.lines?.length ? venueCheckoutPreview.lines : [];
     const checkoutTotal =
       venueCheckoutPreview?.total ?? checkoutLines.reduce((s, l) => s + Number(l.amount_zar || 0), 0);
     const isCustomHostCheckout = venueBookingMode === 'custom_host';
-    const needsApproval = venueTable.allowsCustomRequests || venueTable.isCustomListing;
-    // Host-this-tier flow pays the host fee + min spend without a prior venue custom request.
+    const needsVenueApprovalBeforePay =
+      venueTable.isCustomListing ||
+      (isCustomHostCheckout && !isHostCheckout);
     const approvalOk =
-      !needsApproval ||
+      !needsVenueApprovalBeforePay ||
       isHostCheckout ||
       membership?.status === 'APPROVED' ||
       membership?.status === 'LEFT';
+    const checkoutPreviewReady =
+      Number(checkoutTotal) > 0 &&
+      !venueCheckoutPreview?.error &&
+      Array.isArray(venueCheckoutPreview?.lines);
+    const minSpendMet =
+      checkoutPreviewReady ||
+      minSpendZar <= 0 ||
+      venueSettlementMode === 'PREPAY_LUMP' ||
+      chargeableTotal >= minSpendZar;
     const canPay = minSpendMet && approvalOk && !venueCheckoutPreview?.error;
     const inCustomRequestEntry = urlParams.get('request') === '1';
     const showCustomRequest =
@@ -750,7 +760,12 @@ export default function TableDetails() {
             {venueCheckoutPreview.error}
           </p>
         ) : null}
-        {!canPay && venueCheckoutStep === 'checkout' && minSpendZar > 0 && !venueCheckoutPreview?.error ? (
+        {!canPay && venueCheckoutStep === 'checkout' && needsVenueApprovalBeforePay && !approvalOk ? (
+          <p style={{ color: 'var(--sec-warning)', fontSize: 13, marginTop: 12, textAlign: 'center' }}>
+            This custom table requires venue approval before you can pay. Submit a request and wait for approval.
+          </p>
+        ) : null}
+        {!canPay && venueCheckoutStep === 'checkout' && minSpendZar > 0 && !venueCheckoutPreview?.error && approvalOk ? (
           <p style={{ color: 'var(--sec-text-muted)', fontSize: 12, marginTop: 8, textAlign: 'center' }}>
             {itemCount === 0
               ? 'Go back to choose menu items or pay the minimum spend only.'

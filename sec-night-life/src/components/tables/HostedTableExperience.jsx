@@ -122,7 +122,8 @@ export default function HostedTableExperience({
   };
 
   const executeJoin = async (menuPayload = []) => {
-    if (!userProfile) {
+    const actorId = userProfile?.id || user?.id;
+    if (!actorId) {
       authServiceRedirect();
       return;
     }
@@ -217,7 +218,7 @@ export default function HostedTableExperience({
   };
 
   const openJoinWizard = () => {
-    if (!userProfile) {
+    if (!user?.id && !userProfile?.id) {
       authServiceRedirect();
       return;
     }
