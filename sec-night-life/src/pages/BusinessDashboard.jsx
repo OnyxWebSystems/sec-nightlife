@@ -129,7 +129,7 @@ export default function BusinessDashboard() {
   }, [user?.email]);
 
   const { venues, activeVenue: venue, isLoading: venuesLoading, setActiveVenueId, refreshVenues } = useActiveVenue();
-  const { isVenueOwner, isStaffOnly, can, venuesLoading } = useVenueStaffAccess();
+  const { isVenueOwner, isStaffOnly, can } = useVenueStaffAccess();
 
   useEffect(() => {
     if (venuesLoading || !isStaffOnly) return;
