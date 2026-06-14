@@ -228,7 +228,7 @@ export default function BusinessBookings() {
   const ticketSummary = ticketBookingsData?.summary;
 
   const eventOptions = useMemo(() => {
-    const fromApi = bookingsData?.eventSummaries || ticketBookingsData?.eventSummaries;
+    const fromApi = bookingsData?.eventSummaries;
     if (Array.isArray(fromApi) && fromApi.length) {
       return fromApi.map((e) => ({
         id: e.id,
@@ -236,7 +236,7 @@ export default function BusinessBookings() {
       }));
     }
     return [];
-  }, [bookingsData?.eventSummaries, ticketBookingsData?.eventSummaries]);
+  }, [bookingsData?.eventSummaries]);
 
   useEffect(() => {
     setSelectedEventId('all');

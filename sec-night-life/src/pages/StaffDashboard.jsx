@@ -5,6 +5,7 @@ import { asArray, buildPageUrl } from '@/utils';
 import { apiGet } from '@/api/client';
 import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import {
+  LayoutDashboard,
   BarChart3,
   BookOpen,
   Megaphone,
@@ -21,6 +22,7 @@ import PageBackHeader from '@/components/layout/PageBackHeader';
 import { STAFF_PERMISSIONS } from '@/components/business/AddStaffModal';
 
 const PERM_PAGES = {
+  dashboard: { page: 'BusinessDashboard', label: 'Dashboard', icon: LayoutDashboard },
   analytics: { page: 'VenueAnalytics', label: 'Analytics', icon: BarChart3 },
   bookings: { page: 'BusinessBookings', label: 'Bookings', icon: BookOpen },
   promotions: { page: 'BusinessPromotions', label: 'Promotions', icon: Megaphone },
@@ -130,7 +132,6 @@ export default function StaffDashboard() {
                         Quick links
                       </p>
                       {enabledKeys.map((key) => {
-                        if (key === 'dashboard') return null;
                         const meta = PERM_PAGES[key];
                         if (!meta) return null;
                         const Icon = meta.icon;

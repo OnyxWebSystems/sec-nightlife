@@ -129,13 +129,14 @@ export default function BusinessDashboard() {
   }, [user?.email]);
 
   const { venues, activeVenue: venue, isLoading: venuesLoading, setActiveVenueId, refreshVenues } = useActiveVenue();
-  const { isVenueOwner, isStaffOnly, can } = useVenueStaffAccess();
+  const { isVenueOwner, isStaffOnly, can, venuesLoading } = useVenueStaffAccess();
 
   useEffect(() => {
-    if (isStaffOnly) {
+    if (venuesLoading || !isStaffOnly) return;
+    if (!can('dashboard')) {
       navigate(createPageUrl('StaffDashboard'), { replace: true });
     }
-  }, [isStaffOnly, navigate]);
+  }, [isStaffOnly, can, navigate, venuesLoading]);
 
   const DOC_TYPES = [
     { type: 'LIQUOR_LICENCE', label: 'Liquor Licence' },

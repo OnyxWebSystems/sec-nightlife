@@ -225,8 +225,8 @@ export default function Layout({ children, currentPageName }) {
     activeMode && userRoles[activeMode] ? activeMode : (userRoles.business ? 'business' : 'partygoer');
 
   useEffect(() => {
-    if (!user || !staffAccess.isStaffOnly) return;
-    if (currentPageName === 'BusinessDashboard') {
+    if (!user || !staffAccess.isStaffOnly || staffAccess.venuesLoading) return;
+    if (currentPageName === 'BusinessDashboard' && !staffAccess.can('dashboard')) {
       navigate(createPageUrl('StaffDashboard'), { replace: true });
       return;
     }
@@ -235,7 +235,7 @@ export default function Layout({ children, currentPageName }) {
     if (perm && !staffAccess.can(perm)) {
       navigate(createPageUrl('StaffDashboard'), { replace: true });
     }
-  }, [user, modeForGuard, staffAccess.isStaffOnly, staffAccess.can, currentPageName, navigate]);
+  }, [user, modeForGuard, staffAccess.isStaffOnly, staffAccess.venuesLoading, staffAccess.can, currentPageName, navigate]);
 
   const hideNav =
     ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName) ||

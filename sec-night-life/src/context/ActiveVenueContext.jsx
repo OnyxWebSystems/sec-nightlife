@@ -73,10 +73,13 @@ export function ActiveVenueProvider({ children }) {
     [user?.id],
   );
 
-  const activeVenue = useMemo(
-    () => venues.find((v) => String(v.id) === String(activeVenueId)) || venues[0] || null,
-    [venues, activeVenueId],
-  );
+  const activeVenue = useMemo(() => {
+    if (urlVenueId) {
+      const fromUrl = venues.find((v) => String(v.id) === String(urlVenueId));
+      if (fromUrl) return fromUrl;
+    }
+    return venues.find((v) => String(v.id) === String(activeVenueId)) || venues[0] || null;
+  }, [venues, activeVenueId, urlVenueId]);
 
   const refreshVenues = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['biz-venues', user?.id] });

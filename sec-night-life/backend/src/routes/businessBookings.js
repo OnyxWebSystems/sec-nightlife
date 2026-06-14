@@ -93,6 +93,29 @@ function eventDateIsPast(eventDate, startToday) {
   return t < startToday;
 }
 
+/** Table-hosting events only — excludes ticketed-only experiences from event table bookings. */
+function eventSupportsTableBookings(ev) {
+  if (!ev) return false;
+  if (ev.eventFormat === 'TICKETING_ONLY') return false;
+
+  const hosting = normalizeHostingConfig(ev.hostingConfig);
+  const tableTierCount =
+    (Array.isArray(hosting.general?.tiers) ? hosting.general.tiers.length : 0) +
+    (Array.isArray(hosting.vip?.tiers) ? hosting.vip.tiers.length : 0);
+  const maxG = Number(hosting.general?.max_tables);
+  const maxV = Number(hosting.vip?.max_tables);
+  const hasTableHosting =
+    tableTierCount > 0 ||
+    (Number.isFinite(maxG) && maxG > 0) ||
+    (Number.isFinite(maxV) && maxV > 0) ||
+    Boolean(hosting.general?.allows_custom_requests) ||
+    Boolean(hosting.vip?.allows_custom_requests);
+  const hasTicketTiers = normalizeTicketTiers(ev.ticketTiers).length > 0;
+
+  if (hasTicketTiers && !hasTableHosting) return false;
+  return hasTableHosting || ev.eventFormat === 'TABLE_HOSTING';
+}
+
 function tableInUse(table, hostedTable = null) {
   if (!table) return false;
   if (hostedTable && hostedTable.status !== 'CLOSED') return true;
@@ -176,10 +199,18 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
     if (eventIdFilter) {
       const ev = await prisma.event.findFirst({
         where: { id: eventIdFilter, venueId: { in: venueIds }, deletedAt: null },
-        select: { id: true, title: true, date: true, hostingConfig: true },
+        select: { id: true, title: true, date: true, hostingConfig: true, eventFormat: true, ticketTiers: true },
       });
       if (!ev) {
         return res.status(404).json({ error: 'Event not found' });
+      }
+      if (!eventSupportsTableBookings(ev)) {
+        return res.json({
+          items: [],
+          eventSummaries: [],
+          summary: emptyEventTableBookingsSummary(),
+          eventScope,
+        });
       }
       const isPast = eventDateIsPast(ev.date, startToday);
       if (eventScope === 'active' && isPast) {
@@ -209,10 +240,11 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
           deletedAt: null,
           ...(dateWhere ? { date: dateWhere } : {}),
         },
-        select: { id: true, title: true, date: true, hostingConfig: true },
+        select: { id: true, title: true, date: true, hostingConfig: true, eventFormat: true, ticketTiers: true },
       });
-      eventsInScope = allVenueEvents;
-      eventSummaries = allVenueEvents
+      const tableHostingEvents = allVenueEvents.filter(eventSupportsTableBookings);
+      eventsInScope = tableHostingEvents;
+      eventSummaries = tableHostingEvents
         .map((e) => ({
           id: e.id,
           title: e.title,

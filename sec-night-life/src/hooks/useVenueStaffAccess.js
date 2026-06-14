@@ -31,6 +31,7 @@ export function useVenueStaffAccess() {
   const isOwner = ctx?.isOwner ?? true;
   const isStaffAccess = ctx?.isStaffAccess ?? false;
   const staffPermissions = ctx?.staffPermissions ?? null;
+  const venuesLoading = ctx?.isLoading ?? false;
 
   const isStaffOnly = isStaffAccess && !isOwner;
 
@@ -57,9 +58,10 @@ export function useVenueStaffAccess() {
       isStaffOnly,
       isStaffAccess,
       staffPermissions,
+      venuesLoading,
       can,
       canAccessPage,
     }),
-    [isOwner, isStaffOnly, isStaffAccess, staffPermissions, can, canAccessPage],
+    [isOwner, isStaffOnly, isStaffAccess, staffPermissions, venuesLoading, can, canAccessPage],
   );
 }
