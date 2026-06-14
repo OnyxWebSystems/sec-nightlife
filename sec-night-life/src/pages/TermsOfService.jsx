@@ -68,10 +68,11 @@ export default function TermsOfService() {
         </p>
       </LegalPolicySection>
 
-      <LegalPolicySection title="4. User Accounts and Identity Verification">
+      <LegalPolicySection title="4. User Accounts and Age Verification">
         <p>
-          Users must create an account to access core functionalities of the Platform. Account creation requires submission
-          of personal information, which may include identity documentation for age verification and compliance purposes.
+          Users must create an account to access core functionalities of the Platform. You must provide accurate personal
+          information, including your date of birth and gender, and accept our Age Verification Declaration to confirm you
+          are 18 or older.
         </p>
         <p>
           Users are solely responsible for maintaining the confidentiality of their login credentials and for all
@@ -79,9 +80,8 @@ export default function TermsOfService() {
           SEC.
         </p>
         <p>
-          SEC reserves the right to implement identity verification processes, including KYC procedures, facial
-          verification, and document validation. Accounts found to contain false, misleading, or fraudulent information
-          may be suspended or permanently terminated without notice.
+          SEC reserves the right to suspend or permanently terminate accounts that contain false, misleading, or fraudulent
+          information, including misrepresentation of age or identity.
         </p>
       </LegalPolicySection>
 

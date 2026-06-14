@@ -6,7 +6,7 @@ export const CHECKOUT_FOOTNOTES = {
   venueHost:
     'Your total includes everything due now. SEC retains 15%; the venue receives 85%. After payment you can set table rules in Host Dashboard.',
   hostedJoin:
-    'Entrance (if any) is split 85% to the venue and 15% to SEC. The host joining fee is split 85% to the table host and 15% to SEC.',
+    'Your total includes entrance (if any), joining fee, and menu items due now.',
   hostedMenu:
     'Menu orders are split 85% to the venue and 15% to SEC.',
 };

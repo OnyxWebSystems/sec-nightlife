@@ -8,7 +8,7 @@ import { createPageUrl } from '@/utils';
 export default function CreateHostEvent() {
   const navigate = useNavigate();
   useEffect(() => {
-    navigate(`${createPageUrl('HostDashboard')}?create=party`, { replace: true });
+    navigate(createPageUrl('Events'), { replace: true });
   }, [navigate]);
   return null;
 }

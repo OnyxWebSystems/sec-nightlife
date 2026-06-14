@@ -514,10 +514,10 @@ export default function Notifications() {
       </header>
 
       <div className="px-4 lg:px-8 py-4">
-        <div className="mb-3 flex gap-2">
-          <Button variant={view === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setView('all')}>All</Button>
-          <Button variant={view === 'favorites' ? 'default' : 'outline'} size="sm" onClick={() => setView('favorites')}>Favorites</Button>
-          <Button variant={view === 'archived' ? 'default' : 'outline'} size="sm" onClick={() => setView('archived')}>Archived</Button>
+        <div className="mb-3 flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
+          <Button variant={view === 'all' ? 'default' : 'outline'} size="sm" className="flex-shrink-0" onClick={() => setView('all')}>All</Button>
+          <Button variant={view === 'favorites' ? 'default' : 'outline'} size="sm" className="flex-shrink-0" onClick={() => setView('favorites')}>Favorites</Button>
+          <Button variant={view === 'archived' ? 'default' : 'outline'} size="sm" className="flex-shrink-0" onClick={() => setView('archived')}>Archived</Button>
         </div>
         {/* Notifications List */}
         <AnimatePresence>

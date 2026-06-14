@@ -331,16 +331,6 @@ export default function Home() {
     }
   };
 
-  const joinHouseParty = async (partyId) => {
-    try {
-      await apiPost(`/api/host/parties/${partyId}/join`, {});
-      queryClient.invalidateQueries({ queryKey: ['host-parties-public-home'] });
-      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
-    } catch (e) {
-      window.alert(e?.message || 'Could not join party');
-    }
-  };
-
   const listStale = 120_000;
 
   const {
@@ -434,14 +424,6 @@ export default function Home() {
       return !isEventEnded({ date: o.eventDate, ends_at: o.eventEndsAt, endsAt: o.eventEndsAt });
     });
   }, [tableOfferingsData?.items]);
-
-  const { data: hostPartiesData } = useQuery({
-    queryKey: ['host-parties-public-home'],
-    queryFn: () => apiGet('/api/host/parties/public?limit=10&page=1'),
-    staleTime: listStale,
-    enabled: !isLoadingAuth,
-  });
-  const hostParties = hostPartiesData?.items || [];
 
   const { data: venues = [] } = useQuery({
     queryKey: ['all-venues', selectedCity],
@@ -551,30 +533,32 @@ export default function Home() {
     );
   }
 
-  const greeting = userProfile?.username || user?.full_name?.split(' ')[0] || 'there';
+  const greetingName = userProfile?.username || user?.full_name?.split(' ')[0] || 'there';
+  const hour = new Date().getHours();
+  const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
     <div className="pb-10" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
 
       {/* ── Header ── */}
-      <header style={{
-        position: 'sticky', top: 0, zIndex: 40,
-        backgroundColor: 'rgba(0,0,0,0.92)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: '1px solid var(--sec-border)',
-        height: 60,
-      }}>
-        <div style={{ maxWidth: 1120, margin: '0 auto', width: '100%', height: '100%', padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <h1 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
-              Good evening, {greeting}
+      <header
+        className="sticky top-0 z-40 border-b border-[var(--sec-border)] min-h-[60px]"
+        style={{
+          backgroundColor: 'rgba(0,0,0,0.92)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+        }}
+      >
+        <div className="max-w-[1120px] mx-auto w-full h-full px-4 sm:px-5 flex items-center justify-between gap-3 py-2 sm:py-0 sm:min-h-[60px]">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-[15px] font-semibold text-[var(--sec-text-primary)] m-0 tracking-tight truncate">
+              {timeGreeting}, {greetingName}
             </h1>
-            <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: 0, marginTop: 1 }}>
+            <p className="text-xs text-[var(--sec-text-muted)] m-0 mt-0.5 truncate">
               What&apos;s happening tonight
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               className="sec-nav-icon"
@@ -595,10 +579,11 @@ export default function Home() {
                 const ok = window.confirm('Sign out of SecNightlife?');
                 if (ok) logout();
               }}
-              className="sec-btn sec-btn-ghost"
-              style={{ height: 36, padding: '0 14px', fontSize: 12, borderRadius: 'var(--radius-pill)' }}
+              className="sec-btn sec-btn-ghost h-9 px-2 sm:px-3.5 text-xs rounded-full"
+              aria-label="Sign out"
             >
-              Sign out
+              <span className="hidden sm:inline">Sign out</span>
+              <span className="sm:hidden text-[10px]">Out</span>
             </button>
           </div>
         </div>
@@ -639,41 +624,6 @@ export default function Home() {
                     @{item.promoterUsername} · {item.event.venueName || item.event.city}
                   </div>
                 </Link>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* ── House Parties (public) ── */}
-        {hostParties.length > 0 && (
-          <section style={{ marginBottom: 36 }}>
-            <div className="sec-section-header">
-              <div>
-                <span className="sec-label">Community</span>
-                <h2 style={{ fontSize: 19, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '4px 0 0', letterSpacing: '-0.02em' }}>
-                  House Parties
-                </h2>
-              </div>
-            </div>
-            <div className="grid gap-3 xl:grid-cols-2">
-              {hostParties.map((p) => (
-                <div key={p.id} className="sec-card" style={{ padding: 14, borderRadius: 14 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{p.title}</div>
-                  <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 8 }}>
-                    {p.location} · {p.startTime && format(parseISO(p.startTime), 'EEE d MMM · HH:mm')}
-                  </div>
-                  {p.boosted && (
-                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--sec-success-muted)', fontSize: 10 }}>Boosted</span>
-                  )}
-                  <button
-                    type="button"
-                    className="sec-btn sec-btn-primary sec-btn-full"
-                    style={{ marginTop: 12 }}
-                    onClick={() => joinHouseParty(p.id)}
-                  >
-                    I&apos;m Going
-                  </button>
-                </div>
               ))}
             </div>
           </section>

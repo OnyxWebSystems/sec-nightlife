@@ -1,15 +1,34 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { MessageCircle, Copy, UserPlus, Camera, Sparkles } from 'lucide-react';
+import { MessageCircle, Copy, UserPlus, Camera, Sparkles, Trash2 } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 const TABLE_HOST_STATUS_BADGE = {
   DRAFT: { label: 'Awaiting listing payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
   ACTIVE: { label: 'Live', bg: 'var(--sec-success-muted)', color: 'var(--sec-text-primary)' },
   FULL: { label: 'Full', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
   CLOSED: { label: 'Closed', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
+};
+
+const PROMOTED_BORDER = 'var(--sec-accent-border)';
+const PROMOTED_BADGE_CLASS =
+  'text-[10px] px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 text-black';
+const PROMOTED_BADGE_STYLE = {
+  background: 'var(--sec-gradient-silver)',
+  border: '1px solid var(--sec-accent-border)',
 };
 
 /**
@@ -34,20 +53,33 @@ export default function HostedTableHostCard({
   onPayListing,
   onReviewToggle,
   onPhotoInputChange,
+  onDelete,
   photoPreviewUrl,
   childrenPending,
   childrenInvite,
   isPast = false,
 }) {
+  const [deleting, setDeleting] = useState(false);
   const badge = isPast
     ? { label: 'Past', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' }
     : hostStatusBadge || TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
   const isManaging = !isPast && manageTableId === t.id;
+  const canDelete = isPast || t.status === 'CLOSED';
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    setDeleting(true);
+    try {
+      await onDelete(t.id);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <article
       className="sec-card overflow-hidden rounded-2xl border border-[var(--sec-border)] bg-[var(--sec-bg-card)] shadow-sm"
-      style={t.boosted ? { borderColor: 'rgba(212, 175, 55, 0.45)' } : undefined}
+      style={t.boosted ? { borderColor: PROMOTED_BORDER, boxShadow: '0 4px 24px rgba(192, 192, 192, 0.08)' } : undefined}
     >
       <div className="relative h-36 bg-[var(--sec-bg-elevated)]">
         {photoPreviewUrl || t.photo ? (
@@ -66,13 +98,16 @@ export default function HostedTableHostCard({
             {t.isPublic ? 'Public' : 'Private'}
           </span>
           {(t.pendingInviteCount ?? 0) > 0 && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/90 text-black font-medium">
+            <span
+              className="text-[10px] px-2 py-0.5 rounded-full font-medium text-black"
+              style={{ background: 'var(--sec-accent)', border: '1px solid var(--sec-accent-border)' }}
+            >
               {t.pendingInviteCount} invite{t.pendingInviteCount === 1 ? '' : 's'} pending
             </span>
           )}
         </div>
         {t.boosted ? (
-          <span className="absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/90 text-black font-semibold inline-flex items-center gap-1">
+          <span className={`absolute top-2 left-2 ${PROMOTED_BADGE_CLASS}`} style={PROMOTED_BADGE_STYLE}>
             <Sparkles className="w-3 h-3" /> Promoted
           </span>
         ) : null}
@@ -101,7 +136,14 @@ export default function HostedTableHostCard({
             Spots left {t.spotsRemaining}
           </span>
           {t.hasJoiningFee ? (
-            <span className="px-2.5 py-1 rounded-lg text-amber-200 border border-amber-500/30 bg-amber-500/10">
+            <span
+              className="px-2.5 py-1 rounded-lg"
+              style={{
+                color: 'var(--sec-accent-bright)',
+                border: '1px solid var(--sec-accent-border)',
+                background: 'var(--sec-accent-muted)',
+              }}
+            >
               R{Number(t.joiningFee || 0).toFixed(0)} join
             </span>
           ) : null}
@@ -159,6 +201,40 @@ export default function HostedTableHostCard({
               )}
             </>
           )}
+          {canDelete && onDelete ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 text-xs sec-btn sec-btn-ghost py-2 px-3 rounded-xl border border-[var(--sec-border)] text-[var(--sec-error)]"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent
+                className="border-[var(--sec-border)]"
+                style={{ background: 'var(--sec-bg-card)', color: 'var(--sec-text-primary)' }}
+              >
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this table?</AlertDialogTitle>
+                  <AlertDialogDescription style={{ color: 'var(--sec-text-muted)' }}>
+                    This removes the table from your dashboard. Group chat history may still exist for members who joined.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="border-[var(--sec-border)]">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={deleting}
+                    onClick={handleDelete}
+                    className="bg-[var(--sec-error)] text-white hover:opacity-90"
+                  >
+                    {deleting ? 'Deleting…' : 'Delete table'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
         </div>
 
         {!isPast && t.status === 'DRAFT' && (
@@ -204,7 +280,7 @@ export default function HostedTableHostCard({
                     checked={rulesForm.hasJoiningFee}
                     onChange={(e) => setRulesForm((f) => ({ ...f, hasJoiningFee: e.target.checked }))}
                   />
-                  Charge a joining fee (85% to you)
+                  Charge a joining fee
                 </label>
                 {rulesForm.hasJoiningFee ? (
                   <div>
@@ -239,7 +315,9 @@ export default function HostedTableHostCard({
             Boost visibility on Home (R200 / 7 days)
           </button>
         ) : t.boosted ? (
-          <p className="text-xs text-amber-400 text-center">Showing on Home feed with your table photo</p>
+          <p className="text-xs text-center" style={{ color: 'var(--sec-accent-bright)' }}>
+            Showing on Home feed with your table photo
+          </p>
         ) : null}
       </div>
     </article>

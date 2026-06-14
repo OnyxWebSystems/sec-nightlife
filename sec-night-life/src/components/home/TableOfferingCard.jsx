@@ -64,10 +64,10 @@ export default function TableOfferingCard({ offering, wide = false }) {
           borderRadius: 'var(--radius-xl)',
           overflow: 'hidden',
           border: offering.boosted
-            ? '1px solid rgba(212, 175, 55, 0.55)'
+            ? '1px solid var(--sec-accent-border)'
             : '1px solid var(--sec-border)',
           boxShadow: offering.boosted
-            ? '0 8px 32px rgba(212, 175, 55, 0.12), var(--shadow-card)'
+            ? '0 8px 32px rgba(192, 192, 192, 0.12), var(--shadow-card)'
             : 'var(--shadow-card)',
           transition: 'transform 0.2s ease, border-color 0.2s ease',
         }}
@@ -105,13 +105,13 @@ export default function TableOfferingCard({ offering, wide = false }) {
               gap: 4,
               padding: '5px 10px',
               borderRadius: 'var(--radius-pill)',
-              background: 'linear-gradient(135deg, rgba(212,175,55,0.35), rgba(0,0,0,0.6))',
-              border: '1px solid rgba(212, 175, 55, 0.5)',
+              background: 'linear-gradient(135deg, var(--sec-accent-muted), rgba(0,0,0,0.6))',
+              border: '1px solid var(--sec-accent-border)',
               fontSize: 10,
               fontWeight: 700,
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
-              color: '#f5e6b8',
+              color: 'var(--sec-accent-bright)',
             }}
           >
             <Sparkles size={11} />
@@ -131,7 +131,7 @@ export default function TableOfferingCard({ offering, wide = false }) {
               padding: '4px 8px 4px 4px',
               borderRadius: 999,
               background: 'rgba(0,0,0,0.65)',
-              border: '1px solid rgba(212,175,55,0.25)',
+              border: '1px solid var(--sec-accent-border)',
             }}
           >
             <div
@@ -140,7 +140,7 @@ export default function TableOfferingCard({ offering, wide = false }) {
                 height: 22,
                 borderRadius: '50%',
                 overflow: 'hidden',
-                background: 'rgba(212,175,55,0.2)',
+                background: 'var(--sec-accent-muted)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

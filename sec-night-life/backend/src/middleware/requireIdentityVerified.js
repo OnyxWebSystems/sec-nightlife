@@ -38,7 +38,7 @@ export async function requireIdentityVerified(req, res, next) {
 
   if (!isIdentityVerifiedStatus(profile.verificationStatus)) {
     return res.status(403).json({
-      error: 'Identity verification required. Upload your ID in Profile and wait for approval.',
+      error: 'Age verification required. Complete your date of birth and accept the Age Verification Declaration in Profile Setup.',
       code: 'IDENTITY_NOT_VERIFIED',
     });
   }

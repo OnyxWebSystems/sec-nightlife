@@ -2979,25 +2979,20 @@ router.get('/activity/summary', authenticateToken, async (req, res, next) => {
   try {
     if (!assertHostEligibleRole(req, res)) return;
     const uid = req.userId;
-    const [partiesCount, tablesCount, partyAttendees, tableMembers, reviews, jobsPosted] = await Promise.all([
-      prisma.houseParty.count({ where: { hostUserId: uid } }),
+    const [tablesCount, activeTablesCount, tableMembers, reviews] = await Promise.all([
       prisma.hostedTable.count({ where: { hostUserId: uid } }),
-      prisma.housePartyAttendee.count({
-        where: { houseParty: { hostUserId: uid }, status: 'GOING' },
-      }),
+      prisma.hostedTable.count({ where: { hostUserId: uid, status: { in: ['ACTIVE', 'FULL'] } } }),
       prisma.hostedTableMember.count({
         where: { hostedTable: { hostUserId: uid }, status: 'GOING', userId: { not: uid } },
       }),
       prisma.userProfile.findUnique({ where: { userId: uid }, select: { serviceRatingAvg: true, serviceRatingCount: true } }),
-      prisma.housePartyJob.count({ where: { hostUserId: uid } }),
     ]);
     res.json({
-      totalHousePartiesHosted: partiesCount,
       totalTablesHosted: tablesCount,
-      totalPartyAttendees: partyAttendees,
+      activeTablesHosted: activeTablesCount,
       totalTableJoiners: tableMembers,
       averageRatingReceived: reviews?.serviceRatingAvg != null ? Number(reviews.serviceRatingAvg) : null,
-      jobsPostedCount: jobsPosted,
+      ratingCount: reviews?.serviceRatingCount ?? 0,
     });
   } catch (e) {
     next(e);

@@ -2,16 +2,16 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
+import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
 import { apiGet, apiPatch } from '@/api/client';
-import { ChevronLeft, Camera, User, MapPin, Wine, FileText, BadgeCheck, Loader2, Check, X, Upload, Calendar } from 'lucide-react';
+import { ChevronLeft, Camera, User, MapPin, Wine, BadgeCheck, Loader2, Check, X, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AvatarCropDialog from '@/components/profile/AvatarCropDialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { idDocumentUrlChanged } from '@/lib/idDocumentUrl';
 
 const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
@@ -44,11 +44,10 @@ export default function EditProfile() {
     gender: '',
     avatar_url: '',
     date_of_birth: '',
-    id_document_url: '',
   });
+  const [ageDeclarationAccepted, setAgeDeclarationAccepted] = useState(false);
   const [cropOpen, setCropOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
-  const [idUploading, setIdUploading] = useState(false);
 
   const normalizedUsername = useMemo(
     () => formData.username.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''),
@@ -99,8 +98,10 @@ export default function EditProfile() {
         gender: profile.gender || '',
         avatar_url: profile.avatar_url || '',
         date_of_birth: profile.date_of_birth || '',
-        id_document_url: profile.id_document_url || '',
       });
+      if (profile.age_verified || profile.verification_status === 'verified' || profile.verification_status === 'approved') {
+        setAgeDeclarationAccepted(true);
+      }
     } catch {
       authService.redirectToLogin();
     } finally {
@@ -130,19 +131,15 @@ export default function EditProfile() {
     }
   };
 
-  const handleIdUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIdUploading(true);
-    try {
-      const { file_url } = await integrations.Core.UploadFile({ file });
-      setFormData((prev) => ({ ...prev, id_document_url: file_url }));
-      toast.success('ID uploaded — save to submit for review');
-    } catch {
-      toast.error('Failed to upload document');
-    } finally {
-      setIdUploading(false);
-    }
+  const isAtLeast18 = (dob) => {
+    if (!dob) return false;
+    const birth = new Date(dob);
+    if (Number.isNaN(birth.getTime())) return false;
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDelta = today.getMonth() - birth.getMonth();
+    if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birth.getDate())) age -= 1;
+    return age >= 18;
   };
 
   const handleSave = async () => {
@@ -152,7 +149,30 @@ export default function EditProfile() {
     }
     setIsSaving(true);
     try {
-      const trimmedId = formData.id_document_url && String(formData.id_document_url).trim();
+      const alreadyVerified =
+        userProfile?.verification_status === 'verified' || userProfile?.verification_status === 'approved';
+      if (!alreadyVerified) {
+        if (!formData.date_of_birth || !formData.gender) {
+          toast.error('Date of birth and gender are required for age verification.');
+          setIsSaving(false);
+          return;
+        }
+        if (!isAtLeast18(formData.date_of_birth)) {
+          toast.error('You must be at least 18 years old.');
+          setIsSaving(false);
+          return;
+        }
+        if (!ageDeclarationAccepted) {
+          toast.error('Accept the Age Verification Declaration to continue.');
+          setIsSaving(false);
+          return;
+        }
+        await dataService.Legal.acceptDocument({
+          document_key: 'age_verification_declaration',
+          version: '1.0',
+        });
+      }
+
       const payload = {
         full_name: formData.full_name.trim(),
         username: normalizedUsername,
@@ -162,19 +182,7 @@ export default function EditProfile() {
         gender: formData.gender || null,
         avatar_url: formData.avatar_url || null,
         date_of_birth: formData.date_of_birth || null,
-        id_document_url: formData.id_document_url || null,
       };
-      const vs = userProfile?.verification_status;
-      const alreadyVerified = vs === 'verified' || vs === 'approved';
-      const prevId = userProfile?.id_document_url || '';
-      const idDocumentChanged = idDocumentUrlChanged(prevId, trimmedId);
-      if (trimmedId && !alreadyVerified) {
-        if (vs === 'rejected' || vs === 'pending' || !vs || (vs === 'submitted' && idDocumentChanged)) {
-          payload.verification_status = 'submitted';
-        }
-      } else if (trimmedId && alreadyVerified && idDocumentChanged) {
-        payload.verification_status = 'submitted';
-      }
       const updated = await apiPatch('/api/users/profile', payload);
       setUserProfile((prev) => (prev ? { ...prev, ...updated } : prev));
       toast.success('Profile updated');
@@ -522,15 +530,15 @@ export default function EditProfile() {
           >
             <div style={{ ...labelStyle, marginBottom: 12 }}>
               <BadgeCheck size={12} strokeWidth={2} />
-              Identity verification
+              Age verification
             </div>
             <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', marginBottom: 12 }}>
               Status:{' '}
               <strong style={{ color: 'var(--sec-text-primary)' }}>
                 {userProfile?.verification_status === 'verified' || userProfile?.verification_status === 'approved'
-                  ? 'Verified'
+                  ? 'Age verified'
                   : userProfile?.verification_status === 'submitted'
-                    ? 'Pending review'
+                    ? 'Legacy ID pending review'
                     : userProfile?.verification_status === 'rejected'
                       ? 'Rejected'
                       : 'Not verified'}
@@ -562,44 +570,30 @@ export default function EditProfile() {
                     }}
                   />
                 </div>
-                <div>
-                  <div style={labelStyle}>
-                    <FileText size={12} strokeWidth={2} /> ID document
-                  </div>
-                  <label style={{ cursor: idUploading ? 'wait' : 'pointer', display: 'block' }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '12px 14px',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--sec-border)',
-                        backgroundColor: 'var(--sec-bg-elevated)',
-                      }}
-                    >
-                      <span style={{ fontSize: 13, color: 'var(--sec-text-secondary)' }}>
-                        {idUploading ? 'Uploading…' : formData.id_document_url ? 'Document attached' : 'Upload PDF or image'}
-                      </span>
-                      <Upload size={18} style={{ color: 'var(--sec-text-muted)' }} />
-                    </div>
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      style={{ display: 'none' }}
-                      disabled={idUploading}
-                      onChange={handleIdUpload}
-                    />
-                  </label>
-                </div>
+                <label className="flex items-start gap-3 cursor-pointer" style={{ marginBottom: 12 }}>
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={ageDeclarationAccepted}
+                    onChange={(e) => setAgeDeclarationAccepted(e.target.checked)}
+                  />
+                  <span style={{ fontSize: 13, color: 'var(--sec-text-secondary)', lineHeight: 1.5 }}>
+                    I confirm I am 18 or older and accept the{' '}
+                    <Link to={createPageUrl('AgeVerificationDeclaration')} style={{ color: 'var(--sec-accent)' }}>
+                      Age Verification Declaration
+                    </Link>
+                    .
+                  </span>
+                </label>
                 <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>
-                  After you save, your ID is sent for admin review.{' '}
-                  <Link to={createPageUrl('Profile')} style={{ color: 'var(--sec-accent)' }}>
-                    Open Profile
-                  </Link>
+                  Save to complete age verification automatically.
                 </p>
               </>
-            ) : null}
+            ) : (
+              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
+                Your age is verified. Update date of birth or gender only if your details have changed.
+              </p>
+            )}
           </div>
         </div>
 

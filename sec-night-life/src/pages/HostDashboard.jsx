@@ -3,13 +3,11 @@ import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { createPageUrl, getPublicAppOrigin } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { apiGet, apiPost, apiDelete, apiPatch } from '@/api/client';
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
-import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, Armchair, Users, Star, Activity } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { Input } from '@/components/ui/input';
@@ -20,13 +18,6 @@ import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { uploadHostedTablePhotoFile } from '@/lib/uploadHostedTablePhoto';
 import HostedTableHostCard from '@/components/host/HostedTableHostCard';
 import { splitHostDashboardTables } from '@/lib/hostTableDashboard';
-const STATUS_BADGE = {
-  DRAFT: { label: 'Draft', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
-  PENDING_PAYMENT: { label: 'Pending payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
-  PUBLISHED: { label: 'Live', bg: 'var(--sec-success-muted)', color: 'var(--sec-text-primary)' },
-  CANCELLED: { label: 'Cancelled', bg: 'var(--sec-error-muted)', color: 'var(--sec-error)' },
-  COMPLETED: { label: 'Completed', bg: 'var(--sec-bg-card)', color: 'var(--sec-accent)' },
-};
 
 /** Hosted table row uses HostedTableStatus (DRAFT / ACTIVE / FULL). */
 const TABLE_HOST_STATUS_BADGE = {
@@ -41,27 +32,9 @@ export default function HostDashboard() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [tab, setTab] = useState('parties');
+  const [tab, setTab] = useState('tables');
   const [tablesSubTab, setTablesSubTab] = useState('upcoming');
-  const [showPartyModal, setShowPartyModal] = useState(false);
   const [showTableModal, setShowTableModal] = useState(false);
-  const [partyStep, setPartyStep] = useState(1);
-  const [partyForm, setPartyForm] = useState({
-    title: '',
-    description: '',
-    location: '',
-    latitude: null,
-    longitude: null,
-    startTime: '',
-    endTime: '',
-    guestQuantity: 20,
-    hasEntranceFee: false,
-    entranceFeeAmount: '',
-    entranceFeeNote: '',
-    freeEntryGroup: '',
-    guestGenderPreference: 'ANY',
-  });
   const [tableForm, setTableForm] = useState({
     tableType: 'EXTERNAL_VENUE',
     tableName: '',
@@ -128,8 +101,7 @@ export default function HostDashboard() {
   useEffect(() => {
     authService.getCurrentUser().then(async (u) => {
       setUser(u);
-      const profiles = await dataService.User.filter({ created_by: u.email });
-      setUserProfile(profiles?.[0] || null);
+      await dataService.User.filter({ created_by: u.email });
     }).catch(() => authService.redirectToLogin());
   }, []);
 
@@ -137,8 +109,11 @@ export default function HostDashboard() {
     const c = searchParams.get('create');
     const preEventId = searchParams.get('event');
     if (c === 'party') {
-      setShowPartyModal(true);
-      setTab('parties');
+      toast.message('House parties are no longer available', {
+        description: 'Browse SEC events or list a private meet-up table instead.',
+      });
+      navigate(createPageUrl('Events'), { replace: true });
+      return;
     }
     if (c === 'table') {
       if (preEventId) {
@@ -153,6 +128,7 @@ export default function HostDashboard() {
       setSearchParams({}, { replace: true });
     }
     if (searchParams.get('tab') === 'tables') setTab('tables');
+    if (searchParams.get('tab') === 'activity') setTab('activity');
   }, [searchParams, setSearchParams, navigate]);
 
   useEffect(() => {
@@ -164,18 +140,6 @@ export default function HostDashboard() {
     queryFn: () => apiGet(`/api/host/invite-user-search?q=${encodeURIComponent(inviteSearch.trim())}`),
     enabled: Boolean(inviteOpenTableId && inviteSearch.trim().length >= 2),
     staleTime: 20_000,
-  });
-
-  const closePartyModal = () => {
-    setShowPartyModal(false);
-    setPartyStep(1);
-    setSearchParams({}, { replace: true });
-  };
-
-  const { data: parties = [], isLoading: loadP } = useQuery({
-    queryKey: ['host-parties', user?.id],
-    queryFn: () => apiGet('/api/host/parties'),
-    enabled: !!user?.id,
   });
 
   const { data: tables = [], isLoading: loadT } = useQuery({
@@ -208,12 +172,6 @@ export default function HostDashboard() {
     }, { replace: true });
   }, [searchParams, upcomingTables, setSearchParams]);
 
-  const { data: jobs = [], isLoading: loadJ } = useQuery({
-    queryKey: ['host-jobs', user?.id],
-    queryFn: () => apiGet('/api/host/jobs'),
-    enabled: !!user?.id,
-  });
-
   const { data: activity } = useQuery({
     queryKey: ['host-activity', user?.id],
     queryFn: () => apiGet('/api/host/activity/summary'),
@@ -227,59 +185,6 @@ export default function HostDashboard() {
     queryFn: () => apiGet(`/api/host/tables/${pendingTableId}/pending-requests`),
     enabled: !!pendingTableId,
   });
-
-  const submitParty = async (thenPublish) => {
-    setSaving(true);
-    try {
-      const start = new Date(partyForm.startTime);
-      const end = new Date(partyForm.endTime);
-      const payload = {
-        title: partyForm.title,
-        description: partyForm.description,
-        location: partyForm.location,
-        latitude: partyForm.latitude,
-        longitude: partyForm.longitude,
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-        guestQuantity: partyForm.guestQuantity,
-        hasEntranceFee: partyForm.hasEntranceFee,
-        entranceFeeAmount: partyForm.hasEntranceFee ? parseFloat(partyForm.entranceFeeAmount) : null,
-        entranceFeeNote: partyForm.entranceFeeNote || null,
-        freeEntryGroup: partyForm.freeEntryGroup || null,
-        guestGenderPreference: partyForm.guestGenderPreference,
-      };
-      const created = await apiPost('/api/host/parties', payload);
-      queryClient.invalidateQueries(['host-parties']);
-      toast.success('House party saved');
-      closePartyModal();
-      if (thenPublish && created?.id) {
-        const pay = await apiPost(`/api/host/parties/${created.id}/publish`, {});
-        if (pay?.reference && pay?.access_code) {
-          launchPaystackInline({
-            email: user?.email,
-            amount: 200,
-            reference: pay.reference,
-            accessCode: pay.access_code,
-            onSuccess: async (payload) => {
-              await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
-              queryClient.invalidateQueries(['host-parties']);
-              toast.success('Party listing payment received.');
-            },
-            onCancel: () => {
-              toast.message('Checkout closed', {
-                description: 'Your party stays unpublished until you complete the listing payment.',
-              });
-              queryClient.invalidateQueries(['host-parties']);
-            },
-          });
-        }
-      }
-    } catch (e) {
-      toast.error(e?.message || 'Could not create party');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const submitTable = async () => {
     setSaving(true);
@@ -296,44 +201,44 @@ export default function HostDashboard() {
       }
       const created = await apiPost('/api/host/tables', {
         tableType: 'EXTERNAL_VENUE',
-          tableName: tableForm.tableName,
-          tableDescription: tableForm.tableDescription || null,
-          eventType: tableForm.eventType,
-          venueName: tableForm.venueName,
-          venueAddress: tableForm.venueAddress.trim(),
-          eventDate: new Date(tableForm.eventDate).toISOString(),
-          eventTime: tableForm.eventTime,
-          guestQuantity: tableForm.guestQuantity,
-          hasJoiningFee: tableForm.hasJoiningFee,
-          joiningFee: tableForm.hasJoiningFee ? Number(tableForm.joiningFee) : null,
-          photo: tableForm.photo || null,
-          photoPublicId: tableForm.photoPublicId || null,
-          drinkPreferences: tableForm.drinkPreferences || null,
-          desiredCompany: tableForm.desiredCompany || null,
-          isPublic: tableForm.isPublic,
+        tableName: tableForm.tableName,
+        tableDescription: tableForm.tableDescription || null,
+        eventType: tableForm.eventType,
+        venueName: tableForm.venueName,
+        venueAddress: tableForm.venueAddress.trim(),
+        eventDate: new Date(tableForm.eventDate).toISOString(),
+        eventTime: tableForm.eventTime,
+        guestQuantity: tableForm.guestQuantity,
+        hasJoiningFee: tableForm.hasJoiningFee,
+        joiningFee: tableForm.hasJoiningFee ? Number(tableForm.joiningFee) : null,
+        photo: tableForm.photo || null,
+        photoPublicId: tableForm.photoPublicId || null,
+        drinkPreferences: tableForm.drinkPreferences || null,
+        desiredCompany: tableForm.desiredCompany || null,
+        isPublic: tableForm.isPublic,
+      });
+      if (created?.payment?.reference && created?.payment?.access_code) {
+        launchPaystackInline({
+          email: user?.email,
+          amount: 200,
+          reference: created.payment.reference,
+          accessCode: created.payment.access_code,
+          onSuccess: async (payload) => {
+            await completePaystackCheckout({ reference: created.payment.reference, payload, queryClient, showToasts: false });
+            queryClient.invalidateQueries(['host-tables']);
+            toast.success('Listing payment received — your external table is live.');
+            setShowTableModal(false);
+            setSearchParams({}, { replace: true });
+          },
+          onCancel: () => {
+            toast.message('Checkout closed', {
+              description: 'Your external table stays in draft until you complete the listing payment.',
+            });
+            queryClient.invalidateQueries(['host-tables']);
+          },
         });
-        if (created?.payment?.reference && created?.payment?.access_code) {
-          launchPaystackInline({
-            email: user?.email,
-            amount: 200,
-            reference: created.payment.reference,
-            accessCode: created.payment.access_code,
-            onSuccess: async (payload) => {
-              await completePaystackCheckout({ reference: created.payment.reference, payload, queryClient, showToasts: false });
-              queryClient.invalidateQueries(['host-tables']);
-              toast.success('Listing payment received — your external table is live.');
-              setShowTableModal(false);
-              setSearchParams({}, { replace: true });
-            },
-            onCancel: () => {
-              toast.message('Checkout closed', {
-                description: 'Your external table stays in draft until you complete the listing payment.',
-              });
-              queryClient.invalidateQueries(['host-tables']);
-            },
-          });
-          return;
-        }
+        return;
+      }
       queryClient.invalidateQueries(['host-tables']);
       toast.success('Table listed');
       setShowTableModal(false);
@@ -342,53 +247,6 @@ export default function HostDashboard() {
       toast.error(e?.message || 'Could not create table');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const publishParty = async (id) => {
-    try {
-      const pay = await apiPost(`/api/host/parties/${id}/publish`, {});
-      if (pay?.reference && pay?.access_code) {
-        launchPaystackInline({
-          email: user?.email,
-          amount: 200,
-          reference: pay.reference,
-          accessCode: pay.access_code,
-          onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
-            queryClient.invalidateQueries(['host-parties']);
-            toast.success('Party listing payment received.');
-          },
-          onCancel: () => {
-            toast.message('Checkout closed', {
-              description: 'Your party stays unpublished until you complete the listing payment.',
-            });
-            queryClient.invalidateQueries(['host-parties']);
-          },
-        });
-      }
-    } catch (e) {
-      toast.error(e?.message || 'Payment failed to start');
-    }
-  };
-
-  const boostParty = async (id) => {
-    try {
-      const pay = await apiPost(`/api/host/parties/${id}/boost`, {});
-      if (pay?.reference && pay?.access_code) {
-        await launchPaystackInline({
-          email: user?.email,
-          amount: 200,
-          reference: pay.reference,
-          accessCode: pay.access_code,
-          onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
-            queryClient.invalidateQueries(['host-tables']);
-          },
-        });
-      }
-    } catch (e) {
-      toast.error(e?.message || 'Payment failed to start');
     }
   };
 
@@ -457,6 +315,18 @@ export default function HostDashboard() {
     }
   };
 
+  const deleteTable = async (tableId) => {
+    try {
+      await apiDelete(`/api/host/tables/${tableId}`);
+      queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+      queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+      toast.success('Table removed');
+    } catch (e) {
+      toast.error(e?.message || 'Could not delete table');
+      throw e;
+    }
+  };
+
   const renderHostedTableCard = (t, { isPast = false } = {}) => {
     const loc =
       t.eventLocation?.displayLabel ||
@@ -480,6 +350,7 @@ export default function HostDashboard() {
         onPayListing={startRetryListingPayment}
         onCopyLink={copyHostedTableLink}
         onBoost={boostTable}
+        onDelete={deleteTable}
         onManageToggle={(row) => {
           const opening = manageTableId !== row.id;
           setManageTableId(opening ? row.id : null);
@@ -620,13 +491,13 @@ export default function HostDashboard() {
                           <div className="text-[10px] text-[var(--sec-text-muted)] line-clamp-2 mt-1">{pr.user.bio}</div>
                         )}
                         {pr.decisionLabel && (
-                          <div className="text-[10px] text-amber-200/90 mt-1">{pr.decisionLabel}</div>
+                          <div className="text-[10px] text-[var(--sec-accent)] mt-1">{pr.decisionLabel}</div>
                         )}
                         {(pr.user?.date_of_birth || pr.user?.verification_status) && (
                           <div className="text-[10px] text-[var(--sec-text-muted)] mt-0.5">
                             {pr.user?.date_of_birth ? `DOB: ${String(pr.user.date_of_birth).slice(0, 10)}` : ''}
                             {pr.user?.date_of_birth && pr.user?.verification_status ? ' · ' : ''}
-                            {pr.user?.verification_status ? `ID: ${pr.user.verification_status}` : ''}
+                            {pr.user?.verification_status ? `Verified: ${pr.user.verification_status}` : ''}
                           </div>
                         )}
                         {pr.user?.id && (
@@ -725,105 +596,19 @@ export default function HostDashboard() {
         <SecLogo size={30} />
         <div>
           <h1 className="text-xl font-bold">Host</h1>
-          <p className="text-sm opacity-70">House parties & tables</p>
+          <p className="text-sm opacity-70">Private meet-up tables</p>
         </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="grid w-full grid-cols-4 mb-4">
-          <TabsTrigger value="parties">Parties</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-2 mb-4">
           <TabsTrigger value="tables">Tables</TabsTrigger>
-          <TabsTrigger value="jobs">Jobs</TabsTrigger>
           <TabsTrigger value="activity">Stats</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="parties">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-semibold">My House Parties</h2>
-            <button
-              type="button"
-              onClick={() => setShowPartyModal(true)}
-              className="sec-btn sec-btn-primary text-sm py-2 px-3 inline-flex items-center gap-1"
-            >
-              <Plus size={16} /> Create
-            </button>
-          </div>
-          <div className="mb-3 opacity-90">
-            {!userProfile?.payment_setup_complete ? (
-              <div className="mb-3 rounded-xl p-3 border" style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-card)' }}>
-                <p className="text-sm" style={{ color: 'var(--sec-text-primary)' }}>
-                  Add payout details to receive your earnings automatically.
-                  <Link to={createPageUrl('Profile?tab=wallet')} className="ml-1 underline" style={{ color: 'var(--sec-accent)' }}>
-                    Sec Wallet on Profile
-                  </Link>
-                </p>
-              </div>
-            ) : null}
-            <RefundPolicyNote />
-          </div>
-          {loadP ? <Loader2 className="animate-spin" /> : null}
-          <div className="grid gap-3 xl:grid-cols-2">
-            {parties.map((p) => {
-              const sb = STATUS_BADGE[p.status] || STATUS_BADGE.DRAFT;
-              return (
-                <div key={p.id} className="sec-card p-4 rounded-xl border border-[var(--sec-border)]">
-                  <div className="flex justify-between gap-2">
-                    <div>
-                      <div className="font-semibold">{p.title}</div>
-                      <div className="text-xs opacity-70">{p.location}</div>
-                      <div className="text-xs mt-1">
-                        {format(parseISO(p.startTime), 'dd MMM yyyy HH:mm')} — {format(parseISO(p.endTime), 'HH:mm')}
-                      </div>
-                    </div>
-                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: sb.bg, color: sb.color }}>
-                      {sb.label}
-                    </span>
-                  </div>
-                  <div className="text-sm mt-2">
-                    RSVPs: {p.attendeeCount ?? p._count?.attendees ?? 0} / {p.guestQuantity} · Spots left: {p.spotsRemaining}
-                  </div>
-                  {p.boosted && <div className="text-xs text-amber-400 mt-1">Boosted</div>}
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {p.status === 'DRAFT' && (
-                      <button type="button" className="sec-btn sec-btn-secondary text-xs py-1.5" onClick={() => publishParty(p.id)}>
-                        Publish (R100)
-                      </button>
-                    )}
-                    {p.status === 'PUBLISHED' && (
-                      <>
-                        <button type="button" className="sec-btn sec-btn-secondary text-xs py-1.5" onClick={() => boostParty(p.id)}>
-                          Boost (R200)
-                        </button>
-                        <button
-                          type="button"
-                          className="sec-btn sec-btn-ghost text-xs py-1.5"
-                          onClick={async () => {
-                            try {
-                              await apiDelete(`/api/host/parties/${p.id}`);
-                              queryClient.invalidateQueries(['host-parties']);
-                              toast.success('Party cancelled');
-                            } catch (e) {
-                              toast.error(e?.message || 'Could not cancel');
-                            }
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {parties.length === 0 && !loadP && (
-              <p className="text-sm opacity-60 text-center py-8">No parties yet. Create one to get started.</p>
-            )}
-          </div>
-        </TabsContent>
-
         <TabsContent value="tables">
-          <div className="flex justify-between items-center mb-4">
-            <div>
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+            <div className="min-w-0">
               <h2 className="font-semibold text-lg">My tables</h2>
               <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
                 Live and upcoming tables stay here. After an SEC event ends, or 24 hours after a private meet-up starts,
@@ -833,7 +618,7 @@ export default function HostDashboard() {
             <button
               type="button"
               onClick={() => setShowTableModal(true)}
-              className="sec-btn sec-btn-primary text-sm py-2.5 px-3 inline-flex items-center gap-1 rounded-xl"
+              className="sec-btn sec-btn-primary text-sm py-2.5 px-3 inline-flex items-center gap-1 rounded-xl shrink-0 self-start sm:self-auto"
             >
               <Plus size={16} /> Host table
             </button>
@@ -845,13 +630,13 @@ export default function HostDashboard() {
                 value="upcoming"
                 className="flex-1 rounded-md text-xs data-[state=active]:bg-[var(--sec-bg-card)]"
               >
-                Upcoming tables ({upcomingTables.length})
+                Upcoming ({upcomingTables.length})
               </TabsTrigger>
               <TabsTrigger
                 value="past"
                 className="flex-1 rounded-md text-xs data-[state=active]:bg-[var(--sec-bg-card)]"
               >
-                Past tables ({pastTables.length})
+                Past ({pastTables.length})
               </TabsTrigger>
             </TabsList>
             <TabsContent value="upcoming">
@@ -877,186 +662,69 @@ export default function HostDashboard() {
           </Tabs>
         </TabsContent>
 
-        <TabsContent value="jobs">
-          {loadJ ? <Loader2 className="animate-spin" /> : null}
-          <div className="grid gap-2 xl:grid-cols-2">
-            {jobs.map((j) => (
-              <div key={j.id} className="sec-card p-3 rounded-lg border border-[var(--sec-border)] text-sm">
-                <div className="font-medium">{j.title}</div>
-                <div className="text-xs opacity-70">{j.houseParty?.title}</div>
-                <div className="text-xs mt-1">
-                  {j.status} · Applicants: {j._count?.applications ?? 0}
+        <TabsContent value="activity">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                icon: Armchair,
+                label: 'Tables hosted',
+                value: activity?.totalTablesHosted ?? '—',
+                hint: 'All-time listings',
+              },
+              {
+                icon: Activity,
+                label: 'Active tables',
+                value: activity?.activeTablesHosted ?? '—',
+                hint: 'Live or full right now',
+              },
+              {
+                icon: Users,
+                label: 'Table joiners',
+                value: activity?.totalTableJoiners ?? '—',
+                hint: 'Guests who joined your tables',
+              },
+              {
+                icon: Star,
+                label: 'Avg rating',
+                value:
+                  activity?.averageRatingReceived != null
+                    ? activity.averageRatingReceived.toFixed(1)
+                    : '—',
+                hint:
+                  activity?.ratingCount > 0
+                    ? `${activity.ratingCount} review${activity.ratingCount === 1 ? '' : 's'}`
+                    : 'No reviews yet',
+              },
+            ].map((stat) => (
+              <div
+                key={stat.label}
+                className="sec-card rounded-2xl border border-[var(--sec-border)] p-4 flex items-start gap-3"
+                style={{ background: 'var(--sec-bg-card)' }}
+              >
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{
+                    background: 'var(--sec-accent-muted)',
+                    border: '1px solid var(--sec-accent-border)',
+                  }}
+                >
+                  <stat.icon size={18} style={{ color: 'var(--sec-accent-bright)' }} />
+                </div>
+                <div className="min-w-0">
+                  <div
+                    className="text-2xl font-bold tabular-nums"
+                    style={{ color: 'var(--sec-accent-bright)' }}
+                  >
+                    {stat.value}
+                  </div>
+                  <div className="text-sm font-medium text-white mt-0.5">{stat.label}</div>
+                  <div className="text-xs text-[var(--sec-text-muted)] mt-1">{stat.hint}</div>
                 </div>
               </div>
             ))}
-            {jobs.length === 0 && !loadJ && <p className="text-sm opacity-60">No jobs posted on your parties yet.</p>}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="activity">
-          <div className="sec-card p-4 rounded-xl text-sm grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            <div>Total parties hosted: {activity?.totalHousePartiesHosted ?? '—'}</div>
-            <div>Total tables hosted: {activity?.totalTablesHosted ?? '—'}</div>
-            <div>Party attendees (going): {activity?.totalPartyAttendees ?? '—'}</div>
-            <div>Table joiners: {activity?.totalTableJoiners ?? '—'}</div>
-            <div>Avg rating: {activity?.averageRatingReceived != null ? activity.averageRatingReceived.toFixed(1) : '—'}</div>
-            <div>Jobs posted: {activity?.jobsPostedCount ?? '—'}</div>
           </div>
         </TabsContent>
       </Tabs>
-
-      {showPartyModal && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 p-4" role="dialog">
-          <div className="bg-[var(--sec-bg-card)] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 max-h-[90vh] overflow-y-auto border border-[var(--sec-border)]">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="font-semibold">Create house party</h3>
-              <button type="button" className="text-sm opacity-70" onClick={closePartyModal}>
-                Close
-              </button>
-            </div>
-            <div className="text-xs opacity-60 mb-2">Step {partyStep} of 4</div>
-            {partyStep === 1 && (
-              <div className="space-y-3">
-                <label className="block text-sm">
-                  Title
-                  <input
-                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                    value={partyForm.title}
-                    onChange={(e) => setPartyForm((f) => ({ ...f, title: e.target.value }))}
-                    maxLength={100}
-                  />
-                </label>
-                <label className="block text-sm">
-                  Description
-                  <textarea
-                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                    rows={3}
-                    value={partyForm.description}
-                    onChange={(e) => setPartyForm((f) => ({ ...f, description: e.target.value }))}
-                    maxLength={500}
-                  />
-                </label>
-                <GoogleAddressInput
-                  value={partyForm.location}
-                  onChange={(structured) => {
-                    const loc =
-                      typeof structured === 'string'
-                        ? structured
-                        : structured?.formattedAddress || structured?.street || '';
-                    setPartyForm((f) => ({
-                      ...f,
-                      location: loc,
-                      latitude: typeof structured === 'object' ? structured?.latitude ?? null : f.latitude,
-                      longitude: typeof structured === 'object' ? structured?.longitude ?? null : f.longitude,
-                    }));
-                  }}
-                />
-              </div>
-            )}
-            {partyStep === 2 && (
-              <div className="space-y-3">
-                <label className="block text-sm">
-                  Start
-                  <input
-                    type="datetime-local"
-                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                    value={partyForm.startTime}
-                    onChange={(e) => setPartyForm((f) => ({ ...f, startTime: e.target.value }))}
-                  />
-                </label>
-                <label className="block text-sm">
-                  End
-                  <input
-                    type="datetime-local"
-                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                    value={partyForm.endTime}
-                    onChange={(e) => setPartyForm((f) => ({ ...f, endTime: e.target.value }))}
-                  />
-                </label>
-              </div>
-            )}
-            {partyStep === 3 && (
-              <div className="space-y-3">
-                <label className="block text-sm">
-                  Guest capacity
-                  <input
-                    type="number"
-                    min={2}
-                    max={500}
-                    className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                    value={partyForm.guestQuantity}
-                    onChange={(e) => setPartyForm((f) => ({ ...f, guestQuantity: parseInt(e.target.value, 10) || 2 }))}
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={partyForm.hasEntranceFee}
-                    onChange={(e) => setPartyForm((f) => ({ ...f, hasEntranceFee: e.target.checked }))}
-                  />
-                  Entrance fee
-                </label>
-                {partyForm.hasEntranceFee && (
-                  <>
-                    <input
-                      type="number"
-                      placeholder="Amount (ZAR)"
-                      className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                      value={partyForm.entranceFeeAmount}
-                      onChange={(e) => setPartyForm((f) => ({ ...f, entranceFeeAmount: e.target.value }))}
-                    />
-                    <input
-                      placeholder="Note (e.g. R100 per person)"
-                      className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                      value={partyForm.entranceFeeNote}
-                      onChange={(e) => setPartyForm((f) => ({ ...f, entranceFeeNote: e.target.value }))}
-                    />
-                  </>
-                )}
-                <input
-                  placeholder="Free entry group (optional)"
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                  value={partyForm.freeEntryGroup}
-                  onChange={(e) => setPartyForm((f) => ({ ...f, freeEntryGroup: e.target.value }))}
-                />
-                <p className="text-xs text-[var(--sec-text-muted)]">
-                  Parties are open to everyone. Use a private table listing if you want to approve who joins.
-                </p>
-              </div>
-            )}
-            {partyStep === 4 && (
-              <div className="text-sm space-y-2 opacity-90">
-                <p><strong>{partyForm.title}</strong></p>
-                <p>{partyForm.description}</p>
-                <p>{partyForm.location}</p>
-                <p>Guests: {partyForm.guestQuantity}</p>
-              </div>
-            )}
-            <div className="flex gap-2 mt-4">
-              {partyStep > 1 && (
-                <button type="button" className="sec-btn sec-btn-ghost flex-1" onClick={() => setPartyStep((s) => s - 1)}>
-                  Back
-                </button>
-              )}
-              {partyStep < 4 && (
-                <button type="button" className="sec-btn sec-btn-primary flex-1" onClick={() => setPartyStep((s) => s + 1)}>
-                  Next
-                </button>
-              )}
-              {partyStep === 4 && (
-                <>
-                  <button type="button" disabled={saving} className="sec-btn sec-btn-secondary flex-1" onClick={() => submitParty(false)}>
-                    Save draft
-                  </button>
-                  <button type="button" disabled={saving} className="sec-btn sec-btn-primary flex-1" onClick={() => submitParty(true)}>
-                    Publish R100
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       <ImageCropDialog
         open={createTablePhotoCrop.cropOpen || manageTablePhotoCrop.cropOpen}
@@ -1089,38 +757,38 @@ export default function HostDashboard() {
               <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
                 List a private meet-up at any venue. To book tables at official SEC events, use Book a table on the event page — venues control those listings.
               </p>
-                  <label className="block text-sm font-medium">
-                    Venue name
-                    <input
-                      placeholder="e.g. Rooftop Lounge"
-                      className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                      value={tableForm.venueName}
-                      onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
-                    />
-                  </label>
-                  <div>
-                    <div className="text-sm font-medium mb-1">Address</div>
-                    <p className="text-xs text-[var(--sec-text-muted)] mb-2">Required so friends know exactly where to go.</p>
-                    <GoogleAddressInput
-                      value={tableForm.venueAddress}
-                      onChange={(structured) => {
-                        const addr =
-                          typeof structured === 'string'
-                            ? structured
-                            : structured?.formattedAddress || structured?.street || '';
-                        setTableForm((f) => ({ ...f, venueAddress: addr }));
-                      }}
-                    />
-                  </div>
-                  <label className="block text-sm font-medium">
-                    Date
-                    <input
-                      type="date"
-                      className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                      value={tableForm.eventDate}
-                      onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
-                    />
-                  </label>
+              <label className="block text-sm font-medium">
+                Venue name
+                <input
+                  placeholder="e.g. Rooftop Lounge"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  value={tableForm.venueName}
+                  onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
+                />
+              </label>
+              <div>
+                <div className="text-sm font-medium mb-1">Address</div>
+                <p className="text-xs text-[var(--sec-text-muted)] mb-2">Required so friends know exactly where to go.</p>
+                <GoogleAddressInput
+                  value={tableForm.venueAddress}
+                  onChange={(structured) => {
+                    const addr =
+                      typeof structured === 'string'
+                        ? structured
+                        : structured?.formattedAddress || structured?.street || '';
+                    setTableForm((f) => ({ ...f, venueAddress: addr }));
+                  }}
+                />
+              </div>
+              <label className="block text-sm font-medium">
+                Date
+                <input
+                  type="date"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  value={tableForm.eventDate}
+                  onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
+                />
+              </label>
               <input
                 placeholder="Table name (e.g. VIP Section)"
                 className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"

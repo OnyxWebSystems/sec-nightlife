@@ -565,6 +565,32 @@
   }
   .scrollbar-hide::-webkit-scrollbar { display: none; }
 
+  /* Responsive tab rows — use on flex tab/filter rows that overflow on mobile */
+  .sec-tabs-scroll {
+    display: flex;
+    width: 100%;
+    overflow-x: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    gap: 0.5rem;
+    padding-bottom: 2px;
+  }
+  .sec-tabs-scroll::-webkit-scrollbar { display: none; }
+  .sec-tabs-scroll > * { flex-shrink: 0; }
+
+  .sec-page-shell {
+    width: 100%;
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 1024px) {
+    .sec-page-shell { padding-bottom: 2.5rem; }
+  }
+
   .sec-spinner {
     width: 24px;
     height: 24px;

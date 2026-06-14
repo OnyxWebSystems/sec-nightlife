@@ -26,6 +26,12 @@ const LEGAL_DOCS = {
     version: '1.1',
     effectiveDate: '2026-06-08',
   },
+  age_verification_declaration: {
+    type: 'AGE_VERIFICATION_DECLARATION',
+    title: 'Age Verification Declaration',
+    version: '1.0',
+    effectiveDate: '2026-06-01',
+  },
 };
 
 function isMissingAcceptanceSchema(err) {
@@ -170,7 +176,7 @@ router.get('/acceptance-status', authenticateToken, async (req, res, next) => {
 router.post('/acceptances', authenticateToken, async (req, res, next) => {
   try {
     const schema = z.object({
-      document_key: z.enum(['privacy_policy', 'terms_of_service', 'promoter_code_of_conduct']),
+      document_key: z.enum(['privacy_policy', 'terms_of_service', 'promoter_code_of_conduct', 'age_verification_declaration']),
       version: z.string().min(1).max(30),
     });
     const parsed = schema.parse(req.body || {});

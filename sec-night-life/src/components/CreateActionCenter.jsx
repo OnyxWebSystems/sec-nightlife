@@ -1,5 +1,5 @@
 /**
- * Party Goer quick actions — house party, table, table invite.
+ * Party Goer quick actions — table and table invite.
  */
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Sparkles, Armchair, Mail } from 'lucide-react';
+import { Armchair, Mail } from 'lucide-react';
 import { apiGet } from '@/api/client';
 
 export default function CreateActionCenter({ open, onOpenChange, userRoles = { partygoer: true, host: true, business: false }, activeMode = 'partygoer' }) {
@@ -31,11 +31,6 @@ export default function CreateActionCenter({ open, onOpenChange, userRoles = { p
     })();
     return () => { cancelled = true; };
   }, [open, activeMode]);
-
-  const goParty = () => {
-    onOpenChange(false);
-    navigate(`${createPageUrl('HostDashboard')}?create=party`);
-  };
 
   const goTable = () => {
     onOpenChange(false);
@@ -64,26 +59,10 @@ export default function CreateActionCenter({ open, onOpenChange, userRoles = { p
             Create
           </DialogTitle>
           <DialogDescription style={{ color: 'var(--sec-text-muted)', fontSize: 13 }}>
-            Host a party or list a table
+            List a private meet-up table
           </DialogDescription>
         </DialogHeader>
         <div className="mt-2 flex flex-col gap-1" style={{ maxHeight: 360, overflowY: 'auto' }}>
-          <button
-            type="button"
-            onClick={goParty}
-            className="flex items-center gap-4 w-full p-4 rounded-xl text-left transition-colors border-none cursor-pointer"
-            style={{
-              backgroundColor: 'var(--sec-bg-elevated)',
-              border: '1px solid var(--sec-border)',
-              color: 'var(--sec-text-primary)',
-            }}
-          >
-            <Sparkles size={22} strokeWidth={1.5} />
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold">Create House Party</div>
-              <div className="text-xs opacity-80 mt-0.5">Host your own event and invite the city</div>
-            </div>
-          </button>
           <button
             type="button"
             onClick={goTable}

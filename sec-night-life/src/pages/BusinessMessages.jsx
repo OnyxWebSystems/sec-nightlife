@@ -9,7 +9,8 @@ import { Loader2, Briefcase, Armchair, Star, Trash2 } from 'lucide-react';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import BusinessVenueGroupPanel from '@/components/messaging/BusinessVenueGroupPanel';
 import PromoterVenueThreadPanel from '@/components/messaging/PromoterVenueThreadPanel';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
+import SecScrollTabs from '@/components/ui/SecScrollTabs';
 import { Button } from '@/components/ui/button';
 
 import {
@@ -187,12 +188,16 @@ export default function BusinessMessages() {
           setSearchParams({ tab: v });
         }}
       >
-        <TabsList className="grid w-full grid-cols-4 mb-4">
-          <TabsTrigger value="jobs">Jobs</TabsTrigger>
-          <TabsTrigger value="promoters">Promoters</TabsTrigger>
-          <TabsTrigger value="tables">Tables</TabsTrigger>
-          <TabsTrigger value="groups">Groups</TabsTrigger>
-        </TabsList>
+        <SecScrollTabs
+          listClassName="mb-4 bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] rounded-lg p-1"
+          triggerClassName="rounded-md text-xs sm:text-sm data-[state=active]:bg-[var(--sec-bg-card)]"
+          tabs={[
+            { value: 'jobs', label: 'Jobs' },
+            { value: 'promoters', label: 'Promoters' },
+            { value: 'tables', label: 'Tables' },
+            { value: 'groups', label: 'Groups' },
+          ]}
+        />
 
         <TabsContent value={filter}>
           {filter === 'groups' ? (

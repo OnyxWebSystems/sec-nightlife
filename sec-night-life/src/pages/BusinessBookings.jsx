@@ -315,12 +315,12 @@ export default function BusinessBookings() {
 
         <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
           <TabsList
-            className="w-full justify-start gap-0 mb-6 rounded-xl p-1"
+            className="w-full sec-tabs-scroll justify-start gap-1 mb-6 rounded-xl p-1"
             style={{ background: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', height: 'auto' }}
           >
             <TabsTrigger
               value="tables"
-              className="flex-1 rounded-lg data-[state=active]:bg-[var(--sec-bg-elevated)] data-[state=active]:shadow-sm"
+              className="flex-shrink-0 min-w-max rounded-lg data-[state=active]:bg-[var(--sec-bg-elevated)] data-[state=active]:shadow-sm"
               style={{ gap: 8, padding: '10px 16px', border: 'none', marginBottom: 0 }}
             >
               <Armchair size={16} />
@@ -328,7 +328,7 @@ export default function BusinessBookings() {
             </TabsTrigger>
             <TabsTrigger
               value="tickets"
-              className="flex-1 rounded-lg data-[state=active]:bg-[var(--sec-bg-elevated)] data-[state=active]:shadow-sm"
+              className="flex-shrink-0 min-w-max rounded-lg data-[state=active]:bg-[var(--sec-bg-elevated)] data-[state=active]:shadow-sm"
               style={{ gap: 8, padding: '10px 16px', border: 'none', marginBottom: 0 }}
             >
               <Ticket size={16} />
@@ -338,7 +338,7 @@ export default function BusinessBookings() {
 
           <TabsContent value="tables" className="mt-0">
             <Tabs value={tableSubTab} onValueChange={setTableSubTab}>
-              <TabsList className="mb-5 border-0 gap-2" style={{ background: 'transparent' }}>
+              <TabsList className="mb-5 border-0 sec-tabs-scroll" style={{ background: 'transparent' }}>
                 <TabsTrigger
                   value="event"
                   className="rounded-full px-4 py-2 text-sm data-[state=active]:bg-[var(--sec-accent-muted)] data-[state=active]:text-[var(--sec-accent)]"

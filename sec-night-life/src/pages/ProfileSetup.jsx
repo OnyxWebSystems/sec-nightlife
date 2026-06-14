@@ -66,11 +66,11 @@ export default function ProfileSetup() {
     favorite_drink: '',
     gender: '',
     date_of_birth: '',
-    id_document_url: '',
     payout_account_name: '',
     payout_account_number: '',
     payout_bank_code: '',
   });
+  const [ageDeclarationAccepted, setAgeDeclarationAccepted] = useState(false);
 
   const steps = [
     { number: 1, title: 'Basics', icon: User },
@@ -100,8 +100,10 @@ export default function ProfileSetup() {
           favorite_drink: profile.favorite_drink || '',
           gender: profile.gender || '',
           date_of_birth: profile.date_of_birth || '',
-          id_document_url: profile.id_document_url || '',
         }));
+        if (profile.age_verified || profile.verification_status === 'verified' || profile.verification_status === 'approved') {
+          setAgeDeclarationAccepted(true);
+        }
       }
     } catch (e) {
       authService.redirectToLogin(createPageUrl('ProfileSetup'));
@@ -149,10 +151,28 @@ export default function ProfileSetup() {
     }
   };
 
+  const isAtLeast18 = (dob) => {
+    if (!dob) return false;
+    const birth = new Date(dob);
+    if (Number.isNaN(birth.getTime())) return false;
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDelta = today.getMonth() - birth.getMonth();
+    if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birth.getDate())) age -= 1;
+    return age >= 18;
+  };
+
   const canProceed = () => {
     if (step === 1) return formData.username && formData.bio.trim().length > 0;
     if (step === 2) return formData.city && formData.favorite_drink;
-    if (step === 3) return Boolean(formData.gender);
+    if (step === 3) {
+      return (
+        Boolean(formData.gender) &&
+        Boolean(formData.date_of_birth) &&
+        isAtLeast18(formData.date_of_birth) &&
+        ageDeclarationAccepted
+      );
+    }
     if (step === 4) return false;
     return true;
   };
@@ -162,23 +182,35 @@ export default function ProfileSetup() {
     setIsSubmitting(true);
     setError('');
     try {
-      const hasId = Boolean(formData.id_document_url?.trim());
+      if (ageDeclarationAccepted && formData.date_of_birth && formData.gender) {
+        if (!isAtLeast18(formData.date_of_birth)) {
+          setError('You must be at least 18 years old to use SEC Nightlife.');
+          setIsSubmitting(false);
+          return;
+        }
+        try {
+          await dataService.Legal.acceptDocument({
+            document_key: 'age_verification_declaration',
+            version: '1.0',
+          });
+        } catch (legalErr) {
+          setError(legalErr?.message || 'Could not record age declaration acceptance.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const payload = {
         username: formData.username,
         bio: formData.bio,
         city: formData.city,
         favorite_drink: formData.favorite_drink,
         gender: formData.gender,
+        date_of_birth: formData.date_of_birth,
       };
-      if (!isEditMode || !userProfile?.age_verified) {
-        payload.age_verified = false;
-        payload.verification_status = hasId ? 'submitted' : (userProfile?.verification_status || 'pending');
-      }
       if (paymentCompleted) payload.payment_setup_complete = true;
       if (markComplete) payload.onboarding_complete = true;
       if (formData.avatar_url) payload.avatar_url = formData.avatar_url;
-      if (formData.date_of_birth) payload.date_of_birth = formData.date_of_birth;
-      if (formData.id_document_url) payload.id_document_url = formData.id_document_url;
 
       if (userProfile) {
         await dataService.User.update(userProfile.id, payload);
@@ -187,7 +219,7 @@ export default function ProfileSetup() {
       }
       navigate(createPageUrl(isEditMode ? 'Profile' : 'Home'));
     } catch (err) {
-      setError('Failed to save profile. Please try again.');
+      setError(err?.message || 'Failed to save profile. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -565,7 +597,7 @@ export default function ProfileSetup() {
                 <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
                   Age verification
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Add your date of birth and ID for admin review (optional now)</p>
+                <p style={{ color: 'var(--sec-text-muted)' }}>Confirm your age to access tables, events, and payments</p>
               </div>
 
               <div>
@@ -604,10 +636,41 @@ export default function ProfileSetup() {
                   value={formData.date_of_birth}
                   onChange={(e) => setFormData((prev) => ({ ...prev, date_of_birth: e.target.value }))}
                   style={inputStyle}
+                  required
                 />
+                {formData.date_of_birth && !isAtLeast18(formData.date_of_birth) ? (
+                  <p style={{ fontSize: 12, color: 'var(--sec-error)', marginTop: 8 }}>
+                    You must be at least 18 years old to continue.
+                  </p>
+                ) : null}
               </div>
 
-              {renderFileUpload('id_document_url', 'ID document', '.pdf,.jpg,.jpeg,.png')}
+              <label
+                className="flex items-start gap-3 cursor-pointer"
+                style={{
+                  padding: 14,
+                  borderRadius: 'var(--radius-lg)',
+                  backgroundColor: 'var(--sec-bg-card)',
+                  border: '1px solid var(--sec-border)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={ageDeclarationAccepted}
+                  onChange={(e) => setAgeDeclarationAccepted(e.target.checked)}
+                />
+                <span style={{ fontSize: 13, color: 'var(--sec-text-secondary)', lineHeight: 1.5 }}>
+                  I confirm I am 18 or older and accept the{' '}
+                  <Link
+                    to={createPageUrl('AgeVerificationDeclaration')}
+                    style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}
+                  >
+                    Age Verification Declaration
+                  </Link>
+                  , including my responsibility for accurate information and lawful conduct on SEC Nightlife.
+                </span>
+              </label>
 
               <div
                 style={{
@@ -620,9 +683,9 @@ export default function ProfileSetup() {
                   gap: 10,
                 }}
               >
-                <Calendar size={16} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
+                <FileText size={16} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
                 <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: 0 }}>
-                  An administrator will review your ID. You can skip for now and upload from your profile later. Some features stay limited until you are verified.
+                  Once you continue, your profile will be age-verified automatically. Misrepresenting your age may result in account suspension.
                 </p>
               </div>
 

@@ -34,7 +34,7 @@ export default function HostedTableCard({
       style={{
         padding: 0,
         borderRadius: isPageLayout ? 18 : 14,
-        border: table?.boosted ? '1px solid rgba(212, 175, 55, 0.45)' : '1px solid var(--sec-border)',
+        border: table?.boosted ? '1px solid var(--sec-accent-border)' : '1px solid var(--sec-border)',
         background: table?.boosted ? 'var(--sec-bg-elevated)' : 'var(--sec-bg-card)',
         overflow: 'hidden',
         width: '100%',

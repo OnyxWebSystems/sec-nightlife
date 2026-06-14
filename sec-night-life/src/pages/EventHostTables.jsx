@@ -294,7 +294,7 @@ export default function EventHostTables() {
                       )}
                     </div>
                     {table.boosted && (
-                      <span className="text-sm text-amber-400 text-center font-medium">Promoted table</span>
+                      <span className="text-sm text-center font-medium" style={{ color: 'var(--sec-accent-bright)' }}>Promoted table</span>
                     )}
                   </div>
                 ) : null;

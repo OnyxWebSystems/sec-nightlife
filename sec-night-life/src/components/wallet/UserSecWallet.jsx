@@ -39,7 +39,7 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
       <div
         className="relative overflow-hidden rounded-2xl p-5 border border-[#262629]"
         style={{
-          background: 'linear-gradient(135deg, rgba(212,175,55,0.12) 0%, rgba(10,10,11,1) 55%)',
+          background: 'linear-gradient(135deg, var(--sec-accent-muted) 0%, rgba(10,10,11,1) 55%)',
         }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -64,7 +64,7 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
         <div className="grid grid-cols-2 gap-3 mt-5">
           <div className="rounded-xl bg-black/30 p-3 border border-[#262629]/80">
             <p className="text-xs text-gray-500">Pending balance</p>
-            <p className="text-lg font-bold text-amber-300">{formatZar(data?.pendingBalance)}</p>
+            <p className="text-lg font-bold" style={{ color: 'var(--sec-accent-bright)' }}>{formatZar(data?.pendingBalance)}</p>
           </div>
           <div className="rounded-xl bg-black/30 p-3 border border-[#262629]/80">
             <p className="text-xs text-gray-500">Total received</p>
@@ -74,8 +74,15 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
       </div>
 
       {!data?.payoutSetupComplete && (
-        <div className="flex gap-2 rounded-xl border border-amber-900/40 bg-amber-950/20 px-3 py-3 text-sm text-amber-100">
-          <AlertCircle className="w-5 h-5 shrink-0 text-amber-400" />
+        <div
+          className="flex gap-2 rounded-xl px-3 py-3 text-sm"
+          style={{
+            border: '1px solid var(--sec-accent-border)',
+            background: 'var(--sec-accent-muted)',
+            color: 'var(--sec-text-primary)',
+          }}
+        >
+          <AlertCircle className="w-5 h-5 shrink-0" style={{ color: 'var(--sec-accent-bright)' }} />
           <p>
             Set up your payout details below so earnings from tables and tickets go straight to your bank.
             Until then, pending amounts stay in your Sec Wallet.
@@ -117,7 +124,7 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
                 <div className="text-right">
                   <p className="text-sm font-semibold text-white">{formatZar(tx.amount)}</p>
                   <p className={`text-[10px] uppercase ${
-                    tx.status === 'TRANSFERRED' ? 'text-green-500' : 'text-amber-500'
+                    tx.status === 'TRANSFERRED' ? 'text-green-500' : 'text-[var(--sec-accent)]'
                   }`}>
                     {tx.status === 'TRANSFERRED' ? 'Paid out' : tx.status?.toLowerCase()?.replace(/_/g, ' ') || 'pending'}
                   </p>

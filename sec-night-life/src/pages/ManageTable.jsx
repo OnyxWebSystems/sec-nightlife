@@ -230,7 +230,7 @@ export default function ManageTable() {
             </div>
           )}
 
-          <div className="grid grid-cols-4 gap-4 pt-4 border-t border-[#262629]">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-[#262629]">
             <div className="text-center">
               <p className="text-2xl font-bold" style={{ color: 'var(--sec-success)' }}>{table.current_guests || 1}</p>
               <p className="text-xs text-gray-500">Confirmed</p>

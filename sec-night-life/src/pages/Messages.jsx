@@ -190,13 +190,13 @@ export default function Messages() {
             className="pl-10 min-h-[44px]"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
           {['all', 'direct', 'groups', 'tables', 'venues'].map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setSelectedTab(t)}
-              className={`min-h-[44px] px-4 rounded-full text-sm font-medium ${
+              className={`min-h-[44px] px-4 rounded-full text-sm font-medium flex-shrink-0 ${
                 selectedTab === t ? 'bg-[var(--sec-accent)] text-black' : 'bg-[#141416] text-gray-400'
               }`}
             >

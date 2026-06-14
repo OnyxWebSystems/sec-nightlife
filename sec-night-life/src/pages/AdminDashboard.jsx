@@ -212,7 +212,7 @@ export default function AdminDashboard() {
           const adminEndpoints = [
             { key: 'dashboard', label: 'dashboard stats', fetch: () => apiGet('/api/admin/dashboard') },
             { key: 'payments', label: 'payments', fetch: () => apiGet('/api/admin/payments?limit=200') },
-            { key: 'users', label: 'ID verification queue', fetch: () => apiGet('/api/admin/verification/users?status=pending&limit=20') },
+            { key: 'users', label: 'Legacy ID reviews', fetch: () => apiGet('/api/admin/verification/users?status=pending&limit=20') },
             { key: 'venues', label: 'venue compliance queue', fetch: () => apiGet('/api/admin/verification/venues?status=pending&limit=20') },
           ];
           const settled = await Promise.allSettled(adminEndpoints.map((e) => e.fetch()));
@@ -753,7 +753,7 @@ export default function AdminDashboard() {
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <Shield size={20} className="text-amber-500 mb-2" />
                 <p className="text-2xl font-bold">{s.pendingUserVerifications ?? 0}</p>
-                <p className="text-xs text-[var(--sec-text-muted)]">ID verifications</p>
+                <p className="text-xs text-[var(--sec-text-muted)]">Legacy ID reviews</p>
               </div>
               <div className="p-4 rounded-xl bg-[#141416] border border-[#262629]">
                 <Building2 size={20} className="text-amber-500 mb-2" />
@@ -792,7 +792,7 @@ export default function AdminDashboard() {
                   onClick={() => setTab('users')}
                   className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-[#1a1a1c] transition-colors"
                 >
-                  <span>Review ID verifications</span>
+                  <span>Review legacy ID submissions</span>
                   <ChevronRight size={18} />
                 </button>
                 <button
@@ -1229,7 +1229,7 @@ export default function AdminDashboard() {
 
         {tab === 'users' && (
           <div className="space-y-3">
-            <h3 className="font-semibold">Pending ID verifications</h3>
+            <h3 className="font-semibold">Legacy ID submissions</h3>
             {userVerifications.length === 0 ? (
               <p className="text-sm text-[var(--sec-text-muted)]">No pending verifications</p>
             ) : (

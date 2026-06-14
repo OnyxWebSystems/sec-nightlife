@@ -1267,7 +1267,7 @@ export default function TableDetails() {
               <button
                 onClick={() => {
                   if (!identityOk) {
-                    toast.error('Verify your identity in Profile to invite guests.');
+                    toast.error('Complete age verification in Profile to invite guests.');
                     return;
                   }
                   setShowInviteDialog(true);

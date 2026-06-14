@@ -148,6 +148,42 @@ function shouldQueueIdVerification(prevStatus, prevIdUrl, nextIdUrl) {
   return false;
 }
 
+const MIN_AGE_YEARS = 18;
+
+function isAtLeastAge(dobStr, minAge = MIN_AGE_YEARS) {
+  if (!dobStr) return false;
+  const dob = new Date(dobStr);
+  if (Number.isNaN(dob.getTime())) return false;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDelta = today.getMonth() - dob.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < dob.getDate())) age -= 1;
+  return age >= minAge;
+}
+
+async function userHasAgeDeclarationAccepted(userId) {
+  try {
+    const row = await prisma.legalDocumentAcceptance.findFirst({
+      where: { userId, documentType: 'AGE_VERIFICATION_DECLARATION' },
+      orderBy: { acceptedAt: 'desc' },
+    });
+    return Boolean(row);
+  } catch {
+    return false;
+  }
+}
+
+/** Auto-verify party-goers who declared 18+ with DOB, gender, and legal acceptance. */
+async function resolveAutoAgeVerification(userId, profileFields, existingStatus) {
+  if (isIdentityVerifiedStatus(existingStatus)) return null;
+  const gender = profileFields.gender;
+  const dob = profileFields.dateOfBirth || profileFields.date_of_birth;
+  if (!gender || !dob) return null;
+  if (!isAtLeastAge(dob)) return null;
+  if (!(await userHasAgeDeclarationAccepted(userId))) return null;
+  return { verificationStatus: 'verified', ageVerified: true };
+}
+
 async function maybeNotifyIdVerificationSubmitted(prevStatus, profile, user) {
   if (prevStatus === 'submitted') return;
   if (profile?.verificationStatus !== 'submitted') return;
@@ -173,7 +209,13 @@ async function readExistingProfileForPatch(userId) {
   try {
     const p = await prisma.userProfile.findUnique({
       where: { userId },
-      select: { verificationStatus: true, interestedEvents: true, idDocumentUrl: true },
+      select: {
+        verificationStatus: true,
+        interestedEvents: true,
+        idDocumentUrl: true,
+        gender: true,
+        dateOfBirth: true,
+      },
     });
     if (p) return p;
   } catch {
@@ -186,6 +228,8 @@ async function readExistingProfileForPatch(userId) {
       verificationStatus: raw.verificationStatus,
       interestedEvents: raw.interestedEvents,
       idDocumentUrl: raw.idDocumentUrl,
+      gender: raw.gender,
+      dateOfBirth: raw.dateOfBirth,
     };
   } catch {
     return null;
@@ -1206,6 +1250,19 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
         : '';
     if (shouldQueueIdVerification(prevStatus, prevId, nextId)) {
       data.verification_status = 'submitted';
+    }
+    const mergedGender = data.gender !== undefined ? data.gender : existingProfile?.gender;
+    const mergedDob =
+      data.date_of_birth != null
+        ? data.date_of_birth
+        : existingProfile?.dateOfBirth ?? existingProfile?.date_of_birth;
+    const autoVerify = await resolveAutoAgeVerification(req.userId, {
+      gender: mergedGender,
+      dateOfBirth: mergedDob,
+    }, prevStatus);
+    if (autoVerify) {
+      data.verification_status = 'verified';
+      data.age_verified = true;
     }
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });

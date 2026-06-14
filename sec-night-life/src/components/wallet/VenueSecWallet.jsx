@@ -127,7 +127,7 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
         <>
           <div
             className="rounded-2xl p-5 border border-[#262629]"
-            style={{ background: 'linear-gradient(135deg, rgba(212,175,55,0.08) 0%, #141416 60%)' }}
+            style={{ background: 'linear-gradient(135deg, var(--sec-accent-muted) 0%, #141416 60%)' }}
           >
             <div className="flex items-center gap-2 text-[var(--sec-accent)] mb-2">
               <Wallet className="w-5 h-5" />
@@ -137,7 +137,7 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-black/30 p-3 border border-[#262629]/80">
                 <p className="text-xs text-gray-500">Pending</p>
-                <p className="text-lg font-bold text-amber-300">{formatZar(data?.pendingBalance)}</p>
+                <p className="text-lg font-bold" style={{ color: 'var(--sec-accent-bright)' }}>{formatZar(data?.pendingBalance)}</p>
               </div>
               <div className="rounded-xl bg-black/30 p-3 border border-[#262629]/80">
                 <p className="text-xs text-gray-500">Received</p>
@@ -147,8 +147,11 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
           </div>
 
           {!data?.payoutSetupComplete && (
-            <div className="flex gap-2 rounded-xl border border-amber-900/40 bg-amber-950/20 px-3 py-3 text-sm text-amber-100">
-              <AlertCircle className="w-5 h-5 shrink-0" />
+            <div
+              className="flex gap-2 rounded-xl px-3 py-3 text-sm"
+              style={{ border: '1px solid var(--sec-accent-border)', background: 'var(--sec-accent-muted)', color: 'var(--sec-text-primary)' }}
+            >
+              <AlertCircle className="w-5 h-5 shrink-0" style={{ color: 'var(--sec-accent-bright)' }} />
               <p>Set up venue payout details so table earnings reach your business account.</p>
             </div>
           )}
@@ -206,7 +209,7 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-amber-400">Payout details unavailable.</p>
+                  <p className="text-sm" style={{ color: 'var(--sec-accent-bright)' }}>Payout details unavailable.</p>
                 )}
                 <button
                   type="button"

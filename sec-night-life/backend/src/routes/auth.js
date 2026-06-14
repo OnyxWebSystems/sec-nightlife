@@ -196,9 +196,9 @@ async function ensureIdentityReminderNotification(userId, verificationStatus) {
     await createInAppNotification({
       userId,
       type: 'IDENTITY_VERIFICATION_REMINDER',
-      title: 'Complete identity verification',
-      body: 'You are not verified yet. Open Edit Profile to upload your ID when you are ready.',
-      referenceId: '/EditProfile',
+      title: 'Complete age verification',
+      body: 'Add your date of birth and accept the Age Verification Declaration in Profile Setup to unlock tables and payments.',
+      referenceId: '/ProfileSetup',
       referenceType: 'ROUTE',
     });
   }

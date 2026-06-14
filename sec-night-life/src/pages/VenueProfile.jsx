@@ -21,7 +21,8 @@ import {
   Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
+import SecScrollTabs from '@/components/ui/SecScrollTabs';
 import { format, parseISO, isToday, isTomorrow, differenceInDays } from 'date-fns';
 import { motion } from 'framer-motion';
 import VenueReviewsSection from '@/components/reviews/VenueReviewsSection';
@@ -517,25 +518,25 @@ export default function VenueProfile() {
         )}
 
         <Tabs defaultValue="events" className="w-full">
-          <TabsList className="w-full bg-[#141416] p-1 rounded-xl">
-            <TabsTrigger value="events" className="flex-1 rounded-lg data-[state=active]:bg-[#262629]">
-              Events ({events.length})
-            </TabsTrigger>
-            <TabsTrigger value="jobs" className="flex-1 rounded-lg data-[state=active]:bg-[#262629]">
-              Jobs ({jobs.length})
-            </TabsTrigger>
-          </TabsList>
+          <SecScrollTabs
+            listClassName="bg-[#141416] p-1 rounded-xl"
+            triggerClassName="rounded-lg data-[state=active]:bg-[#262629]"
+            tabs={[
+              { value: 'events', label: `Events (${events.length})` },
+              { value: 'jobs', label: `Jobs (${jobs.length})` },
+            ]}
+          />
 
           <TabsContent value="events" className="mt-4">
             <Tabs defaultValue="upcoming" className="w-full">
-              <TabsList className="w-full bg-[#0A0A0B] p-1 rounded-lg border border-[#262629]">
-                <TabsTrigger value="upcoming" className="flex-1 rounded-md text-xs data-[state=active]:bg-[#262629]">
-                  Upcoming ({upcomingEvents.length})
-                </TabsTrigger>
-                <TabsTrigger value="past" className="flex-1 rounded-md text-xs data-[state=active]:bg-[#262629]">
-                  Past ({pastEvents.length})
-                </TabsTrigger>
-              </TabsList>
+              <SecScrollTabs
+                listClassName="bg-[#0A0A0B] p-1 rounded-lg border border-[#262629]"
+                triggerClassName="rounded-md text-xs data-[state=active]:bg-[#262629]"
+                tabs={[
+                  { value: 'upcoming', label: `Upcoming (${upcomingEvents.length})` },
+                  { value: 'past', label: `Past (${pastEvents.length})` },
+                ]}
+              />
               <TabsContent value="upcoming" className="mt-4">
                 {upcomingEvents.length > 0 ? (
                   <VenueEventList events={upcomingEvents} />

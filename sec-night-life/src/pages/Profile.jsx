@@ -21,10 +21,12 @@ import {
   ChevronLeft,
   MessageCircle,
   Building2,
-  Briefcase
+  Briefcase,
+  Wallet,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import SecScrollTabs from '@/components/ui/SecScrollTabs';
 import { format, parseISO } from 'date-fns';
 import { toast } from "sonner";
 
@@ -363,7 +365,7 @@ export default function Profile() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', paddingBottom: 168, backgroundColor: 'var(--sec-bg-base)' }}>
+    <div className="min-h-screen pb-28 lg:pb-10" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
       <div style={{ position: 'relative', height: 160, backgroundColor: 'var(--sec-bg-elevated)' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, var(--sec-bg-base), transparent)' }} />
         
@@ -674,15 +676,35 @@ export default function Profile() {
         {/* Profile Content Tabs - Only for own profile */}
         {isOwnProfile && (
           <div className="glass-card rounded-2xl p-4 mb-6">
+            <button
+              type="button"
+              onClick={() => setProfileTab('wallet')}
+              className="w-full mb-4 flex items-center justify-between gap-3 p-3 rounded-xl border border-[#262629] bg-[#0A0A0B] hover:border-[var(--sec-accent-border)] transition-colors text-left"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--sec-accent-muted)' }}>
+                  <Wallet className="w-5 h-5" style={{ color: 'var(--sec-accent-bright)' }} />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm">Sec Wallet</p>
+                  <p className="text-xs text-gray-500 truncate">Payouts, earnings & wallet ID</p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-gray-600 shrink-0" />
+            </button>
             <Tabs value={activeProfileTab} onValueChange={setProfileTab} className="w-full">
-              <TabsList className="w-full bg-[#0A0A0B] border border-[#262629]">
-                <TabsTrigger value="activity" className="flex-1">Activity</TabsTrigger>
-                <TabsTrigger value="tickets" className="flex-1">Tickets</TabsTrigger>
-                <TabsTrigger value="reviews" className="flex-1">Reviews</TabsTrigger>
-                <TabsTrigger value="interests" className="flex-1">Interests</TabsTrigger>
-                <TabsTrigger value="wallet" className="flex-1">Wallet</TabsTrigger>
-                {hasPromotionsTab ? <TabsTrigger value="promotions" className="flex-1">Promotions</TabsTrigger> : null}
-              </TabsList>
+              <SecScrollTabs
+                listClassName="bg-[#0A0A0B] border border-[#262629] rounded-lg p-1"
+                triggerClassName="rounded-md text-xs sm:text-[13px] data-[state=active]:bg-[#141416]"
+                tabs={[
+                  { value: 'activity', label: 'Activity' },
+                  { value: 'tickets', label: 'Tickets' },
+                  { value: 'reviews', label: 'Reviews' },
+                  { value: 'interests', label: 'Interests' },
+                  { value: 'wallet', label: 'Wallet' },
+                  ...(hasPromotionsTab ? [{ value: 'promotions', label: 'Promotions' }] : []),
+                ]}
+              />
 
               <TabsContent value="activity" className="mt-4 space-y-4">
                 {/* Active Tables */}
