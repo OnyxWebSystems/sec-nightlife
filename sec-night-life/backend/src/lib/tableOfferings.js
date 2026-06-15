@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
+import { buildEventTableTiers } from './eventTableTiers.js';
 
 function isBoostActive(row) {
   if (!row?.boosted) return false;
@@ -241,7 +242,9 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
       }
       const g = venueEventMap.get(key);
       g.tiers.push(tier);
-      g.totalSpots += spots;
+      if (!t.isCustomListing) {
+        g.totalSpots += spots;
+      }
       g.tableCount += 1;
       if (isVip) g.hasVip = true;
       const bf = Number(t.bookingFeeZar || 0);
@@ -286,6 +289,28 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
 
   for (const g of venueEventMap.values()) offerings.push(g);
   for (const g of venueDayMap.values()) offerings.push(g);
+
+  const venueEventIds = [...venueEventMap.keys()];
+  if (venueEventIds.length > 0) {
+    const tierResults = await Promise.all(
+      venueEventIds.map(async (eventId) => {
+        try {
+          const payload = await buildEventTableTiers(eventId);
+          const tiers = payload?.tiers || [];
+          const totalSpots = tiers.reduce((sum, t) => sum + (Number(t.totalSpotsRemaining) || 0), 0);
+          return { eventId, totalSpots };
+        } catch (e) {
+          logger.warn('buildEventTableTiers failed in buildTableOfferings', { eventId, err: e?.message });
+          return { eventId, totalSpots: null };
+        }
+      }),
+    );
+    for (const { eventId, totalSpots } of tierResults) {
+      if (totalSpots == null) continue;
+      const g = venueEventMap.get(eventId);
+      if (g) g.totalSpots = totalSpots;
+    }
+  }
 
   for (const t of hostedRows) {
     const spots = t.spotsRemaining;

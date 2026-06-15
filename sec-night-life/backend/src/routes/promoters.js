@@ -11,6 +11,17 @@ function promoterEventShareUrl(eventId, promoterUserId) {
   return APP_BASE ? `${APP_BASE}${path}` : path;
 }
 
+function isEventEnded(event) {
+  const ends = event?.endsAt || event?.date;
+  return Boolean(ends && new Date(ends) < new Date());
+}
+
+function hasPromoterResults(stats) {
+  if (!stats) return false;
+  const conversions = (stats.tickets || 0) + (stats.tableHosts || 0) + (stats.tableJoins || 0);
+  return conversions > 0 || (stats.points || 0) > 0;
+}
+
 router.get('/me/status', authenticateToken, async (req, res, next) => {
   try {
     const status = await getPromoterStatusForUser(req.userId);
@@ -62,7 +73,7 @@ router.get('/leaderboard/week', async (req, res, next) => {
 router.get('/me/hub', authenticateToken, async (req, res, next) => {
   try {
     const assignments = await prisma.eventPromoterAssignment.findMany({
-      where: { promoterUserId: req.userId, status: 'ACTIVE' },
+      where: { promoterUserId: req.userId, status: 'ACTIVE', hiddenFromProfileAt: null },
       include: {
         event: {
           select: {
@@ -122,6 +133,28 @@ router.get('/me/hub', authenticateToken, async (req, res, next) => {
   }
 });
 
+router.delete('/me/assignments/:assignmentId', authenticateToken, async (req, res, next) => {
+  try {
+    const assignment = await prisma.eventPromoterAssignment.findFirst({
+      where: { id: req.params.assignmentId, promoterUserId: req.userId },
+      include: {
+        event: { select: { date: true, endsAt: true } },
+      },
+    });
+    if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+    if (!isEventEnded(assignment.event)) {
+      return res.status(400).json({ error: 'Only past promotions can be removed' });
+    }
+    await prisma.eventPromoterAssignment.update({
+      where: { id: assignment.id },
+      data: { hiddenFromProfileAt: new Date() },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:promoterId/promotions', optionalAuth, async (req, res, next) => {
   try {
     const { promoterId } = req.params;
@@ -169,6 +202,7 @@ router.get('/:promoterId/promotions', optionalAuth, async (req, res, next) => {
     for (const a of assignments) {
       const ends = a.event.endsAt || a.event.date;
       const stats = conversionByEvent.get(a.event.id) || { tickets: 0, tableHosts: 0, tableJoins: 0, points: 0 };
+      if (!hasPromoterResults(stats)) continue;
       const item = {
         eventId: a.event.id,
         title: a.event.title,

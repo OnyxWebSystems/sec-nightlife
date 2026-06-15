@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { MessageSquareX, Megaphone } from 'lucide-react';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 
+const PROMOTIONS_URL = `${createPageUrl('Profile')}?tab=promotions`;
+
 export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted, isBusiness = false }) {
   const [sending, setSending] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
@@ -124,12 +126,12 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
             >
               <div className="text-[10px] text-[var(--sec-text-muted)] mb-1">{m.senderLabel}</div>
               <div>{m.body}</div>
-              {m.kind === 'ASSIGNMENT' && m.eventId ? (
+              {m.kind === 'ASSIGNMENT' && m.eventId && !m.eventEnded && !isBusiness ? (
                 <Link
-                  to={createPageUrl(`EventDetails?id=${m.eventId}`)}
+                  to={PROMOTIONS_URL}
                   className="text-xs text-[var(--sec-accent)] underline mt-2 inline-block"
                 >
-                  Open event
+                  Open promotions
                 </Link>
               ) : null}
             </div>

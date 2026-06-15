@@ -42,7 +42,7 @@ export async function notifyPromoterEventAssignment({ venueId, promoterUserId, e
   const body =
     `You've been assigned to promote "${event.title}"` +
     (event.date ? ` on ${new Date(event.date).toLocaleDateString('en-ZA')}` : '') +
-    `. Open the event to copy your promoter link.`;
+    `. Open your promotions tab to copy your promoter link.`;
   await postPromoterVenueMessage({
     threadId: thread.id,
     body,

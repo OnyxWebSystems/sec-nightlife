@@ -4,7 +4,7 @@ import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPost } from '@/api/client';
+import { apiGet, apiPost, apiDelete } from '@/api/client';
 import {
   Settings,
   MapPin,
@@ -36,14 +36,14 @@ import MyReviews from '@/components/profile/MyReviews';
 import InterestsEditor from '@/components/profile/InterestsEditor';
 import TableHistorySection from '@/components/profile/TableHistorySection';
 import UserSecWallet from '@/components/wallet/UserSecWallet';
-function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false }) {
-  const renderEvent = (item) => {
+function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false, onDismiss }) {
+  const renderEvent = (item, { showRemove = false } = {}) => {
     const eventId = item.eventId || item.id;
     const title = item.title;
     const venueName = item.venueName;
     const itemStats = item.stats;
     return (
-      <div key={eventId} className="p-3 rounded-xl bg-[#0A0A0B] border border-[#262629]">
+      <div key={item.assignmentId || eventId} className="p-3 rounded-xl bg-[#0A0A0B] border border-[#262629]">
         <Link to={createPageUrl(`EventDetails?id=${eventId}`)} className="font-medium hover:underline">
           {title}
         </Link>
@@ -53,18 +53,29 @@ function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false
             {itemStats.tickets || 0} tickets · {itemStats.tableJoins || 0} joins · {itemStats.points || 0} pts
           </p>
         ) : null}
-        {isOwn && item.shareUrl ? (
-          <button
-            type="button"
-            className="sec-btn sec-btn-secondary sec-btn-sm mt-2"
-            onClick={() => {
-              navigator.clipboard.writeText(item.shareUrl);
-              toast.success('Promotion link copied');
-            }}
-          >
-            Copy promotion link
-          </button>
-        ) : null}
+        <div className="flex flex-wrap gap-2 mt-2">
+          {isOwn && item.shareUrl ? (
+            <button
+              type="button"
+              className="sec-btn sec-btn-secondary sec-btn-sm"
+              onClick={() => {
+                navigator.clipboard.writeText(item.shareUrl);
+                toast.success('Promotion link copied');
+              }}
+            >
+              Copy promotion link
+            </button>
+          ) : null}
+          {showRemove && isOwn && item.assignmentId && onDismiss ? (
+            <button
+              type="button"
+              className="sec-btn sec-btn-ghost sec-btn-sm text-gray-500 hover:text-red-400"
+              onClick={() => onDismiss(item.assignmentId)}
+            >
+              Remove
+            </button>
+          ) : null}
+        </div>
       </div>
     );
   };
@@ -85,7 +96,7 @@ function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false
       {past.length > 0 ? (
         <div>
           <h4 className="font-semibold mb-2 text-sm">Past promotions</h4>
-          <div className="space-y-2">{past.map(renderEvent)}</div>
+          <div className="space-y-2">{past.map((item) => renderEvent(item, { showRemove: true }))}</div>
         </div>
       ) : null}
       {!current.length && !past.length ? (
@@ -175,8 +186,21 @@ export default function Profile() {
     enabled: !!isOwnProfile && !!user?.id,
   });
 
+  const dismissPromotionMutation = useMutation({
+    mutationFn: (assignmentId) => apiDelete(`/api/promoters/me/assignments/${assignmentId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['promoter-hub'] });
+      toast.success('Promotion removed');
+    },
+    onError: (e) => toast.error(e?.data?.error || e.message || 'Could not remove promotion'),
+  });
+
   const hasPromotionsTab = isOwnProfile
-    ? (promoterHub?.active?.length > 0 || promoterHub?.past?.length > 0)
+    ? (
+      promoterHub?.active?.length > 0
+      || promoterHub?.past?.length > 0
+      || (promoterHub?.stats?.totalConversions > 0)
+    )
     : (profilePromotions?.current?.length > 0 || profilePromotions?.past?.length > 0);
 
   const { data: socialStats } = useQuery({
@@ -795,6 +819,7 @@ export default function Profile() {
                     past={promoterHub?.past || []}
                     stats={promoterHub?.stats}
                     isOwn
+                    onDismiss={(assignmentId) => dismissPromotionMutation.mutate(assignmentId)}
                   />
                 </TabsContent>
               ) : null}

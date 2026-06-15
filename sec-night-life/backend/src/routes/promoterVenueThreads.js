@@ -6,6 +6,11 @@ import { postPromoterVenueMessage, ensurePromoterVenueThread } from '../lib/prom
 
 const router = Router();
 
+function isEventEnded(event) {
+  const ends = event?.endsAt || event?.date;
+  return Boolean(ends && new Date(ends) < new Date());
+}
+
 async function getThreadAccess(threadId, userId) {
   const thread = await prisma.promoterVenueThread.findFirst({
     where: { id: threadId },
@@ -164,7 +169,7 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
       },
     });
 
-    const assignments = access.isPromoter || access.isOwner
+    const assignmentRows = access.isPromoter || access.isOwner
       ? await prisma.eventPromoterAssignment.findMany({
           where: {
             venueId: access.thread.venueId,
@@ -172,10 +177,27 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
             status: 'ACTIVE',
             event: { deletedAt: null },
           },
-          include: { event: { select: { id: true, title: true, date: true, city: true } } },
+          include: { event: { select: { id: true, title: true, date: true, endsAt: true, city: true } } },
           orderBy: { assignedAt: 'desc' },
         })
       : [];
+    const assignments = assignmentRows.filter((a) => !isEventEnded(a.event));
+
+    const assignmentEventIds = [
+      ...new Set(
+        messages.filter((m) => m.kind === 'ASSIGNMENT' && m.eventId).map((m) => m.eventId),
+      ),
+    ];
+    const assignmentEvents =
+      assignmentEventIds.length > 0
+        ? await prisma.event.findMany({
+            where: { id: { in: assignmentEventIds }, deletedAt: null },
+            select: { id: true, date: true, endsAt: true },
+          })
+        : [];
+    const eventEndedById = new Map(
+      assignmentEvents.map((e) => [e.id, isEventEnded(e)]),
+    );
 
     res.json({
       thread: {
@@ -191,6 +213,7 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
         body: m.body,
         kind: m.kind,
         eventId: m.eventId,
+        eventEnded: m.eventId ? Boolean(eventEndedById.get(m.eventId)) : false,
         sentAt: m.sentAt,
         isMine: m.senderUserId === req.userId,
         senderLabel: m.senderUserId
