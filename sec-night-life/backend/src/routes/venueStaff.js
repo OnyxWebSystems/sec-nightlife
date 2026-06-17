@@ -386,9 +386,13 @@ staffVenuesRouter.get('/venues', authenticateToken, async (req, res, next) => {
     res.json({
       items: rows.map((row) => ({
         id: row.id,
+        accessToken: row.accessToken,
         permissions: row.permissions,
         createdAt: row.createdAt,
-        venue: row.venue,
+        venueName: row.venue?.name || null,
+        venueCity: row.venue?.city || null,
+        venueLogoUrl: row.venue?.logoUrl || row.venue?.coverImageUrl || null,
+        venueType: row.venue?.venueType || null,
       })),
     });
   } catch (e) {

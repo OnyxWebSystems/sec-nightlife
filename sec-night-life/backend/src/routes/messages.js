@@ -315,6 +315,16 @@ router.get('/conversations/:conversationId', authenticateToken, async (req, res,
       where,
       orderBy: { sentAt: 'desc' },
       take: limit,
+      include: {
+        replyTo: {
+          select: {
+            id: true,
+            body: true,
+            sentAt: true,
+            senderUserId: true,
+          },
+        },
+      },
     });
     const chronological = page.reverse();
 
@@ -335,6 +345,13 @@ router.get('/conversations/:conversationId', authenticateToken, async (req, res,
         body: m.body,
         readAt: m.readAt,
         sentAt: m.sentAt,
+        replyTo: m.replyTo
+          ? {
+              id: m.replyTo.id,
+              body: m.replyTo.body,
+              sentAt: m.replyTo.sentAt,
+            }
+          : null,
       })),
     );
   } catch (err) {
@@ -355,7 +372,10 @@ router.delete('/conversations/:conversationId', authenticateToken, async (req, r
 router.post('/conversations/:conversationId', authenticateToken, async (req, res, next) => {
   try {
     const me = req.userId;
-    const schema = z.object({ body: z.string().trim().min(1).max(1000) });
+    const schema = z.object({
+      body: z.string().trim().min(1).max(1000),
+      replyToMessageId: z.string().optional(),
+    });
     const parsed = schema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid message' });
 
@@ -379,12 +399,20 @@ router.post('/conversations/:conversationId', authenticateToken, async (req, res
       });
     }
 
+    if (parsed.data.replyToMessageId) {
+      const parent = await prisma.directMessage.findFirst({
+        where: { id: parsed.data.replyToMessageId, conversationId: c.id },
+      });
+      if (!parent) return res.status(400).json({ error: 'Reply target not found' });
+    }
+
     const created = await prisma.$transaction(async (tx) => {
       const msg = await tx.directMessage.create({
         data: {
           conversationId: c.id,
           senderUserId: me,
           body: parsed.data.body,
+          replyToMessageId: parsed.data.replyToMessageId || null,
         },
       });
       await tx.conversation.update({

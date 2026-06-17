@@ -2,7 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
-import { applyEventVenueIsolation, canAccessVenue, isStaff, staffHasVenuePermission, resolveAccessibleVenueIds } from '../lib/access.js';
+import {
+  applyEventVenueIsolation,
+  isStaff,
+  staffHasVenuePermission,
+  resolveAccessibleVenueIds,
+  resolveBusinessVenueScope,
+  staffCtxFromQuery,
+  venueIdFromQuery,
+} from '../lib/access.js';
 import { ensureGroupChatForEvent } from '../lib/groupChatHelpers.js';
 import { logger } from '../lib/logger.js';
 import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingConfig.js';
@@ -501,15 +509,34 @@ function mergePublishedNotEnded(where, now) {
 
 async function applyOwnedOrStaffEventIsolation(req, where) {
   if (!req.userId) return;
+  const staffCtx = staffCtxFromQuery(req.query);
+  if (staffCtx) {
+    const scope = await resolveBusinessVenueScope(req.userId, {
+      staffCtx,
+      permission: 'events',
+    });
+    if (!scope.ok) {
+      const err = new Error(scope.error || 'Forbidden');
+      err.status = scope.status || 403;
+      throw err;
+    }
+    if (scope.venueIds[0]) where.venueId = scope.venueIds[0];
+    return;
+  }
   const accessible = await resolveAccessibleVenueIds(req.userId);
   if (!accessible.length) return;
   if (req.query.venue_id) {
-    const ok = await canAccessVenue(req.query.venue_id, req.userId, req.userRole);
-    if (!ok) {
-      const err = new Error('Forbidden');
-      err.status = 403;
+    const scope = await resolveBusinessVenueScope(req.userId, {
+      venueIdFilter: venueIdFromQuery(req.query),
+      permission: 'events',
+    });
+    if (!scope.ok) {
+      const err = new Error(scope.error || 'Forbidden');
+      err.status = scope.status || 403;
       throw err;
     }
+    if (scope.venueIds[0]) where.venueId = scope.venueIds[0];
+    return;
   }
   await applyEventVenueIsolation(where, req.userId, req.userRole, req.query.venue_id || null);
 }

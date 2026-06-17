@@ -34,6 +34,90 @@ export function parseStaffPermissions(raw) {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
+export function staffPermissionOk(permissions, permission) {
+  const perms = parseStaffPermissions(permissions);
+  if (!permission) return Object.values(perms).some(Boolean);
+  if (perms[permission] === true) return true;
+  if (permission === 'posts' && perms.promotions === true) return true;
+  return false;
+}
+
+export async function resolveStaffVenueContext({ token, userId }) {
+  if (!token || !userId) return null;
+  const row = await prisma.venueStaffAssignment.findFirst({
+    where: { accessToken: String(token), userId, revokedAt: null },
+    include: {
+      venue: {
+        select: {
+          id: true,
+          name: true,
+          city: true,
+          coverImageUrl: true,
+          logoUrl: true,
+          venueType: true,
+        },
+      },
+    },
+  });
+  if (!row?.venue) return null;
+  return {
+    assignmentId: row.id,
+    venueId: row.venueId,
+    permissions: parseStaffPermissions(row.permissions),
+    venue: row.venue,
+  };
+}
+
+/**
+ * Resolve venue scope for business API calls.
+ * Staff-only access must use staff_ctx; raw venue_id works for owners only.
+ */
+export async function resolveBusinessVenueScope(
+  userId,
+  { staffCtx = null, venueIdFilter = null, permission = null } = {},
+) {
+  const token = typeof staffCtx === 'string' && staffCtx.trim() ? staffCtx.trim() : null;
+  if (token) {
+    const ctx = await resolveStaffVenueContext({ token, userId });
+    if (!ctx) return { ok: false, status: 404, error: 'Venue not found' };
+    if (permission && !staffPermissionOk(ctx.permissions, permission)) {
+      return { ok: false, status: 403, error: 'Forbidden' };
+    }
+    return { ok: true, venueIds: [ctx.venueId], staffContext: ctx };
+  }
+
+  const filter =
+    typeof venueIdFilter === 'string' && venueIdFilter.trim() ? venueIdFilter.trim() : null;
+  if (filter) {
+    if (await isVenueOwner(userId, filter)) {
+      return { ok: true, venueIds: [filter], staffContext: null };
+    }
+    const staffRow = await prisma.venueStaffAssignment.findFirst({
+      where: { venueId: filter, userId, revokedAt: null },
+      select: { id: true },
+    });
+    if (staffRow) {
+      return { ok: false, status: 403, error: 'Staff access requires staff context token' };
+    }
+    return { ok: false, status: 404, error: 'Venue not found' };
+  }
+
+  const venueIds = await resolveAccessibleVenueIds(userId, { permission });
+  return { ok: true, venueIds, staffContext: null };
+}
+
+export function staffCtxFromQuery(query) {
+  return typeof query?.staff_ctx === 'string' && query.staff_ctx.trim()
+    ? query.staff_ctx.trim()
+    : null;
+}
+
+export function venueIdFromQuery(query) {
+  return typeof query?.venue_id === 'string' && query.venue_id.trim()
+    ? query.venue_id.trim()
+    : null;
+}
+
 export async function isVenueOwner(userId, venueId) {
   if (!userId || !venueId) return false;
   const venue = await prisma.venue.findFirst({
@@ -93,8 +177,29 @@ export async function staffHasVenuePermission(userId, venueId, permission = null
 }
 
 /** Venue IDs the user owns or may access with an optional permission key. */
-export async function resolveAccessibleVenueIds(userId, { venueIdFilter = null, permission = null } = {}) {
+export async function resolveAccessibleVenueIds(
+  userId,
+  { venueIdFilter = null, permission = null, staffCtx = null } = {},
+) {
   if (!userId) return [];
+
+  const token = typeof staffCtx === 'string' && staffCtx.trim() ? staffCtx.trim() : null;
+  if (token) {
+    const ctx = await resolveStaffVenueContext({ token, userId });
+    if (!ctx) return [];
+    if (permission && !staffPermissionOk(ctx.permissions, permission)) return [];
+    return [ctx.venueId];
+  }
+
+  if (venueIdFilter) {
+    if (await isVenueOwner(userId, venueIdFilter)) return [String(venueIdFilter)];
+    const staffRow = await prisma.venueStaffAssignment.findFirst({
+      where: { venueId: String(venueIdFilter), userId, revokedAt: null },
+      select: { id: true },
+    });
+    if (staffRow) return [];
+    return [];
+  }
 
   const [ownedVenues, staffRows] = await Promise.all([
     prisma.venue.findMany({
@@ -121,11 +226,7 @@ export async function resolveAccessibleVenueIds(userId, { venueIdFilter = null, 
     if (permission === 'posts' && perms.promotions === true) ids.add(row.venueId);
   }
 
-  const allIds = [...ids];
-  if (venueIdFilter) {
-    return allIds.includes(String(venueIdFilter)) ? [String(venueIdFilter)] : [];
-  }
-  return allIds;
+  return [...ids];
 }
 
 export async function assertVenueBusinessAccess(userId, venueId, permission = null) {

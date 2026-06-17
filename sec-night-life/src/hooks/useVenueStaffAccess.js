@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 
 /** Map business pages to required staff permission keys. */
 export const BUSINESS_PAGE_PERMISSIONS = {
@@ -27,41 +27,28 @@ export function staffHasPermission(staffPermissions, permission) {
 }
 
 export function useVenueStaffAccess() {
-  const ctx = useActiveVenueOptional();
-  const isOwner = ctx?.isOwner ?? true;
-  const isStaffAccess = ctx?.isStaffAccess ?? false;
-  const staffPermissions = ctx?.staffPermissions ?? null;
-  const venuesLoading = ctx?.isLoading ?? false;
-
-  const isStaffOnly = isStaffAccess && !isOwner;
-
-  const can = useCallback(
-    (permission) => {
-      if (!isStaffOnly) return true;
-      return staffHasPermission(staffPermissions, permission);
-    },
-    [isStaffOnly, staffPermissions],
-  );
+  const scope = useBusinessVenueScope();
 
   const canAccessPage = useCallback(
     (pageName) => {
       const perm = BUSINESS_PAGE_PERMISSIONS[pageName];
       if (!perm) return true;
-      return can(perm);
+      return scope.can(perm);
     },
-    [can],
+    [scope.can],
   );
 
   return useMemo(
     () => ({
-      isVenueOwner: isOwner,
-      isStaffOnly,
-      isStaffAccess,
-      staffPermissions,
-      venuesLoading,
-      can,
+      isVenueOwner: scope.isOwner,
+      isStaffOnly: scope.isStaffOnly,
+      isStaffAccess: scope.isStaffAccess,
+      staffPermissions: scope.staffPermissions,
+      venuesLoading: scope.venuesLoading,
+      inStaffSession: scope.inStaffSession,
+      can: scope.can,
       canAccessPage,
     }),
-    [isOwner, isStaffOnly, isStaffAccess, staffPermissions, venuesLoading, can, canAccessPage],
+    [scope, canAccessPage],
   );
 }

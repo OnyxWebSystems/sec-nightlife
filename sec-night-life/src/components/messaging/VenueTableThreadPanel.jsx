@@ -5,6 +5,9 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Trash2, MessageSquareX } from 'lucide-react';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { useMessageReply } from '@/hooks/useMessageReply';
+import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
+import MessageBubble from '@/components/messaging/MessageBubble';
 import {
   GUEST_REPLY_TEMPLATES,
 } from '@/lib/venueTableMessageTemplates';
@@ -13,6 +16,7 @@ export default function VenueTableThreadPanel({ threadId, onClose, memberStatus 
   const [sending, setSending] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [deletingChat, setDeletingChat] = useState(false);
+  const { replyingTo, setReplyingTo, clearReply } = useMessageReply();
 
   const { data: messages = [], refetch, isSuccess } = useQuery({
     queryKey: ['venue-table-thread-messages', threadId],
@@ -58,7 +62,11 @@ export default function VenueTableThreadPanel({ threadId, onClose, memberStatus 
   async function sendTemplate(templateKey) {
     setSending(true);
     try {
-      await apiPost(`/api/venue-table-threads/${threadId}/messages`, { templateKey });
+      await apiPost(`/api/venue-table-threads/${threadId}/messages`, {
+        templateKey,
+        ...(replyingTo?.id ? { replyToMessageId: replyingTo.id } : {}),
+      });
+      clearReply();
       await refetch();
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Could not send');
@@ -93,8 +101,10 @@ export default function VenueTableThreadPanel({ threadId, onClose, memberStatus 
           </p>
         ) : (
           messages.map((m) => (
-            <div
+            <MessageBubble
               key={m.id}
+              message={m}
+              onReply={setReplyingTo}
               className="text-sm p-3 rounded-xl max-w-[90%]"
               style={{
                 marginLeft: m.isMine ? 'auto' : 0,
@@ -117,17 +127,20 @@ export default function VenueTableThreadPanel({ threadId, onClose, memberStatus 
                 ) : null}
               </div>
               <div>{m.label}</div>
-            </div>
+            </MessageBubble>
           ))
         )}
       </div>
       {templates.length > 0 ? (
-        <div className="p-4 border-t border-[var(--sec-border)] flex flex-wrap gap-2">
+        <div className="p-4 border-t border-[var(--sec-border)]">
+          <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} labelKey="label" />
+          <div className="flex flex-wrap gap-2">
           {templates.map((t) => (
             <Button key={t.key} size="sm" variant="outline" disabled={sending} onClick={() => sendTemplate(t.key)}>
               {t.label}
             </Button>
           ))}
+          </div>
         </div>
       ) : memberStatus !== 'DECLINED' ? (
         <div className="p-4 border-t border-[var(--sec-border)]">

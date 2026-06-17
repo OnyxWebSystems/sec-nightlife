@@ -7,6 +7,10 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { MessageSquareX, Megaphone } from 'lucide-react';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { useMessageReply } from '@/hooks/useMessageReply';
+import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
+import MessageBubble from '@/components/messaging/MessageBubble';
+import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 
 const PROMOTIONS_URL = `${createPageUrl('Profile')}?tab=promotions`;
 
@@ -14,6 +18,7 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
   const [sending, setSending] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
   const [messageBody, setMessageBody] = useState('');
+  const { replyingTo, setReplyingTo, clearReply } = useMessageReply();
 
   const { data, refetch, isSuccess } = useQuery({
     queryKey: ['promoter-venue-thread', threadId],
@@ -49,8 +54,12 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
     if (!messageBody.trim()) return;
     setSending(true);
     try {
-      await apiPost(`/api/promoter-venue-threads/${threadId}/messages`, { body: messageBody.trim() });
+      await apiPost(`/api/promoter-venue-threads/${threadId}/messages`, {
+        body: messageBody.trim(),
+        ...(replyingTo?.id ? { replyToMessageId: replyingTo.id } : {}),
+      });
       setMessageBody('');
+      clearReply();
       await refetch();
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Could not send');
@@ -111,8 +120,10 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
           </p>
         ) : (
           messages.map((m) => (
-            <div
+            <MessageBubble
               key={m.id}
+              message={m}
+              onReply={setReplyingTo}
               className="text-sm p-3 rounded-xl max-w-[90%]"
               style={{
                 marginLeft: m.isMine ? 'auto' : 0,
@@ -125,7 +136,7 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
               }}
             >
               <div className="text-[10px] text-[var(--sec-text-muted)] mb-1">{m.senderLabel}</div>
-              <div>{m.body}</div>
+              <div>{linkifyMessageBody(m.body)}</div>
               {m.kind === 'ASSIGNMENT' && m.eventId && !m.eventEnded && !isBusiness ? (
                 <Link
                   to={PROMOTIONS_URL}
@@ -134,12 +145,13 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
                   Open promotions
                 </Link>
               ) : null}
-            </div>
+            </MessageBubble>
           ))
         )}
       </div>
 
       <div className="p-4 border-t border-[var(--sec-border)]">
+        <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
         <textarea
           className="sec-input w-full min-h-[72px] mb-2"
           value={messageBody}

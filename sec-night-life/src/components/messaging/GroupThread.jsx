@@ -9,12 +9,17 @@ import * as authService from '@/services/authService';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { toast } from 'sonner';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { useMessageReply } from '@/hooks/useMessageReply';
+import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
+import MessageBubble from '@/components/messaging/MessageBubble';
+import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 
 export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack }) {
   const [me, setMe] = useState(null);
   const [detail, setDetail] = useState(null);
   const [messages, setMessages] = useState([]);
   const [body, setBody] = useState('');
+  const { replyingTo, setReplyingTo, clearReply } = useMessageReply();
   const [showNew, setShowNew] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const bottomRef = useRef(null);
@@ -69,8 +74,12 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
   const send = async () => {
     const t = body.trim();
     if (!t) return;
-    await apiPost(`${apiBase}/messages`, { body: t });
+    await apiPost(`${apiBase}/messages`, {
+      body: t,
+      ...(replyingTo?.id ? { replyToMessageId: replyingTo.id } : {}),
+    });
     setBody('');
+    clearReply();
     setShowNew(false);
     await loadMessages();
   };
@@ -235,13 +244,15 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
               )}
               <div className={`max-w-[80%] flex flex-col ${own ? 'items-end' : 'items-start'}`}>
                 {!own && <span className="text-[10px] text-gray-500 mb-0.5">@{m.sender?.username}</span>}
-                <div
+                <MessageBubble
+                  message={m}
+                  onReply={setReplyingTo}
                   className={`rounded-2xl px-3 py-2 text-sm ${
                     own ? 'bg-[var(--sec-accent)] text-black' : 'bg-[#141416]'
                   }`}
                 >
-                  {m.body}
-                </div>
+                  {linkifyMessageBody(m.body)}
+                </MessageBubble>
                 <span className="text-[10px] text-gray-600 mt-0.5">{format(new Date(m.sentAt), 'HH:mm')}</span>
               </div>
             </div>
@@ -250,7 +261,9 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-3 border-t border-[#262629] flex gap-2">
+      <div className="p-3 border-t border-[#262629]">
+        <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
+        <div className="flex gap-2">
         <Input
           ref={inputRef}
           value={body}
@@ -263,6 +276,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
         <Button className="min-h-[44px] min-w-[44px]" disabled={!body.trim()} onClick={send}>
           <Send className="w-5 h-5" />
         </Button>
+        </div>
       </div>
     </div>
   );

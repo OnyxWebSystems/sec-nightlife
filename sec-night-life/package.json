@@ -9,7 +9,11 @@
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "marketing:capture": "node ../marketing-kit/scripts/capture-marketing-manual.mjs",
+    "marketing:capture:party": "node ../marketing-kit/scripts/capture-marketing-manual.mjs --party-only --skip-public",
+    "marketing:capture:party-rest": "node ../marketing-kit/scripts/capture-marketing-manual.mjs --party-only --skip-public --only-screenshots=06-explore.png,07-event-details.png,08-tables.png,09-map.png,10-profile.png,11-friends.png,12-leaderboard.png,13-host-dashboard.png,14-messages.png,15-profile-tickets-qr.png --only-recordings=browse-event.webm,host-and-messages.webm,social-features.webm",
+    "marketing:capture:finish": "node ../marketing-kit/scripts/capture-marketing-manual.mjs --party-only --skip-public --only-screenshots=15-profile-tickets-qr.png --only-recordings=host-and-messages.webm"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^17.0.0",
@@ -93,6 +97,7 @@
     "eslint-plugin-react-refresh": "^0.4.18",
     "eslint-plugin-unused-imports": "^4.3.0",
     "globals": "^15.14.0",
+    "playwright": "^1.60.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.2",

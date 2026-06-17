@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { formatReplyPreview, validateReplyInThread } from '../lib/messageReply.js';
 import { authenticateToken } from '../middleware/auth.js';
 const router = Router();
 
@@ -274,6 +275,7 @@ router.get('/hosted-table/:hostedTableGroupChatId/messages', authenticateToken, 
             userProfile: { select: { avatarUrl: true } },
           },
         },
+        replyTo: { select: { id: true, body: true, sentAt: true, senderUserId: true } },
       },
     });
 
@@ -296,6 +298,7 @@ router.get('/hosted-table/:hostedTableGroupChatId/messages', authenticateToken, 
             fullName: m.sender.fullName || '',
             avatarUrl: m.sender.userProfile?.avatarUrl || null,
           },
+          replyTo: m.replyTo ? formatReplyPreview(m.replyTo) : null,
         })),
     );
   } catch (err) {
@@ -306,7 +309,10 @@ router.get('/hosted-table/:hostedTableGroupChatId/messages', authenticateToken, 
 router.post('/hosted-table/:hostedTableGroupChatId/messages', authenticateToken, async (req, res, next) => {
   try {
     const me = req.userId;
-    const schema = z.object({ body: z.string().trim().min(1).max(1000) });
+    const schema = z.object({
+      body: z.string().trim().min(1).max(1000),
+      replyToMessageId: z.string().optional(),
+    });
     const parsed = schema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid message' });
 
@@ -317,12 +323,20 @@ router.post('/hosted-table/:hostedTableGroupChatId/messages', authenticateToken,
     if (!gc) return res.status(404).json({ error: 'Not found' });
     if (!gc.members.some((x) => x.userId === me)) return res.status(403).json({ error: 'Forbidden' });
 
+    const replyToMessageId = await validateReplyInThread(prisma, {
+      model: 'hostedTableGroupChatMessage',
+      threadField: 'hostedTableGroupChatId',
+      threadId: gc.id,
+      replyToMessageId: parsed.data.replyToMessageId,
+    });
+
     const msg = await prisma.$transaction(async (tx) => {
       const created = await tx.hostedTableGroupChatMessage.create({
         data: {
           hostedTableGroupChatId: gc.id,
           senderUserId: me,
           body: parsed.data.body,
+          replyToMessageId,
         },
       });
       await tx.hostedTableGroupChat.update({
@@ -427,6 +441,7 @@ router.get('/:groupChatId/messages', authenticateToken, async (req, res, next) =
             userProfile: { select: { avatarUrl: true } },
           },
         },
+        replyTo: { select: { id: true, body: true, sentAt: true, senderUserId: true } },
       },
     });
 
@@ -449,6 +464,7 @@ router.get('/:groupChatId/messages', authenticateToken, async (req, res, next) =
             fullName: m.sender.fullName || '',
             avatarUrl: m.sender.userProfile?.avatarUrl || null,
           },
+          replyTo: m.replyTo ? formatReplyPreview(m.replyTo) : null,
         })),
     );
   } catch (err) {
@@ -459,7 +475,10 @@ router.get('/:groupChatId/messages', authenticateToken, async (req, res, next) =
 router.post('/:groupChatId/messages', authenticateToken, async (req, res, next) => {
   try {
     const me = req.userId;
-    const schema = z.object({ body: z.string().trim().min(1).max(1000) });
+    const schema = z.object({
+      body: z.string().trim().min(1).max(1000),
+      replyToMessageId: z.string().optional(),
+    });
     const parsed = schema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid message' });
 
@@ -473,12 +492,20 @@ router.post('/:groupChatId/messages', authenticateToken, async (req, res, next) 
     if (!gc) return res.status(404).json({ error: 'Not found' });
     if (!gc.members.some((x) => x.userId === me)) return res.status(403).json({ error: 'Forbidden' });
 
+    const replyToMessageId = await validateReplyInThread(prisma, {
+      model: 'groupChatMessage',
+      threadField: 'groupChatId',
+      threadId: gc.id,
+      replyToMessageId: parsed.data.replyToMessageId,
+    });
+
     const msg = await prisma.$transaction(async (tx) => {
       const created = await tx.groupChatMessage.create({
         data: {
           groupChatId: gc.id,
           senderUserId: me,
           body: parsed.data.body,
+          replyToMessageId,
         },
       });
       await tx.groupChat.update({

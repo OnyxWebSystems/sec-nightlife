@@ -114,7 +114,10 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
       where: { id: venueId },
       select: { paystackRecipientCode: true, name: true },
     });
-    const summary = await aggregateWalletSummary({ venueId });
+    const summary = await aggregateWalletSummary({
+      venueId,
+      transactionsSince: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    });
     const payoutComplete = Boolean(venue?.paystackRecipientCode);
 
     res.json({

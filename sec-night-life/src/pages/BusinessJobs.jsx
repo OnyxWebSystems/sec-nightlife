@@ -19,7 +19,7 @@ import {
   buildJobPatchBody,
 } from '@/constants/jobPostingForm';
 import PageBackHeader from '@/components/layout/PageBackHeader';
-import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 
 function compensationText(job) {
   if (job.compensationPer === 'COMMISSION') return 'Commission based';
@@ -53,12 +53,13 @@ export default function BusinessJobs() {
     queryFn: () => authService.getCurrentUser(),
   });
 
-  const { activeVenue: venue } = useActiveVenue();
+  const venueScope = useBusinessVenueScope();
+  const scopeKey = venueScope.staffContextToken || venueScope.venueId;
 
   const { data: jobsRaw, isLoading } = useQuery({
-    queryKey: ['biz-jobs', venue?.id],
-    queryFn: () => apiGet(`/api/jobs/venue/${venue.id}`),
-    enabled: !!venue?.id,
+    queryKey: ['biz-jobs', scopeKey],
+    queryFn: () => apiGet(`/api/jobs/by-venue?${venueScope.venueQuery}`),
+    enabled: !!venueScope.venueQuery,
   });
   const jobs = asArray(jobsRaw);
   const focusedJob = useMemo(
@@ -82,7 +83,7 @@ export default function BusinessJobs() {
     mutationFn: ({ jobId, status }) => apiPatch(`/api/jobs/${jobId}`, { status }),
     onSuccess: () => {
       toast.success('Job status updated');
-      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['biz-jobs', scopeKey] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update job status'),
   });
@@ -104,7 +105,7 @@ export default function BusinessJobs() {
           ? `Job deleted (${n} application${n === 1 ? '' : 's'} removed)`
           : 'Job deleted',
       );
-      qc.setQueryData(['biz-jobs', venue?.id], (old) =>
+      qc.setQueryData(['biz-jobs', scopeKey], (old) =>
         asArray(old).filter((j) => j.id !== jobId),
       );
       if (activeJobId === jobId) setActiveJobId(null);
@@ -113,7 +114,7 @@ export default function BusinessJobs() {
         setEditForm(jobPostingToEditForm(null));
       }
       if (isFocused && focusJobId === jobId) clearJobFocus();
-      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['biz-jobs', scopeKey] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
     onSettled: () => setDeletingJobId(null),
@@ -125,7 +126,7 @@ export default function BusinessJobs() {
     mutationFn: ({ applicationId, status }) => apiPatch(`/api/jobs/applications/${applicationId}/status`, { status }),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['biz-job-applications', activeJobId] });
-      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['biz-jobs', scopeKey] });
       qc.invalidateQueries({ queryKey: ['business-inbox'] });
       toast.success('Application updated');
       if (variables.status === 'HIRED' && activeJob?.positionRole === 'PROMOTER') {
@@ -145,7 +146,7 @@ export default function BusinessJobs() {
         setEditJobId(null);
         setEditForm(jobPostingToEditForm(null));
       }
-      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['biz-jobs', scopeKey] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Update failed'),
   });
@@ -191,7 +192,7 @@ export default function BusinessJobs() {
     }
   }, [focusJobId, focusView, jobs, searchParams, setSearchParams]);
 
-  if (!venue?.id) {
+  if (!venueScope.venueQuery) {
     return (
       <div style={{ padding: 16 }}>
         <div className="sec-card" style={{ padding: 16, borderRadius: 12 }}>

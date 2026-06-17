@@ -24,6 +24,7 @@ import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEdit
 import { isEventEnded } from '@/lib/eventLifecycle';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 
 const EVENT_COVER_CROP_ASPECT = 16 / 9;
 const EVENT_COVER_CROP_DIALOG_PROPS = {
@@ -147,16 +148,23 @@ export default function BusinessEvents() {
   }, [user?.email]);
 
   const { activeVenue: venue } = useActiveVenue();
+  const venueScope = useBusinessVenueScope();
+  const scopeKey = venueScope.staffContextToken || venue?.id;
+  const hasVenueScope = venueScope.inStaffSession || !!venue;
+
   const { data: venueMenuItems = [] } = useQuery({
-    queryKey: ['venue-menu', venue?.id],
+    queryKey: ['venue-menu', scopeKey],
     queryFn: () => apiGet(`/api/business/venues/${venue.id}/menu-items`),
-    enabled: !!venue?.id,
+    enabled: !!venue?.id && !venueScope.inStaffSession,
   });
 
   const { data: events = [], isLoading } = useQuery({
-    queryKey: ['biz-events', venue?.id],
-    queryFn: () => dataService.Event.filter({ venue_id: venue.id }),
-    enabled: !!venue,
+    queryKey: ['biz-events', scopeKey],
+    queryFn: () =>
+      venueScope.inStaffSession
+        ? apiGet(`/api/events?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`)
+        : dataService.Event.filter({ venue_id: venue.id }),
+    enabled: hasVenueScope && (venueScope.inStaffSession || !!venue),
   });
 
   const { data: venuePromoters = [] } = useQuery({
@@ -496,22 +504,28 @@ export default function BusinessEvents() {
 
   if (!user) return null;
 
-  if (!venue) {
+  if (!hasVenueScope) {
     return (
       <div style={{ padding: 40, textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
         <Calendar size={32} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 12px' }} />
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No Venue Found</h2>
-        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>Register a venue first to manage events.</p>
-        <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))} style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}>
-          Register Venue
-        </Button>
+        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>
+          {venueScope.inStaffSession ? 'Staff venue context is missing or expired.' : 'Register a venue first to manage events.'}
+        </p>
+        {!venueScope.inStaffSession ? (
+          <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))} style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}>
+            Register Venue
+          </Button>
+        ) : null}
       </div>
     );
   }
 
+  const displayVenueName = venueScope.venueName || venue?.name || 'Venue';
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <PageBackHeader title="Events Manager" subtitle={`${venue.name} · ${events.length} events`} />
+      <PageBackHeader title="Events Manager" subtitle={`${displayVenueName} · ${events.length} events`} />
       <div style={{ padding: '16px 20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 20 }}>
         <Button onClick={openCreate} style={{ backgroundColor: 'var(--sec-accent)', color: '#000', fontWeight: 600 }} className="h-10 rounded-xl">

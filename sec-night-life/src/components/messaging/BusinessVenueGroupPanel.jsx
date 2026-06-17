@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import { asArray } from '@/utils';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Plus, Users, Trash2, LogOut, Shield } from 'lucide-react';
+import { Loader2, Plus, Users, Trash2, LogOut, Shield, Search } from 'lucide-react';
+import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
+import { useMessageReply } from '@/hooks/useMessageReply';
+import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
+import MessageBubble from '@/components/messaging/MessageBubble';
+import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 import {
   Sheet,
   SheetContent,
@@ -20,38 +25,90 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-export default function BusinessVenueGroupPanel({ venueId }) {
+export default function BusinessVenueGroupPanel({ venueId, staffContextToken = null }) {
   const queryClient = useQueryClient();
   const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [messageBody, setMessageBody] = useState('');
   const [addMemberUsername, setAddMemberUsername] = useState('');
+  const [memberSearchQ, setMemberSearchQ] = useState('');
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const { replyingTo, setReplyingTo, clearReply } = useMessageReply();
 
-  const groupsBase = `/api/business/venues/${venueId}/groups`;
+  const groupsBase = staffContextToken
+    ? `/api/staff/context/${staffContextToken}/groups`
+    : venueId
+      ? `/api/business/venues/${venueId}/groups`
+      : null;
 
   const { data: groupsRaw, isLoading: groupsLoading } = useQuery({
-    queryKey: ['venue-message-groups', venueId],
+    queryKey: ['venue-message-groups', venueId, staffContextToken],
     queryFn: () => apiGet(groupsBase),
-    enabled: !!venueId,
+    enabled: !!groupsBase,
     staleTime: 30_000,
   });
-  const groups = asArray(groupsRaw);
+  const groups = asArray(groupsRaw?.items ?? groupsRaw);
+
+  const searchUsersUrl = staffContextToken
+    ? `${groupsBase}/search-users`
+    : venueId
+      ? `/api/business/venues/${venueId}/groups/search-users`
+      : null;
+
+  const [debouncedMemberQ, setDebouncedMemberQ] = useState('');
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedMemberQ(memberSearchQ.trim()), 280);
+    return () => window.clearTimeout(t);
+  }, [memberSearchQ]);
+
+  const cloudinaryConfig = {
+    cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
+    uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
+  };
+
+  async function uploadGroupAvatar(file) {
+    if (!selectedGroupId || !groupsBase) return;
+    if (!cloudinaryConfig.cloudName || !cloudinaryConfig.uploadPreset) {
+      toast.error('Image upload is not configured');
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('upload_preset', cloudinaryConfig.uploadPreset);
+      const uploadRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`,
+        { method: 'POST', body: form },
+      );
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(uploadData?.error?.message || 'Upload failed');
+      await apiPatch(`${groupsBase}/${selectedGroupId}`, { avatarUrl: uploadData.secure_url });
+      toast.success('Group photo updated');
+      queryClient.invalidateQueries({ queryKey: ['venue-message-groups', venueId, staffContextToken] });
+      refetchDetail();
+    } catch (err) {
+      toast.error(err?.message || 'Could not upload photo');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) || null;
 
   const { data: messagesRaw, refetch: refetchMessages } = useQuery({
-    queryKey: ['venue-message-group-messages', venueId, selectedGroupId],
+    queryKey: ['venue-message-group-messages', venueId, staffContextToken, selectedGroupId],
     queryFn: () => apiGet(`${groupsBase}/${selectedGroupId}/messages`),
-    enabled: !!venueId && !!selectedGroupId,
+    enabled: !!groupsBase && !!selectedGroupId,
     refetchInterval: 60_000,
   });
-  const messages = asArray(messagesRaw);
+  const messages = asArray(messagesRaw?.items ?? messagesRaw);
 
   const { data: groupDetail, refetch: refetchDetail } = useQuery({
-    queryKey: ['venue-message-group-detail', venueId, selectedGroupId],
+    queryKey: ['venue-message-group-detail', venueId, staffContextToken, selectedGroupId],
     queryFn: () => apiGet(`${groupsBase}/${selectedGroupId}`),
-    enabled: !!venueId && !!selectedGroupId,
+    enabled: !!groupsBase && !!selectedGroupId,
   });
 
   const createMutation = useMutation({
@@ -67,9 +124,14 @@ export default function BusinessVenueGroupPanel({ venueId }) {
   });
 
   const sendMutation = useMutation({
-    mutationFn: (body) => apiPost(`${groupsBase}/${selectedGroupId}/messages`, { body }),
+    mutationFn: (body) =>
+      apiPost(`${groupsBase}/${selectedGroupId}/messages`, {
+        body,
+        ...(replyingTo?.id ? { replyToMessageId: replyingTo.id } : {}),
+      }),
     onSuccess: () => {
       setMessageBody('');
+      clearReply();
       refetchMessages();
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Could not send'),
@@ -135,16 +197,23 @@ export default function BusinessVenueGroupPanel({ venueId }) {
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Could not delete group'),
   });
 
-  if (!venueId) {
+  const canManage = groupDetail?.canManage ?? selectedGroup?.canManage ?? false;
+  const isAdmin = groupDetail?.myRole === 'ADMIN' || groupDetail?.isOwner;
+
+  const { data: memberSearchResults = [] } = useQuery({
+    queryKey: ['venue-group-user-search', searchUsersUrl, debouncedMemberQ],
+    queryFn: () => apiGet(`${searchUsersUrl}?q=${encodeURIComponent(debouncedMemberQ)}`),
+    enabled: Boolean(searchUsersUrl && debouncedMemberQ.length >= 2 && canManage),
+    staleTime: 30_000,
+  });
+
+  if (!groupsBase) {
     return (
       <p className="text-sm text-center py-12" style={{ color: 'var(--sec-text-muted)' }}>
         Select a venue to manage groups.
       </p>
     );
   }
-
-  const canManage = groupDetail?.canManage ?? selectedGroup?.canManage ?? false;
-  const isAdmin = groupDetail?.myRole === 'ADMIN' || groupDetail?.isOwner;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -170,18 +239,30 @@ export default function BusinessVenueGroupPanel({ venueId }) {
             <button
               key={g.id}
               type="button"
-              className="sec-card p-4 border text-left w-full"
+              className="sec-card p-4 border text-left w-full flex items-center gap-3"
               style={{
                 borderColor:
                   selectedGroupId === g.id ? 'var(--sec-accent-border)' : 'var(--sec-border)',
               }}
               onClick={() => setSelectedGroupId(g.id)}
             >
-              <p className="font-medium">{g.name}</p>
-              <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)' }}>
-                {g.memberCount || 0} members
-                {g.lastMessage?.body ? ` · ${g.lastMessage.body.slice(0, 40)}` : ''}
-              </p>
+              {g.avatarUrl ? (
+                <img src={g.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
+                  style={{ background: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}
+                >
+                  {(g.name || 'G').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="font-medium">{g.name}</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)' }}>
+                  {g.memberCount || 0} members
+                  {g.lastMessage?.body ? ` · ${g.lastMessage.body.slice(0, 40)}` : ''}
+                </p>
+              </div>
             </button>
           ))
         )}
@@ -198,7 +279,39 @@ export default function BusinessVenueGroupPanel({ venueId }) {
         ) : (
           <>
             <div className="flex items-center justify-between gap-2 mb-3">
-              <h3 className="font-semibold">{selectedGroup?.name || 'Group'}</h3>
+              <div className="flex items-center gap-2 min-w-0">
+                {(groupDetail?.avatarUrl || selectedGroup?.avatarUrl) ? (
+                  <img
+                    src={groupDetail?.avatarUrl || selectedGroup?.avatarUrl}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover shrink-0"
+                  />
+                ) : (
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
+                    style={{ background: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}
+                  >
+                    {(selectedGroup?.name || 'G').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <h3 className="font-semibold truncate">{selectedGroup?.name || 'Group'}</h3>
+                {isAdmin ? (
+                  <label className="text-xs text-[var(--sec-accent)] cursor-pointer shrink-0">
+                    {avatarUploading ? '…' : 'Photo'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={avatarUploading}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadGroupAvatar(f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                ) : null}
+              </div>
               <div className="flex items-center gap-1">
                 <Sheet>
                   <SheetTrigger asChild>
@@ -212,20 +325,64 @@ export default function BusinessVenueGroupPanel({ venueId }) {
                       <SheetTitle>Members</SheetTitle>
                     </SheetHeader>
                     {canManage ? (
-                      <div className="flex gap-2 mt-4 mb-3">
-                        <Input
-                          value={addMemberUsername}
-                          onChange={(e) => setAddMemberUsername(e.target.value)}
-                          placeholder="@username"
-                          className="flex-1"
-                        />
-                        <Button
-                          size="sm"
-                          disabled={!addMemberUsername.trim() || addMemberMutation.isPending}
-                          onClick={() => addMemberMutation.mutate(addMemberUsername)}
-                        >
-                          Add
-                        </Button>
+                      <div className="mt-4 mb-3 space-y-2">
+                        <div className="relative">
+                          <Search
+                            size={16}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--sec-text-muted)]"
+                          />
+                          <Input
+                            value={memberSearchQ}
+                            onChange={(e) => setMemberSearchQ(e.target.value)}
+                            placeholder="Search @username…"
+                            className="pl-9"
+                          />
+                        </div>
+                        {memberSearchQ.trim().length >= 2 && memberSearchResults.length > 0 ? (
+                          <ul className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--sec-border)' }}>
+                            {memberSearchResults.map((u) => (
+                              <li key={u.id}>
+                                <button
+                                  type="button"
+                                  className="w-full flex items-center gap-2 p-2 text-left hover:bg-[var(--sec-bg-elevated)]"
+                                  onClick={() => {
+                                    addMemberMutation.mutate(u.username);
+                                    setMemberSearchQ('');
+                                  }}
+                                >
+                                  {u.avatarUrl ? (
+                                    <img src={u.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-full bg-[var(--sec-bg-elevated)] flex items-center justify-center text-xs">
+                                      @
+                                    </div>
+                                  )}
+                                  <div>
+                                    <p className="text-sm font-medium">@{u.username}</p>
+                                    {u.fullName ? (
+                                      <p className="text-xs text-[var(--sec-text-muted)]">{u.fullName}</p>
+                                    ) : null}
+                                  </div>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        <div className="flex gap-2">
+                          <Input
+                            value={addMemberUsername}
+                            onChange={(e) => setAddMemberUsername(e.target.value)}
+                            placeholder="@username"
+                            className="flex-1"
+                          />
+                          <Button
+                            size="sm"
+                            disabled={!addMemberUsername.trim() || addMemberMutation.isPending}
+                            onClick={() => addMemberMutation.mutate(addMemberUsername)}
+                          >
+                            Add
+                          </Button>
+                        </div>
                       </div>
                     ) : null}
                     <ul className="space-y-2 overflow-y-auto max-h-48">
@@ -300,8 +457,10 @@ export default function BusinessVenueGroupPanel({ venueId }) {
                 </p>
               ) : (
                 messages.map((m) => (
-                  <div
+                  <MessageBubble
                     key={m.id}
+                    message={m}
+                    onReply={setReplyingTo}
                     className="text-sm p-2 rounded-lg"
                     style={{
                       background: m.isMine ? 'var(--sec-accent-muted)' : 'var(--sec-bg-elevated)',
@@ -322,25 +481,29 @@ export default function BusinessVenueGroupPanel({ venueId }) {
                         </button>
                       ) : null}
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap">{m.body}</div>
-                  </div>
+                    <div className="mt-1 whitespace-pre-wrap">{linkifyMessageBody(m.body)}</div>
+                  </MessageBubble>
                 ))
               )}
             </div>
 
+            <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
             <div className="flex gap-2 mt-auto">
               <input
                 type="text"
                 className="sec-input flex-1 min-h-[44px]"
                 value={messageBody}
                 onChange={(e) => setMessageBody(e.target.value)}
-                placeholder="Type a message… 😀"
+                placeholder="Type a message…"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     if (messageBody.trim()) sendMutation.mutate(messageBody.trim());
                   }
                 }}
+              />
+              <EmojiPickerButton
+                onSelect={(emoji) => setMessageBody((prev) => `${prev}${emoji}`)}
               />
               <Button
                 disabled={!messageBody.trim() || sendMutation.isPending}

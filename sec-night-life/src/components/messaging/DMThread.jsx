@@ -10,6 +10,9 @@ import { format } from 'date-fns';
 import * as authService from '@/services/authService';
 import { createPageUrl } from '@/utils';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { useMessageReply } from '@/hooks/useMessageReply';
+import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
+import MessageBubble from '@/components/messaging/MessageBubble';
 
 const URL_IN_TEXT = /(https?:\/\/[^\s]+)/gi;
 
@@ -69,6 +72,7 @@ export default function DMThread({ conversationId, onBack }) {
   const [body, setBody] = useState('');
   const [blocked, setBlocked] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const { replyingTo, setReplyingTo, clearReply } = useMessageReply();
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
   const lastPollRef = useRef(null);
@@ -130,8 +134,12 @@ export default function DMThread({ conversationId, onBack }) {
     if (!t) return;
     try {
       setBlocked(false);
-      await apiPost(`/api/messages/conversations/${conversationId}`, { body: t });
+      await apiPost(`/api/messages/conversations/${conversationId}`, {
+        body: t,
+        ...(replyingTo?.id ? { replyToMessageId: replyingTo.id } : {}),
+      });
       setBody('');
+      clearReply();
       await load();
     } catch (e) {
       if (e?.status === 403) setBlocked(true);
@@ -209,13 +217,15 @@ export default function DMThread({ conversationId, onBack }) {
                 </div>
               )}
               <div className={`max-w-[80%] ${own ? 'items-end' : 'items-start'} flex flex-col`}>
-                <div
+                <MessageBubble
+                  message={m}
+                  onReply={setReplyingTo}
                   className={`rounded-2xl px-3 py-2 text-sm ${
                     own ? 'bg-[var(--sec-accent)] text-black' : 'bg-[#141416] text-white'
                   }`}
                 >
                   <MessageBody text={m.body} isOwn={own} />
-                </div>
+                </MessageBubble>
                 <span className="text-[10px] text-gray-600 mt-0.5">
                   {format(new Date(m.sentAt), 'HH:mm')}
                 </span>
@@ -229,7 +239,9 @@ export default function DMThread({ conversationId, onBack }) {
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-3 border-t border-[#262629] flex gap-2">
+      <div className="p-3 border-t border-[#262629] flex flex-col gap-2">
+        <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
+        <div className="flex gap-2">
         <Input
           ref={inputRef}
           value={body}
@@ -242,6 +254,7 @@ export default function DMThread({ conversationId, onBack }) {
         <Button className="min-h-[44px] min-w-[44px] px-3" disabled={!body.trim()} onClick={send}>
           <Send className="w-5 h-5" />
         </Button>
+        </div>
       </div>
     </div>
   );

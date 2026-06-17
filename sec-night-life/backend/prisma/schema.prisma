@@ -1006,17 +1006,20 @@ model JobApplication {
 }
 
 model JobMessage {
-  id            String    @id @default(cuid())
-  applicationId String    @map("application_id")
-  jobPostingId  String    @map("job_posting_id")
-  senderUserId  String    @map("sender_user_id")
-  body          String    @db.Text
-  sentAt        DateTime  @default(now()) @map("sent_at")
-  readAt        DateTime? @map("read_at")
+  id               String    @id @default(cuid())
+  applicationId    String    @map("application_id")
+  jobPostingId     String    @map("job_posting_id")
+  senderUserId     String    @map("sender_user_id")
+  body             String    @db.Text
+  replyToMessageId String?   @map("reply_to_message_id")
+  sentAt           DateTime  @default(now()) @map("sent_at")
+  readAt           DateTime? @map("read_at")
 
   application JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   jobPosting  JobPosting     @relation(fields: [jobPostingId], references: [id], onDelete: Cascade)
   sender      User           @relation("MessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  replyTo     JobMessage?    @relation("JobMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies     JobMessage[]   @relation("JobMessageReplies")
 
   @@index([applicationId])
   @@index([jobPostingId])
@@ -1340,15 +1343,18 @@ model Conversation {
 }
 
 model DirectMessage {
-  id             String    @id @default(cuid())
-  conversationId String    @map("conversation_id")
-  senderUserId   String    @map("sender_user_id")
-  body           String    @db.Text
-  readAt         DateTime? @map("read_at")
-  sentAt         DateTime  @default(now()) @map("sent_at")
+  id               String    @id @default(cuid())
+  conversationId   String    @map("conversation_id")
+  senderUserId     String    @map("sender_user_id")
+  body             String    @db.Text
+  replyToMessageId String?   @map("reply_to_message_id")
+  readAt           DateTime? @map("read_at")
+  sentAt           DateTime  @default(now()) @map("sent_at")
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User         @relation("DirectMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  conversation Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User          @relation("DirectMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  replyTo      DirectMessage? @relation("DirectMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies      DirectMessage[] @relation("DirectMessageReplies")
 
   @@index([conversationId, sentAt])
   @@map("direct_messages")
@@ -1386,14 +1392,17 @@ model GroupChatMember {
 }
 
 model GroupChatMessage {
-  id           String   @id @default(cuid())
-  groupChatId  String   @map("group_chat_id")
-  senderUserId String   @map("sender_user_id")
-  body         String   @db.Text
-  sentAt       DateTime @default(now()) @map("sent_at")
+  id               String   @id @default(cuid())
+  groupChatId      String   @map("group_chat_id")
+  senderUserId     String   @map("sender_user_id")
+  body             String   @db.Text
+  replyToMessageId String?  @map("reply_to_message_id")
+  sentAt           DateTime @default(now()) @map("sent_at")
 
-  groupChat GroupChat @relation(fields: [groupChatId], references: [id], onDelete: Cascade)
-  sender    User      @relation("GroupChatMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  groupChat GroupChat          @relation(fields: [groupChatId], references: [id], onDelete: Cascade)
+  sender    User               @relation("GroupChatMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  replyTo   GroupChatMessage?  @relation("GroupChatMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies   GroupChatMessage[] @relation("GroupChatMessageReplies")
 
   @@index([groupChatId, sentAt])
   @@map("group_chat_messages")
@@ -1648,14 +1657,17 @@ model HostedTableGroupChatMember {
 }
 
 model HostedTableGroupChatMessage {
-  id                    String   @id @default(cuid())
-  hostedTableGroupChatId String  @map("hosted_table_group_chat_id")
-  senderUserId          String  @map("sender_user_id")
-  body                    String  @db.Text
-  sentAt                  DateTime @default(now()) @map("sent_at")
+  id                     String   @id @default(cuid())
+  hostedTableGroupChatId String   @map("hosted_table_group_chat_id")
+  senderUserId           String   @map("sender_user_id")
+  body                   String   @db.Text
+  replyToMessageId       String?  @map("reply_to_message_id")
+  sentAt                 DateTime @default(now()) @map("sent_at")
 
-  groupChat HostedTableGroupChat @relation(fields: [hostedTableGroupChatId], references: [id], onDelete: Cascade)
-  sender    User                 @relation("HostedTableGroupChatMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  groupChat HostedTableGroupChat         @relation(fields: [hostedTableGroupChatId], references: [id], onDelete: Cascade)
+  sender    User                         @relation("HostedTableGroupChatMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  replyTo   HostedTableGroupChatMessage? @relation("HostedTableGroupChatMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies   HostedTableGroupChatMessage[] @relation("HostedTableGroupChatMessageReplies")
 
   @@index([hostedTableGroupChatId, sentAt])
   @@map("hosted_table_group_chat_messages")
@@ -1746,16 +1758,19 @@ model VenueTableThread {
 }
 
 model VenueTableMessage {
-  id           String    @id @default(cuid())
-  threadId     String    @map("thread_id")
-  senderUserId String    @map("sender_user_id")
-  templateKey  String    @map("template_key")
-  displayLabel String?   @map("display_label")
-  sentAt       DateTime  @default(now()) @map("sent_at")
-  readAt       DateTime? @map("read_at")
+  id               String    @id @default(cuid())
+  threadId         String    @map("thread_id")
+  senderUserId     String    @map("sender_user_id")
+  templateKey      String    @map("template_key")
+  displayLabel     String?   @map("display_label")
+  replyToMessageId String?   @map("reply_to_message_id")
+  sentAt           DateTime  @default(now()) @map("sent_at")
+  readAt           DateTime? @map("read_at")
 
-  thread VenueTableThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  sender User             @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+  thread  VenueTableThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender  User              @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+  replyTo VenueTableMessage? @relation("VenueTableMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies VenueTableMessage[] @relation("VenueTableMessageReplies")
 
   @@index([threadId])
   @@index([senderUserId])
@@ -2256,6 +2271,7 @@ model VenueMessageGroup {
   id              String    @id @default(cuid())
   venueId         String    @map("venue_id")
   name            String
+  avatarUrl       String?   @map("avatar_url")
   createdByUserId String    @map("created_by_user_id")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -2286,15 +2302,18 @@ model VenueMessageGroupMember {
 }
 
 model VenueMessageGroupMessage {
-  id           String    @id @default(cuid())
-  groupId      String    @map("group_id")
-  senderUserId String    @map("sender_user_id")
-  body         String    @db.Text
-  createdAt    DateTime  @default(now()) @map("created_at")
-  deletedAt    DateTime? @map("deleted_at")
+  id               String    @id @default(cuid())
+  groupId          String    @map("group_id")
+  senderUserId     String    @map("sender_user_id")
+  body             String    @db.Text
+  replyToMessageId String?   @map("reply_to_message_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  deletedAt        DateTime? @map("deleted_at")
 
-  group  VenueMessageGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  sender User              @relation("VenueMessageGroupMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  group   VenueMessageGroup          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender  User                       @relation("VenueMessageGroupMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  replyTo VenueMessageGroupMessage?  @relation("VenueMessageGroupMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies VenueMessageGroupMessage[] @relation("VenueMessageGroupMessageReplies")
 
   @@index([groupId, createdAt])
   @@map("venue_message_group_messages")
@@ -2306,6 +2325,7 @@ model VenueStaffAssignment {
   userId          String    @map("user_id")
   invitedByUserId String    @map("invited_by_user_id")
   permissions     Json
+  accessToken     String    @unique @default(cuid()) @map("access_token")
   createdAt       DateTime  @default(now()) @map("created_at")
   revokedAt       DateTime? @map("revoked_at")
 
@@ -2338,17 +2358,20 @@ model PromoterVenueThread {
 }
 
 model PromoterVenueMessage {
-  id           String    @id @default(cuid())
-  threadId     String    @map("thread_id")
-  senderUserId String?   @map("sender_user_id")
-  body         String    @db.Text
-  kind         String    @default("TEXT")
-  eventId      String?   @map("event_id")
-  sentAt       DateTime  @default(now()) @map("sent_at")
-  readAt       DateTime? @map("read_at")
+  id               String    @id @default(cuid())
+  threadId         String    @map("thread_id")
+  senderUserId     String?   @map("sender_user_id")
+  body             String    @db.Text
+  kind             String    @default("TEXT")
+  eventId          String?   @map("event_id")
+  replyToMessageId String?   @map("reply_to_message_id")
+  sentAt           DateTime  @default(now()) @map("sent_at")
+  readAt           DateTime? @map("read_at")
 
-  thread PromoterVenueThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  sender User?               @relation("PromoterVenueMessageSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+  thread  PromoterVenueThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender  User?                @relation("PromoterVenueMessageSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+  replyTo PromoterVenueMessage? @relation("PromoterVenueMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies PromoterVenueMessage[] @relation("PromoterVenueMessageReplies")
 
   @@index([threadId, sentAt])
   @@map("promoter_venue_messages")

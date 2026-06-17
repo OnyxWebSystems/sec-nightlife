@@ -20,6 +20,7 @@ import VenueSwitcher from '@/components/business/VenueSwitcher';
 import AddStaffModal from '@/components/business/AddStaffModal';
 import VenueStaffPanel from '@/components/business/VenueStaffPanel';
 import { useVenueStaffAccess } from '@/hooks/useVenueStaffAccess';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 
 const QUICK_ACTIONS = [
   { icon: Plus, label: 'Create Event', page: 'BusinessEvents', perm: 'events' },
@@ -129,7 +130,10 @@ export default function BusinessDashboard() {
   }, [user?.email]);
 
   const { venues, activeVenue: venue, isLoading: venuesLoading, setActiveVenueId, refreshVenues } = useActiveVenue();
+  const venueScope = useBusinessVenueScope();
   const { isVenueOwner, isStaffOnly, can } = useVenueStaffAccess();
+  const hasVenueScope = venueScope.inStaffSession || !!venue;
+  const scopeKey = venueScope.staffContextToken || venue?.id;
 
   useEffect(() => {
     if (venuesLoading || !isStaffOnly) return;
@@ -162,16 +166,19 @@ export default function BusinessDashboard() {
   });
 
   const { data: eventsRaw } = useQuery({
-    queryKey: ['biz-events', venue?.id],
-    queryFn: () => dataService.Event.filter({ venue_id: venue.id }),
-    enabled: !!venue && (!isStaffOnly || can('events')),
+    queryKey: ['biz-events', scopeKey],
+    queryFn: () =>
+      venueScope.inStaffSession
+        ? apiGet(`/api/events?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`)
+        : dataService.Event.filter({ venue_id: venue.id }),
+    enabled: hasVenueScope && venueScope.venueQuery && (!isStaffOnly || can('events')),
     staleTime: 3 * 60_000,
   });
 
   const { data: bookingStatsRaw, isLoading: bookingStatsLoading } = useQuery({
-    queryKey: ['biz-dashboard-booking-stats', venue?.id],
-    queryFn: () => apiGet(`/api/business/dashboard-booking-stats?venue_id=${encodeURIComponent(venue.id)}`),
-    enabled: !!venue && (!isStaffOnly || can('bookings')),
+    queryKey: ['biz-dashboard-booking-stats', scopeKey],
+    queryFn: () => apiGet(`/api/business/dashboard-booking-stats?${venueScope.venueQuery}`),
+    enabled: hasVenueScope && !!venueScope.venueQuery && (!isStaffOnly || can('bookings')),
     staleTime: 2 * 60_000,
   });
 
@@ -183,9 +190,9 @@ export default function BusinessDashboard() {
   });
 
   const { data: jobsRaw } = useQuery({
-    queryKey: ['biz-jobs', venue?.id],
-    queryFn: () => apiGet(`/api/jobs/venue/${venue.id}`),
-    enabled: !!venue && (!isStaffOnly || can('jobs')),
+    queryKey: ['biz-jobs', scopeKey],
+    queryFn: () => apiGet(`/api/jobs/by-venue?${venueScope.venueQuery}`),
+    enabled: hasVenueScope && !!venueScope.venueQuery && (!isStaffOnly || can('jobs')),
     staleTime: 2 * 60_000,
   });
 
@@ -193,13 +200,13 @@ export default function BusinessDashboard() {
   const reviews = asArray(reviewsRaw);
   const jobs = asArray(jobsRaw);
   const bookingStats = bookingStatsRaw || {};
-  const recentBookings = asArray(bookingStats.recentBookings);
+  const recentBookings = asArray(bookingStats.recentBookings).slice(0, 5);
 
   const jobStatusMutation = useMutation({
     mutationFn: ({ jobId, status }) => apiPatch(`/api/jobs/${jobId}`, { status }),
     onSuccess: () => {
       toast.success('Job status updated');
-      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['biz-jobs', scopeKey] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to update job status'),
   });
@@ -218,10 +225,10 @@ export default function BusinessDashboard() {
           ? `Job deleted (${n} application${n === 1 ? '' : 's'} removed)`
           : 'Job deleted',
       );
-      qc.setQueryData(['biz-jobs', venue?.id], (old) =>
+      qc.setQueryData(['biz-jobs', scopeKey], (old) =>
         asArray(old).filter((j) => j.id !== jobId),
       );
-      qc.invalidateQueries({ queryKey: ['biz-jobs', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['biz-jobs', scopeKey] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
     onSettled: () => setDeletingJobId(null),
@@ -237,8 +244,8 @@ export default function BusinessDashboard() {
     );
   }
 
-  if (!venue) {
-    if (isStaffOnly) {
+  if (!hasVenueScope) {
+    if (isStaffOnly || venueScope.inStaffSession) {
       return (
         <div style={{ padding: 24, maxWidth: 500, margin: '60px auto', textAlign: 'center' }}>
           <div style={{
@@ -298,18 +305,22 @@ export default function BusinessDashboard() {
     : '—';
   const totalGuests = bookingStats.totalGuests ?? 0;
 
+  const displayVenueName = venueScope.venueName || venue?.name || 'Venue';
+
   const complianceCompleteFromApi = complianceLatest
     ? isVenueComplianceComplete(complianceLatest)
     : null;
   const showComplianceSection =
-    !complianceLatest || !complianceCompleteFromApi;
-  const headerComplianceLabel =
-    complianceCompleteFromApi !== null
+    !venueScope.inStaffSession && isVenueOwner && (!complianceLatest || !complianceCompleteFromApi);
+  const headerComplianceLabel = venueScope.inStaffSession
+    ? null
+    : complianceCompleteFromApi !== null
       ? (complianceCompleteFromApi ? 'approved' : 'pending')
-      : (venue.compliance_status || 'Pending');
-  const headerComplianceApproved =
-    complianceCompleteFromApi === true ||
-    (complianceCompleteFromApi === null && venue.compliance_status === 'approved');
+      : (venue?.compliance_status || 'Pending');
+  const headerComplianceApproved = venueScope.inStaffSession
+    ? false
+    : complianceCompleteFromApi === true ||
+      (complianceCompleteFromApi === null && venue?.compliance_status === 'approved');
 
   const getDocStatus = (docType) => {
     const list = complianceLatest?.documents || [];
@@ -387,7 +398,7 @@ export default function BusinessDashboard() {
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ marginBottom: 16 }}>
-          <VenueSwitcher />
+          {!venueScope.inStaffSession ? <VenueSwitcher /> : null}
         </div>
         <div
           className="sec-card"
@@ -399,7 +410,7 @@ export default function BusinessDashboard() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18, flexWrap: 'wrap' }}>
-            {venue.logo_url ? (
+            {venue?.logo_url ? (
               <img
                 src={venue.logo_url}
                 alt=""
@@ -430,22 +441,26 @@ export default function BusinessDashboard() {
             )}
             <div style={{ flex: 1, minWidth: 200 }}>
               <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>
-                {venue.name}
+                {displayVenueName}
               </h1>
               <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
-                {venue.city} &middot; {venue.venue_type?.replace('_', ' ')}
-                {' '}&middot;{' '}
-                <span style={{
-                  color: headerComplianceApproved ? 'var(--sec-success)' : 'var(--sec-warning)',
-                  fontWeight: 600,
-                }}>
-                  {headerComplianceLabel}
-                </span>
+                {venue?.city ? `${venue.city} · ` : ''}{venue?.venue_type?.replace('_', ' ') || (venueScope.inStaffSession ? 'Staff access' : '')}
+                {!venueScope.inStaffSession && headerComplianceLabel ? (
+                  <>
+                    {' '}&middot;{' '}
+                    <span style={{
+                      color: headerComplianceApproved ? 'var(--sec-success)' : 'var(--sec-warning)',
+                      fontWeight: 600,
+                    }}>
+                      {headerComplianceLabel}
+                    </span>
+                  </>
+                ) : null}
               </p>
             </div>
           </div>
 
-          {isVenueOwner ? (
+          {isVenueOwner && venue ? (
           <div
             style={{
               display: 'grid',
@@ -490,11 +505,11 @@ export default function BusinessDashboard() {
         </div>
       </div>
 
-      {isVenueOwner ? (
+      {isVenueOwner && venue ? (
         <VenueStaffPanel venueId={venue.id} onInvite={() => setStaffModalOpen(true)} />
       ) : null}
 
-      {isVenueOwner && !venue?.paystack_recipient_code && !venue?.paystackRecipientCode ? (
+      {isVenueOwner && venue && !venue?.paystack_recipient_code && !venue?.paystackRecipientCode ? (
         <div style={{
           padding: '12px 16px',
           borderRadius: 12,

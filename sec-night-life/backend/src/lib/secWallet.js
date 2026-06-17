@@ -58,7 +58,11 @@ export async function ensureSecWallet(ownerType, ownerId) {
 
 const PENDING_STATUSES = ['PENDING', 'SKIPPED_NO_RECIPIENT', 'FAILED'];
 
-export async function aggregateWalletSummary({ userId = null, venueId = null }) {
+export async function aggregateWalletSummary({
+  userId = null,
+  venueId = null,
+  transactionsSince = null,
+} = {}) {
   const where =
     userId != null
       ? { recipientUserId: userId }
@@ -73,6 +77,7 @@ export async function aggregateWalletSummary({ userId = null, venueId = null }) 
   let pendingBalance = 0;
   let totalReceived = 0;
   const transactions = [];
+  const sinceMs = transactionsSince ? new Date(transactionsSince).getTime() : null;
 
   for (const row of ledgers) {
     const amt = Number(row.recipientAmount) || 0;
@@ -82,6 +87,8 @@ export async function aggregateWalletSummary({ userId = null, venueId = null }) 
     if (row.status === 'TRANSFERRED') {
       totalReceived += amt;
     }
+    const createdMs = row.createdAt ? new Date(row.createdAt).getTime() : 0;
+    if (sinceMs != null && createdMs < sinceMs) continue;
     transactions.push({
       id: row.id,
       amount: amt,

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { asArray, buildPageUrl } from '@/utils';
 import { apiGet } from '@/api/client';
-import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
+import { useStaffVenueOptional } from '@/context/StaffVenueContext';
 import {
   LayoutDashboard,
   BarChart3,
@@ -39,10 +39,10 @@ function permLabel(key) {
 }
 
 export default function StaffDashboard() {
-  const activeVenueCtx = useActiveVenueOptional();
+  const staffVenueCtx = useStaffVenueOptional();
   const { data: assignmentsRaw, isLoading } = useQuery({
     queryKey: ['staff-venues'],
-    queryFn: () => apiGet('/api/staff/venues'),
+    queryFn: () => apiGet('/api/staff/venues').then((r) => (Array.isArray(r) ? r : r?.items || [])),
     staleTime: 5 * 60_000,
   });
   const assignments = asArray(assignmentsRaw);
@@ -73,13 +73,13 @@ export default function StaffDashboard() {
             {assignments.map((row) => {
               const perms = row.permissions || {};
               const enabledKeys = Object.keys(perms).filter((k) => perms[k]);
-              const venue = row.venue || {};
-              const venueName = venue.name || row.venueName || 'Venue';
-              const venueCity = venue.city || row.venueCity;
-              const venueLogo = venue.logoUrl || venue.coverImageUrl || row.venueLogoUrl;
+              const venueName = row.venueName || 'Venue';
+              const venueCity = row.venueCity;
+              const venueLogo = row.venueLogoUrl;
+              const accessToken = row.accessToken;
               return (
                 <div
-                  key={row.venueId || row.id}
+                  key={row.id || accessToken}
                   className="sec-card p-5"
                   style={{ border: '1px solid var(--sec-border)' }}
                 >
@@ -135,21 +135,19 @@ export default function StaffDashboard() {
                         const meta = PERM_PAGES[key];
                         if (!meta) return null;
                         const Icon = meta.icon;
-                        const venueId = venue.id || row.venueId;
-                        const linkParams =
-                          key === 'venue_page' && venueId
-                            ? { id: venueId, venue_id: venueId }
-                            : venueId
-                              ? { venue_id: venueId }
-                              : undefined;
+                        if (!accessToken) return null;
+                        const linkParams = { staff_ctx: accessToken };
                         return (
                           <Link
                             key={key}
                             to={buildPageUrl(meta.page, linkParams)}
                             onClick={() => {
-                              if (venueId && activeVenueCtx?.setActiveVenueId) {
-                                activeVenueCtx.setActiveVenueId(String(venueId));
-                              }
+                              staffVenueCtx?.enterStaffContext?.(accessToken, {
+                                venueName,
+                                venueCity,
+                                venueLogoUrl: venueLogo,
+                                permissions: perms,
+                              });
                             }}
                             className="flex items-center gap-3 p-3 rounded-xl transition-colors"
                             style={{

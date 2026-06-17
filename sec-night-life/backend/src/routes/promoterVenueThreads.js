@@ -166,6 +166,7 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
       orderBy: { sentAt: 'asc' },
       include: {
         sender: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
+        replyTo: { select: { id: true, body: true, kind: true, sentAt: true } },
       },
     });
 
@@ -221,6 +222,9 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
             ? `@${m.sender.userProfile.username}`
             : m.sender?.fullName || 'User'
           : access.thread.venue.name,
+        replyTo: m.replyTo
+          ? { id: m.replyTo.id, body: m.replyTo.body, sentAt: m.replyTo.sentAt }
+          : null,
       })),
       assignments: assignments.map((a) => ({
         eventId: a.eventId,
@@ -234,7 +238,10 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
   }
 });
 
-const sendSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+const sendSchema = z.object({
+  body: z.string().trim().min(1).max(2000),
+  replyToMessageId: z.string().optional(),
+});
 
 router.post('/:threadId/messages', authenticateToken, async (req, res, next) => {
   try {
@@ -245,10 +252,18 @@ router.post('/:threadId/messages', authenticateToken, async (req, res, next) => 
     if (!access) return res.status(404).json({ error: 'Thread not found' });
     if (access.forbidden) return res.status(403).json({ error: 'Forbidden' });
 
+    if (parsed.data.replyToMessageId) {
+      const parent = await prisma.promoterVenueMessage.findFirst({
+        where: { id: parsed.data.replyToMessageId, threadId: access.thread.id },
+      });
+      if (!parent) return res.status(400).json({ error: 'Reply target not found' });
+    }
+
     const created = await postPromoterVenueMessage({
       threadId: access.thread.id,
       body: parsed.data.body,
       senderUserId: req.userId,
+      replyToMessageId: parsed.data.replyToMessageId || null,
     });
 
     const recipientUserId = access.isPromoter

@@ -7,7 +7,14 @@ import { notifyAdmins } from '../lib/adminNotify.js';
 import { logger } from '../lib/logger.js';
 import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUrl.js';
 import { welcomePromoterThread, promoterVenueThreadPath } from '../lib/promoterVenueThread.js';
-import { staffHasVenuePermission } from '../lib/access.js';
+import {
+  resolveStaffVenueContext,
+  staffHasVenuePermission,
+  resolveBusinessVenueScope,
+  staffCtxFromQuery,
+  venueIdFromQuery,
+} from '../lib/access.js';
+import { formatReplyPreview, validateReplyInThread } from '../lib/messageReply.js';
 
 const router = Router();
 const USER_HOURLY_LIMIT = 5;
@@ -45,6 +52,7 @@ const applicationSchema = z.object({
 
 const messageSchema = z.object({
   body: z.string().trim().min(1).max(2000),
+  replyToMessageId: z.string().optional(),
 });
 
 /** Who may submit a new job application (not listing own apps — that is always self-scoped). */
@@ -181,6 +189,27 @@ router.post('/', authenticateToken, async (req, res, next) => {
       },
     });
     return res.status(201).json(created);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/by-venue', authenticateToken, async (req, res, next) => {
+  try {
+    const scope = await resolveBusinessVenueScope(req.userId, {
+      staffCtx: staffCtxFromQuery(req.query),
+      venueIdFilter: venueIdFromQuery(req.query),
+      permission: 'jobs',
+    });
+    if (!scope.ok) return res.status(scope.status).json({ error: scope.error });
+    const venueId = scope.venueIds[0];
+    if (!venueId) return res.json([]);
+    const jobs = await prisma.jobPosting.findMany({
+      where: { venueId },
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { applications: true, messages: true } } },
+    });
+    return res.json(jobs);
   } catch (err) {
     return next(err);
   }
@@ -691,9 +720,22 @@ router.get('/applications/:applicationId/messages', authenticateToken, async (re
     const messages = await prisma.jobMessage.findMany({
       where: { applicationId: application.id },
       orderBy: { sentAt: 'asc' },
-      include: { sender: { select: { id: true, fullName: true, email: true } } },
+      include: {
+        sender: { select: { id: true, fullName: true, email: true } },
+        replyTo: { select: { id: true, body: true, sentAt: true, senderUserId: true } },
+      },
     });
-    return res.json(messages);
+    return res.json(
+      messages.map((m) => ({
+        ...m,
+        replyTo: m.replyTo
+          ? formatReplyPreview(m.replyTo, {
+              bodyKey: 'body',
+              labelKey: null,
+            })
+          : null,
+      })),
+    );
   } catch (err) {
     return next(err);
   }
@@ -714,12 +756,19 @@ router.post('/applications/:applicationId/messages', authenticateToken, async (r
             : 'You can message this venue after you are waitlisted or hired.',
       });
     }
+    const replyToMessageId = await validateReplyInThread(prisma, {
+      model: 'jobMessage',
+      threadField: 'applicationId',
+      threadId: application.id,
+      replyToMessageId: parsed.data.replyToMessageId,
+    });
     const created = await prisma.jobMessage.create({
       data: {
         applicationId: application.id,
         jobPostingId: application.jobPostingId,
         senderUserId: req.userId,
         body: parsed.data.body,
+        replyToMessageId,
       },
       include: { sender: { select: { id: true, fullName: true, email: true } } },
     });

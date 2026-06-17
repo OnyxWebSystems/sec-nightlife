@@ -71,6 +71,72 @@ const addMemberSchema = z.object({
 
 const messageSchema = z.object({
   body: z.string().trim().min(1).max(4000),
+  replyToMessageId: z.string().optional(),
+});
+
+const patchGroupSchema = z.object({
+  avatarUrl: z.string().url().optional().nullable(),
+});
+
+router.get('/search-users', authenticateToken, async (req, res, next) => {
+  try {
+    const { venueId } = req.params;
+    const access = await getVenueAccess(venueId, req.userId);
+    if (access.error === 'not_found') return res.status(404).json({ error: 'Venue not found' });
+    if (access.error === 'forbidden' || !access.isAdmin) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const q = String(req.query.q || '').trim().slice(0, 40);
+    if (q.length < 2) return res.json([]);
+
+    const rows = await prisma.userProfile.findMany({
+      where: {
+        username: { contains: q.replace(/^@/, ''), mode: 'insensitive' },
+        user: { deletedAt: null, id: { not: req.userId } },
+      },
+      take: 12,
+      select: {
+        username: true,
+        avatarUrl: true,
+        user: { select: { id: true, fullName: true } },
+      },
+    });
+
+    res.json(
+      rows.map((p) => ({
+        id: p.user.id,
+        username: p.username,
+        fullName: p.user.fullName,
+        avatarUrl: p.avatarUrl || null,
+      })),
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.patch('/:groupId', authenticateToken, async (req, res, next) => {
+  try {
+    const { venueId, groupId } = req.params;
+    const parsed = patchGroupSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+
+    const access = await getGroupAccess(venueId, groupId, req.userId);
+    if (access.error === 'not_found' || access.error === 'group_not_found') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    if (access.error === 'forbidden' || !access.isAdmin) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const updated = await prisma.venueMessageGroup.update({
+      where: { id: groupId },
+      data: { avatarUrl: parsed.data.avatarUrl ?? undefined },
+    });
+    res.json({ id: updated.id, avatarUrl: updated.avatarUrl });
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.get('/', authenticateToken, async (req, res, next) => {
@@ -102,6 +168,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
       items: groups.map((g) => ({
         id: g.id,
         name: g.name,
+        avatarUrl: g.avatarUrl || null,
         createdAt: g.createdAt,
         updatedAt: g.updatedAt,
         memberCount: g._count.members,
@@ -205,6 +272,7 @@ router.get('/:groupId/messages', authenticateToken, async (req, res, next) => {
             userProfile: { select: { username: true } },
           },
         },
+        replyTo: { select: { id: true, body: true, createdAt: true } },
       },
     });
 
@@ -218,6 +286,9 @@ router.get('/:groupId/messages', authenticateToken, async (req, res, next) => {
           ? `@${m.sender.userProfile.username}`
           : m.sender.fullName || 'User',
         isMine: m.senderUserId === req.userId,
+        replyTo: m.replyTo
+          ? { id: m.replyTo.id, body: m.replyTo.body, sentAt: m.replyTo.createdAt }
+          : null,
       })),
     );
   } catch (e) {
@@ -370,12 +441,20 @@ router.post('/:groupId/messages', authenticateToken, async (req, res, next) => {
     }
     if (access.error === 'forbidden') return res.status(403).json({ error: 'Forbidden' });
 
+    if (parsed.data.replyToMessageId) {
+      const parent = await prisma.venueMessageGroupMessage.findFirst({
+        where: { id: parsed.data.replyToMessageId, groupId, deletedAt: null },
+      });
+      if (!parent) return res.status(400).json({ error: 'Reply target not found' });
+    }
+
     const message = await prisma.$transaction(async (tx) => {
       const created = await tx.venueMessageGroupMessage.create({
         data: {
           groupId,
           senderUserId: req.userId,
           body: parsed.data.body,
+          replyToMessageId: parsed.data.replyToMessageId || null,
         },
       });
       await tx.venueMessageGroup.update({

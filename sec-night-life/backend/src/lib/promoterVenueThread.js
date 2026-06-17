@@ -24,9 +24,10 @@ export async function postPromoterVenueMessage({
   senderUserId = null,
   kind = 'TEXT',
   eventId = null,
+  replyToMessageId = null,
 }) {
   const msg = await prisma.promoterVenueMessage.create({
-    data: { threadId, body, senderUserId, kind, eventId },
+    data: { threadId, body, senderUserId, kind, eventId, replyToMessageId },
   });
   await prisma.promoterVenueThread.update({
     where: { id: threadId },

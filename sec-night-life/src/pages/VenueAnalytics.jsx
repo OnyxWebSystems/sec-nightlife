@@ -18,6 +18,7 @@ import { format, subDays } from 'date-fns';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from 'recharts';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -57,47 +58,66 @@ export default function VenueAnalytics() {
 
   const { venues, activeVenueId, setActiveVenueId } = useActiveVenue();
 
-  useEffect(() => {
-    if (activeVenueId) setSelectedVenue(activeVenueId);
-  }, [activeVenueId]);
+  const venueScope = useBusinessVenueScope();
+  const scopeKey = venueScope.staffContextToken || venueScope.venueId;
 
   useEffect(() => {
+    if (venueScope.inStaffSession) return;
+    if (activeVenueId) setSelectedVenue(activeVenueId);
+  }, [activeVenueId, venueScope.inStaffSession]);
+
+  useEffect(() => {
+    if (venueScope.inStaffSession) return;
     if (selectedVenue && selectedVenue !== activeVenueId) {
       setActiveVenueId(selectedVenue);
     }
-  }, [selectedVenue]);
+  }, [selectedVenue, venueScope.inStaffSession]);
 
-  const selectedVenueRecord = useMemo(
-    () => venues.find((v) => v.id === selectedVenue) || null,
-    [venues, selectedVenue],
-  );
+  useEffect(() => {
+    if (venueScope.inStaffSession && scopeKey) {
+      setSelectedVenue(scopeKey);
+    }
+  }, [venueScope.inStaffSession, scopeKey]);
+
+  const selectedVenueRecord = useMemo(() => {
+    if (venueScope.inStaffSession) {
+      return { id: scopeKey, name: venueScope.venueName };
+    }
+    return venues.find((v) => v.id === selectedVenue) || null;
+  }, [venues, selectedVenue, venueScope.inStaffSession, scopeKey, venueScope.venueName]);
 
   const { data: analytics, isLoading: analyticsLoading, isFetching: analyticsFetching } = useQuery({
-    queryKey: ['venue-analytics', selectedVenue, dateRange, revenueScope, selectedEventId],
+    queryKey: ['venue-analytics', scopeKey, dateRange, revenueScope, selectedEventId],
     queryFn: () => {
       const days = parseInt(dateRange, 10) || 30;
       const params = new URLSearchParams({
-        venue_id: selectedVenue,
         days: String(days),
       });
+      if (venueScope.venueQuery) {
+        const extra = new URLSearchParams(venueScope.venueQuery);
+        extra.forEach((v, k) => params.set(k, v));
+      }
       if (revenueScope === 'per_event' && selectedEventId) {
         params.set('event_id', selectedEventId);
       }
       return apiGet(`/api/business/venue-analytics?${params.toString()}`);
     },
-    enabled: !!user && !!selectedVenue,
+    enabled: !!user && !!venueScope.venueQuery,
   });
 
   const { data: events = [] } = useQuery({
-    queryKey: ['venue-events', selectedVenue],
-    queryFn: () => dataService.Event.filter({ venue_id: selectedVenue }),
-    enabled: !!selectedVenue
+    queryKey: ['venue-events', scopeKey],
+    queryFn: () =>
+      venueScope.inStaffSession
+        ? apiGet(`/api/events?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`)
+        : dataService.Event.filter({ venue_id: selectedVenue }),
+    enabled: !!venueScope.venueQuery,
   });
 
   const { data: reviews = [] } = useQuery({
-    queryKey: ['venue-reviews', selectedVenue],
-    queryFn: () => dataService.Review.filter({ venue_id: selectedVenue }),
-    enabled: !!selectedVenue,
+    queryKey: ['venue-reviews', scopeKey],
+    queryFn: () => dataService.Review.filter({ venue_id: venueScope.venueId || selectedVenue }),
+    enabled: !venueScope.inStaffSession && !!selectedVenue,
   });
 
   useEffect(() => {

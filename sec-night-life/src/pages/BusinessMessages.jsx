@@ -7,6 +7,7 @@ import { asArray } from '@/utils';
 import { toast } from 'sonner';
 import { Loader2, Briefcase, Armchair, Star, Trash2 } from 'lucide-react';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import BusinessVenueGroupPanel from '@/components/messaging/BusinessVenueGroupPanel';
 import PromoterVenueThreadPanel from '@/components/messaging/PromoterVenueThreadPanel';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
@@ -18,6 +19,10 @@ import {
   VENUE_DECLINE_TEMPLATES,
 } from '@/lib/venueTableMessageTemplates';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { useMessageReply } from '@/hooks/useMessageReply';
+import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
+import MessageBubble from '@/components/messaging/MessageBubble';
+import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 
 export default function BusinessMessages() {
@@ -26,6 +31,7 @@ export default function BusinessMessages() {
   const queryClient = useQueryClient();
   const initialTab = searchParams.get('tab') || 'jobs';
   const { activeVenue } = useActiveVenue();
+  const venueScope = useBusinessVenueScope();
   const [filter, setFilter] = useState(
     ['jobs', 'promoters', 'tables', 'groups'].includes(initialTab) ? initialTab : 'jobs',
   );
@@ -33,6 +39,7 @@ export default function BusinessMessages() {
   const [selectedTableThreadId, setSelectedTableThreadId] = useState(searchParams.get('thread') || null);
   const [selectedPromoterVenueId, setSelectedPromoterVenueId] = useState(searchParams.get('promoterVenue') || null);
   const [jobMessageBody, setJobMessageBody] = useState('');
+  const { replyingTo: jobReplyingTo, setReplyingTo: setJobReplyingTo, clearReply: clearJobReply } = useMessageReply();
   const [jobSending, setJobSending] = useState(false);
   const [tableSending, setTableSending] = useState(false);
 
@@ -105,8 +112,12 @@ export default function BusinessMessages() {
     if (!selectedJobAppId || !jobMessageBody.trim()) return;
     setJobSending(true);
     try {
-      await apiPost(`/api/jobs/applications/${selectedJobAppId}/messages`, { body: jobMessageBody.trim() });
+      await apiPost(`/api/jobs/applications/${selectedJobAppId}/messages`, {
+        body: jobMessageBody.trim(),
+        ...(jobReplyingTo?.id ? { replyToMessageId: jobReplyingTo.id } : {}),
+      });
       setJobMessageBody('');
+      clearJobReply();
       await refetchJobMessages();
       refetch();
     } catch (e) {
@@ -201,7 +212,10 @@ export default function BusinessMessages() {
 
         <TabsContent value={filter}>
           {filter === 'groups' ? (
-            <BusinessVenueGroupPanel venueId={activeVenue?.id} />
+            <BusinessVenueGroupPanel
+              venueId={venueScope.inStaffSession ? null : activeVenue?.id}
+              staffContextToken={venueScope.staffContextToken}
+            />
           ) : (
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2 min-h-[200px]">
@@ -380,18 +394,21 @@ export default function BusinessMessages() {
                   </div>
                   <div className="max-h-52 overflow-y-auto space-y-2 mb-4">
                     {jobMessages.map((m) => (
-                      <div
+                      <MessageBubble
                         key={m.id}
+                        message={m}
+                        onReply={setJobReplyingTo}
                         className="text-sm p-2 rounded-lg"
                         style={{ background: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}
                       >
                         <div className="text-xs text-[var(--sec-text-muted)]">
                           {m.sender?.fullName || 'User'} · {new Date(m.sentAt).toLocaleString()}
                         </div>
-                        <div>{m.body}</div>
-                      </div>
+                        <div>{linkifyMessageBody(m.body)}</div>
+                      </MessageBubble>
                     ))}
                   </div>
+                  <MessageReplyPreview replyingTo={jobReplyingTo} onClear={clearJobReply} />
                   <textarea
                     className="sec-input w-full min-h-[72px] mb-2"
                     value={jobMessageBody}

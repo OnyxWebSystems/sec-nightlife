@@ -16,6 +16,7 @@ import {
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { format, parseISO } from 'date-fns';
 
 function formatEventWhen(event) {
@@ -153,6 +154,8 @@ export default function BusinessBookings() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { activeVenueId } = useActiveVenue();
+  const venueScope = useBusinessVenueScope();
+  const scopeKey = venueScope.staffContextToken || activeVenueId;
   const [user, setUser] = useState(null);
   const [mainTab, setMainTab] = useState('tables');
   const [tableSubTab, setTableSubTab] = useState('event');
@@ -177,11 +180,14 @@ export default function BusinessBookings() {
   }, []);
 
   const { data: bookingsData, isLoading: eventTablesLoading } = useQuery({
-    queryKey: ['biz-event-table-bookings', user?.id, selectedEventId, eventTimeScope, activeVenueId],
+    queryKey: ['biz-event-table-bookings', user?.id, selectedEventId, eventTimeScope, scopeKey],
     queryFn: () => {
       const params = new URLSearchParams({ event_scope: eventTimeScope });
       if (selectedEventId !== 'all') params.set('event_id', selectedEventId);
-      if (activeVenueId) params.set('venue_id', activeVenueId);
+      if (venueScope.venueQuery) {
+        const extra = new URLSearchParams(venueScope.venueQuery);
+        extra.forEach((v, k) => params.set(k, v));
+      }
       return apiGet(`/api/business/event-table-bookings?${params.toString()}`);
     },
     enabled: !!user && mainTab === 'tables' && tableSubTab === 'event',
@@ -189,9 +195,9 @@ export default function BusinessBookings() {
   });
 
   const { data: venueTableBookingsData, isLoading: venueBookingsLoading } = useQuery({
-    queryKey: ['biz-venue-table-bookings', user?.id, activeVenueId],
+    queryKey: ['biz-venue-table-bookings', user?.id, scopeKey],
     queryFn: () => {
-      const q = activeVenueId ? `?venue_id=${encodeURIComponent(activeVenueId)}` : '';
+      const q = venueScope.venueQuery ? `?${venueScope.venueQuery}` : '';
       return apiGet(`/api/business/venue-table-bookings${q}`);
     },
     enabled: !!user && mainTab === 'tables' && tableSubTab === 'venue-day',
@@ -199,11 +205,14 @@ export default function BusinessBookings() {
   });
 
   const { data: ticketBookingsData, isLoading: ticketsLoading } = useQuery({
-    queryKey: ['biz-ticket-bookings', user?.id, ticketEventId, ticketEventTimeScope, activeVenueId],
+    queryKey: ['biz-ticket-bookings', user?.id, ticketEventId, ticketEventTimeScope, scopeKey],
     queryFn: () => {
       const params = new URLSearchParams({ event_scope: ticketEventTimeScope });
       if (ticketEventId !== 'all') params.set('event_id', ticketEventId);
-      if (activeVenueId) params.set('venue_id', activeVenueId);
+      if (venueScope.venueQuery) {
+        const extra = new URLSearchParams(venueScope.venueQuery);
+        extra.forEach((v, k) => params.set(k, v));
+      }
       return apiGet(`/api/business/ticket-bookings?${params.toString()}`);
     },
     enabled: !!user && mainTab === 'tickets',
@@ -240,11 +249,11 @@ export default function BusinessBookings() {
 
   useEffect(() => {
     setSelectedEventId('all');
-  }, [eventTimeScope, activeVenueId]);
+  }, [eventTimeScope, scopeKey]);
 
   useEffect(() => {
     setTicketEventId('all');
-  }, [ticketEventTimeScope, activeVenueId]);
+  }, [ticketEventTimeScope, scopeKey]);
 
   const filteredEventTables = eventTables
     .filter((group) => {

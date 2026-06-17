@@ -7,6 +7,7 @@ import {
   getTemplateLabel,
   MESSAGABLE_VENUE_MEMBER_STATUSES,
 } from '../lib/venueTableMessageTemplates.js';
+import { validateReplyInThread } from '../lib/messageReply.js';
 
 const router = Router();
 
@@ -125,7 +126,10 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
     const messages = await prisma.venueTableMessage.findMany({
       where: { threadId: access.thread.id },
       orderBy: { sentAt: 'asc' },
-      include: { sender: { select: { id: true, fullName: true } } },
+      include: {
+        sender: { select: { id: true, fullName: true } },
+        replyTo: { select: { id: true, templateKey: true, displayLabel: true, sentAt: true } },
+      },
     });
 
     res.json(
@@ -138,6 +142,13 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
         senderUserId: m.senderUserId,
         senderLabel: m.sender.fullName || 'User',
         isMine: m.senderUserId === req.userId,
+        replyTo: m.replyTo
+          ? {
+              id: m.replyTo.id,
+              body: m.replyTo.displayLabel || getTemplateLabel(m.replyTo.templateKey),
+              sentAt: m.replyTo.sentAt,
+            }
+          : null,
       })),
     );
   } catch (e) {
@@ -147,6 +158,7 @@ router.get('/:threadId/messages', authenticateToken, async (req, res, next) => {
 
 const sendSchema = z.object({
   templateKey: z.enum(Object.keys(VENUE_TABLE_MESSAGE_TEMPLATES)),
+  replyToMessageId: z.string().optional(),
 });
 
 router.post('/:threadId/messages', authenticateToken, async (req, res, next) => {
@@ -158,11 +170,19 @@ router.post('/:threadId/messages', authenticateToken, async (req, res, next) => 
     if (!access) return res.status(403).json({ error: 'Forbidden' });
     if (access.forbidden) return res.status(403).json({ error: access.reason });
 
+    const replyToMessageId = await validateReplyInThread(prisma, {
+      model: 'venueTableMessage',
+      threadField: 'threadId',
+      threadId: access.thread.id,
+      replyToMessageId: parsed.data.replyToMessageId,
+    });
+
     const created = await prisma.venueTableMessage.create({
       data: {
         threadId: access.thread.id,
         senderUserId: req.userId,
         templateKey: parsed.data.templateKey,
+        replyToMessageId,
       },
     });
 

@@ -261,7 +261,7 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
           <div>
             <h4 className="text-sm font-semibold text-gray-400 mb-2">Venue earnings</h4>
             {(data?.transactions || []).length === 0 ? (
-              <p className="text-sm text-gray-600">No transactions yet.</p>
+              <p className="text-sm text-gray-600">No earnings in the last 24 hours.</p>
             ) : (
               <ul className="space-y-2">
                 {data.transactions.slice(0, 10).map((tx) => (

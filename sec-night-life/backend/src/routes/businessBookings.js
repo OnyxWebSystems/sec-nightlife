@@ -10,9 +10,40 @@ import {
   isTicketPaymentMeta,
 } from '../lib/paymentMetadata.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
-import { resolveAccessibleVenueIds, staffHasVenuePermission } from '../lib/access.js';
+import {
+  resolveAccessibleVenueIds,
+  resolveBusinessVenueScope,
+  staffCtxFromQuery,
+  staffHasVenuePermission,
+  venueIdFromQuery,
+} from '../lib/access.js';
 
 const router = Router();
+
+async function requireVenueScope(req, res, permission) {
+  const scope = await resolveBusinessVenueScope(req.userId, {
+    staffCtx: staffCtxFromQuery(req.query),
+    venueIdFilter: venueIdFromQuery(req.query),
+    permission,
+  });
+  if (!scope.ok) {
+    res.status(scope.status).json({ error: scope.error });
+    return null;
+  }
+  if (venueIdFromQuery(req.query) && !scope.venueIds.length) {
+    res.status(404).json({ error: 'Venue not found' });
+    return null;
+  }
+  return scope;
+}
+
+function bookingsVenueScope(req) {
+  return {
+    venueIdFilter: venueIdFromQuery(req.query),
+    staffCtx: staffCtxFromQuery(req.query),
+    permission: 'bookings',
+  };
+}
 
 /** Prefer entrance + component when present so UI matches stored line items. */
 function bookingDisplayTotalZar(r) {
@@ -166,14 +197,8 @@ function computeCanRelease(table, hostedTable) {
 
 router.get('/event-table-bookings', authenticateToken, async (req, res, next) => {
   try {
-    const venueIdFilter =
-      typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
-        ? req.query.venue_id.trim()
-        : null;
-    let venueIds = await resolveAccessibleVenueIds(req.userId, {
-      venueIdFilter,
-      permission: 'bookings',
-    });
+    const venueIdFilter = venueIdFromQuery(req.query);
+    let venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
     if (!venueIds.length) {
       if (venueIdFilter) return res.status(404).json({ error: 'Venue not found' });
       return res.json({
@@ -405,18 +430,14 @@ function ticketQuantityFromMeta(meta) {
 
 router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
   try {
-    const venueId = String(req.query.venue_id || '').trim();
+    const scope = await requireVenueScope(req, res, 'analytics');
+    if (!scope) return;
+    const venueId = scope.venueIds[0];
+    if (!venueId) return res.status(400).json({ error: 'venue_id or staff_ctx is required' });
     const days = Math.min(366, Math.max(1, parseInt(String(req.query.days || '30'), 10) || 30));
     const eventId = typeof req.query.event_id === 'string' && req.query.event_id.trim() ? req.query.event_id.trim() : null;
-    if (!venueId) return res.status(400).json({ error: 'venue_id is required' });
 
-    const accessibleVenueIds = await resolveAccessibleVenueIds(req.userId, {
-      venueIdFilter: venueId,
-      permission: 'analytics',
-    });
-    if (!accessibleVenueIds.length) return res.status(403).json({ error: 'Forbidden' });
-
-    await repairTicketPaymentsForVenues(accessibleVenueIds);
+    await repairTicketPaymentsForVenues([venueId]);
 
     const events = await prisma.event.findMany({
       where: { venueId, deletedAt: null, ...(eventId ? { id: eventId } : {}) },
@@ -635,7 +656,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
 router.get('/venue-table-reservations', authenticateToken, async (req, res, next) => {
   try {
-    const venueIds = await resolveAccessibleVenueIds(req.userId, { permission: 'bookings' });
+    const venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
     if (!venueIds.length) return res.json({ items: [] });
     const statusFilter = String(req.query.status || 'pending').toLowerCase();
     const statuses =
@@ -694,16 +715,14 @@ router.get('/venue-table-reservations', authenticateToken, async (req, res, next
 /** Dashboard table booking totals (event + venue/day tables). */
 router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next) => {
   try {
-    const venueIdFilter =
-      typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
-        ? req.query.venue_id.trim()
-        : null;
-    const venueIds = await resolveAccessibleVenueIds(req.userId, {
-      venueIdFilter,
-      permission: 'bookings',
-    });
+    const scope = await requireVenueScope(req, res, 'bookings');
+    if (!scope) return;
+    const venueIds = scope.venueIds;
+    const venueIdFilter = venueIdFromQuery(req.query);
     if (!venueIds.length) {
-      if (venueIdFilter) return res.status(404).json({ error: 'Venue not found' });
+      if (venueIdFilter || staffCtxFromQuery(req.query)) {
+        return res.status(404).json({ error: 'Venue not found' });
+      }
       return res.json({
         totalBookings: 0,
         activeBookings: 0,
@@ -857,6 +876,7 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
       })
       .filter(Boolean);
 
+    // Unified cap: merge event + venue/day bookings, sort by latest activity, return top 5 only.
     const recentBookings = [...recentEventBookings, ...recentVenueBookings]
       .sort((a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime())
       .slice(0, 5)
@@ -876,14 +896,8 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
 /** Paid venue & day table bookings (incl. custom tables after guest checkout). */
 router.get('/venue-table-bookings', authenticateToken, async (req, res, next) => {
   try {
-    const venueIdFilter =
-      typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
-        ? req.query.venue_id.trim()
-        : null;
-    const venueIds = await resolveAccessibleVenueIds(req.userId, {
-      venueIdFilter,
-      permission: 'bookings',
-    });
+    const venueIdFilter = venueIdFromQuery(req.query);
+    const venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
     if (!venueIds.length) {
       if (venueIdFilter) return res.status(404).json({ error: 'Venue not found' });
       return res.json({ items: [] });
@@ -1028,14 +1042,8 @@ async function repairTicketPaymentsForVenues(venueIds) {
 /** Ticket purchases for events at venues the user owns or staffs. */
 router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
   try {
-    const venueIdFilter =
-      typeof req.query.venue_id === 'string' && req.query.venue_id.trim()
-        ? req.query.venue_id.trim()
-        : null;
-    const scopedVenueIds = await resolveAccessibleVenueIds(req.userId, {
-      venueIdFilter,
-      permission: 'bookings',
-    });
+    const venueIdFilter = venueIdFromQuery(req.query);
+    const scopedVenueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
     if (!scopedVenueIds.length) {
       if (venueIdFilter) return res.status(404).json({ error: 'Venue not found' });
       return res.json({ items: [], eventSummaries: [], summary: emptyTicketBookingsSummary() });

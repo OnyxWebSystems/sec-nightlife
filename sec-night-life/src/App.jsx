@@ -10,6 +10,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { PreferencesProvider } from '@/context/PreferencesContext';
 import { ActiveVenueProvider } from '@/context/ActiveVenueContext';
+import { StaffVenueProvider } from '@/context/StaffVenueContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import RequireBusinessAccount from '@/components/RequireBusinessAccount';
 import RequireOnboardingComplete from '@/components/RequireOnboardingComplete';
@@ -146,8 +147,10 @@ function App() {
         <QueryClientProvider client={queryClientInstance}>
           <Router>
             <ActiveVenueProvider>
-              <NavigationTracker />
-              <AuthenticatedApp />
+              <StaffVenueProvider>
+                <NavigationTracker />
+                <AuthenticatedApp />
+              </StaffVenueProvider>
             </ActiveVenueProvider>
           </Router>
           <Toaster />

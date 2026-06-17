@@ -38,7 +38,10 @@ export function ActiveVenueProvider({ children }) {
     enabled: !!user?.id,
     staleTime: 5 * 60_000,
   });
-  const venues = useMemo(() => asArray(venuesRaw).map(normalizeVenueRow), [venuesRaw]);
+  const venues = useMemo(
+    () => asArray(venuesRaw).map(normalizeVenueRow).filter((v) => v.isOwner),
+    [venuesRaw],
+  );
 
   useEffect(() => {
     if (!user?.id) {
