@@ -10,6 +10,9 @@ import { flushPendingLegalAccepts } from '@/lib/pendingLegalAccept';
 import SecLogo from '@/components/ui/SecLogo';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import MobileBottomNav from '@/components/layout/MobileBottomNav';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useIsMobile } from '@/hooks/useIsDesktop';
+import { shouldShowMobileBackHeader, getMobilePageTitle } from '@/lib/mobilePageShell';
 import { BUSINESS_PAGE_PERMISSIONS, useVenueStaffAccess } from '@/hooks/useVenueStaffAccess';
 import { useScrollDirection } from '@/hooks/useScrollDirection';
 import { getMobileNavState } from '@/lib/mobileNavVisibility';
@@ -241,7 +244,9 @@ export default function Layout({ children, currentPageName }) {
   }, [user, modeForGuard, staffAccess.isStaffOnly, staffAccess.venuesLoading, staffAccess.can, currentPageName, navigate]);
 
   const { hideBottomNav } = getMobileNavState({ pageName: currentPageName, searchParams });
-  const navScrollHidden = useScrollDirection({ enabled: !hideBottomNav });
+  const navScrollCompact = useScrollDirection({ enabled: !hideBottomNav });
+  const isMobile = useIsMobile();
+  const showLayoutBackHeader = isMobile && shouldShowMobileBackHeader(currentPageName);
 
   const hideNav =
     ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName) ||
@@ -490,6 +495,12 @@ export default function Layout({ children, currentPageName }) {
             </Link>
           </div>
         )}
+        {showLayoutBackHeader ? (
+          <PageBackHeader
+            title={getMobilePageTitle(currentPageName)}
+            pageName={currentPageName}
+          />
+        ) : null}
         {children}
       </main>
 
@@ -554,7 +565,7 @@ export default function Layout({ children, currentPageName }) {
         <MobileBottomNav
           items={mobileNav}
           isActive={isActive}
-          hidden={navScrollHidden}
+          compact={navScrollCompact}
           availableModes={availableModes}
           onOpenModeSwitcher={() => setShowModeSwitcher(true)}
           onPrefetch={prefetchNav}

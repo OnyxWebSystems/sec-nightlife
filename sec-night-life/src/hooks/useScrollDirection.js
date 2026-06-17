@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Track scroll direction for auto-hiding mobile nav.
- * @param {{ enabled?: boolean, threshold?: number }} opts
+ * Shrinks mobile nav while scrolling; restores full size after scroll idle.
+ * @param {{ enabled?: boolean, threshold?: number, idleMs?: number }} opts
  */
-export function useScrollDirection({ enabled = true, threshold = 8 } = {}) {
-  const [hidden, setHidden] = useState(false);
+export function useScrollDirection({ enabled = true, threshold = 8, idleMs = 240 } = {}) {
+  const [compact, setCompact] = useState(false);
   const lastY = useRef(0);
+  const idleTimer = useRef(null);
 
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') {
-      setHidden(false);
+      setCompact(false);
       return undefined;
     }
 
@@ -19,19 +20,28 @@ export function useScrollDirection({ enabled = true, threshold = 8 } = {}) {
     function onScroll() {
       const y = window.scrollY;
       if (y < 40) {
-        setHidden(false);
+        setCompact(false);
         lastY.current = y;
-        return;
+      } else {
+        const delta = y - lastY.current;
+        if (Math.abs(delta) >= threshold) {
+          setCompact(delta > 0);
+          lastY.current = y;
+        }
       }
-      const delta = y - lastY.current;
-      if (Math.abs(delta) < threshold) return;
-      setHidden(delta > 0);
-      lastY.current = y;
+
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      idleTimer.current = window.setTimeout(() => {
+        setCompact(false);
+      }, idleMs);
     }
 
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, [enabled, threshold]);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    };
+  }, [enabled, threshold, idleMs]);
 
-  return hidden;
+  return compact;
 }

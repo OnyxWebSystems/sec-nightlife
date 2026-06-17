@@ -9,6 +9,10 @@ export const MOBILE_PAGE_PARENT = {
   Leaderboard: 'Home',
   Notifications: 'Home',
   HostDashboard: 'Home',
+  Profile: 'Home',
+  Explore: 'Home',
+  Map: 'Home',
+  Tables: 'Home',
   EventDetails: 'Home',
   TableDetails: 'Home',
   JobDetails: 'Home',
@@ -17,6 +21,7 @@ export const MOBILE_PAGE_PARENT = {
   TablePayment: 'Home',
   TableJoinOnboarding: 'Home',
   HelpCenter: 'Home',
+  UserProfile: 'Home',
   Privacy: 'Profile',
   EditProfile: 'Profile',
   MyJobApplications: 'Profile',
@@ -25,6 +30,22 @@ export const MOBILE_PAGE_PARENT = {
   ChangeEmail: 'Settings',
   AppPreferences: 'Settings',
   PromoterCodeOfConduct: 'Profile',
+  VenueBook: 'Home',
+  EventHostTables: 'Home',
+  CreateTable: 'HostDashboard',
+  CreateHostEvent: 'HostDashboard',
+  HostEventDetails: 'HostDashboard',
+  Payments: 'Profile',
+  CelebrationRequest: 'Profile',
+  AgeVerificationDeclaration: 'Profile',
+  AdminDashboard: 'Home',
+  CommunityGuidelines: 'Home',
+  TermsOfService: 'Settings',
+  PrivacyPolicy: 'Settings',
+  UserAgreement: 'Settings',
+  RefundPolicy: 'Settings',
+  GbvConsequences: 'Settings',
+  VenueComplianceCharter: 'Settings',
   BusinessDashboard: 'Home',
   BusinessEvents: 'BusinessDashboard',
   BusinessBookings: 'BusinessDashboard',
@@ -34,7 +55,9 @@ export const MOBILE_PAGE_PARENT = {
   BusinessPromotions: 'BusinessDashboard',
   VenueAnalytics: 'BusinessDashboard',
   BusinessVenueTables: 'BusinessDashboard',
+  VenueProfile: 'BusinessDashboard',
   CreateJob: 'BusinessJobs',
+  BusinessPromotionBoost: 'BusinessPromotions',
   StaffDashboard: 'Home',
   FeedbackInsights: 'BusinessDashboard',
 };
@@ -60,6 +83,11 @@ export function resolveMobileBackTarget(pageName, searchParams) {
       return { type: 'clearParams', keep: tab ? ['tab'] : [] };
     }
     return { type: 'page', page: MOBILE_PAGE_PARENT.BusinessMessages || 'BusinessDashboard' };
+  }
+
+  if (pageName === 'HostDashboard' && searchParams?.get('create')) {
+    const tab = searchParams.get('tab');
+    return { type: 'clearParams', keep: tab ? ['tab'] : [] };
   }
 
   const parent = MOBILE_PAGE_PARENT[pageName];

@@ -13,6 +13,7 @@ import FeaturedEventCard from '@/components/home/FeaturedEventCard';
 import VenueCard from '@/components/home/VenueCard';
 import TableOfferingCard from '@/components/home/TableOfferingCard';
 import QuickActions from '@/components/home/QuickActions';
+import StaffAccessBanner from '@/components/home/StaffAccessBanner';
 import PlatformAnnouncementBanner from '@/components/home/PlatformAnnouncementBanner';
 import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
@@ -223,6 +224,14 @@ export default function Home() {
   const [sessionId] = useState(() => getOrCreateSessionId());
   const pullCooldownRef = useRef(0);
 
+  const { data: staffAssignments = [] } = useQuery({
+    queryKey: ['staff-venues'],
+    queryFn: () =>
+      apiGet('/api/staff/venues').then((r) => (Array.isArray(r) ? r : r?.items || [])),
+    enabled: !!user?.id,
+    staleTime: 5 * 60_000,
+  });
+
   const refreshHomeData = useCallback(
     async (showToast = true) => {
       await Promise.all([
@@ -235,6 +244,7 @@ export default function Home() {
         queryClient.invalidateQueries({ queryKey: ['all-venues'] }),
         queryClient.invalidateQueries({ queryKey: ['home-platform-announcements'] }),
         queryClient.invalidateQueries({ queryKey: ['home-followed-promoters'] }),
+        queryClient.invalidateQueries({ queryKey: ['staff-venues'] }),
       ]);
       if (showToast) toast.success('Feed refreshed');
     },
@@ -590,6 +600,8 @@ export default function Home() {
       </header>
 
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '24px 20px 0' }}>
+
+        <StaffAccessBanner assignments={staffAssignments} />
 
         {/* ── Quick Actions ── */}
         <div style={{ marginBottom: 32 }}>

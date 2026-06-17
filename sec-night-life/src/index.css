@@ -55,6 +55,16 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  @media (max-width: 1023px) {
+    input,
+    textarea,
+    select,
+    .sec-input,
+    .sec-input-rect {
+      font-size: 16px !important;
+    }
+  }
   h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
     letter-spacing: -0.02em;

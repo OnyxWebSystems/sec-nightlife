@@ -12,6 +12,7 @@ import UserProfileReviewsSection from '@/components/reviews/UserProfileReviewsSe
 import { StarRatingDisplay } from '@/components/reviews/StarRating';
 import ReportDialog from '@/components/moderation/ReportDialog';
 import TableHistorySection from '@/components/profile/TableHistorySection';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 export default function UserProfile() {
   const navigate = useNavigate();
@@ -104,19 +105,13 @@ export default function UserProfile() {
   };
 
   return (
-    <div className="min-h-screen pb-24 max-w-app md:max-w-app-md mx-auto px-4">
-      <div className="pt-4 flex items-center gap-2">
-        <button
-          type="button"
-          className="min-h-[44px] min-w-[44px] rounded-full bg-[#141416] flex items-center justify-center"
-          onClick={() => navigate(-1)}
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <h1 className="text-lg font-bold">Profile</h1>
-      </div>
+    <div className="min-h-screen pb-6 max-w-app md:max-w-app-md mx-auto">
+      <PageBackHeader
+        title={profile.full_name || profile.username || 'Profile'}
+        pageName="UserProfile"
+      />
 
-      <div className="mt-6 flex flex-col items-center text-center">
+      <div className="px-4 mt-6 flex flex-col items-center text-center">
         <div className="w-24 h-24 rounded-full bg-[#262629] overflow-hidden mb-3">
           {profile.avatarUrl ? (
             <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />

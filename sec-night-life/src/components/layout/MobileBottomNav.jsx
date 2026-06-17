@@ -6,7 +6,7 @@ import { MOBILE_NAV_FLOATING_MARGIN } from '@/lib/layoutConstants';
 export default function MobileBottomNav({
   items,
   isActive,
-  hidden = false,
+  compact = false,
   availableModes = [],
   onOpenModeSwitcher,
   onPrefetch,
@@ -19,29 +19,31 @@ export default function MobileBottomNav({
       className="lg:hidden"
       style={{
         position: 'fixed',
-        left: 16,
-        right: 16,
+        left: compact ? 24 : 16,
+        right: compact ? 24 : 16,
         bottom: `calc(${MOBILE_NAV_FLOATING_MARGIN}px + env(safe-area-inset-bottom))`,
         zIndex: 50,
-        transform: hidden ? 'translateY(calc(100% + 24px))' : 'translateY(0)',
-        transition: 'transform 0.22s ease',
-        pointerEvents: hidden ? 'none' : 'auto',
+        transform: compact ? 'scale(0.92)' : 'scale(1)',
+        transformOrigin: 'center bottom',
+        transition: 'transform 0.22s ease, left 0.22s ease, right 0.22s ease',
+        pointerEvents: 'auto',
       }}
-      aria-hidden={hidden}
+      aria-label="Main navigation"
     >
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-around',
-          height: 56,
+          height: compact ? 48 : 56,
           borderRadius: 9999,
           backgroundColor: 'rgba(10, 10, 11, 0.94)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           border: '1px solid var(--sec-border)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-          padding: '0 6px',
+          boxShadow: compact ? '0 4px 20px rgba(0,0,0,0.35)' : '0 8px 32px rgba(0,0,0,0.45)',
+          padding: compact ? '0 4px' : '0 6px',
+          transition: 'height 0.22s ease, padding 0.22s ease, box-shadow 0.22s ease',
         }}
       >
         {items.map((item) => {
@@ -49,12 +51,13 @@ export default function MobileBottomNav({
           const isCreateTab = item.isCreate || (item.name === 'Create' && item.query === '?create=table');
           const isProfile = item.page === 'Profile';
           const to = item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page);
+          const iconSize = compact ? 20 : 22;
 
           const iconEl = isCreateTab ? (
             <div
               style={{
-                width: 40,
-                height: 40,
+                width: compact ? 36 : 40,
+                height: compact ? 36 : 40,
                 borderRadius: 12,
                 background: 'var(--sec-gradient-silver)',
                 display: 'flex',
@@ -62,13 +65,14 @@ export default function MobileBottomNav({
                 justifyContent: 'center',
                 boxShadow: '0 2px 10px rgba(192,192,192,0.2)',
                 color: 'var(--sec-bg-base)',
+                transition: 'width 0.22s ease, height 0.22s ease',
               }}
             >
-              <item.icon size={20} strokeWidth={2} />
+              <item.icon size={compact ? 18 : 20} strokeWidth={2} />
             </div>
           ) : (
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <item.icon size={22} strokeWidth={active ? 2 : 1.5} />
+              <item.icon size={iconSize} strokeWidth={active ? 2 : 1.5} />
               {(item.page === 'Messages' || item.page === 'BusinessMessages' || item.page === 'HostDashboard') &&
               item.badge > 0 ? (
                 <span
@@ -95,7 +99,7 @@ export default function MobileBottomNav({
             </div>
           );
 
-          const inner = active && !isCreateTab ? (
+          const inner = active && !isCreateTab && !compact ? (
             <div
               style={{
                 display: 'flex',
@@ -113,7 +117,7 @@ export default function MobileBottomNav({
               </span>
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isCreateTab ? 0 : '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isCreateTab ? 0 : compact ? '6px 8px' : '8px 10px' }}>
               {iconEl}
             </div>
           );

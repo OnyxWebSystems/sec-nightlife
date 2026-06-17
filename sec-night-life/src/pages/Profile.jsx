@@ -36,6 +36,8 @@ import MyReviews from '@/components/profile/MyReviews';
 import InterestsEditor from '@/components/profile/InterestsEditor';
 import TableHistorySection from '@/components/profile/TableHistorySection';
 import UserSecWallet from '@/components/wallet/UserSecWallet';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false, onDismiss }) {
   const renderEvent = (item, { showRemove = false } = {}) => {
     const eventId = item.eventId || item.id;
@@ -108,6 +110,7 @@ function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false
 
 export default function Profile() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const OWN_ONLY_TABS = ['tickets', 'reviews', 'interests', 'wallet', 'promotions'];
   const rawTab = searchParams.get('tab');
@@ -389,7 +392,10 @@ export default function Profile() {
   }
 
   return (
-    <div className="min-h-screen pb-28 lg:pb-10" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+    <div className="min-h-screen pb-6 lg:pb-10" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+      {isMobile && isOwnProfile ? (
+        <PageBackHeader title="Profile" pageName="Profile" />
+      ) : null}
       <div style={{ position: 'relative', height: 160, backgroundColor: 'var(--sec-bg-elevated)' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, var(--sec-bg-base), transparent)' }} />
         

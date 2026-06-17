@@ -18,6 +18,8 @@ import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { uploadHostedTablePhotoFile } from '@/lib/uploadHostedTablePhoto';
 import HostedTableHostCard from '@/components/host/HostedTableHostCard';
 import { splitHostDashboardTables } from '@/lib/hostTableDashboard';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 
 /** Hosted table row uses HostedTableStatus (DRAFT / ACTIVE / FULL). */
 const TABLE_HOST_STATUS_BADGE = {
@@ -30,6 +32,7 @@ const TABLE_HOST_STATUS_BADGE = {
 export default function HostDashboard() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState('tables');
@@ -132,8 +135,33 @@ export default function HostDashboard() {
   }, [searchParams, setSearchParams, navigate]);
 
   useEffect(() => {
+    if (searchParams.get('create') !== 'table') {
+      setShowTableModal(false);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (!inviteOpenTableId) setInviteSearch('');
   }, [inviteOpenTableId]);
+
+  useEffect(() => {
+    if (!showTableModal) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    const prevPosition = document.body.style.position;
+    const prevWidth = document.body.style.width;
+    const scrollY = window.scrollY;
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+    document.body.style.top = `-${scrollY}px`;
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.position = prevPosition;
+      document.body.style.width = prevWidth;
+      document.body.style.top = '';
+      window.scrollTo(0, scrollY);
+    };
+  }, [showTableModal]);
 
   const inviteUserSearchQ = useQuery({
     queryKey: ['host-invite-user-search', inviteSearch.trim()],
@@ -591,15 +619,20 @@ export default function HostDashboard() {
   }
 
   return (
-    <div className="px-4 py-6 max-w-[1100px] mx-auto pb-24 lg:pb-10">
-      <div className="flex items-center gap-2 mb-6">
-        <SecLogo size={30} />
-        <div>
-          <h1 className="text-xl font-bold">Host</h1>
-          <p className="text-sm opacity-70">Private meet-up tables</p>
+    <div className="max-w-[1100px] mx-auto pb-6 lg:pb-10 lg:px-4 lg:py-6">
+      {isMobile ? (
+        <PageBackHeader title="Host Dashboard" subtitle="Private meet-up tables" pageName="HostDashboard" />
+      ) : (
+        <div className="flex items-center gap-2 mb-6 px-4 pt-6">
+          <SecLogo size={30} />
+          <div>
+            <h1 className="text-xl font-bold">Host</h1>
+            <p className="text-sm opacity-70">Private meet-up tables</p>
+          </div>
         </div>
-      </div>
+      )}
 
+      <div className="px-4">
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="grid w-full grid-cols-2 mb-4">
           <TabsTrigger value="tables">Tables</TabsTrigger>
@@ -725,6 +758,7 @@ export default function HostDashboard() {
           </div>
         </TabsContent>
       </Tabs>
+      </div>
 
       <ImageCropDialog
         open={createTablePhotoCrop.cropOpen || manageTablePhotoCrop.cropOpen}
@@ -745,15 +779,22 @@ export default function HostDashboard() {
       />
 
       {showTableModal && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 p-4">
-          <div className="bg-[var(--sec-bg-card)] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 max-h-[90vh] overflow-y-auto border border-[var(--sec-border)]">
-            <div className="flex justify-between items-center mb-3">
+        <div className="fixed inset-0 z-[100] flex flex-col bg-black/70 lg:flex-row lg:items-center lg:justify-center lg:p-4">
+          <div className="bg-[var(--sec-bg-card)] w-full flex-1 lg:flex-none lg:max-w-md lg:rounded-2xl lg:max-h-[90vh] overflow-y-auto overscroll-contain border-0 lg:border border-[var(--sec-border)] flex flex-col min-h-0">
+            <div className="sticky top-0 z-10 flex justify-between items-center p-4 border-b border-[var(--sec-border)] bg-[var(--sec-bg-card)] shrink-0" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
               <h3 className="font-semibold">Private meet-up table</h3>
-              <button type="button" className="text-sm opacity-70" onClick={() => { setShowTableModal(false); setSearchParams({}, { replace: true }); }}>
+              <button
+                type="button"
+                className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-sm opacity-70"
+                onClick={() => {
+                  setShowTableModal(false);
+                  setSearchParams({}, { replace: true });
+                }}
+              >
                 Close
               </button>
             </div>
-            <div className="space-y-4 text-sm">
+            <div className="p-4 space-y-4 text-sm flex-1 overflow-y-auto overscroll-contain">
               <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
                 List a private meet-up at any venue. To book tables at official SEC events, use Book a table on the event page — venues control those listings.
               </p>
@@ -761,7 +802,7 @@ export default function HostDashboard() {
                 Venue name
                 <input
                   placeholder="e.g. Rooftop Lounge"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
                   value={tableForm.venueName}
                   onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
                 />
@@ -784,20 +825,20 @@ export default function HostDashboard() {
                 Date
                 <input
                   type="date"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
                   value={tableForm.eventDate}
                   onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
                 />
               </label>
               <input
                 placeholder="Table name (e.g. VIP Section)"
-                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
                 value={tableForm.tableName}
                 onChange={(e) => setTableForm((f) => ({ ...f, tableName: e.target.value }))}
                 maxLength={60}
               />
               <select
-                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
                 value={tableForm.eventType}
                 onChange={(e) => setTableForm((f) => ({ ...f, eventType: e.target.value }))}
               >
@@ -809,7 +850,7 @@ export default function HostDashboard() {
               </select>
               <textarea
                 placeholder="Description (optional)"
-                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
                 rows={3}
                 value={tableForm.tableDescription}
                 onChange={(e) => setTableForm((f) => ({ ...f, tableDescription: e.target.value }))}
@@ -819,7 +860,7 @@ export default function HostDashboard() {
                 Meet time
                 <input
                   type="time"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
                   value={tableForm.eventTime}
                   onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
                 />
@@ -855,7 +896,7 @@ export default function HostDashboard() {
                   type="number"
                   min={10}
                   placeholder="Joining fee (ZAR)"
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
                   value={tableForm.joiningFee}
                   onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
                 />

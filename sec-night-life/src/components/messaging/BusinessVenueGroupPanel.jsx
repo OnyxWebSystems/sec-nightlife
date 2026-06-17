@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Plus, Users, Trash2, LogOut, Shield, Search } from 'lucide-react';
 import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
+import ImageCropDialog from '@/components/profile/ImageCropDialog';
+import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
@@ -31,7 +33,6 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
   const [createOpen, setCreateOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [messageBody, setMessageBody] = useState('');
-  const [addMemberUsername, setAddMemberUsername] = useState('');
   const [memberSearchQ, setMemberSearchQ] = useState('');
   const [avatarUploading, setAvatarUploading] = useState(false);
   const { replyingTo, setReplyingTo, clearReply } = useMessageReply();
@@ -95,6 +96,25 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
     }
   }
 
+  const groupAvatarCrop = useImageCropUpload({
+    onCropped: (file) => uploadGroupAvatar(file),
+  });
+
+  async function removeGroupAvatar() {
+    if (!selectedGroupId || !groupsBase) return;
+    setAvatarUploading(true);
+    try {
+      await apiPatch(`${groupsBase}/${selectedGroupId}`, { avatarUrl: null });
+      toast.success('Group photo removed');
+      queryClient.invalidateQueries({ queryKey: ['venue-message-groups', venueId, staffContextToken] });
+      refetchDetail();
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Could not remove photo');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) || null;
 
   const { data: messagesRaw, refetch: refetchMessages } = useQuery({
@@ -144,7 +164,7 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
       }),
     onSuccess: () => {
       toast.success('Member added');
-      setAddMemberUsername('');
+      setMemberSearchQ('');
       refetchDetail();
       queryClient.invalidateQueries({ queryKey: ['venue-message-groups', venueId] });
     },
@@ -296,20 +316,28 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
                 )}
                 <h3 className="font-semibold truncate">{selectedGroup?.name || 'Group'}</h3>
                 {isAdmin ? (
-                  <label className="text-xs text-[var(--sec-accent)] cursor-pointer shrink-0">
-                    {avatarUploading ? '…' : 'Photo'}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={avatarUploading}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) uploadGroupAvatar(f);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <label className="text-xs text-[var(--sec-accent)] cursor-pointer">
+                      {avatarUploading ? '…' : 'Photo'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={avatarUploading}
+                        onChange={groupAvatarCrop.handleInputChange}
+                      />
+                    </label>
+                    {(groupDetail?.avatarUrl || selectedGroup?.avatarUrl) ? (
+                      <button
+                        type="button"
+                        className="text-xs text-red-400"
+                        disabled={avatarUploading}
+                        onClick={removeGroupAvatar}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
               <div className="flex items-center gap-1">
@@ -368,21 +396,6 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
                             ))}
                           </ul>
                         ) : null}
-                        <div className="flex gap-2">
-                          <Input
-                            value={addMemberUsername}
-                            onChange={(e) => setAddMemberUsername(e.target.value)}
-                            placeholder="@username"
-                            className="flex-1"
-                          />
-                          <Button
-                            size="sm"
-                            disabled={!addMemberUsername.trim() || addMemberMutation.isPending}
-                            onClick={() => addMemberMutation.mutate(addMemberUsername)}
-                          >
-                            Add
-                          </Button>
-                        </div>
                       </div>
                     ) : null}
                     <ul className="space-y-2 overflow-y-auto max-h-48">
@@ -542,6 +555,16 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
           </Button>
         </DialogContent>
       </Dialog>
+
+      <ImageCropDialog
+        open={groupAvatarCrop.cropOpen}
+        onOpenChange={groupAvatarCrop.onCropOpenChange}
+        imageSrc={groupAvatarCrop.cropSrc}
+        onCropped={groupAvatarCrop.handleCropped}
+        cropShape="round"
+        outputFileName="group-avatar.jpg"
+        aspect={1}
+      />
     </div>
   );
 }
