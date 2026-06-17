@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { createPageUrl, getPublicAppOrigin } from '@/utils';
 import * as authService from '@/services/authService';
@@ -20,6 +21,7 @@ import HostedTableHostCard from '@/components/host/HostedTableHostCard';
 import { splitHostDashboardTables } from '@/lib/hostTableDashboard';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useIsMobile } from '@/hooks/useIsDesktop';
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 
 /** Hosted table row uses HostedTableStatus (DRAFT / ACTIVE / FULL). */
 const TABLE_HOST_STATUS_BADGE = {
@@ -144,24 +146,12 @@ export default function HostDashboard() {
     if (!inviteOpenTableId) setInviteSearch('');
   }, [inviteOpenTableId]);
 
-  useEffect(() => {
-    if (!showTableModal) return undefined;
-    const prevOverflow = document.body.style.overflow;
-    const prevPosition = document.body.style.position;
-    const prevWidth = document.body.style.width;
-    const scrollY = window.scrollY;
-    document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.width = '100%';
-    document.body.style.top = `-${scrollY}px`;
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      document.body.style.position = prevPosition;
-      document.body.style.width = prevWidth;
-      document.body.style.top = '';
-      window.scrollTo(0, scrollY);
-    };
-  }, [showTableModal]);
+  useBodyScrollLock(showTableModal && !isMobile);
+
+  function closeTableModal() {
+    setShowTableModal(false);
+    setSearchParams({}, { replace: true });
+  }
 
   const inviteUserSearchQ = useQuery({
     queryKey: ['host-invite-user-search', inviteSearch.trim()],
@@ -618,6 +608,268 @@ export default function HostDashboard() {
     );
   }
 
+  const hostedTableCreateFields = (
+    <div className="space-y-4 text-sm">
+      <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
+        List a private meet-up at any venue. To book tables at official SEC events, use Book a table on the event page — venues control those listings.
+      </p>
+      <label className="block text-sm font-medium">
+        Venue name
+        <input
+          placeholder="e.g. Rooftop Lounge"
+          className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          value={tableForm.venueName}
+          onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
+        />
+      </label>
+      <div>
+        <div className="text-sm font-medium mb-1">Address</div>
+        <p className="text-xs text-[var(--sec-text-muted)] mb-2">Required so friends know exactly where to go.</p>
+        <GoogleAddressInput
+          value={tableForm.venueAddress}
+          label="Address"
+          placeholder="Start typing an address"
+          onChange={(structured) => {
+            const addr =
+              typeof structured === 'string'
+                ? structured
+                : structured?.formattedAddress || structured?.street || '';
+            setTableForm((f) => ({ ...f, venueAddress: addr }));
+          }}
+        />
+      </div>
+      <label className="block text-sm font-medium">
+        Date
+        <input
+          type="date"
+          className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          value={tableForm.eventDate}
+          onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
+        />
+      </label>
+      <input
+        placeholder="Table name (e.g. VIP Section)"
+        className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+        value={tableForm.tableName}
+        onChange={(e) => setTableForm((f) => ({ ...f, tableName: e.target.value }))}
+        maxLength={60}
+      />
+      <select
+        className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+        value={tableForm.eventType}
+        onChange={(e) => setTableForm((f) => ({ ...f, eventType: e.target.value }))}
+      >
+        <option value="CLUB_TABLE">Club Table</option>
+        <option value="HOUSE_PARTY">House Party</option>
+        <option value="BOAT_PARTY">Boat Party</option>
+        <option value="RESTAURANT">Restaurant</option>
+        <option value="OTHER">Other</option>
+      </select>
+      <textarea
+        placeholder="Description (optional)"
+        className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+        rows={3}
+        value={tableForm.tableDescription}
+        onChange={(e) => setTableForm((f) => ({ ...f, tableDescription: e.target.value }))}
+        maxLength={300}
+      />
+      <label className="block text-sm font-medium">
+        Meet time
+        <input
+          type="time"
+          className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          value={tableForm.eventTime}
+          onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
+        />
+      </label>
+      <label className="block text-sm font-medium">
+        Spots at table
+        <input
+          type="number"
+          min={1}
+          max={tableGuestMax}
+          placeholder="Spots at table"
+          className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          value={tableForm.guestQuantity}
+          onChange={(e) =>
+            setTableForm((f) => {
+              const raw = parseInt(e.target.value, 10) || 1;
+              return { ...f, guestQuantity: Math.min(Math.max(1, raw), tableGuestMax) };
+            })
+          }
+        />
+      </label>
+      <p className="text-xs text-[var(--sec-text-muted)]">Private meet-ups allow at most 20 spots.</p>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={tableForm.hasJoiningFee}
+          onChange={(e) => setTableForm((f) => ({ ...f, hasJoiningFee: e.target.checked }))}
+        />
+        Charge joining fee
+      </label>
+      {tableForm.hasJoiningFee ? (
+        <input
+          type="number"
+          min={10}
+          placeholder="Joining fee (ZAR)"
+          className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          value={tableForm.joiningFee}
+          onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
+        />
+      ) : null}
+      <div>
+        <label className="text-xs text-[var(--sec-text-muted)] block mb-2">
+          Table photo (group chat, browse & Home when boosted)
+        </label>
+        <input
+          type="file"
+          accept="image/*"
+          className="w-full text-xs sec-input-rect"
+          onChange={createTablePhotoCrop.handleInputChange}
+        />
+        {tableForm.photo ? (
+          <img src={tableForm.photo} alt="" className="w-full h-28 object-cover rounded-xl mt-2" />
+        ) : null}
+      </div>
+      <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2">
+        <label className="flex items-start gap-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={tableForm.isPublic}
+            onChange={(e) => setTableForm((f) => ({ ...f, isPublic: e.target.checked }))}
+          />
+          <span>
+            <span className="font-medium">Show in public table list</span>
+            <span className="block text-xs text-[var(--sec-text-muted)] mt-0.5">
+              Turn off for a private table: only people you invite can join, and others must request approval to join.
+            </span>
+          </span>
+        </label>
+      </div>
+    </div>
+  );
+
+  const createTableSubmitButton = (
+    <button
+      type="button"
+      disabled={saving}
+      className="sec-btn sec-btn-primary w-full disabled:opacity-50 min-h-[48px]"
+      onClick={submitTable}
+    >
+      {saving ? 'Listing…' : 'List my table'}
+    </button>
+  );
+
+  const imageCropDialog = (
+    <ImageCropDialog
+      open={createTablePhotoCrop.cropOpen || manageTablePhotoCrop.cropOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          createTablePhotoCrop.onCropOpenChange(false);
+          manageTablePhotoCrop.onCropOpenChange(false);
+        }
+      }}
+      imageSrc={createTablePhotoCrop.cropSrc || manageTablePhotoCrop.cropSrc}
+      title="Crop table photo"
+      onCropped={(file) => {
+        if (createTablePhotoCrop.cropOpen) createTablePhotoCrop.handleCropped(file);
+        else manageTablePhotoCrop.handleCropped(file);
+      }}
+      outputFileName="hosted-table.jpg"
+      aspect={1}
+    />
+  );
+
+  if (isMobile && showTableModal) {
+    return (
+      <>
+        <div
+          className="fixed inset-0 z-[100] flex flex-col bg-[var(--sec-bg-base)]"
+          style={{
+            height: '100dvh',
+            maxHeight: '100dvh',
+            width: '100%',
+            overflow: 'hidden',
+            touchAction: 'manipulation',
+          }}
+        >
+          <header
+            className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--sec-border)] bg-[var(--sec-bg-base)]"
+            style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
+          >
+            <h3 className="font-semibold text-base">Private meet-up table</h3>
+            <button
+              type="button"
+              className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-sm"
+              style={{ backgroundColor: 'var(--sec-bg-elevated)' }}
+              onClick={closeTableModal}
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </header>
+          <div
+            data-scroll-lock-scrollable
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
+            {hostedTableCreateFields}
+          </div>
+          <footer
+            className="shrink-0 border-t border-[var(--sec-border)] bg-[var(--sec-bg-base)] px-4 pt-3"
+            style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
+          >
+            {createTableSubmitButton}
+          </footer>
+        </div>
+        {imageCropDialog}
+      </>
+    );
+  }
+
+  const desktopCreateModal =
+    showTableModal && !isMobile && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+            style={{ touchAction: 'none' }}
+            onClick={closeTableModal}
+            role="presentation"
+          >
+            <div
+              className="bg-[var(--sec-bg-card)] w-full max-w-md max-h-[90vh] rounded-2xl border border-[var(--sec-border)] flex flex-col min-h-0 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="create-hosted-table-title"
+            >
+              <div className="shrink-0 flex justify-between items-center p-4 border-b border-[var(--sec-border)]">
+                <h3 id="create-hosted-table-title" className="font-semibold">
+                  Private meet-up table
+                </h3>
+                <button
+                  type="button"
+                  className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-sm opacity-70"
+                  onClick={closeTableModal}
+                >
+                  Close
+                </button>
+              </div>
+              <div
+                data-scroll-lock-scrollable
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-4"
+              >
+                {hostedTableCreateFields}
+                {createTableSubmitButton}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div className="max-w-[1100px] mx-auto pb-6 lg:pb-10 lg:px-4 lg:py-6">
       {isMobile ? (
@@ -760,189 +1012,8 @@ export default function HostDashboard() {
       </Tabs>
       </div>
 
-      <ImageCropDialog
-        open={createTablePhotoCrop.cropOpen || manageTablePhotoCrop.cropOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            createTablePhotoCrop.onCropOpenChange(false);
-            manageTablePhotoCrop.onCropOpenChange(false);
-          }
-        }}
-        imageSrc={createTablePhotoCrop.cropSrc || manageTablePhotoCrop.cropSrc}
-        title="Crop table photo"
-        onCropped={(file) => {
-          if (createTablePhotoCrop.cropOpen) createTablePhotoCrop.handleCropped(file);
-          else manageTablePhotoCrop.handleCropped(file);
-        }}
-        outputFileName="hosted-table.jpg"
-        aspect={1}
-      />
-
-      {showTableModal && (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-black/70 lg:flex-row lg:items-center lg:justify-center lg:p-4">
-          <div className="bg-[var(--sec-bg-card)] w-full flex-1 lg:flex-none lg:max-w-md lg:rounded-2xl lg:max-h-[90vh] overflow-y-auto overscroll-contain border-0 lg:border border-[var(--sec-border)] flex flex-col min-h-0">
-            <div className="sticky top-0 z-10 flex justify-between items-center p-4 border-b border-[var(--sec-border)] bg-[var(--sec-bg-card)] shrink-0" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
-              <h3 className="font-semibold">Private meet-up table</h3>
-              <button
-                type="button"
-                className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-sm opacity-70"
-                onClick={() => {
-                  setShowTableModal(false);
-                  setSearchParams({}, { replace: true });
-                }}
-              >
-                Close
-              </button>
-            </div>
-            <div className="p-4 space-y-4 text-sm flex-1 overflow-y-auto overscroll-contain">
-              <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
-                List a private meet-up at any venue. To book tables at official SEC events, use Book a table on the event page — venues control those listings.
-              </p>
-              <label className="block text-sm font-medium">
-                Venue name
-                <input
-                  placeholder="e.g. Rooftop Lounge"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-                  value={tableForm.venueName}
-                  onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
-                />
-              </label>
-              <div>
-                <div className="text-sm font-medium mb-1">Address</div>
-                <p className="text-xs text-[var(--sec-text-muted)] mb-2">Required so friends know exactly where to go.</p>
-                <GoogleAddressInput
-                  value={tableForm.venueAddress}
-                  onChange={(structured) => {
-                    const addr =
-                      typeof structured === 'string'
-                        ? structured
-                        : structured?.formattedAddress || structured?.street || '';
-                    setTableForm((f) => ({ ...f, venueAddress: addr }));
-                  }}
-                />
-              </div>
-              <label className="block text-sm font-medium">
-                Date
-                <input
-                  type="date"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-                  value={tableForm.eventDate}
-                  onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
-                />
-              </label>
-              <input
-                placeholder="Table name (e.g. VIP Section)"
-                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-                value={tableForm.tableName}
-                onChange={(e) => setTableForm((f) => ({ ...f, tableName: e.target.value }))}
-                maxLength={60}
-              />
-              <select
-                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-                value={tableForm.eventType}
-                onChange={(e) => setTableForm((f) => ({ ...f, eventType: e.target.value }))}
-              >
-                <option value="CLUB_TABLE">Club Table</option>
-                <option value="HOUSE_PARTY">House Party</option>
-                <option value="BOAT_PARTY">Boat Party</option>
-                <option value="RESTAURANT">Restaurant</option>
-                <option value="OTHER">Other</option>
-              </select>
-              <textarea
-                placeholder="Description (optional)"
-                className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-                rows={3}
-                value={tableForm.tableDescription}
-                onChange={(e) => setTableForm((f) => ({ ...f, tableDescription: e.target.value }))}
-                maxLength={300}
-              />
-              <label className="block text-sm font-medium">
-                Meet time
-                <input
-                  type="time"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-                  value={tableForm.eventTime}
-                  onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
-                />
-              </label>
-              <label className="block text-sm font-medium">
-                Spots at table
-                <input
-                  type="number"
-                  min={1}
-                  max={tableGuestMax}
-                  placeholder="Spots at table"
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]"
-                  value={tableForm.guestQuantity}
-                  onChange={(e) =>
-                    setTableForm((f) => {
-                      const raw = parseInt(e.target.value, 10) || 1;
-                      return { ...f, guestQuantity: Math.min(Math.max(1, raw), tableGuestMax) };
-                    })
-                  }
-                />
-              </label>
-              <p className="text-xs text-[var(--sec-text-muted)]">Private meet-ups allow at most 20 spots.</p>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={tableForm.hasJoiningFee}
-                  onChange={(e) => setTableForm((f) => ({ ...f, hasJoiningFee: e.target.checked }))}
-                />
-                Charge joining fee
-              </label>
-              {tableForm.hasJoiningFee && (
-                <input
-                  type="number"
-                  min={10}
-                  placeholder="Joining fee (ZAR)"
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-                  value={tableForm.joiningFee}
-                  onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
-                />
-              )}
-              <div>
-                <label className="text-xs text-[var(--sec-text-muted)] block mb-2">
-                  Table photo (group chat, browse & Home when boosted)
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="w-full text-xs sec-input-rect"
-                  onChange={createTablePhotoCrop.handleInputChange}
-                />
-                {tableForm.photo ? (
-                  <img src={tableForm.photo} alt="" className="w-full h-28 object-cover rounded-xl mt-2" />
-                ) : null}
-              </div>
-              <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2">
-                <label className="flex items-start gap-3 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={tableForm.isPublic}
-                    onChange={(e) => setTableForm((f) => ({ ...f, isPublic: e.target.checked }))}
-                  />
-                  <span>
-                    <span className="font-medium">Show in public table list</span>
-                    <span className="block text-xs text-[var(--sec-text-muted)] mt-0.5">
-                      Turn off for a private table: only people you invite can join, and others must request approval to join.
-                    </span>
-                  </span>
-                </label>
-              </div>
-              <button
-                type="button"
-                disabled={saving}
-                className="sec-btn sec-btn-primary w-full disabled:opacity-50"
-                onClick={submitTable}
-              >
-                List my table
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {imageCropDialog}
+      {desktopCreateModal}
     </div>
   );
 }

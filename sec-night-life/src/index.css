@@ -525,6 +525,14 @@
   .sec-input-rect:focus { border-color: var(--sec-border-strong); }
   .sec-input-rect::placeholder { color: var(--sec-text-muted); }
 
+  /* Google Places autocomplete — keep above sheets, avoid layout push */
+  .pac-container {
+    z-index: 20000 !important;
+    border-radius: 12px;
+    border: 1px solid var(--sec-border);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  }
+
   /* ─── Progress / capacity bar ─── */
   .sec-progress {
     height: 3px;
