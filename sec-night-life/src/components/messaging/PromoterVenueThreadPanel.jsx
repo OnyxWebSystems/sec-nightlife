@@ -5,16 +5,23 @@ import { apiDelete, apiGet, apiPost } from '@/api/client';
 import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { MessageSquareX, Megaphone } from 'lucide-react';
+import { ChevronLeft, MessageSquareX, Megaphone } from 'lucide-react';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
-import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
+import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
+import ChatComposer from '@/components/messaging/ChatComposer';
 import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 
 const PROMOTIONS_URL = `${createPageUrl('Profile')}?tab=promotions`;
 
-export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted, isBusiness = false }) {
+export default function PromoterVenueThreadPanel({
+  threadId,
+  onClose,
+  onDeleted,
+  isBusiness = false,
+  hideHeader = false,
+}) {
   const [sending, setSending] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
   const [messageBody, setMessageBody] = useState('');
@@ -73,25 +80,33 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
     : thread?.venueName || 'Venue';
 
   return (
-    <div className="flex flex-col h-full bg-[var(--sec-bg-base)]">
-      <header className="flex items-center gap-3 px-4 py-3 border-b border-[var(--sec-border)]">
-        <button type="button" onClick={onClose} className="sec-btn sec-btn-ghost sec-btn-sm">
-          Back
-        </button>
-        <h2 className="font-semibold text-sm flex-1 truncate">{headerTitle}</h2>
-        <button
-          type="button"
-          onClick={deleteChat}
-          disabled={deletingChat}
-          className="sec-btn sec-btn-ghost sec-btn-sm text-[var(--sec-text-muted)] hover:text-red-400"
-          title="Delete chat"
-        >
-          <MessageSquareX size={16} />
-        </button>
-      </header>
+    <div className="flex flex-col h-full min-h-0 bg-[var(--sec-bg-base)]">
+      {!hideHeader ? (
+        <header className="flex items-center gap-3 px-4 py-3 border-b border-[var(--sec-border)] shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0"
+            style={{ backgroundColor: 'var(--sec-bg-elevated)' }}
+            aria-label="Go back"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <h2 className="font-semibold text-sm flex-1 truncate">{headerTitle}</h2>
+          <button
+            type="button"
+            onClick={deleteChat}
+            disabled={deletingChat}
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[var(--sec-text-muted)] hover:text-red-400"
+            title="Delete chat"
+          >
+            <MessageSquareX size={16} />
+          </button>
+        </header>
+      ) : null}
 
       {assignments.length > 0 ? (
-        <div className="px-4 py-3 border-b border-[var(--sec-border)] bg-[var(--sec-bg-elevated)]">
+        <div className="px-4 py-3 border-b border-[var(--sec-border)] bg-[var(--sec-bg-elevated)] shrink-0">
           <p className="text-xs font-semibold mb-2 flex items-center gap-1">
             <Megaphone size={12} /> Assigned events
           </p>
@@ -100,7 +115,7 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
               <li key={a.eventId}>
                 <Link
                   to={createPageUrl(`EventDetails?id=${a.eventId}`)}
-                  className="text-xs text-[var(--sec-accent)] underline"
+                  className="text-xs text-[var(--sec-accent)] underline break-all"
                 >
                   {a.title}
                   {a.date ? ` · ${new Date(a.date).toLocaleDateString('en-ZA')}` : ''}
@@ -111,7 +126,7 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
         </div>
       ) : null}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
         {messages.length === 0 ? (
           <p className="text-sm text-[var(--sec-text-muted)]">
             {isBusiness
@@ -124,7 +139,7 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
               key={m.id}
               message={m}
               onReply={setReplyingTo}
-              className="text-sm p-3 rounded-xl max-w-[90%]"
+              className="text-sm p-3 rounded-xl max-w-[min(90%,calc(100vw-3rem))] min-w-0"
               style={{
                 marginLeft: m.isMine ? 'auto' : 0,
                 background: m.kind === 'ASSIGNMENT'
@@ -150,18 +165,16 @@ export default function PromoterVenueThreadPanel({ threadId, onClose, onDeleted,
         )}
       </div>
 
-      <div className="p-4 border-t border-[var(--sec-border)]">
-        <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
-        <textarea
-          className="sec-input w-full min-h-[72px] mb-2"
-          value={messageBody}
-          onChange={(e) => setMessageBody(e.target.value)}
-          placeholder={isBusiness ? 'Message promoter…' : 'Message venue…'}
-        />
-        <Button className="w-full" disabled={!messageBody.trim() || sending} onClick={sendMessage}>
-          {sending ? 'Sending…' : 'Send'}
-        </Button>
-      </div>
+      <ChatComposer
+        value={messageBody}
+        onChange={setMessageBody}
+        onSend={sendMessage}
+        disabled={sending}
+        placeholder={isBusiness ? 'Message promoter…' : 'Message venue…'}
+        replyPreview={
+          <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
+        }
+      />
     </div>
   );
 }

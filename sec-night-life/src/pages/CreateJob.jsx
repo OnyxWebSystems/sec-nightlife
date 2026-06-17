@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ChevronLeft, Briefcase, Loader2, Star } from 'lucide-react';
+import { Briefcase, Loader2, Star } from 'lucide-react';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { apiPost } from '@/api/client';
@@ -136,14 +137,7 @@ export default function CreateJob() {
 
   return (
     <div style={{ minHeight: '100vh', paddingBottom: 168, backgroundColor: 'var(--sec-bg-base)' }}>
-      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
-        <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate(-1)} style={{ width: 40, height: 40, borderRadius: 12, border: '1px solid var(--sec-border)', backgroundColor: 'var(--sec-bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-            <ChevronLeft size={20} strokeWidth={1.5} />
-          </button>
-          <h1 style={{ fontSize: 18, fontWeight: 600 }}>Post a Job</h1>
-        </div>
-      </header>
+      <PageBackHeader title="Post a Job" pageName="CreateJob" />
 
       <div style={{ padding: 20, maxWidth: 480, margin: '0 auto' }}>
         <div className="sec-card" style={{ padding: 20, marginBottom: 16, borderColor: form.isPromoterRole ? 'var(--sec-accent-border)' : undefined }}>

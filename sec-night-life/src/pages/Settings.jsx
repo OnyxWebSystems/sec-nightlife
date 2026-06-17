@@ -6,7 +6,6 @@ import { dataService } from '@/services/dataService';
 import { useAuth } from '@/lib/AuthContext';
 import { usePreferences } from '@/context/PreferencesContext';
 import {
-  ChevronLeft,
   ChevronRight,
   User,
   Bell,
@@ -34,6 +33,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { getSettingsLegalNavItems } from '@/legal/legalNavItems';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useQuery } from '@tanstack/react-query';
 import { Star } from 'lucide-react';
 
@@ -137,24 +137,7 @@ export default function Settings() {
 
   return (
     <div className="min-h-screen pb-8">
-      {/* Header */}
-      <header
-        className="sticky top-0 z-40 border-b"
-        style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-      >
-        <div className="px-4 py-4 flex items-center gap-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'var(--sec-bg-card)' }}
-          >
-            <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
-          </button>
-          <h1 className="text-xl font-bold" style={{ color: 'var(--sec-text-primary)' }}>
-            {t('settings')}
-          </h1>
-        </div>
-      </header>
+      <PageBackHeader title={t('settings')} pageName="Settings" />
 
       <div className="px-4 lg:px-8 py-6 space-y-6">
         {promoterStatus?.isHiredPromoter && !promoterStatus?.hasAcceptedCodeOfConduct ? (

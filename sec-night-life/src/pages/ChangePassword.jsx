@@ -66,7 +66,7 @@ export default function ChangePassword() {
 
   return (
     <div className="min-h-screen pb-8" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <PageBackHeader title="Change Password" fallbackTo="Settings" />
+      <PageBackHeader title="Change Password" fallbackTo="Settings" pageName="ChangePassword" />
 
       <div className="px-4 py-6 max-w-xl mx-auto">
         <div

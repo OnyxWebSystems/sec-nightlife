@@ -315,6 +315,7 @@ export default function BusinessBookings() {
       <PageBackHeader
         title="Bookings"
         subtitle="Tables, venue reservations, and ticket sales in one place"
+        pageName="BusinessBookings"
       />
 
       <div style={{ padding: '0 20px 32px' }}>

@@ -1,26 +1,26 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  ChevronLeft,
-  Send,
+import {
   Info,
   Paperclip
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
+import ChatComposer from '@/components/messaging/ChatComposer';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 
 export default function ChatRoom() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -54,9 +54,9 @@ export default function ChatRoom() {
     }
   };
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   // Get or create chat for table
   const { data: chat, isLoading: chatLoading, isError: chatError } = useQuery({
@@ -108,8 +108,12 @@ export default function ChatRoom() {
   });
 
   useEffect(() => {
+    if (isMobile) messageInputRef.current?.focus();
+  }, [chat?.id, isMobile]);
+
+  useEffect(() => {
     scrollToBottom();
-  }, [messages.length]);
+  }, [messages.length, scrollToBottom]);
 
   const { data: participants = [] } = useQuery({
     queryKey: ['chat-participants', chat?.id, chat?.participants, chat?.related_table_id, chat?.relatedTableId],
@@ -189,13 +193,13 @@ export default function ChatRoom() {
     },
   });
 
-  const handleSend = (e) => {
-    e.preventDefault();
+  const handleSend = useCallback(() => {
     if (message.trim() && !sendMessageMutation.isPending) {
       const mentions = extractMentions(message);
       sendMessageMutation.mutate({ content: message.trim(), mentions });
+      setMessage('');
     }
-  };
+  }, [message, sendMessageMutation]);
 
   const handleMediaUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -220,23 +224,6 @@ export default function ChatRoom() {
     const mentionRegex = /@(\w+)/g;
     const matches = text.match(mentionRegex);
     return matches ? matches.map(m => m.substring(1)) : [];
-  };
-
-  const handleEmojiSelect = (emoji) => {
-    const inputEl = messageInputRef.current;
-    if (!inputEl) {
-      setMessage((prev) => `${prev}${emoji}`);
-      return;
-    }
-    const start = inputEl.selectionStart ?? message.length;
-    const end = inputEl.selectionEnd ?? message.length;
-    const next = `${message.slice(0, start)}${emoji}${message.slice(end)}`;
-    setMessage(next);
-    requestAnimationFrame(() => {
-      inputEl.focus();
-      const caret = start + emoji.length;
-      inputEl.setSelectionRange(caret, caret);
-    });
   };
 
   const renderMessageContent = (content) => {
@@ -289,40 +276,32 @@ export default function ChatRoom() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#0A0A0B]">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-[#0A0A0B]/95 backdrop-blur-xl border-b border-[#262629]">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate(-1)}
-              className="w-10 h-10 rounded-full bg-[#141416] flex items-center justify-center"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <div>
-              <h1 className="font-semibold">{chat.name || 'Chat'}</h1>
-              <p className="text-xs text-gray-500">
-                {chat.participants?.length || 0} members
-              </p>
-            </div>
-          </div>
-          <button className="w-10 h-10 rounded-full bg-[#141416] flex items-center justify-center">
+    <div className={`flex flex-col bg-[#0A0A0B] ${isMobile ? 'fixed inset-0 z-30 h-[100dvh]' : 'h-screen'}`}>
+      <PageBackHeader
+        title={chat.name || 'Chat'}
+        subtitle={`${chat.participants?.length || 0} members`}
+        pageName="ChatRoom"
+        rightSlot={
+          <button
+            type="button"
+            className="w-11 h-11 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0"
+            style={{ backgroundColor: 'var(--sec-bg-elevated)' }}
+            aria-label="Chat info"
+          >
             <Info className="w-5 h-5" />
           </button>
-        </div>
-        <div className="px-4 pb-2">
-          <Link
-            to={createPageUrl('CommunityGuidelines')}
-            className="text-xs text-gray-500 hover:text-gray-300 underline"
-          >
-            Community Guidelines
-          </Link>
-        </div>
-      </header>
+        }
+      />
+      <div className="px-4 pb-2 shrink-0 border-b border-[#262629]">
+        <Link
+          to={createPageUrl('CommunityGuidelines')}
+          className="text-xs text-gray-500 hover:text-gray-300 underline"
+        >
+          Community Guidelines
+        </Link>
+      </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0">
         {messages.map((msg, index) => {
           const isOwn = msg.sender_id === user?.id;
           const sender = participants.find(p => p.id === msg.sender_id);
@@ -340,7 +319,7 @@ export default function ChatRoom() {
               key={msg.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}
+              className={`flex gap-2 w-full min-w-0 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}
             >
               {showAvatar && !isOwn ? (
                 <Link to={createPageUrl(`Profile?id=${sender?.id}`)} className="flex-shrink-0">
@@ -354,16 +333,16 @@ export default function ChatRoom() {
                     )}
                   </div>
                 </Link>
-              ) : !isOwn && <div className="w-8" />}
-              
-              <div className={`max-w-[75%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
+              ) : !isOwn ? <div className="w-8 shrink-0" /> : null}
+
+              <div className={`max-w-[min(75%,calc(100vw-4rem))] min-w-0 ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
                 {showAvatar && !isOwn && sender?.username && (
                   <span className="text-xs text-gray-500 px-2 mb-1">@{sender.username}</span>
                 )}
-                <div className="relative group">
+                <div className="relative group min-w-0 max-w-full">
                   <div
                     onClick={() => setSelectedReaction(selectedReaction === msg.id ? null : msg.id)}
-                    className={`px-4 py-2 rounded-2xl cursor-pointer ${
+                    className={`px-4 py-2 rounded-2xl cursor-pointer min-w-0 max-w-full break-words [overflow-wrap:anywhere] ${
                       isOwn
                         ? 'bg-gradient-to-r from-[var(--sec-success)] to-[var(--sec-success)]/80 text-white rounded-br-sm'
                         : 'bg-[#141416] text-white rounded-bl-sm'
@@ -372,7 +351,7 @@ export default function ChatRoom() {
                     {msg.message_type === 'image' ? (
                       <img src={msg.media_url} alt="" className="max-w-full rounded-lg" />
                     ) : (
-                      <p className="text-sm">{renderMessageContent(msg.content)}</p>
+                      <p className="text-sm whitespace-pre-wrap break-words">{renderMessageContent(msg.content)}</p>
                     )}
                   </div>
                   
@@ -432,48 +411,38 @@ export default function ChatRoom() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="border-t border-[#262629] p-4 bg-[#0A0A0B]">
-        <form onSubmit={handleSend} className="space-y-2">
-          <div className="flex gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,video/*"
-              className="hidden"
-              onChange={handleMediaUpload}
-            />
-            <Button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingMedia}
-              variant="outline"
-              className="h-12 w-12 p-0 border-[#262629]"
-            >
-              {uploadingMedia ? (
-                <div className="w-5 h-5 rounded-full border-2 border-[var(--sec-success)] border-t-transparent animate-spin" />
-              ) : (
-                <Paperclip className="w-5 h-5" />
-              )}
-            </Button>
-            <Input
-              ref={messageInputRef}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Type a message... (@mention users)"
-              className="flex-1 h-12 bg-[#141416] border-[#262629] rounded-xl"
-            />
-            <EmojiPickerButton onSelect={handleEmojiSelect} disabled={sendMessageMutation.isPending} />
-            <Button
-              type="submit"
-              disabled={!message.trim() || sendMessageMutation.isPending}
-              className="h-12 w-12 p-0 rounded-xl bg-gradient-to-r from-[var(--sec-success)] to-[var(--sec-success)]/80"
-            >
-              <Send className="w-5 h-5" />
-            </Button>
-          </div>
-        </form>
+      <div className="shrink-0 border-t border-[#262629] bg-[#0A0A0B] px-3 pt-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={handleMediaUpload}
+        />
+        <Button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadingMedia}
+          variant="outline"
+          className="h-10 w-10 p-0 border-[#262629] mb-2"
+        >
+          {uploadingMedia ? (
+            <div className="w-5 h-5 rounded-full border-2 border-[var(--sec-success)] border-t-transparent animate-spin" />
+          ) : (
+            <Paperclip className="w-5 h-5" />
+          )}
+        </Button>
       </div>
+
+      <ChatComposer
+        value={message}
+        onChange={setMessage}
+        onSend={handleSend}
+        disabled={sendMessageMutation.isPending}
+        placeholder="Type a message... (@mention users)"
+        inputRef={messageInputRef}
+        onEmojiOpenChange={() => scrollToBottom()}
+      />
     </div>
   );
 }

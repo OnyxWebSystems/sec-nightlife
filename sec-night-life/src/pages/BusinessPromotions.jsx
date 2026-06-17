@@ -1321,6 +1321,7 @@ export default function BusinessPromotions() {
       <PageBackHeader
         title="Promotions"
         subtitle="Premium placement — publish by the day and boost for the feed"
+        pageName="BusinessPromotions"
       />
       <div style={{ padding: '16px 16px 0' }}>
       <div style={{ marginBottom: 16 }}>

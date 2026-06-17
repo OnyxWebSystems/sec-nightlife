@@ -1,7 +1,6 @@
 import React from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
-  ChevronLeft,
   ChevronRight,
   Mail,
   Sparkles,
@@ -14,6 +13,7 @@ import { createPageUrl } from '@/utils';
 import { usePreferences } from '@/context/PreferencesContext';
 import { getHelpCenterLegalNavItems } from '@/legal/legalNavItems';
 import { SUPPORT_EMAIL, ADMIN_EMAIL } from '@/constants/contactEmails';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 function PlaceholderTopic({ icon: Icon, title, description }) {
   return (
@@ -50,33 +50,16 @@ function PlaceholderTopic({ icon: Icon, title, description }) {
 }
 
 export default function HelpCenter() {
-  const navigate = useNavigate();
   const { t } = usePreferences();
   const legalLinks = getHelpCenterLegalNavItems(t);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <header
-        className="sticky top-0 z-40 border-b"
-        style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-      >
-        <div className="px-4 py-4 flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'var(--sec-bg-card)' }}
-          >
-            <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold">Help Center</h1>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--sec-text-muted)' }}>
-              Guides and answers — expanding soon
-            </p>
-          </div>
-        </div>
-      </header>
+      <PageBackHeader
+        title="Help Center"
+        subtitle="Guides and answers — expanding soon"
+        pageName="HelpCenter"
+      />
 
       <div className="px-4 py-6 max-w-xl mx-auto space-y-6">
         <div

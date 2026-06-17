@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft } from 'lucide-react';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -278,8 +278,9 @@ export default function JobDetails() {
   const visibility = getPublicVisibility(ownerJob || job);
 
   return (
-    <div style={{ minHeight: '100vh', padding: 16, paddingBottom: 120 }}>
-      <button onClick={() => navigate(-1)} className="sec-btn sec-btn-secondary" style={{ height: 44, minWidth: 44, marginBottom: 12 }}><ChevronLeft size={18} /></button>
+    <div style={{ minHeight: '100vh', paddingBottom: 120 }}>
+      <PageBackHeader title={job.title} pageName="JobDetails" />
+      <div style={{ padding: 16 }}>
       <div className="sec-card" style={{ padding: 16, borderRadius: 14 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700 }}>{job.title}</h1>
         <p style={{ marginTop: 6, color: 'var(--sec-text-muted)' }}>{job.venue?.name} · {job.venue?.city} · {job.venue?.venueType}</p>
@@ -744,6 +745,7 @@ export default function JobDetails() {
         context="job"
         contextId={rateTarget?.contextId || ownerJob?.id || ''}
       />
+      </div>
     </div>
   );
 }

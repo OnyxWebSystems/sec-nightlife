@@ -52,6 +52,7 @@ export default function StaffDashboard() {
       <PageBackHeader
         title="Staff dashboard"
         subtitle="Venues you can help manage and your assigned permissions"
+        pageName="StaffDashboard"
       />
       <div className="px-4 pt-4">
         {isLoading ? (

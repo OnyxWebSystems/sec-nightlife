@@ -165,6 +165,7 @@ export default function BusinessVenueTables() {
       <PageBackHeader
         title="Tables & day bookings"
         subtitle="Venue listings for any day or synced from published events"
+        pageName="BusinessVenueTables"
       />
       <div className="px-4 pt-4">
 

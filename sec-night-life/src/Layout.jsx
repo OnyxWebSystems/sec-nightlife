@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { prefetchPage } from './pages.config';
 import * as authService from '@/services/authService';
@@ -9,7 +9,10 @@ import { apiGet } from '@/api/client';
 import { flushPendingLegalAccepts } from '@/lib/pendingLegalAccept';
 import SecLogo from '@/components/ui/SecLogo';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
+import MobileBottomNav from '@/components/layout/MobileBottomNav';
 import { BUSINESS_PAGE_PERMISSIONS, useVenueStaffAccess } from '@/hooks/useVenueStaffAccess';
+import { useScrollDirection } from '@/hooks/useScrollDirection';
+import { getMobileNavState } from '@/lib/mobileNavVisibility';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
@@ -34,6 +37,7 @@ function filterBusinessNav(items, canAccessPage, can) {
 
 export default function Layout({ children, currentPageName }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, userProfile } = useAuth();
   const staffAccess = useVenueStaffAccess();
   const [notificationCount, setNotificationCount] = useState(0);
@@ -45,7 +49,6 @@ export default function Layout({ children, currentPageName }) {
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
   const [complianceAccess, setComplianceAccess] = useState({ canReview: false, isSuperAdmin: false });
   const [hasStaffAssignments, setHasStaffAssignments] = useState(false);
-  const longPressTimerRef = useRef(null);
 
   function playMessageChime() {
     try {
@@ -236,6 +239,9 @@ export default function Layout({ children, currentPageName }) {
       navigate(createPageUrl('StaffDashboard'), { replace: true });
     }
   }, [user, modeForGuard, staffAccess.isStaffOnly, staffAccess.venuesLoading, staffAccess.can, currentPageName, navigate]);
+
+  const { hideBottomNav } = getMobileNavState({ pageName: currentPageName, searchParams });
+  const navScrollHidden = useScrollDirection({ enabled: !hideBottomNav });
 
   const hideNav =
     ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName) ||
@@ -459,7 +465,9 @@ export default function Layout({ children, currentPageName }) {
 
       {/* ── Main Content ── */}
       <main
-        className="lg:ml-[240px] min-h-screen w-full lg:w-[calc(100%-240px)] max-w-app md:max-w-app-md lg:max-w-none mx-auto lg:mx-0 px-4 sm:px-6 box-border min-w-0 pb-[calc(84px+env(safe-area-inset-bottom))] lg:pb-10"
+        className={`lg:ml-[240px] min-h-screen w-full lg:w-[calc(100%-240px)] max-w-app md:max-w-app-md lg:max-w-none mx-auto lg:mx-0 px-4 sm:px-6 box-border min-w-0 lg:pb-10 ${
+          hideBottomNav ? 'pb-[env(safe-area-inset-bottom)]' : 'pb-[calc(88px+env(safe-area-inset-bottom))]'
+        }`}
       >
         {complianceAccess.canReview && currentPageName !== 'AdminDashboard' && (
           <div className="lg:hidden" style={{ padding: '12px 16px 0' }}>
@@ -542,107 +550,16 @@ export default function Layout({ children, currentPageName }) {
         </DialogContent>
       </Dialog>
 
-      {/* ── Mobile Bottom Navigation (Instagram-style) ── */}
-      <nav
-        className="lg:hidden"
-        style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
-          backgroundColor: 'rgba(0,0,0,0.97)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
-          borderTop: '1px solid var(--sec-border)',
-          paddingBottom: 'env(safe-area-inset-bottom)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'space-around', height: 64, paddingLeft: 4, paddingRight: 4 }}>
-          {mobileNav.map((item) => {
-            const active = isActive(item.page);
-            const isCreateTab = item.name === 'Create' && item.query === '?create=table';
-            const navContent = (
-              <>
-                {active && (
-                  <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 24, height: 2, background: 'var(--sec-gradient-silver)', borderRadius: 2 }} />
-                )}
-                {isCreateTab ? (
-                  <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--sec-gradient-silver)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 12px rgba(192,192,192,0.22)', color: 'var(--sec-bg-base)' }}>
-                    <item.icon size={22} strokeWidth={2} />
-                  </div>
-                ) : (
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <item.icon size={24} strokeWidth={1.5} />
-                    {(item.page === 'Messages' || item.page === 'HostDashboard') && item.badge > 0 && (
-                      <span style={{ position: 'absolute', top: -6, right: -10, minWidth: 16, height: 16, borderRadius: 8, background: 'var(--sec-accent)', color: '#000', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', lineHeight: 1 }}>
-                        {item.badge > 99 ? '99+' : item.badge}
-                      </span>
-                    )}
-                  </div>
-                )}
-                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'inherit' }}>{item.name}</span>
-              </>
-            );
-            const isProfile = item.page === 'Profile';
-            const openModeSwitcher = () => {
-              if (availableModes.length > 1) setShowModeSwitcher(true);
-            };
-            const to = item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page);
-
-            return isProfile ? (
-                <button
-                  key={item.page}
-                  onClick={() => navigate(createPageUrl(item.page))}
-                  onPointerDown={() => prefetchNav(item.page)}
-                  onDoubleClick={openModeSwitcher}
-                  onTouchStart={() => {
-                    if (availableModes.length <= 1) return;
-                    longPressTimerRef.current = window.setTimeout(() => {
-                      setShowModeSwitcher(true);
-                    }, 450);
-                  }}
-                  onTouchEnd={() => {
-                    if (longPressTimerRef.current) {
-                      clearTimeout(longPressTimerRef.current);
-                      longPressTimerRef.current = null;
-                    }
-                  }}
-                  onTouchCancel={() => {
-                    if (longPressTimerRef.current) {
-                      clearTimeout(longPressTimerRef.current);
-                      longPressTimerRef.current = null;
-                    }
-                  }}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 2,
-                    padding: '12px 8px',
-                    flex: 1,
-                    minWidth: 0,
-                    border: 'none',
-                    background: 'none',
-                    cursor: 'pointer',
-                    color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
-                  }}
-                >
-                  {navContent}
-                </button>
-              ) : (
-                <Link
-                  key={item.page + (item.query || '') + item.name}
-                  to={to}
-                  onMouseEnter={() => prefetchNav(item.page)}
-                  onFocus={() => prefetchNav(item.page)}
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                    padding: '12px 8px', flex: 1, minWidth: 0, textDecoration: 'none',
-                    color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
-                  }}
-                >
-                  {navContent}
-                </Link>
-              );
-          })}
-        </div>
-      </nav>
+      {!hideBottomNav ? (
+        <MobileBottomNav
+          items={mobileNav}
+          isActive={isActive}
+          hidden={navScrollHidden}
+          availableModes={availableModes}
+          onOpenModeSwitcher={() => setShowModeSwitcher(true)}
+          onPrefetch={prefetchNav}
+        />
+      ) : null}
     </div>
   );
 }

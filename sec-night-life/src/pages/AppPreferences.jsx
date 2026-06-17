@@ -81,7 +81,7 @@ export default function AppPreferences() {
 
   return (
     <div className="min-h-screen pb-8" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <PageBackHeader title={t('appPreferences')} fallbackTo="Settings" />
+      <PageBackHeader title={t('appPreferences')} fallbackTo="Settings" pageName="AppPreferences" />
 
       <div className="px-4 py-6 max-w-xl mx-auto space-y-6">
         {/* Language */}

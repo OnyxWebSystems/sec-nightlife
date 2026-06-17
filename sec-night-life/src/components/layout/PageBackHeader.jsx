@@ -1,28 +1,40 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { createPageUrl } from '@/utils';
+import { MOBILE_PAGE_PARENT, mobileBackNavigate } from '@/lib/mobileBackNavigation';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 
 /**
- * Sticky back header for drill-down pages (business tools, settings subpages).
+ * Sticky back header for drill-down pages (business tools, settings subpages, messages).
  */
-export default function PageBackHeader({ title, subtitle, onBack, fallbackTo = 'BusinessDashboard' }) {
+export default function PageBackHeader({
+  title,
+  subtitle,
+  onBack,
+  fallbackTo,
+  pageName = null,
+  rightSlot = null,
+}) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useIsMobile();
 
   const handleBack = () => {
     if (onBack) {
       onBack();
       return;
     }
+    if (isMobile && pageName) {
+      mobileBackNavigate(navigate, setSearchParams, pageName, searchParams);
+      return;
+    }
     if (typeof window !== 'undefined' && window.history.length > 1) {
       navigate(-1);
       return;
     }
-    if (fallbackTo) {
-      navigate(createPageUrl(fallbackTo));
-      return;
-    }
-    navigate(-1);
+    const parent = fallbackTo || (pageName && MOBILE_PAGE_PARENT[pageName]) || 'Home';
+    navigate(createPageUrl(parent));
   };
 
   return (
@@ -37,13 +49,13 @@ export default function PageBackHeader({ title, subtitle, onBack, fallbackTo = '
         <button
           type="button"
           onClick={handleBack}
-          className="w-11 h-11 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0 transition-colors hover:ring-1 hover:ring-[var(--sec-accent)]/30"
-          style={{ backgroundColor: 'var(--sec-bg-card)' }}
+          className="w-11 h-11 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0 transition-colors active:ring-2 active:ring-[var(--sec-accent)]/40"
+          style={{ backgroundColor: 'var(--sec-bg-elevated)' }}
           aria-label="Go back"
         >
           <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
         </button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {title ? (
             <h1 className="text-lg font-bold truncate" style={{ color: 'var(--sec-text-primary)' }}>
               {title}
@@ -55,6 +67,7 @@ export default function PageBackHeader({ title, subtitle, onBack, fallbackTo = '
             </p>
           ) : null}
         </div>
+        {rightSlot}
       </div>
     </header>
   );

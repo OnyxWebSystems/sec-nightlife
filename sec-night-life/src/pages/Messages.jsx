@@ -7,6 +7,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, Users, User } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { formatDistanceToNow } from 'date-fns';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 import DMThread from '@/components/messaging/DMThread';
 import GroupThread from '@/components/messaging/GroupThread';
 import VenueTableThreadPanel from '@/components/messaging/VenueTableThreadPanel';
@@ -28,6 +30,7 @@ export default function Messages() {
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false
   );
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     authService.getCurrentUser().then(setUser).catch(() => authService.redirectToLogin());
@@ -171,16 +174,33 @@ export default function Messages() {
 
   const conversationList = (
     <>
-      <header className="sticky top-0 z-40 border-b border-[var(--sec-border)] bg-black/90 backdrop-blur px-4 py-3">
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-semibold">Messages</h1>
-          <Link
-            to={createPageUrl('Friends')}
-            className="min-h-[44px] min-w-[44px] rounded-full bg-[var(--sec-accent)] text-black flex items-center justify-center"
-          >
-            <Plus className="w-5 h-5" />
-          </Link>
-        </div>
+      {isMobile ? (
+        <PageBackHeader
+          title="Messages"
+          pageName="Messages"
+          rightSlot={
+            <Link
+              to={createPageUrl('Friends')}
+              className="min-h-[44px] min-w-[44px] rounded-full bg-[var(--sec-accent)] text-black flex items-center justify-center shrink-0"
+            >
+              <Plus className="w-5 h-5" />
+            </Link>
+          }
+        />
+      ) : (
+        <header className="sticky top-0 z-40 border-b border-[var(--sec-border)] bg-black/90 backdrop-blur px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <h1 className="text-xl font-semibold">Messages</h1>
+            <Link
+              to={createPageUrl('Friends')}
+              className="min-h-[44px] min-w-[44px] rounded-full bg-[var(--sec-accent)] text-black flex items-center justify-center"
+            >
+              <Plus className="w-5 h-5" />
+            </Link>
+          </div>
+        </header>
+      )}
+      <div className="px-4 py-3">
         <div className="relative mb-3">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
           <Input
@@ -190,7 +210,7 @@ export default function Messages() {
             className="pl-10 min-h-[44px]"
           />
         </div>
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1 mb-2">
           {['all', 'direct', 'groups', 'tables', 'venues'].map((t) => (
             <button
               key={t}
@@ -204,9 +224,9 @@ export default function Messages() {
             </button>
           ))}
         </div>
-      </header>
+      </div>
 
-      <div className="px-4 py-3 space-y-2">
+      <div className="px-4 pb-3 space-y-2">
         {(dmLoading || gLoading || vtLoading || pvLoading) && <p className="text-sm text-gray-500">Loading...</p>}
 
         {selectedTab === 'direct' && !dmLoading && filtered.length === 0 && (
@@ -318,7 +338,7 @@ export default function Messages() {
 
   if (promoterVenue) {
     return (
-      <div className="max-w-[1100px] mx-auto px-2 md:px-4 py-4 min-h-screen">
+      <div className={isMobile ? 'fixed inset-0 z-20' : 'max-w-[1100px] mx-auto px-2 md:px-4 py-4 min-h-screen'}>
         <PromoterVenueThreadPanel
           threadId={promoterVenue}
           onClose={closeThread}
@@ -330,7 +350,7 @@ export default function Messages() {
 
   if (venueTableThread) {
     return (
-      <div className="max-w-[1100px] mx-auto px-2 md:px-4 py-4 min-h-screen">
+      <div className={isMobile ? 'fixed inset-0 z-20' : 'max-w-[1100px] mx-auto px-2 md:px-4 py-4 min-h-screen'}>
         <VenueTableThreadPanel
           threadId={venueTableThread}
           onClose={closeThread}
@@ -342,23 +362,15 @@ export default function Messages() {
   }
 
   if (dm) {
-    return (
-      <div className="max-w-[1100px] mx-auto px-2 md:px-4 py-4">
-        <DMThread conversationId={dm} onBack={closeThread} />
-      </div>
-    );
+    return <DMThread conversationId={dm} onBack={closeThread} />;
   }
 
   if (group) {
-    return (
-      <div className="max-w-[1100px] mx-auto px-2 md:px-4 py-4">
-        <GroupThread groupChatId={group} chatKind={groupKind} onBack={closeThread} />
-      </div>
-    );
+    return <GroupThread groupChatId={group} chatKind={groupKind} onBack={closeThread} />;
   }
 
   return (
-    <div className="min-h-screen max-w-[1100px] mx-auto pb-24 lg:pb-10" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+    <div className="min-h-screen max-w-[1100px] mx-auto pb-4 lg:pb-10" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
       {conversationList}
     </div>
   );

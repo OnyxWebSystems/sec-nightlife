@@ -4,7 +4,6 @@ import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiDelete, apiPatch } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ChevronLeft,
   Search,
   UserPlus,
   MessageCircle,
@@ -17,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 const MAX_W = 'max-w-app md:max-w-app-md mx-auto';
 function genderLabel(value) {
@@ -169,21 +169,9 @@ export default function Friends() {
 
   return (
     <div className={`min-h-screen pb-24 ${MAX_W}`}>
-      <header className="sticky top-0 z-40 bg-[#0A0A0B]/90 backdrop-blur border-b border-[#262629]">
-        <div className="px-4 py-3 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => navigate(createPageUrl('Home'))}
-            className="min-h-[44px] min-w-[44px] rounded-full bg-[#141416] flex items-center justify-center"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold">Friends</h1>
-            <p className="text-xs text-gray-500">{friends.length} friends</p>
-          </div>
-        </div>
+      <PageBackHeader title="Friends" subtitle={`${friends.length} friends`} pageName="Friends" />
 
+      <div className="border-b border-[#262629]">
         <div className="px-4 pb-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -196,7 +184,7 @@ export default function Friends() {
           </div>
         </div>
 
-        <Tabs value={tab} onValueChange={setTab} className="px-2">
+        <Tabs value={tab} onValueChange={setTab} className="px-2 pt-2">
           <TabsList className="w-full grid grid-cols-3 bg-[#141416]">
             <TabsTrigger value="all" className="min-h-[44px]">
               All
@@ -514,7 +502,7 @@ export default function Friends() {
             )}
           </TabsContent>
         </Tabs>
-      </header>
+      </div>
     </div>
   );
 }

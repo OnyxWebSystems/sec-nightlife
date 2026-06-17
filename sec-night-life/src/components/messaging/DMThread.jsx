@@ -1,71 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ChevronLeft, MessageSquareX, Send } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
+import { ChevronLeft, MessageSquareX } from 'lucide-react';
 import { apiDelete, apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
-import { createPageUrl } from '@/utils';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
-
-const URL_IN_TEXT = /(https?:\/\/[^\s]+)/gi;
-
-function stripTrailingPunctuation(url) {
-  let u = url;
-  while (u.length && /[.,;:!?)\]'"]$/.test(u)) u = u.slice(0, -1);
-  return u;
-}
-
-function venueIdFromShareUrl(href) {
-  const clean = stripTrailingPunctuation(href.trim());
-  try {
-    const u = new URL(clean);
-    const lastSeg = u.pathname.split('/').filter(Boolean).pop() || '';
-    if (lastSeg === 'VenueProfile' || u.pathname.endsWith('/VenueProfile')) {
-      const id = u.searchParams.get('id');
-      return id || null;
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
-function MessageBody({ text, isOwn }) {
-  const linkClass = isOwn
-    ? 'underline break-all text-black/90 hover:text-black font-medium'
-    : 'underline break-all text-[var(--sec-accent)] hover:opacity-90 font-medium';
-
-  const parts = String(text || '').split(URL_IN_TEXT);
-  const nodes = parts.map((part, i) => {
-    if (!/^https?:\/\//i.test(part)) {
-      return <span key={i}>{part}</span>;
-    }
-    const cleanHref = stripTrailingPunctuation(part.trim());
-    const venueId = venueIdFromShareUrl(part);
-    if (venueId) {
-      return (
-        <Link key={i} to={createPageUrl(`VenueProfile?id=${venueId}`)} className={linkClass}>
-          {part}
-        </Link>
-      );
-    }
-    return (
-      <a key={i} href={cleanHref} target="_blank" rel="noopener noreferrer" className={linkClass}>
-        {part}
-      </a>
-    );
-  });
-  return <span className="whitespace-pre-wrap">{nodes}</span>;
-}
+import ChatComposer from '@/components/messaging/ChatComposer';
+import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 
 export default function DMThread({ conversationId, onBack }) {
+  const isMobile = useIsMobile();
   const [me, setMe] = useState(null);
   const [messages, setMessages] = useState([]);
   const [other, setOther] = useState(null);
@@ -80,6 +28,10 @@ export default function DMThread({ conversationId, onBack }) {
   useEffect(() => {
     authService.getCurrentUser().then(setMe).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (isMobile) inputRef.current?.focus();
+  }, [conversationId, isMobile]);
 
   const load = async () => {
     const rows = await apiGet(`/api/messages/conversations/${conversationId}`);
@@ -149,27 +101,20 @@ export default function DMThread({ conversationId, onBack }) {
 
   const lastOwn = [...messages].reverse().find((m) => m.senderUserId === me?.id);
 
-  const handleEmojiSelect = (emoji) => {
-    const inputEl = inputRef.current;
-    if (!inputEl) {
-      setBody((prev) => `${prev}${emoji}`);
-      return;
-    }
-    const start = inputEl.selectionStart ?? body.length;
-    const end = inputEl.selectionEnd ?? body.length;
-    const next = `${body.slice(0, start)}${emoji}${body.slice(end)}`;
-    setBody(next);
-    requestAnimationFrame(() => {
-      inputEl.focus();
-      const caret = start + emoji.length;
-      inputEl.setSelectionRange(caret, caret);
-    });
-  };
+  const shellClass = isMobile
+    ? 'flex flex-col fixed inset-0 z-30 bg-[#0A0A0B] lg:static lg:z-auto lg:rounded-xl lg:border lg:border-[#262629] lg:min-h-[70vh] lg:max-w-app-md lg:mx-auto'
+    : 'flex flex-col min-h-[70vh] max-w-app md:max-w-app-md mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]';
 
   return (
-    <div className="flex flex-col min-h-[70vh] max-w-app md:max-w-app-md mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]">
-      <div className="flex items-center gap-2 p-3 border-b border-[#262629]">
-        <button type="button" className="min-h-[44px] min-w-[44px] flex items-center justify-center" onClick={onBack}>
+    <div className={shellClass}>
+      <div className="flex items-center gap-2 p-3 border-b border-[#262629] shrink-0" style={{ paddingTop: isMobile ? 'max(12px, env(safe-area-inset-top))' : undefined }}>
+        <button
+          type="button"
+          className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0"
+          style={{ backgroundColor: 'var(--sec-bg-elevated)' }}
+          onClick={onBack}
+          aria-label="Go back"
+        >
           <ChevronLeft className="w-6 h-6" />
         </button>
         <div className="w-10 h-10 rounded-full bg-[#262629] overflow-hidden flex-shrink-0">
@@ -197,16 +142,19 @@ export default function DMThread({ conversationId, onBack }) {
       </div>
 
       {blocked && (
-        <div className="bg-amber-900/40 text-amber-200 text-xs px-3 py-2">
+        <div className="bg-amber-900/40 text-amber-200 text-xs px-3 py-2 shrink-0">
           You are no longer friends. Send a friend request to message again.
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 max-h-[55vh]">
+      <div
+        className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0"
+        onClick={() => {}}
+      >
         {messages.map((m) => {
           const own = m.senderUserId === me?.id;
           return (
-            <div key={m.id} className={`flex ${own ? 'justify-end' : 'justify-start gap-2'}`}>
+            <div key={m.id} className={`flex w-full min-w-0 ${own ? 'justify-end' : 'justify-start gap-2'}`}>
               {!own && (
                 <div className="w-8 h-8 rounded-full bg-[#262629] overflow-hidden flex-shrink-0">
                   {other?.avatarUrl ? (
@@ -216,7 +164,7 @@ export default function DMThread({ conversationId, onBack }) {
                   )}
                 </div>
               )}
-              <div className={`max-w-[80%] ${own ? 'items-end' : 'items-start'} flex flex-col`}>
+              <div className={`max-w-[min(80%,calc(100vw-4rem))] min-w-0 flex flex-col ${own ? 'items-end' : 'items-start'}`}>
                 <MessageBubble
                   message={m}
                   onReply={setReplyingTo}
@@ -224,7 +172,7 @@ export default function DMThread({ conversationId, onBack }) {
                     own ? 'bg-[var(--sec-accent)] text-black' : 'bg-[#141416] text-white'
                   }`}
                 >
-                  <MessageBody text={m.body} isOwn={own} />
+                  {linkifyMessageBody(m.body, { isOwn: own })}
                 </MessageBubble>
                 <span className="text-[10px] text-gray-600 mt-0.5">
                   {format(new Date(m.sentAt), 'HH:mm')}
@@ -239,23 +187,14 @@ export default function DMThread({ conversationId, onBack }) {
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-3 border-t border-[#262629] flex flex-col gap-2">
-        <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
-        <div className="flex gap-2">
-        <Input
-          ref={inputRef}
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Type a message..."
-          className="min-h-[44px]"
-          onKeyDown={(e) => e.key === 'Enter' && send()}
-        />
-        <EmojiPickerButton disabled={blocked} onSelect={handleEmojiSelect} />
-        <Button className="min-h-[44px] min-w-[44px] px-3" disabled={!body.trim()} onClick={send}>
-          <Send className="w-5 h-5" />
-        </Button>
-        </div>
-      </div>
+      <ChatComposer
+        value={body}
+        onChange={setBody}
+        onSend={send}
+        disabled={blocked}
+        inputRef={inputRef}
+        replyPreview={<MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />}
+      />
     </div>
   );
 }

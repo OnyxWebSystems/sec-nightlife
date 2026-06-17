@@ -20,6 +20,8 @@ import {
 } from '@/lib/venueTableMessageTemplates';
 import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
+import { useIsMobile } from '@/hooks/useIsDesktop';
+import ChatComposer from '@/components/messaging/ChatComposer';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
 import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
@@ -42,6 +44,19 @@ export default function BusinessMessages() {
   const { replyingTo: jobReplyingTo, setReplyingTo: setJobReplyingTo, clearReply: clearJobReply } = useMessageReply();
   const [jobSending, setJobSending] = useState(false);
   const [tableSending, setTableSending] = useState(false);
+  const isMobile = useIsMobile();
+
+  const inThread =
+    (filter === 'jobs' && !!selectedJobAppId) ||
+    (filter === 'tables' && !!selectedTableThreadId) ||
+    (filter === 'promoters' && !!selectedPromoterVenueId);
+
+  function closeThread() {
+    setSelectedJobAppId(null);
+    setSelectedTableThreadId(null);
+    setSelectedPromoterVenueId(null);
+    setSearchParams({ tab: filter });
+  }
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -182,13 +197,16 @@ export default function BusinessMessages() {
   }
 
   return (
-    <div className="sec-page max-w-3xl mx-auto pb-24">
+    <div className={`sec-page max-w-3xl mx-auto ${isMobile && inThread ? 'fixed inset-0 z-20 flex flex-col bg-[var(--sec-bg-base)] pb-0' : 'pb-24'}`}>
       <PageBackHeader
-        title="Business messages"
-        subtitle="Job and promoter threads — table requests are under Tables & day bookings"
+        title={isMobile && inThread ? (selectedJobItem?.title || 'Thread') : 'Business messages'}
+        subtitle={isMobile && inThread ? undefined : 'Job and promoter threads — table requests are under Tables & day bookings'}
+        pageName="BusinessMessages"
+        onBack={isMobile && inThread ? closeThread : undefined}
       />
-      <div className="px-4 pt-4">
+      <div className={`px-4 pt-4 flex-1 min-h-0 overflow-y-auto ${isMobile && inThread ? 'pb-[env(safe-area-inset-bottom)]' : ''}`}>
 
+      {!(isMobile && inThread) ? (
       <Tabs
         value={filter}
         onValueChange={(v) => {
@@ -217,7 +235,8 @@ export default function BusinessMessages() {
               staffContextToken={venueScope.staffContextToken}
             />
           ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className={`grid gap-4 ${isMobile && inThread ? '' : 'lg:grid-cols-2'}`}>
+            {!(isMobile && inThread) ? (
             <div className="space-y-2 min-h-[200px]">
               {isLoading ? (
                 <div className="flex justify-center py-12">
@@ -285,8 +304,9 @@ export default function BusinessMessages() {
                 })
               )}
             </div>
+            ) : null}
 
-            <div className="sec-card p-4 border border-[var(--sec-border)] min-h-[280px]">
+            <div className={`sec-card p-4 border border-[var(--sec-border)] ${isMobile && inThread ? 'border-0 p-0 min-h-0 flex-1 flex flex-col' : 'min-h-[280px]'}`}>
               {filter === 'tables' ? (
                 !selectedTableThreadId ? (
                   <p className="text-sm text-[var(--sec-text-muted)] py-8 text-center">Select a table thread.</p>
@@ -408,16 +428,14 @@ export default function BusinessMessages() {
                       </MessageBubble>
                     ))}
                   </div>
-                  <MessageReplyPreview replyingTo={jobReplyingTo} onClear={clearJobReply} />
-                  <textarea
-                    className="sec-input w-full min-h-[72px] mb-2"
+                  <ChatComposer
                     value={jobMessageBody}
-                    onChange={(e) => setJobMessageBody(e.target.value)}
+                    onChange={setJobMessageBody}
+                    onSend={sendJobMessage}
+                    disabled={jobSending}
                     placeholder="Type a message to the applicant…"
+                    replyPreview={<MessageReplyPreview replyingTo={jobReplyingTo} onClear={clearJobReply} />}
                   />
-                  <Button className="w-full" disabled={!jobMessageBody.trim() || jobSending} onClick={sendJobMessage}>
-                    {jobSending ? 'Sending…' : 'Send'}
-                  </Button>
                 </>
               )}
             </div>
@@ -425,6 +443,66 @@ export default function BusinessMessages() {
           )}
         </TabsContent>
       </Tabs>
+      ) : (
+        <div className="flex-1 flex flex-col min-h-0">
+          {filter === 'tables' && selectedTableThreadId ? (
+            <>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <h3 className="font-semibold">Table messages</h3>
+                <Button size="sm" variant="ghost" className="text-red-400" onClick={deleteTableThread}>
+                  <Trash2 size={14} className="mr-1" />
+                  Delete
+                </Button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-2 mb-4 min-h-0">
+                {tableMessages.map((m) => (
+                  <div key={m.id} className="text-sm p-2 rounded-lg" style={{ background: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
+                    <div className="text-xs text-[var(--sec-text-muted)]">{m.senderLabel}</div>
+                    <div>{m.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[...VENUE_DECLINE_TEMPLATES, ...VENUE_ARRIVAL_TEMPLATES].map((t) => (
+                  <Button key={t.key} size="sm" variant="outline" disabled={tableSending} onClick={() => sendTableTemplate(t.key)}>
+                    {t.label}
+                  </Button>
+                ))}
+              </div>
+            </>
+          ) : filter === 'promoters' && selectedPromoterVenueId ? (
+            <PromoterVenueThreadPanel
+              threadId={selectedPromoterVenueId}
+              isBusiness
+              hideHeader
+              onClose={closeThread}
+              onDeleted={() => {
+                closeThread();
+                refetch();
+              }}
+            />
+          ) : filter === 'jobs' && selectedJobAppId && selectedJobItem?.status !== 'PENDING' ? (
+            <>
+              <div className="flex-1 overflow-y-auto space-y-2 mb-4 min-h-0">
+                {jobMessages.map((m) => (
+                  <MessageBubble key={m.id} message={m} onReply={setJobReplyingTo} className="text-sm p-2 rounded-lg" style={{ background: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}>
+                    <div className="text-xs text-[var(--sec-text-muted)]">{m.sender?.fullName || 'User'} · {new Date(m.sentAt).toLocaleString()}</div>
+                    <div>{linkifyMessageBody(m.body)}</div>
+                  </MessageBubble>
+                ))}
+              </div>
+              <ChatComposer
+                value={jobMessageBody}
+                onChange={setJobMessageBody}
+                onSend={sendJobMessage}
+                disabled={jobSending}
+                placeholder="Type a message to the applicant…"
+                replyPreview={<MessageReplyPreview replyingTo={jobReplyingTo} onClear={clearJobReply} />}
+              />
+            </>
+          ) : null}
+        </div>
+      )}
       </div>
     </div>
   );

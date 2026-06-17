@@ -173,7 +173,7 @@ export default function BusinessMenu() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <PageBackHeader title="Menu Maker" subtitle="Photos, prices, and categories" />
+      <PageBackHeader title="Menu Maker" subtitle="Photos, prices, and categories" pageName="BusinessMenu" />
       <div style={{ padding: '16px 20px 24px' }}>
       <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
         Manage what guests see. Add items with your own photos, prices, and categories.

@@ -525,7 +525,7 @@ export default function BusinessEvents() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <PageBackHeader title="Events Manager" subtitle={`${displayVenueName} · ${events.length} events`} />
+      <PageBackHeader title="Events Manager" subtitle={`${displayVenueName} · ${events.length} events`} pageName="BusinessEvents" />
       <div style={{ padding: '16px 20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 20 }}>
         <Button onClick={openCreate} style={{ backgroundColor: 'var(--sec-accent)', color: '#000', fontWeight: 600 }} className="h-10 rounded-xl">

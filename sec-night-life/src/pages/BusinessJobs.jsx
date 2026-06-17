@@ -300,6 +300,7 @@ export default function BusinessJobs() {
         }
         onBack={isFocused ? clearJobFocus : undefined}
         fallbackTo={isFocused ? undefined : 'BusinessDashboard'}
+        pageName="BusinessJobs"
       />
       <div style={{ padding: 16 }}>
       {!isFocused ? (

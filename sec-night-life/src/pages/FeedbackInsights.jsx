@@ -64,7 +64,7 @@ export default function FeedbackInsights() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0B]">
-      <PageBackHeader title="Feedback Insights" subtitle="Analysis of customer reviews" />
+      <PageBackHeader title="Feedback Insights" subtitle="Analysis of customer reviews" pageName="FeedbackInsights" />
       <div className="max-w-5xl mx-auto space-y-6 p-6">
 
         {/* Venue Selector */}

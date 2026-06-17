@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl, buildPageUrl, storePromoterRef } from '@/utils';
+import { mobileBackNavigate } from '@/lib/mobileBackNavigation';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPatch } from '@/api/client';
@@ -20,6 +22,8 @@ import ReportDialog from '@/components/moderation/ReportDialog';
 
 export default function EventDetails() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -225,7 +229,10 @@ export default function EventDetails() {
           padding: '12px 16px',
         }}>
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => {
+              if (isMobile) mobileBackNavigate(navigate, setSearchParams, 'EventDetails', searchParams);
+              else navigate(-1);
+            }}
             style={{
               width: 40, height: 40, borderRadius: '50%',
               backgroundColor: 'rgba(0,0,0,0.55)',

@@ -1,31 +1,17 @@
 import React from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { ChevronLeft, Shield, Lock, Eye, UserX, User, Search, LayoutGrid, MessageCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Shield, Lock, Eye, UserX, User, Search, LayoutGrid, MessageCircle } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { usePreferences } from '@/context/PreferencesContext';
 import { Switch } from '@/components/ui/switch';
+import PageBackHeader from '@/components/layout/PageBackHeader';
 
 export default function Privacy() {
-  const navigate = useNavigate();
   const { privacy, setPrivacySetting, t } = usePreferences();
 
   return (
     <div className="min-h-screen pb-8" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <header
-        className="sticky top-0 z-40 border-b"
-        style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
-      >
-        <div className="px-4 py-4 flex items-center gap-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'var(--sec-bg-card)' }}
-          >
-            <ChevronLeft className="w-5 h-5" style={{ color: 'var(--sec-text-primary)' }} />
-          </button>
-          <h1 className="text-xl font-bold">Privacy & Security</h1>
-        </div>
-      </header>
+      <PageBackHeader title="Privacy & Security" pageName="Privacy" />
 
       <div className="px-4 py-6 max-w-xl mx-auto space-y-6">
         {/* Informational content - DO NOT REMOVE */}

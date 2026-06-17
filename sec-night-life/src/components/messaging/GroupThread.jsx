@@ -1,8 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, Send, Users, Trash2, LogOut } from 'lucide-react';
+import { ChevronLeft, Users, Trash2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
 import { apiGet, apiPost, apiDelete } from '@/api/client';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
@@ -12,9 +10,12 @@ import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
+import ChatComposer from '@/components/messaging/ChatComposer';
 import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 
 export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack }) {
+  const isMobile = useIsMobile();
   const [me, setMe] = useState(null);
   const [detail, setDetail] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -118,33 +119,29 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
     setShowNew(false);
   };
 
-  const handleEmojiSelect = (emoji) => {
-    const inputEl = inputRef.current;
-    if (!inputEl) {
-      setBody((prev) => `${prev}${emoji}`);
-      return;
-    }
-    const start = inputEl.selectionStart ?? body.length;
-    const end = inputEl.selectionEnd ?? body.length;
-    const next = `${body.slice(0, start)}${emoji}${body.slice(end)}`;
-    setBody(next);
-    requestAnimationFrame(() => {
-      inputEl.focus();
-      const caret = start + emoji.length;
-      inputEl.setSelectionRange(caret, caret);
-    });
-  };
-
   const title =
     detail?.chatKind === 'HOSTED_TABLE'
       ? detail?.name || detail?.hostedTable?.tableName
       : detail?.eventName || detail?.name || 'Group';
 
+  const shellClass = isMobile
+    ? 'flex flex-col fixed inset-0 z-30 bg-[#0A0A0B] lg:static lg:z-auto lg:rounded-xl lg:border lg:border-[#262629] lg:min-h-[70vh] lg:max-w-app-md lg:mx-auto'
+    : 'flex flex-col min-h-[70vh] max-w-app md:max-w-app-md mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]';
+
   return (
-    <div className="flex flex-col min-h-[70vh] max-w-app md:max-w-app-md mx-auto border border-[#262629] rounded-xl overflow-hidden bg-[#0A0A0B]">
-      <div className="flex items-center justify-between gap-2 p-3 border-b border-[#262629]">
+    <div className={shellClass}>
+      <div
+        className="flex items-center justify-between gap-2 p-3 border-b border-[#262629] shrink-0"
+        style={{ paddingTop: isMobile ? 'max(12px, env(safe-area-inset-top))' : undefined }}
+      >
         <div className="flex items-center gap-2 min-w-0">
-          <button type="button" className="min-h-[44px] min-w-[44px] flex items-center justify-center" onClick={onBack}>
+          <button
+            type="button"
+            className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0"
+            style={{ backgroundColor: 'var(--sec-bg-elevated)' }}
+            onClick={onBack}
+            aria-label="Go back"
+          >
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="min-w-0 flex items-center gap-2">
@@ -217,7 +214,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
         </div>
       </div>
 
-      <div ref={containerRef} className="flex-1 overflow-y-auto p-3 space-y-3 max-h-[55vh] relative">
+      <div ref={containerRef} className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0 relative">
         {showNew && (
           <button
             type="button"
@@ -230,7 +227,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
         {messages.map((m) => {
           const own = m.senderUserId === me?.id;
           return (
-            <div key={m.id} className={`flex ${own ? 'justify-end' : 'justify-start gap-2'}`}>
+            <div key={m.id} className={`flex w-full min-w-0 ${own ? 'justify-end' : 'justify-start gap-2'}`}>
               {!own && (
                 <div className="w-8 h-8 rounded-full bg-[#262629] overflow-hidden flex-shrink-0">
                   {m.sender?.avatarUrl ? (
@@ -242,7 +239,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
                   )}
                 </div>
               )}
-              <div className={`max-w-[80%] flex flex-col ${own ? 'items-end' : 'items-start'}`}>
+              <div className={`max-w-[min(80%,calc(100vw-4rem))] min-w-0 flex flex-col ${own ? 'items-end' : 'items-start'}`}>
                 {!own && <span className="text-[10px] text-gray-500 mb-0.5">@{m.sender?.username}</span>}
                 <MessageBubble
                   message={m}
@@ -251,7 +248,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
                     own ? 'bg-[var(--sec-accent)] text-black' : 'bg-[#141416]'
                   }`}
                 >
-                  {linkifyMessageBody(m.body)}
+                  {linkifyMessageBody(m.body, { isOwn: own })}
                 </MessageBubble>
                 <span className="text-[10px] text-gray-600 mt-0.5">{format(new Date(m.sentAt), 'HH:mm')}</span>
               </div>
@@ -261,23 +258,13 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-3 border-t border-[#262629]">
-        <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
-        <div className="flex gap-2">
-        <Input
-          ref={inputRef}
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Type a message..."
-          className="min-h-[44px]"
-          onKeyDown={(e) => e.key === 'Enter' && send()}
-        />
-        <EmojiPickerButton onSelect={handleEmojiSelect} />
-        <Button className="min-h-[44px] min-w-[44px]" disabled={!body.trim()} onClick={send}>
-          <Send className="w-5 h-5" />
-        </Button>
-        </div>
-      </div>
+      <ChatComposer
+        value={body}
+        onChange={setBody}
+        onSend={send}
+        inputRef={inputRef}
+        replyPreview={<MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />}
+      />
     </div>
   );
 }

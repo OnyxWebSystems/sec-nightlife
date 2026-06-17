@@ -89,7 +89,7 @@ export default function ChangeEmail() {
 
   return (
     <div className="min-h-screen pb-8" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
-      <PageBackHeader title="Change Email" fallbackTo="Settings" />
+      <PageBackHeader title="Change Email" fallbackTo="Settings" pageName="ChangeEmail" />
 
       <div className="px-4 py-6 max-w-xl mx-auto">
         <div

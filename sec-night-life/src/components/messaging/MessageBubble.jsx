@@ -20,7 +20,7 @@ export default function MessageBubble({
 
   return (
     <div
-      className={className}
+      className={`min-w-0 max-w-full break-words [overflow-wrap:anywhere] ${className}`}
       style={style}
       onTouchStart={onReply ? onTouchStart : undefined}
       onTouchEnd={onReply ? (e) => onTouchEnd(e, message) : undefined}

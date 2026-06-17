@@ -4,7 +4,25 @@ import EmojiPicker from 'emoji-picker-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
-export default function EmojiPickerButton({ onSelect, disabled = false, side = 'top' }) {
+export default function EmojiPickerButton({
+  onSelect,
+  disabled = false,
+  side = 'top',
+  variant = 'popover',
+}) {
+  if (variant === 'mobile-trigger') {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg border border-[#262629] shrink-0"
+        aria-label="Show emoji picker"
+      >
+        <Smile className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
+      </button>
+    );
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>
