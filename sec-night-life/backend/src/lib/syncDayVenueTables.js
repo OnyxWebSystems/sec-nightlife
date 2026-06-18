@@ -88,6 +88,8 @@ export async function syncDayVenueTables(venueId, options = {}) {
                 serviceSchedule: data.serviceSchedule,
                 startTime: data.startTime,
                 endTime: data.endTime,
+                bookingFeeZar: data.bookingFeeZar,
+                hostTableFeeZar: data.hostTableFeeZar,
                 isActive: true,
               }
             : data,
@@ -244,8 +246,12 @@ export async function adjustDayTierFromVenueListing(venueId, tierIndex, tierPatc
       min_spend: tierPatch.min_spend ?? existing.def.min_spend,
       min_spend_join: tierPatch.min_spend_join ?? existing.def.min_spend_join,
       min_spend_host: tierPatch.min_spend_host ?? existing.def.min_spend_host,
-      booking_fee_zar: tierPatch.booking_fee_zar ?? existing.def.booking_fee_zar,
-      host_table_fee_zar: tierPatch.host_table_fee_zar ?? existing.def.host_table_fee_zar,
+      booking_fee_zar: tierPatch.booking_fee_zar !== undefined
+        ? tierPatch.booking_fee_zar
+        : existing.def.booking_fee_zar,
+      host_table_fee_zar: tierPatch.host_table_fee_zar !== undefined
+        ? tierPatch.host_table_fee_zar
+        : existing.def.host_table_fee_zar,
       tier_table_slots: slots,
       included_items: tierPatch.included_items ?? existing.def.included_items,
     },

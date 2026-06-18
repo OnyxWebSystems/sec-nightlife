@@ -418,9 +418,11 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.logo_url !== undefined) updates.logoUrl = data.logo_url;
     if (data.cover_image_url !== undefined) updates.coverImageUrl = data.cover_image_url;
     if (extraData.accepts_day_bookings != null) updates.acceptsDayBookings = extraData.accepts_day_bookings;
-    if (extraData.host_table_fee_zar != null) updates.hostTableFeeZar = extraData.host_table_fee_zar;
-    if (extraData.custom_table_booking_fee_zar != null) {
-      updates.customTableBookingFeeZar = extraData.custom_table_booking_fee_zar;
+    if (extra.success && 'host_table_fee_zar' in extra.data) {
+      updates.hostTableFeeZar = extra.data.host_table_fee_zar;
+    }
+    if (extra.success && 'custom_table_booking_fee_zar' in extra.data) {
+      updates.customTableBookingFeeZar = extra.data.custom_table_booking_fee_zar;
     }
     if (extraData.external_booking_links !== undefined) updates.externalBookingLinks = extraData.external_booking_links;
     if (extraData.booking_policies !== undefined) updates.bookingPolicies = extraData.booking_policies;
@@ -445,7 +447,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       latitude: updated.latitude,
       longitude: updated.longitude,
       cover_image_url: updated.coverImageUrl,
-      compliance_status: updated.complianceStatus
+      compliance_status: updated.complianceStatus,
+      host_table_fee_zar: updated.hostTableFeeZar,
+      custom_table_booking_fee_zar: updated.customTableBookingFeeZar,
     });
   } catch (err) {
     next(err);

@@ -225,6 +225,7 @@ export default function BusinessVenueTables() {
           serviceSchedule,
         });
         toast.success('Listing updated');
+        await refetchDayTables();
         qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
         qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
         setEditingTableId(null);
@@ -599,7 +600,8 @@ export default function BusinessVenueTables() {
                             {group.tableCount} table{group.tableCount === 1 ? '' : 's'}
                             {scheduleLabel ? ` · ${scheduleLabel}` : ''}
                             {' · '}Min R{Number(sample?.minimumSpend || 0).toFixed(0)}
-                            {' · '}Fee R{Number(sample?.bookingFeeZar || 0).toFixed(0)}
+                            {' · '}Join fee R{Number(sample?.bookingFeeZar || 0).toFixed(0)}
+                            {' · '}Host fee R{Number(sample?.hostTableFeeZar || 0).toFixed(0)}
                           </p>
                           <p className="text-xs text-[var(--sec-text-muted)] mt-1 ml-6">
                             {statusParts.join(' · ') || 'No tables'}
