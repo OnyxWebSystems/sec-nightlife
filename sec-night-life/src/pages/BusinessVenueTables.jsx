@@ -35,9 +35,11 @@ export default function BusinessVenueTables() {
   const [form, setForm] = useState({
     description: '',
     serviceDate: '',
+    serviceEndDate: '',
     startTime: '19:00',
+    endTime: '23:00',
     allowsCustomRequests: false,
-    tiers: [{ tier_name: 'Standard', max_guests: '6', min_spend: '2000', booking_fee_zar: '200', included_items: [] }],
+    tiers: [{ tier_name: 'Standard', max_guests: '6', min_spend: '2000', booking_fee_zar: '200', tier_table_slots: '1', included_items: [] }],
   });
   const [declineTemplatesByMember, setDeclineTemplatesByMember] = useState({});
   const [declineParamsByMember, setDeclineParamsByMember] = useState({});
@@ -128,27 +130,32 @@ export default function BusinessVenueTables() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      for (const tier of form.tiers) {
+      const tiers = form.tiers.map((tier) => {
         if (!tier.tier_name?.trim()) throw new Error('Each tier needs a name');
         const fees = resolveTierFeesForSave(tier);
         const spends = resolveTierMinSpends(tier);
-        await apiPost('/api/venue-tables', {
-          venueId: venue.id,
-          tableName: tier.tier_name.trim(),
-          description: form.description || null,
-          guestCapacity: parseInt(tier.max_guests, 10) || 6,
-          minimumSpend: spends.min_spend_join,
-          hostMinimumSpend: spends.min_spend_host,
-          bookingFeeZar: fees.booking_fee_zar,
-          hostTableFeeZar: fees.host_table_fee_zar,
-          minSpendSettlement: 'PREPAY_MENU',
-          serviceDate: form.serviceDate ? new Date(form.serviceDate).toISOString() : null,
-          startTime: form.startTime,
-          allowsCustomRequests: form.allowsCustomRequests,
-          tierLabel: tier.tier_name,
-          eventId: null,
-        });
-      }
+        return {
+          tier_name: tier.tier_name.trim(),
+          max_guests: parseInt(tier.max_guests, 10) || 6,
+          min_spend: spends.min_spend_join,
+          min_spend_join: spends.min_spend_join,
+          min_spend_host: spends.min_spend_host,
+          booking_fee_zar: fees.booking_fee_zar,
+          host_table_fee_zar: fees.host_table_fee_zar,
+          tier_table_slots: parseInt(tier.tier_table_slots, 10) || 1,
+          included_items: tier.included_items || [],
+        };
+      });
+      await apiPost('/api/venue-tables/sync-day-listings', {
+        venueId: venue.id,
+        description: form.description || null,
+        serviceDate: form.serviceDate ? new Date(form.serviceDate).toISOString() : null,
+        serviceEndDate: form.serviceEndDate ? new Date(form.serviceEndDate).toISOString() : null,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        allowsCustomRequests: form.allowsCustomRequests,
+        tiers,
+      });
     },
     onSuccess: () => {
       toast.success('Listing(s) created');
@@ -182,7 +189,9 @@ export default function BusinessVenueTables() {
       bookingFeeZar: String(table.bookingFeeZar ?? 0),
       hostTableFeeZar: String(table.hostTableFeeZar ?? 0),
       serviceDate: table.serviceDate ? new Date(table.serviceDate).toISOString().slice(0, 10) : '',
+      serviceEndDate: table.serviceEndDate ? new Date(table.serviceEndDate).toISOString().slice(0, 10) : '',
       startTime: table.startTime || '19:00',
+      endTime: table.endTime || '23:00',
       allowsCustomRequests: Boolean(table.allowsCustomRequests),
     });
   };
@@ -201,7 +210,9 @@ export default function BusinessVenueTables() {
         bookingFeeZar: parseFloat(editForm.bookingFeeZar) || 0,
         hostTableFeeZar: parseFloat(editForm.hostTableFeeZar) || 0,
         serviceDate: editForm.serviceDate ? new Date(editForm.serviceDate).toISOString() : null,
+        serviceEndDate: editForm.serviceEndDate ? new Date(editForm.serviceEndDate).toISOString() : null,
         startTime: editForm.startTime || null,
+        endTime: editForm.endTime || null,
         allowsCustomRequests: editForm.allowsCustomRequests,
         tierLabel: editForm.tableName.trim(),
       },
@@ -326,12 +337,31 @@ export default function BusinessVenueTables() {
             >
               <Label>Description (optional)</Label>
               <Input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-              <Label>Service date (optional)</Label>
-              <Input type="date" value={form.serviceDate} onChange={(e) => setForm((f) => ({ ...f, serviceDate: e.target.value }))} />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Service start date</Label>
+                  <Input type="date" value={form.serviceDate} onChange={(e) => setForm((f) => ({ ...f, serviceDate: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Service end date</Label>
+                  <Input type="date" value={form.serviceEndDate} onChange={(e) => setForm((f) => ({ ...f, serviceEndDate: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Start time</Label>
+                  <Input type="time" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>End time</Label>
+                  <Input type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} />
+                </div>
+              </div>
               <TableTierEditor
                 tiers={form.tiers}
                 onChange={(tiers) => setForm((f) => ({ ...f, tiers }))}
                 venueMenuItems={menuItems}
+                showSlots
               />
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -364,6 +394,9 @@ export default function BusinessVenueTables() {
                 const serviceLabel = t.serviceDate
                   ? new Date(t.serviceDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })
                   : null;
+                const serviceEndLabel = t.serviceEndDate
+                  ? new Date(t.serviceEndDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })
+                  : null;
                 return (
                   <div
                     key={t.id}
@@ -387,7 +420,9 @@ export default function BusinessVenueTables() {
                           <p className="text-xs text-[var(--sec-text-muted)] mt-1">
                             {t.isCustomListing ? 'Custom table requests' : 'Day booking'}
                             {serviceLabel ? ` · ${serviceLabel}` : ''}
+                            {serviceEndLabel && serviceEndLabel !== serviceLabel ? ` → ${serviceEndLabel}` : ''}
                             {t.startTime ? ` · ${t.startTime}` : ''}
+                            {t.endTime ? `–${t.endTime}` : ''}
                             {' · '}Min R{Number(t.minimumSpend || 0).toFixed(0)}
                             {' · '}Fee R{Number(t.bookingFeeZar || 0).toFixed(0)}
                           </p>
@@ -531,20 +566,19 @@ export default function BusinessVenueTables() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Max guests</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={editForm.guestCapacity}
-                    onChange={(e) => setEditForm((f) => ({ ...f, guestCapacity: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label>Service date</Label>
+                  <Label>Service start date</Label>
                   <Input
                     type="date"
                     value={editForm.serviceDate}
                     onChange={(e) => setEditForm((f) => ({ ...f, serviceDate: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Service end date</Label>
+                  <Input
+                    type="date"
+                    value={editForm.serviceEndDate}
+                    onChange={(e) => setEditForm((f) => ({ ...f, serviceEndDate: e.target.value }))}
                   />
                 </div>
               </div>
@@ -589,12 +623,31 @@ export default function BusinessVenueTables() {
                 </div>
               </div>
               <div>
-                <Label>Start time</Label>
+                <Label>Max guests</Label>
                 <Input
-                  type="time"
-                  value={editForm.startTime}
-                  onChange={(e) => setEditForm((f) => ({ ...f, startTime: e.target.value }))}
+                  type="number"
+                  min={1}
+                  value={editForm.guestCapacity}
+                  onChange={(e) => setEditForm((f) => ({ ...f, guestCapacity: e.target.value }))}
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Start time</Label>
+                  <Input
+                    type="time"
+                    value={editForm.startTime}
+                    onChange={(e) => setEditForm((f) => ({ ...f, startTime: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>End time</Label>
+                  <Input
+                    type="time"
+                    value={editForm.endTime}
+                    onChange={(e) => setEditForm((f) => ({ ...f, endTime: e.target.value }))}
+                  />
+                </div>
               </div>
               <Button type="submit" disabled={updateMutation.isPending} className="w-full sec-btn-primary">
                 {updateMutation.isPending ? 'Saving…' : 'Save changes'}

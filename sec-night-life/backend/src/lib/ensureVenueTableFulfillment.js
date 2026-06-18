@@ -7,8 +7,11 @@ import { buildVenueTableMemberTicketSummary } from './ticketMemberSummary.js';
 import {
   visibleUntilAfterEventDate,
   visibleUntilForVenueTableMember,
+  visibleUntilForDayVenueTable,
   eventStartsAtFromEvent,
   eventEndsAtFromEvent,
+  dayStartsAtFromVenueTable,
+  dayEndsAtFromVenueTable,
   holderDisplayNameFromUser,
 } from './ticketHelpers.js';
 import { splitSecPlatform, recordPayoutAndMaybeTransfer, resolveRecipientCodeForVenue } from './paystackPayout.js';
@@ -116,7 +119,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       const bookingMode = metadata.booking_mode || metadata.bookingMode;
       const isHostPayment =
         bookingMode === 'host' || bookingMode === 'custom_host' || freshMember.memberRole === 'HOST';
-      if (isHostPayment && table.eventId && !table.hostedTableId) {
+      if (isHostPayment && !table.hostedTableId) {
         await ensureHostedTableFromVenueHostPayment({
           tx,
           venueTable: table,
@@ -146,10 +149,10 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
   const bookingMode = metadata.booking_mode || metadata.bookingMode;
   const isHostMode = bookingMode === 'host' || bookingMode === 'custom_host' || member.memberRole === 'HOST';
 
-  if (isHostMode && vt.eventId && !vt.hostedTableId) {
+  if (isHostMode && !vt.hostedTableId) {
     await prisma.$transaction(async (tx) => {
       const freshTable = await tx.venueTable.findUnique({ where: { id: vt.id } });
-      if (freshTable?.eventId && !freshTable.hostedTableId) {
+      if (freshTable && !freshTable.hostedTableId) {
         await ensureHostedTableFromVenueHostPayment({
           tx,
           venueTable: freshTable,
@@ -212,9 +215,13 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
     });
     const visFallback = refreshedVt.event?.date
       ? visibleUntilForVenueTableMember(refreshedVt, refreshedVt.event)
-      : visibleUntilAfterEventDate(new Date());
-    const eventStartsAt = refreshedVt.event ? eventStartsAtFromEvent(refreshedVt.event) : null;
-    const eventEndsAt = refreshedVt.event ? eventEndsAtFromEvent(refreshedVt.event) : null;
+      : visibleUntilForDayVenueTable(refreshedVt);
+    const eventStartsAt = refreshedVt.event
+      ? eventStartsAtFromEvent(refreshedVt.event)
+      : dayStartsAtFromVenueTable(refreshedVt);
+    const eventEndsAt = refreshedVt.event
+      ? eventEndsAtFromEvent(refreshedVt.event)
+      : dayEndsAtFromVenueTable(refreshedVt);
     const settlementMode = metadata.settlement_mode || metadata.settlementMode || member.settlementMode;
     const minSpendZar = isHostMode
       ? Number(refreshedVt.hostMinimumSpend ?? refreshedVt.minimumSpend ?? 0)

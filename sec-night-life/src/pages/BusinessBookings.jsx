@@ -179,7 +179,7 @@ export default function BusinessBookings() {
     })();
   }, []);
 
-  const { data: bookingsData, isLoading: eventTablesLoading } = useQuery({
+  const { data: bookingsData, isLoading: eventTablesLoading, isError: eventTablesError, error: eventTablesQueryError } = useQuery({
     queryKey: ['biz-event-table-bookings', user?.id, selectedEventId, eventTimeScope, scopeKey],
     queryFn: () => {
       const params = new URLSearchParams({ event_scope: eventTimeScope });
@@ -253,6 +253,20 @@ export default function BusinessBookings() {
   useEffect(() => {
     setSelectedEventId('all');
   }, [eventTimeScope, scopeKey]);
+
+  useEffect(() => {
+    if (!eventTablesError || !eventTablesQueryError) return;
+    const err = eventTablesQueryError;
+    toast.error(err?.data?.error || err?.message || 'Could not load event table bookings');
+  }, [eventTablesError, eventTablesQueryError]);
+
+  useEffect(() => {
+    if (selectedEventId === 'all') return;
+    const ids = eventOptions.map((o) => o.id);
+    if (ids.length && !ids.includes(selectedEventId)) {
+      setSelectedEventId('all');
+    }
+  }, [eventOptions, selectedEventId]);
 
   useEffect(() => {
     setTicketEventId('all');

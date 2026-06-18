@@ -84,6 +84,7 @@ function legacyFromTierGroups(groups) {
     base[key] = {
       max_tables: g.max_tables ?? null,
       host_table_fee_zar: g.host_table_fee_zar ?? null,
+      allows_custom_requests: Boolean(g.allows_custom_requests),
       tiers: Array.isArray(g.table_slots) ? g.table_slots : g.tiers || [],
     };
   }

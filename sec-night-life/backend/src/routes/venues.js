@@ -21,6 +21,7 @@ async function syncProfileFollowedVenues(userId, venueId, following) {
 import { isStaff, getStaffAssignmentsForUser } from '../lib/access.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 import { sendEmail } from '../lib/email.js';
+import { buildVenueDayTableTiers } from '../lib/buildVenueDayTableTiers.js';
 
 const router = Router();
 
@@ -259,6 +260,17 @@ router.post('/:id/follow', authenticateToken, async (req, res, next) => {
     });
     await syncProfileFollowedVenues(req.userId, venueId, true);
     return res.json({ following: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Grouped day table tiers for VenueBook (host/join flows). */
+router.get('/:id/day-table-tiers', optionalAuth, async (req, res, next) => {
+  try {
+    const result = await buildVenueDayTableTiers(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Venue not found' });
+    res.json(result);
   } catch (err) {
     next(err);
   }

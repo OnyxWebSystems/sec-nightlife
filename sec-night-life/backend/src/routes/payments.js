@@ -34,9 +34,12 @@ import {
   visibleUntilAfterParty,
   visibleUntilAfterHostedTable,
   visibleUntilForVenueTableMember,
+  visibleUntilForDayVenueTable,
   eventStartsAtFromEvent,
   eventStartsAtFromHostedTable,
   eventEndsAtFromEvent,
+  dayStartsAtFromVenueTable,
+  dayEndsAtFromVenueTable,
   holderDisplayNameFromUser,
   formatSpecsFromTable,
   formatSpecsFromVenueTable,
@@ -629,7 +632,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
 
       const bookingMode = metadata.booking_mode || metadata.bookingMode;
       const isHostPayment = bookingMode === 'host' || bookingMode === 'custom_host' || member.memberRole === 'HOST';
-      if (isHostPayment && table.eventId && !table.hostedTableId) {
+      if (isHostPayment && !table.hostedTableId) {
         await ensureHostedTableFromVenueHostPayment({
           tx,
           venueTable: table,
@@ -672,10 +675,10 @@ async function applyReferenceSideEffects(reference, paystackData) {
       memberForRepair?.memberRole === 'HOST';
     if (isHostRepair && memberForRepair?.status === 'CONFIRMED') {
       const tableForRepair = await prisma.venueTable.findUnique({ where: { id: String(venueTableId) } });
-      if (tableForRepair?.eventId && !tableForRepair.hostedTableId) {
+      if (tableForRepair && !tableForRepair.hostedTableId) {
         await prisma.$transaction(async (tx) => {
           const freshTable = await tx.venueTable.findUnique({ where: { id: String(venueTableId) } });
-          if (freshTable?.eventId && !freshTable.hostedTableId) {
+          if (freshTable && !freshTable.hostedTableId) {
             await ensureHostedTableFromVenueHostPayment({
               tx,
               venueTable: freshTable,
@@ -774,9 +777,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
       });
       const visFallback = vt.event?.date
         ? visibleUntilForVenueTableMember(vt, vt.event)
-        : visibleUntilAfterEventDate(new Date());
-      const eventStartsAt = vt.event ? eventStartsAtFromEvent(vt.event) : null;
-      const eventEndsAt = vt.event ? eventEndsAtFromEvent(vt.event) : null;
+        : visibleUntilForDayVenueTable(vt);
+      const eventStartsAt = vt.event ? eventStartsAtFromEvent(vt.event) : dayStartsAtFromVenueTable(vt);
+      const eventEndsAt = vt.event ? eventEndsAtFromEvent(vt.event) : dayEndsAtFromVenueTable(vt);
       const bookingMode = metadata.booking_mode || metadata.bookingMode;
       const settlementMode = metadata.settlement_mode || metadata.settlementMode || member?.settlementMode;
       const isHostMode = bookingMode === 'host' || bookingMode === 'custom_host' || member?.memberRole === 'HOST';
@@ -1294,9 +1297,26 @@ async function applyReferenceSideEffects(reference, paystackData) {
           });
           if (memFresh?.paystackReference === reference) {
             const htFinal = memFresh.hostedTable;
+            const linkedVenueTable = await prisma.venueTable.findFirst({
+              where: { hostedTableId: htFinal.id },
+              select: {
+                id: true,
+                venueId: true,
+                serviceDate: true,
+                serviceEndDate: true,
+                startTime: true,
+                endTime: true,
+              },
+            });
+            const htVenueId =
+              htEvent?.venueId ||
+              metadata.venue_id ||
+              metadata.venueId ||
+              linkedVenueTable?.venueId ||
+              null;
             const hostCode = joinZar > 0 ? await resolveRecipientCodeForUser(htFinal.hostUserId) : null;
-            if (entranceZar > 0 && htEvent?.venueId) {
-              const venueCode = await resolveRecipientCodeForVenue(htEvent.venueId);
+            if (entranceZar > 0 && htVenueId) {
+              const venueCode = await resolveRecipientCodeForVenue(htVenueId);
               const { secAmount: sEnt, recipientAmount: rEnt } = splitSecPlatform(entranceZar);
               await recordPayoutAndMaybeTransfer({
                 paymentReference: `${reference}:entrance`,
@@ -1305,7 +1325,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 recipientAmount: rEnt,
                 recipientType: 'VENUE',
                 recipientUserId: null,
-                recipientVenueId: htEvent.venueId,
+                recipientVenueId: htVenueId,
                 paystackRecipientCode: venueCode,
               });
             }
@@ -1322,8 +1342,8 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 paystackRecipientCode: hostCode,
               });
             }
-            if (menuZar > 0 && htEvent?.venueId) {
-              const venueMenuCode = await resolveRecipientCodeForVenue(htEvent.venueId);
+            if (menuZar > 0 && htVenueId) {
+              const venueMenuCode = await resolveRecipientCodeForVenue(htVenueId);
               const { secAmount: sMenu, recipientAmount: rMenu } = splitSecPlatform(menuZar);
               await recordPayoutAndMaybeTransfer({
                 paymentReference: `${reference}:menu`,
@@ -1332,7 +1352,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 recipientAmount: rMenu,
                 recipientType: 'VENUE',
                 recipientUserId: null,
-                recipientVenueId: htEvent.venueId,
+                recipientVenueId: htVenueId,
                 paystackRecipientCode: venueMenuCode,
               });
               await prisma.hostedTableMember.update({
@@ -1352,10 +1372,18 @@ async function applyReferenceSideEffects(reference, paystackData) {
               where: { id: htFinal.hostUserId },
               select: { fullName: true, username: true, userProfile: { select: { username: true } } },
             });
-            const vis = visibleUntilAfterHostedTable(htFinal);
+            const vis = linkedVenueTable && !htEvent
+              ? visibleUntilForDayVenueTable(linkedVenueTable)
+              : visibleUntilAfterHostedTable(htFinal);
             const eventStartsAt =
-              (htEvent && eventStartsAtFromEvent(htEvent)) || eventStartsAtFromHostedTable(htFinal);
-            const eventEndsAt = htEvent ? eventEndsAtFromEvent(htEvent) : null;
+              (htEvent && eventStartsAtFromEvent(htEvent)) ||
+              (linkedVenueTable && dayStartsAtFromVenueTable(linkedVenueTable)) ||
+              eventStartsAtFromHostedTable(htFinal);
+            const eventEndsAt = htEvent
+              ? eventEndsAtFromEvent(htEvent)
+              : linkedVenueTable
+                ? dayEndsAtFromVenueTable(linkedVenueTable)
+                : null;
             const joinMenuItems = Array.isArray(metadata.selected_menu_items)
               ? metadata.selected_menu_items
               : Array.isArray(metadata.selectedMenuItems)

@@ -38,6 +38,56 @@ export function visibleUntilForVenueTableMember(table, event) {
   return visibleUntilAfterEventDate(evDate);
 }
 
+/** Combine day listing service end date + end time; fallback start date + 24h. */
+export function dayEndsAtFromVenueTable(table) {
+  if (!table) return null;
+  const endDateRaw = table.serviceEndDate ?? table.service_end_date ?? table.serviceDate ?? table.service_date;
+  if (!endDateRaw) return null;
+  const d = endDateRaw instanceof Date ? new Date(endDateRaw) : new Date(endDateRaw);
+  if (Number.isNaN(d.getTime())) return null;
+  const end = new Date(d.getTime());
+  const endTime = table.endTime ?? table.end_time;
+  if (endTime && typeof endTime === 'string') {
+    const parts = endTime.split(':');
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (Number.isFinite(h) && Number.isFinite(m)) {
+      end.setUTCHours(h, m || 0, 0, 0);
+      return end;
+    }
+  }
+  end.setUTCHours(23, 59, 59, 999);
+  return end;
+}
+
+export function dayStartsAtFromVenueTable(table) {
+  if (!table) return null;
+  const startDateRaw = table.serviceDate ?? table.service_date;
+  if (!startDateRaw) return null;
+  const d = startDateRaw instanceof Date ? new Date(startDateRaw) : new Date(startDateRaw);
+  if (Number.isNaN(d.getTime())) return null;
+  const start = new Date(d.getTime());
+  const startTime = table.startTime ?? table.start_time;
+  if (startTime && typeof startTime === 'string') {
+    const parts = startTime.split(':');
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (Number.isFinite(h) && Number.isFinite(m)) {
+      start.setUTCHours(h, m || 0, 0, 0);
+    }
+  }
+  return start;
+}
+
+/** Ticket QR expiry for day venue table bookings. */
+export function visibleUntilForDayVenueTable(table) {
+  const endsAt = dayEndsAtFromVenueTable(table);
+  if (endsAt) return new Date(endsAt.getTime() + MS_DAY);
+  const startsAt = dayStartsAtFromVenueTable(table);
+  if (startsAt) return new Date(startsAt.getTime() + MS_DAY);
+  return visibleUntilAfterEventDate(new Date());
+}
+
 /** When the ticketed experience starts (UTC), for expiry = start + 24h. */
 export function eventStartsAtFromEvent(event) {
   if (!event?.date) return null;

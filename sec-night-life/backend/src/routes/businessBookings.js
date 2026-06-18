@@ -235,9 +235,34 @@ function eventDateIsPast(eventDate, startToday) {
   return t < startToday;
 }
 
+function eventSelectForBookings() {
+  return {
+    id: true,
+    title: true,
+    date: true,
+    startTime: true,
+    endsAt: true,
+    hostingConfig: true,
+    eventFormat: true,
+    ticketTiers: true,
+  };
+}
+
+/** Active/past scope uses event end instant when available (matches Events Manager lifecycle). */
+function eventIsPastByEndsAt(ev, now = new Date()) {
+  const end = eventEndsAtFromEvent(ev);
+  if (end && !Number.isNaN(end.getTime())) return end.getTime() <= now.getTime();
+  return eventDateIsPast(ev.date, startOfUtcToday());
+}
+
+function eventIsActiveByEndsAt(ev, now = new Date()) {
+  return !eventIsPastByEndsAt(ev, now);
+}
+
 /** Table-hosting events only — excludes ticketed-only experiences from event table bookings. */
 function eventSupportsTableBookings(ev) {
   if (!ev) return false;
+  if (ev.eventFormat === 'TABLE_HOSTING') return true;
   if (ev.eventFormat === 'TICKETING_ONLY') return false;
 
   const hosting = normalizeHostingConfig(ev.hostingConfig);
@@ -255,7 +280,12 @@ function eventSupportsTableBookings(ev) {
   const hasTicketTiers = normalizeTicketTiers(ev.ticketTiers).length > 0;
 
   if (hasTicketTiers && !hasTableHosting) return false;
-  return hasTableHosting || ev.eventFormat === 'TABLE_HOSTING';
+  return hasTableHosting;
+}
+
+function eventQualifiesForTableBookings(ev, eventIdsWithVenueTables) {
+  if (eventSupportsTableBookings(ev)) return true;
+  return eventIdsWithVenueTables?.has(ev.id) ?? false;
 }
 
 function tableInUse(table, hostedTable = null) {
@@ -353,7 +383,9 @@ function mapVenueTableManagementItem(t, hosted, goingCount = null) {
     minimumSpend: t.minimumSpend,
     bookingFeeZar: t.bookingFeeZar,
     serviceDate: t.serviceDate,
+    serviceEndDate: t.serviceEndDate,
     startTime: t.startTime,
+    endTime: t.endTime,
     description: t.description,
   };
 }
@@ -419,10 +451,16 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
 
     const scopeRaw = String(req.query.event_scope || 'active').toLowerCase();
     const eventScope = ['active', 'past', 'all'].includes(scopeRaw) ? scopeRaw : 'active';
-    const startToday = startOfUtcToday();
+    const now = new Date();
 
-    const dateWhere =
-      eventScope === 'active' ? { gte: startToday } : eventScope === 'past' ? { lt: startToday } : undefined;
+    const venueTableEventRows = await prisma.venueTable.findMany({
+      where: { venueId: { in: venueIds }, eventId: { not: null } },
+      select: { eventId: true },
+      distinct: ['eventId'],
+    });
+    const eventIdsWithVenueTables = new Set(
+      venueTableEventRows.map((r) => r.eventId).filter(Boolean),
+    );
 
     let eventsInScope = [];
     let eventSummaries = [];
@@ -430,12 +468,12 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
     if (eventIdFilter) {
       const ev = await prisma.event.findFirst({
         where: { id: eventIdFilter, venueId: { in: venueIds }, deletedAt: null },
-        select: { id: true, title: true, date: true, hostingConfig: true, eventFormat: true, ticketTiers: true },
+        select: eventSelectForBookings(),
       });
       if (!ev) {
         return res.status(404).json({ error: 'Event not found' });
       }
-      if (!eventSupportsTableBookings(ev)) {
+      if (!eventQualifiesForTableBookings(ev, eventIdsWithVenueTables)) {
         return res.json({
           items: [],
           eventSummaries: [],
@@ -443,7 +481,7 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
           eventScope,
         });
       }
-      const isPast = eventDateIsPast(ev.date, startToday);
+      const isPast = eventIsPastByEndsAt(ev, now);
       if (eventScope === 'active' && isPast) {
         return res.json({
           items: [],
@@ -469,11 +507,17 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
         where: {
           venueId: { in: venueIds },
           deletedAt: null,
-          ...(dateWhere ? { date: dateWhere } : {}),
         },
-        select: { id: true, title: true, date: true, hostingConfig: true, eventFormat: true, ticketTiers: true },
+        select: eventSelectForBookings(),
       });
-      const tableHostingEvents = allVenueEvents.filter(eventSupportsTableBookings);
+      let tableHostingEvents = allVenueEvents.filter((e) =>
+        eventQualifiesForTableBookings(e, eventIdsWithVenueTables),
+      );
+      if (eventScope === 'active') {
+        tableHostingEvents = tableHostingEvents.filter((e) => eventIsActiveByEndsAt(e, now));
+      } else if (eventScope === 'past') {
+        tableHostingEvents = tableHostingEvents.filter((e) => eventIsPastByEndsAt(e, now));
+      }
       eventsInScope = tableHostingEvents;
       eventSummaries = tableHostingEvents
         .map((e) => ({
@@ -1170,6 +1214,8 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
           userSpecs: m.userSpecs,
           joinedAt: m.joinedAt,
           paidAt: m.paidAt,
+          memberRole: m.memberRole,
+          paystackReference: m.paystackReference,
           user: {
             id: m.user.id,
             username: m.user.userProfile?.username,
@@ -1182,6 +1228,11 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
             isCustomListing: m.venueTable.isCustomListing,
             status: m.venueTable.status,
             currentOccupancy: m.venueTable.currentOccupancy,
+            serviceDate: m.venueTable.serviceDate,
+            serviceEndDate: m.venueTable.serviceEndDate,
+            startTime: m.venueTable.startTime,
+            endTime: m.venueTable.endTime,
+            hostUserId: m.venueTable.hostUserId,
             hostedTableId: m.venueTable.hostedTableId,
             tableSessionNumber: m.venueTable.tableSessionNumber ?? 1,
             event: m.venueTable.event,

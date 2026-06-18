@@ -67,6 +67,7 @@ const createTableSchema = z.object({
   hostTableFeeZar: z.number().min(0).optional(),
   minSpendSettlement: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
   serviceDate: z.coerce.date().optional().nullable(),
+  serviceEndDate: z.coerce.date().optional().nullable(),
   startTime: z.string().optional().nullable(),
   endTime: z.string().optional().nullable(),
   partySize: z.number().int().min(1).optional().nullable(),
@@ -100,6 +101,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         hostTableFeeZar: d.hostTableFeeZar ?? 0,
         minSpendSettlement: d.minSpendSettlement ?? 'PAY_ON_ARRIVAL',
         serviceDate: d.serviceDate ?? null,
+        serviceEndDate: d.serviceEndDate ?? null,
         startTime: d.startTime ?? null,
         endTime: d.endTime ?? null,
         partySize: d.partySize ?? null,
@@ -118,6 +120,59 @@ router.post('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+const syncDayListingsSchema = z.object({
+  venueId: z.string().min(1),
+  description: z.string().trim().max(500).optional().nullable(),
+  serviceDate: z.coerce.date().optional().nullable(),
+  serviceEndDate: z.coerce.date().optional().nullable(),
+  startTime: z.string().optional().nullable(),
+  endTime: z.string().optional().nullable(),
+  allowsCustomRequests: z.boolean().optional(),
+  tiers: z
+    .array(
+      z.object({
+        tier_name: z.string().trim().min(1).max(60),
+        max_guests: z.union([z.number(), z.string()]).optional(),
+        min_spend: z.union([z.number(), z.string()]).optional(),
+        min_spend_join: z.union([z.number(), z.string()]).optional(),
+        min_spend_host: z.union([z.number(), z.string()]).optional(),
+        booking_fee_zar: z.union([z.number(), z.string()]).optional(),
+        host_table_fee_zar: z.union([z.number(), z.string()]).optional(),
+        tier_table_slots: z.union([z.number(), z.string()]).optional(),
+        included_items: z.array(z.any()).optional(),
+      }),
+    )
+    .min(1),
+});
+
+router.post('/sync-day-listings', authenticateToken, async (req, res, next) => {
+  try {
+    if (!requireVenueOwner(req, res)) return;
+    const parsed = syncDayListingsSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const d = parsed.data;
+    const owned = await assertVenueOwnedByUser(d.venueId, req.userId);
+    if (!owned) return res.status(403).json({ error: 'Forbidden' });
+    const { syncDayVenueTables } = await import('../lib/syncDayVenueTables.js');
+    const result = await syncDayVenueTables(d.venueId, {
+      description: d.description ?? null,
+      serviceDate: d.serviceDate ?? null,
+      serviceEndDate: d.serviceEndDate ?? null,
+      startTime: d.startTime ?? null,
+      endTime: d.endTime ?? null,
+      allowsCustomRequests: d.allowsCustomRequests ?? false,
+      tiers: d.tiers.map((t) => ({
+        ...t,
+        max_guests: Number(t.max_guests) || 6,
+        tier_table_slots: Number(t.tier_table_slots) || 1,
+      })),
+    });
+    res.status(201).json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
 const updateTableSchema = z.object({
   tableName: z.string().trim().min(1).max(60).optional(),
   description: z.string().trim().max(500).optional().nullable(),
@@ -127,7 +182,9 @@ const updateTableSchema = z.object({
   bookingFeeZar: z.number().min(0).optional(),
   hostTableFeeZar: z.number().min(0).optional(),
   serviceDate: z.coerce.date().optional().nullable(),
+  serviceEndDate: z.coerce.date().optional().nullable(),
   startTime: z.string().optional().nullable(),
+  endTime: z.string().optional().nullable(),
   allowsCustomRequests: z.boolean().optional(),
   tierLabel: z.string().optional().nullable(),
 });
@@ -164,7 +221,9 @@ router.patch('/:tableId', authenticateToken, async (req, res, next) => {
         ...(d.bookingFeeZar != null ? { bookingFeeZar: d.bookingFeeZar } : {}),
         ...(d.hostTableFeeZar != null ? { hostTableFeeZar: d.hostTableFeeZar } : {}),
         ...(d.serviceDate !== undefined ? { serviceDate: d.serviceDate } : {}),
+        ...(d.serviceEndDate !== undefined ? { serviceEndDate: d.serviceEndDate } : {}),
         ...(d.startTime !== undefined ? { startTime: d.startTime } : {}),
+        ...(d.endTime !== undefined ? { endTime: d.endTime } : {}),
         ...(d.allowsCustomRequests != null ? { allowsCustomRequests: d.allowsCustomRequests } : {}),
         ...(d.tierLabel !== undefined ? { tierLabel: d.tierLabel } : {}),
       },
@@ -795,7 +854,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
           where: { id: table.id },
           data: { currentOccupancy: { increment: 1 }, status: nextStatus },
         });
-        if (isHost && table.eventId && !table.hostedTableId) {
+        if (isHost && !table.hostedTableId) {
           await ensureHostedTableFromVenueHostPayment({
             tx,
             venueTable: table,

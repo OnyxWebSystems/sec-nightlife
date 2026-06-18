@@ -41,7 +41,7 @@ import {
 import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
 import { canJoinTablesAsGuest } from '../lib/access.js';
-import { parseGuestCountFromSpecs } from '../lib/venueTableHostAfterPayment.js';
+import { parseGuestCountFromSpecs, resolveLinkedVenueTableForHostedTable } from '../lib/venueTableHostAfterPayment.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { buildHostedTableJoinTicketSummary } from '../lib/ticketMemberSummary.js';
@@ -49,7 +49,10 @@ import {
   eventStartsAtFromEvent,
   eventEndsAtFromEvent,
   visibleUntilAfterHostedTable,
+  visibleUntilForDayVenueTable,
   eventStartsAtFromHostedTable,
+  dayStartsAtFromVenueTable,
+  dayEndsAtFromVenueTable,
   holderDisplayNameFromUser,
 } from '../lib/ticketHelpers.js';
 
@@ -1912,6 +1915,10 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
           select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
         })
       : null;
+    const approveLinkedVt = !approveEvent
+      ? await resolveLinkedVenueTableForHostedTable(prisma, table.id)
+      : null;
+    const approveVenueId = approveEvent?.venueId || approveLinkedVt?.venueId || null;
     const entranceZarApprove = getEventEntranceZar(approveEvent);
     const joinZarApprove =
       table.hasJoiningFee && Number(table.joiningFee || 0) > 0 ? Number(table.joiningFee) : 0;
@@ -1956,7 +1963,7 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
           hosted_table_id: table.id,
           hosted_table_member_id: member.id,
           event_id: approveEvent?.id || null,
-          venue_id: approveEvent?.venueId || null,
+          venue_id: approveVenueId,
           entrance_zar: entranceZarApprove,
           join_zar: joinZarApprove,
           amount_total_zar: entranceZarApprove + joinZarApprove,
@@ -2170,10 +2177,12 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           select: { id: true, title: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true, date: true, startTime: true, endsAt: true },
         })
       : null;
+    const joinLinkedVt = !joinEvent ? await resolveLinkedVenueTableForHostedTable(prisma, t.id) : null;
+    const joinVenueId = joinEvent?.venueId || joinLinkedVt?.venueId || null;
 
     let menuResolved = { items: [], totalZar: 0 };
-    if (selectedMenuInput?.length && joinEvent?.venueId) {
-      menuResolved = await resolveVenueMenuSelections(selectedMenuInput, joinEvent.venueId);
+    if (selectedMenuInput?.length && joinVenueId) {
+      menuResolved = await resolveVenueMenuSelections(selectedMenuInput, joinVenueId);
     }
 
     let existing = await prisma.hostedTableMember.findUnique({
@@ -2277,7 +2286,7 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           hosted_table_id: t.id,
           hosted_table_member_id: memberId,
           event_id: joinEvent?.id || null,
-          venue_id: joinEvent?.venueId || null,
+          venue_id: joinVenueId,
           entrance_zar: entranceZarJoin,
           join_zar: joinZarJoin,
           menu_zar: menuZarJoin,
@@ -2353,14 +2362,22 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       kind: 'HOSTED_TABLE_JOIN',
       title: `${t.tableName} — Join ticket`,
       subtitle: t.venueName,
-      visibleUntil: visibleUntilAfterHostedTable(t),
+      visibleUntil: joinLinkedVt && !joinEvent
+        ? visibleUntilForDayVenueTable(joinLinkedVt)
+        : visibleUntilAfterHostedTable(t),
       hostedTableId: t.id,
       eventId: joinEvent?.id || null,
       quantity: 1,
       holderDisplayName: holderDisplayNameFromUser(payer),
       tableSpecsSummary: joinSummary,
-      eventStartsAt: joinEvent ? eventStartsAtFromEvent(joinEvent) : eventStartsAtFromHostedTable(t),
-      eventEndsAt: joinEvent ? eventEndsAtFromEvent(joinEvent) : null,
+      eventStartsAt: joinEvent
+        ? eventStartsAtFromEvent(joinEvent)
+        : (joinLinkedVt && dayStartsAtFromVenueTable(joinLinkedVt)) || eventStartsAtFromHostedTable(t),
+      eventEndsAt: joinEvent
+        ? eventEndsAtFromEvent(joinEvent)
+        : joinLinkedVt
+          ? dayEndsAtFromVenueTable(joinLinkedVt)
+          : null,
     });
     const uname = joiner?.userProfile?.username || joiner?.username || 'someone';
     await createInAppNotification({
