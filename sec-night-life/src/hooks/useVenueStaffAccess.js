@@ -44,6 +44,7 @@ export function useVenueStaffAccess() {
       isStaffOnly: scope.isStaffOnly,
       isStaffAccess: scope.isStaffAccess,
       staffPermissions: scope.staffPermissions,
+      staffContextToken: scope.staffContextToken,
       venuesLoading: scope.venuesLoading,
       inStaffSession: scope.inStaffSession,
       can: scope.can,

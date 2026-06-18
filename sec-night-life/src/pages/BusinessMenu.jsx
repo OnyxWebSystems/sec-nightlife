@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
-import { dataService } from '@/services/dataService';
 import { apiGet, apiPatch, apiDelete, uploadFile } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash2, Loader2, Pencil, AlertTriangle } from 'lucide-react';
@@ -14,7 +13,9 @@ import VenueMenuNavigator from '@/components/menu/VenueMenuNavigator';
 import { formatMenuCategoryLabel } from '@/lib/groupMenuByCategory';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
-import VenueSwitcher from '@/components/business/VenueSwitcher';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
+import { useStaffVenueOptional } from '@/context/StaffVenueContext';
+import { menuApiBase } from '@/lib/staffVenueApi';
 
 export default function BusinessMenu() {
   const navigate = useNavigate();
@@ -40,12 +41,21 @@ export default function BusinessMenu() {
   }, []);
 
   const { activeVenue, isLoading: venuesLoading } = useActiveVenue();
-  const venueId = activeVenue?.id;
+  const staffVenueCtx = useStaffVenueOptional();
+  const venueScope = useBusinessVenueScope();
+  const venueId = venueScope.inStaffSession ? null : activeVenue?.id;
+  const hasVenueScope = venueScope.inStaffSession || !!activeVenue?.id;
+  const scopeKey = venueScope.staffContextToken || venueId;
+  const menuBase = menuApiBase({
+    inStaffSession: venueScope.inStaffSession,
+    staffContextToken: venueScope.staffContextToken,
+    venueId,
+  });
 
   const { data: items = [], isLoading: itemsLoading } = useQuery({
-    queryKey: ['venue-menu', venueId],
-    queryFn: () => apiGet(`/api/business/venues/${venueId}/menu-items`),
-    enabled: !!venueId,
+    queryKey: ['venue-menu', scopeKey],
+    queryFn: () => apiGet(`${menuBase}/menu-items`),
+    enabled: !!menuBase,
   });
 
   const needsPhotoCount = useMemo(() => items.filter((i) => i.needs_photo).length, [items]);
@@ -55,19 +65,21 @@ export default function BusinessMenu() {
     [items]
   );
 
-  const venueLogoUrl = activeVenue?.logo_url || activeVenue?.logoUrl;
+  const venueLogoUrl = venueScope.inStaffSession
+    ? staffVenueCtx?.staffVenueMeta?.venueLogoUrl
+    : activeVenue?.logo_url || activeVenue?.logoUrl;
 
   const photoCrop = useImageCropUpload({
     onCropped: async (file) => {
-      if (!venueId || !photoTargetId) return;
+      if (!menuBase || !photoTargetId) return;
       setUploading(true);
       try {
         const r = await uploadFile(file);
         if (!r?.file_url) throw new Error('Upload failed');
-        await apiPatch(`/api/business/venues/${venueId}/menu-items/${photoTargetId}`, {
+        await apiPatch(`${menuBase}/menu-items/${photoTargetId}`, {
           image_url: r.file_url,
         });
-        queryClient.invalidateQueries({ queryKey: ['venue-menu', venueId] });
+        queryClient.invalidateQueries({ queryKey: ['venue-menu', scopeKey] });
         toast.success('Photo updated — item is visible to guests');
         setPhotoTargetId(null);
       } catch (e) {
@@ -78,7 +90,7 @@ export default function BusinessMenu() {
     },
   });
 
-  const invalidateMenu = () => queryClient.invalidateQueries({ queryKey: ['venue-menu', venueId] });
+  const invalidateMenu = () => queryClient.invalidateQueries({ queryKey: ['venue-menu', scopeKey] });
 
   const toggleAvailable = async (item) => {
     const needsPhoto = Boolean(item.needs_photo);
@@ -89,7 +101,7 @@ export default function BusinessMenu() {
       return;
     }
     try {
-      const updated = await apiPatch(`/api/business/venues/${venueId}/menu-items/${item.id}`, {
+      const updated = await apiPatch(`${menuBase}/menu-items/${item.id}`, {
         is_available: nextVisible,
       });
       await invalidateMenu();
@@ -112,7 +124,7 @@ export default function BusinessMenu() {
   const removeItem = async (id) => {
     if (!window.confirm('Remove this menu item?')) return;
     try {
-      await apiDelete(`/api/business/venues/${venueId}/menu-items/${id}`);
+      await apiDelete(`${menuBase}/menu-items/${id}`);
       invalidateMenu();
       toast.success('Removed');
     } catch (e) {
@@ -124,7 +136,7 @@ export default function BusinessMenu() {
     const price = parseFloat(String(priceEdit).replace(',', '.'));
     if (!Number.isFinite(price) || price <= 0) return toast.error('Enter a valid price');
     try {
-      await apiPatch(`/api/business/venues/${venueId}/menu-items/${item.id}`, { price });
+      await apiPatch(`${menuBase}/menu-items/${item.id}`, { price });
       setEditingItem(null);
       invalidateMenu();
       toast.success('Price updated');
@@ -137,7 +149,7 @@ export default function BusinessMenu() {
     const category = categoryEdit.trim();
     if (!category) return toast.error('Category name is required');
     try {
-      await apiPatch(`/api/business/venues/${venueId}/menu-items/${item.id}`, {
+      await apiPatch(`${menuBase}/menu-items/${item.id}`, {
         category,
         sub_category: subCategoryEdit.trim() || null,
       });
@@ -151,7 +163,7 @@ export default function BusinessMenu() {
 
   if (!user) return null;
 
-  if (venuesLoading) {
+  if (venuesLoading && !venueScope.inStaffSession) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
         <Loader2 className="animate-spin" />
@@ -159,21 +171,39 @@ export default function BusinessMenu() {
     );
   }
 
-  if (!venueId) {
+  if (!hasVenueScope) {
     return (
       <div style={{ padding: 24, maxWidth: 560, margin: '0 auto' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Menu Maker</h1>
-        <p style={{ color: 'var(--sec-text-muted)' }}>Register your venue first to build a menu.</p>
-        <button type="button" className="sec-btn sec-btn-primary mt-3" onClick={() => navigate(createPageUrl('VenueOnboarding'))}>
-          Set up venue
-        </button>
+        <p style={{ color: 'var(--sec-text-muted)' }}>
+          {venueScope.inStaffSession
+            ? 'Staff venue context is missing or expired.'
+            : 'Register your venue first to build a menu.'}
+        </p>
+        {venueScope.inStaffSession ? (
+          <button
+            type="button"
+            className="sec-btn sec-btn-primary mt-3"
+            onClick={() => navigate(createPageUrl('StaffDashboard'))}
+          >
+            Go to Staff Dashboard
+          </button>
+        ) : (
+          <button type="button" className="sec-btn sec-btn-primary mt-3" onClick={() => navigate(createPageUrl('VenueOnboarding'))}>
+            Set up venue
+          </button>
+        )}
       </div>
     );
   }
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <PageBackHeader title="Menu Maker" subtitle="Photos, prices, and categories" pageName="BusinessMenu" />
+      <PageBackHeader
+        title="Menu Maker"
+        subtitle={venueScope.inStaffSession ? venueScope.venueName : 'Photos, prices, and categories'}
+        pageName="BusinessMenu"
+      />
       <div style={{ padding: '16px 20px 24px' }}>
       <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
         Manage what guests see. Add items with your own photos, prices, and categories.
@@ -196,7 +226,7 @@ export default function BusinessMenu() {
         <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Add items</h2>
         <MenuCatalogBrowser
           mode="live"
-          venueId={venueId}
+          menuApiBase={menuBase}
           addedCatalogIds={addedCatalogIds}
           onVenueMenuUpdated={invalidateMenu}
         />

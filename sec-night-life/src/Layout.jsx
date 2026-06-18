@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { createPageUrl } from './utils';
+import { createPageUrl, buildPageUrl } from './utils';
 import { prefetchPage } from './pages.config';
 import * as authService from '@/services/authService';
 import { useAuth } from '@/lib/AuthContext';
@@ -36,6 +36,15 @@ function filterBusinessNav(items, canAccessPage, can) {
     if (item.page === 'Settings' || item.page === 'Notifications') return true;
     return canAccessPage(item.page);
   });
+}
+
+function businessNavUrl(page, { query = null, staffContextToken = null } = {}) {
+  if (!page) return createPageUrl('BusinessDashboard');
+  const params = staffContextToken ? { staff_ctx: staffContextToken } : undefined;
+  const base = buildPageUrl(page, params);
+  if (!query) return base;
+  const q = query.startsWith('?') ? query.slice(1) : query;
+  return base.includes('?') ? `${base}&${q}` : `${base}?${q}`;
 }
 
 export default function Layout({ children, currentPageName }) {
@@ -162,16 +171,32 @@ export default function Layout({ children, currentPageName }) {
           ownsVenue = list.some((v) => v.is_owner === true || v.isOwner === true);
         } catch {}
       }
+      let hasStaff = false;
+      try {
+        const staffVenues = await apiGet('/api/staff/venues');
+        if (!cancelled) {
+          const staffList = Array.isArray(staffVenues) ? staffVenues : (staffVenues?.items || []);
+          hasStaff = staffList.length > 0;
+          setHasStaffAssignments(hasStaff);
+        }
+      } catch {
+        if (!cancelled) {
+          hasStaff = false;
+          setHasStaffAssignments(false);
+        }
+      }
+
+      const canUseBusinessMode = ownsVenue || hasStaff;
       if (cancelled) return;
-      setUserRoles({ partygoer: true, host: true, business: ownsVenue });
+      setUserRoles({ partygoer: true, host: true, business: canUseBusinessMode });
 
       const saved = localStorage.getItem('sec_active_mode');
       let defaultMode = 'partygoer';
-      if (saved === 'business' && ownsVenue) defaultMode = 'business';
+      if (saved === 'business' && canUseBusinessMode) defaultMode = 'business';
       else if (saved === 'partygoer') defaultMode = 'partygoer';
-      else if (ownsVenue) defaultMode = 'business';
+      else if (canUseBusinessMode) defaultMode = 'business';
       else defaultMode = 'partygoer';
-      if (saved === 'business' && !ownsVenue) {
+      if (saved === 'business' && !canUseBusinessMode) {
         localStorage.setItem('sec_active_mode', 'partygoer');
       }
       setActiveMode(defaultMode);
@@ -186,16 +211,6 @@ export default function Layout({ children, currentPageName }) {
         }
       } catch {
         if (!cancelled) setComplianceAccess({ canReview: false, isSuperAdmin: false });
-      }
-
-      try {
-        const staffVenues = await apiGet('/api/staff/venues');
-        if (!cancelled) {
-          const staffList = Array.isArray(staffVenues) ? staffVenues : (staffVenues?.items || []);
-          setHasStaffAssignments(staffList.length > 0);
-        }
-      } catch {
-        if (!cancelled) setHasStaffAssignments(false);
       }
     })();
     return () => {
@@ -325,6 +340,20 @@ export default function Layout({ children, currentPageName }) {
   const primaryNavB = withMessageBadge(filterNavForStaff(primaryNav));
   const secondaryNavB = withMessageBadge(filterNavForStaff(secondaryNav));
 
+  const resolveNavTarget = (item) => {
+    if (!item?.page) return createPageUrl('Home');
+    if (staffAccess.staffContextToken && BUSINESS_PAGE_PERMISSIONS[item.page]) {
+      return businessNavUrl(item.page, {
+        query: item.query,
+        staffContextToken: staffAccess.staffContextToken,
+      });
+    }
+    return item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page);
+  };
+
+  const attachNavTargets = (items) =>
+    items.map((item) => ({ ...item, navTo: item.page ? resolveNavTarget(item) : null }));
+
   // Mobile: Unified 5-tab bottom nav — Home, Events, Create, Messages, Profile
   let mobileNav = mode === 'business'
     ? [
@@ -341,7 +370,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
         { name: 'Profile', icon: User, page: 'Profile' },
       ];
-  mobileNav = withMessageBadge(filterNavForStaff(mobileNav));
+  mobileNav = attachNavTargets(withMessageBadge(filterNavForStaff(mobileNav)));
 
   const isActive = (page) => {
     if (page === 'CreateJob' && currentPageName === 'CreateJob') return true;
@@ -409,10 +438,10 @@ export default function Layout({ children, currentPageName }) {
         )}
 
         <nav style={{ flex: 1, padding: '14px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {primaryNavB.map((item) => (
+          {attachNavTargets(primaryNavB).map((item) => (
               <Link
                 key={item.page + item.name + (item.query || '')}
-                to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
+                to={item.navTo}
                 className="sec-nav-item"
                 onMouseEnter={() => prefetchNav(item.page)}
                 onFocus={() => prefetchNav(item.page)}
@@ -431,10 +460,10 @@ export default function Layout({ children, currentPageName }) {
               </Link>
           ))}
           <div style={{ margin: '10px 2px', height: 1, backgroundColor: 'var(--sec-border)' }} />
-          {secondaryNavB.map((item) => (
+          {attachNavTargets(secondaryNavB).map((item) => (
             <Link
               key={item.page + item.name}
-              to={item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page)}
+              to={item.navTo}
               className="sec-nav-item"
               onMouseEnter={() => prefetchNav(item.page)}
               onFocus={() => prefetchNav(item.page)}

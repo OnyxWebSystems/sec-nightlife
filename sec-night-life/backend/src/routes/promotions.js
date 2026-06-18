@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { isStaff, staffHasVenuePermission } from '../lib/access.js';
+import { isStaff, staffHasVenuePermission, resolveBusinessVenueScope, staffCtxFromQuery } from '../lib/access.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
 import { sendEmail } from '../lib/email.js';
@@ -241,10 +241,48 @@ const trackSchema = z.object({
   sessionId: z.string().min(8).max(128),
 });
 
+async function fetchVenuePromotionsList(venueId) {
+  const now = new Date();
+  await prisma.promotion.updateMany({
+    where: { venueId, deletedAt: null, status: 'ACTIVE', endAt: { lt: now } },
+    data: { status: 'ENDED' },
+  });
+
+  const promotions = await prisma.promotion.findMany({
+    where: { venueId, deletedAt: null },
+    include: {
+      event: { select: { title: true } },
+      impressions: { select: { userId: true, sessionId: true, type: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  return promotions.map((promotion) => {
+    const base = formatOwnerPromotion(promotion);
+    const unique = computeUniquePromotionStats(promotion.impressions);
+    return {
+      ...base,
+      boostImpressions: unique.uniqueViews,
+      organicImpressions: 0,
+      totalClicks: unique.uniqueClicks,
+    };
+  });
+}
+
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
     if (!(await assertPromotionsAccess(req, res))) return;
-    const parsed = createSchema.safeParse(normalizePromotionCreateBody(req.body));
+    const rawBody = normalizePromotionCreateBody(req.body);
+    const staffCtx = staffCtxFromQuery(req.query);
+    let venueId = rawBody.venueId;
+    if (staffCtx) {
+      const scope = await resolveBusinessVenueScope(req.userId, {
+        staffCtx,
+        permission: 'promotions',
+      });
+      if (!scope.ok) return res.status(scope.status).json({ error: scope.error });
+      venueId = scope.venueIds[0];
+    }
+    const parsed = createSchema.safeParse({ ...rawBody, venueId });
     if (!parsed.success) {
       return res.status(400).json({
         error: 'Invalid promotion payload',
@@ -312,32 +350,7 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
     const canView = await staffHasVenuePermission(req.userId, req.params.venueId, 'promotions');
     if (!canView) return res.status(403).json({ error: 'Forbidden' });
 
-    const now = new Date();
-    await prisma.promotion.updateMany({
-      where: { venueId: req.params.venueId, deletedAt: null, status: 'ACTIVE', endAt: { lt: now } },
-      data: { status: 'ENDED' },
-    });
-
-    const promotions = await prisma.promotion.findMany({
-      where: { venueId: req.params.venueId, deletedAt: null },
-      include: {
-        event: { select: { title: true } },
-        impressions: { select: { userId: true, sessionId: true, type: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json(
-      promotions.map((promotion) => {
-        const base = formatOwnerPromotion(promotion);
-        const unique = computeUniquePromotionStats(promotion.impressions);
-        return {
-          ...base,
-          boostImpressions: unique.uniqueViews,
-          organicImpressions: 0,
-          totalClicks: unique.uniqueClicks,
-        };
-      }),
-    );
+    res.json(await fetchVenuePromotionsList(req.params.venueId));
   } catch (err) {
     next(err);
   }
@@ -960,5 +973,6 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
   }
 });
 
+export { fetchVenuePromotionsList };
 export default router;
 

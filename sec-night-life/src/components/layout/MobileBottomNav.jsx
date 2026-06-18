@@ -50,7 +50,7 @@ export default function MobileBottomNav({
           const active = isActive(item.page);
           const isCreateTab = item.isCreate || (item.name === 'Create' && item.query === '?create=table');
           const isProfile = item.page === 'Profile';
-          const to = item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page);
+          const to = item.navTo || (item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page));
           const iconSize = compact ? 20 : 22;
 
           const iconEl = isCreateTab ? (

@@ -149,6 +149,8 @@ export default function StaffDashboard() {
                                 venueLogoUrl: venueLogo,
                                 permissions: perms,
                               });
+                              localStorage.setItem('sec_active_mode', 'business');
+                              window.dispatchEvent(new CustomEvent('sec_active_mode_changed', { detail: { mode: 'business' } }));
                             }}
                             className="flex items-center gap-3 p-3 rounded-xl transition-colors"
                             style={{

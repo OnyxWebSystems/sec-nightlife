@@ -31,7 +31,7 @@ const postingSchema = z.object({
   currency: z.string().trim().min(1).default('ZAR'),
   totalSpots: z.number().int().min(1).default(1),
   closingDate: z.coerce.date().optional().nullable(),
-  venueId: z.string().min(1),
+  venueId: z.string().min(1).optional(),
   positionRole: z.enum(['PROMOTER', 'VENUE_STAFF']).default('VENUE_STAFF'),
 });
 
@@ -167,12 +167,25 @@ router.post('/', authenticateToken, async (req, res, next) => {
     if ((payload.compensationType === 'FIXED' || payload.compensationType === 'NEGOTIABLE') && !payload.compensationPer) {
       return res.status(400).json({ error: 'compensationPer is required for fixed or negotiable compensation' });
     }
-    const venue = await getVenueOwnedByUser(payload.venueId, req.userId);
+
+    const staffCtx = staffCtxFromQuery(req.query);
+    let venueId = payload.venueId;
+    if (staffCtx) {
+      const scope = await resolveBusinessVenueScope(req.userId, {
+        staffCtx,
+        permission: 'jobs',
+      });
+      if (!scope.ok) return res.status(scope.status).json({ error: scope.error });
+      venueId = scope.venueIds[0];
+    }
+    if (!venueId) return res.status(400).json({ error: 'venueId or staff_ctx is required' });
+
+    const venue = await getVenueOwnedByUser(venueId, req.userId);
     if (!venue) return res.status(403).json({ error: 'Forbidden' });
 
     const created = await prisma.jobPosting.create({
       data: {
-        venueId: payload.venueId,
+        venueId,
         title: payload.title,
         description: payload.description,
         requirements: payload.requirements,

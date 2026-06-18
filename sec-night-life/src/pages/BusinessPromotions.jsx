@@ -8,11 +8,14 @@ import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { createPageUrl } from '@/utils';
+import { useNavigate } from 'react-router-dom';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { launchPaystackInline, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
+import { staffPromotionsListUrl } from '@/lib/staffVenueApi';
 
 const PUBLISH_ZAR_PER_DAY = 50;
 const BOOST_ZAR_PER_DAY = 150;
@@ -29,14 +32,14 @@ function validatePromotionScheduleForDraft(startsAtLocal, endsAtLocal) {
   return null;
 }
 
-async function createPromotionRecord(form, selectedVenue) {
+async function createPromotionRecord(form, selectedVenue, { staffContextToken } = {}) {
   let startsAtIso;
   let endsAtIso;
   startsAtIso = localDateTimeToIso(form.startsAt);
   endsAtIso = localDateTimeToIso(form.endsAt);
 
   const payload = {
-    venueId: selectedVenue.trim(),
+    venueId: staffContextToken ? undefined : selectedVenue.trim(),
     eventId: form.promoteWhat === 'event' ? form.eventId.trim() : null,
     promotionType: form.promotionType,
     type: form.promotionType,
@@ -52,20 +55,25 @@ async function createPromotionRecord(form, selectedVenue) {
     endAt: endsAtIso,
     starts_at: startsAtIso,
     ends_at: endsAtIso,
-    venue_id: selectedVenue.trim(),
     event_id: form.promoteWhat === 'event' ? form.eventId.trim() : null,
     promotion_type: form.promotionType,
     image_url: form.imageUrl ? form.imageUrl.trim() : null,
     image_public_id: form.imagePublicId ? form.imagePublicId.trim() : null,
     target_city: form.targetCity ? form.targetCity.trim() : null,
   };
+  if (!staffContextToken) {
+    payload.venue_id = selectedVenue.trim();
+  }
+
+  const promotionsUrl = staffContextToken
+    ? `/api/promotions?staff_ctx=${encodeURIComponent(staffContextToken)}`
+    : '/api/promotions';
 
   try {
-    return await apiPost('/api/promotions', payload);
+    return await apiPost(promotionsUrl, payload);
   } catch (error) {
     if (!isInvalidInputError(error)) throw error;
-    return apiPost('/api/promotions', {
-      venue_id: payload.venueId,
+    const fallback = {
       event_id: payload.eventId,
       promotion_type: payload.promotionType,
       type: payload.promotionType,
@@ -81,7 +89,11 @@ async function createPromotionRecord(form, selectedVenue) {
       endsAt: payload.endsAt,
       startAt: payload.startsAt,
       endAt: payload.endsAt,
-    });
+    };
+    if (!staffContextToken) {
+      fallback.venue_id = selectedVenue.trim();
+    }
+    return apiPost(promotionsUrl, fallback);
   }
 }
 const PROMO_MAX_MS = 30 * 24 * 60 * 60 * 1000;
@@ -358,7 +370,13 @@ const EMPTY_PROMOTION_FORM = {
   targetCity: '',
 };
 
-const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVenue, events, userEmail, onPublished }) {
+const PromotionCreateForm = React.memo(function PromotionCreateForm({
+  selectedVenue,
+  staffContextToken,
+  events,
+  userEmail,
+  onPublished,
+}) {
   const [form, setForm] = useState(() => ({
     ...EMPTY_PROMOTION_FORM,
     ...buildDefaultPromotionSchedule(7),
@@ -406,7 +424,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
   }, [form.startsAt, form.endsAt, billedDays]);
 
   function validateCommonFields({ requirePaymentEmail = false } = {}) {
-    if (!selectedVenue) return 'Please select a venue.';
+    if (!selectedVenue && !staffContextToken) return 'Please select a venue.';
     if (form.promoteWhat === 'event' && !form.eventId) return 'Choose an event to promote.';
     if (!form.title.trim()) return 'Title is required.';
     if (!form.body.trim()) return 'Body is required.';
@@ -429,7 +447,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
 
     setSavingDraft(true);
     try {
-      await createPromotionRecord(form, selectedVenue);
+      await createPromotionRecord(form, selectedVenue, { staffContextToken });
       await onPublished();
       resetCreateForm();
       toast.success('Draft saved — pay when you are ready to publish.');
@@ -454,7 +472,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
 
     setSaving(true);
     try {
-      const created = await createPromotionRecord(form, selectedVenue);
+      const created = await createPromotionRecord(form, selectedVenue, { staffContextToken });
 
       const ok = await checkoutPromotionPublish({
         promotionId: created.id,
@@ -642,7 +660,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         <button
           type="button"
           className="sec-btn sec-btn-primary sec-btn-full"
-          disabled={saving || savingDraft || !selectedVenue}
+          disabled={saving || savingDraft || (!selectedVenue && !staffContextToken)}
           style={{ height: 50, fontWeight: 700 }}
           onClick={() => void handlePayAndPublish()}
         >
@@ -651,7 +669,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({ selectedVe
         <button
           type="button"
           className="sec-btn sec-btn-secondary sec-btn-full"
-          disabled={saving || savingDraft || !selectedVenue}
+          disabled={saving || savingDraft || (!selectedVenue && !staffContextToken)}
           style={{ height: 46 }}
           onClick={() => void handleSaveDraft()}
         >
@@ -1152,6 +1170,7 @@ const PromotionCardsList = React.memo(function PromotionCardsList({
 });
 
 export default function BusinessPromotions() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -1179,57 +1198,87 @@ export default function BusinessPromotions() {
   }, [user?.email]);
 
   const { venues, activeVenueId, setActiveVenueId } = useActiveVenue();
-  const selectedVenueRecord = useMemo(
-    () => venues.find((venue) => String(venue.id) === String(selectedVenue)) || null,
-    [venues, selectedVenue],
-  );
+  const venueScope = useBusinessVenueScope();
+  const hasVenueScope = venueScope.inStaffSession || !!activeVenueId;
+  const scopeKey = venueScope.staffContextToken || activeVenueId;
+
+  const selectedVenueRecord = useMemo(() => {
+    if (venueScope.inStaffSession) {
+      return venueScope.venueName ? { name: venueScope.venueName } : { name: 'Venue' };
+    }
+    return venues.find((venue) => String(venue.id) === String(selectedVenue)) || null;
+  }, [venues, selectedVenue, venueScope.inStaffSession, venueScope.venueName]);
 
   useEffect(() => {
+    if (venueScope.inStaffSession) {
+      setSelectedVenue('__staff__');
+      return;
+    }
     if (activeVenueId) setSelectedVenue(String(activeVenueId));
-  }, [activeVenueId]);
+  }, [activeVenueId, venueScope.inStaffSession]);
 
   useEffect(() => {
-    if (selectedVenue && String(selectedVenue) !== String(activeVenueId)) {
+    if (venueScope.inStaffSession) return;
+    if (selectedVenue && selectedVenue !== '__staff__' && String(selectedVenue) !== String(activeVenueId)) {
       setActiveVenueId(selectedVenue);
     }
-  }, [selectedVenue]);
+  }, [selectedVenue, venueScope.inStaffSession, activeVenueId, setActiveVenueId]);
 
-  const loadPromotions = useCallback(async (venueId) => {
-    if (!venueId) return;
+  const loadPromotions = useCallback(async () => {
+    if (!hasVenueScope) return;
     setLoadingList(true);
     try {
-      const data = await apiGet(`/api/promotions/venue/${venueId}`);
+      let data;
+      if (venueScope.inStaffSession && venueScope.staffContextToken) {
+        data = await apiGet(staffPromotionsListUrl(venueScope.staffContextToken));
+      } else if (selectedVenue && selectedVenue !== '__staff__') {
+        data = await apiGet(`/api/promotions/venue/${selectedVenue}`);
+      } else {
+        return;
+      }
       setPromotions(Array.isArray(data) ? data : []);
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Failed to load promotions');
     } finally {
       setLoadingList(false);
     }
-  }, []);
+  }, [hasVenueScope, venueScope.inStaffSession, venueScope.staffContextToken, selectedVenue]);
 
-  const loadEvents = useCallback(async (venueId) => {
-    if (!venueId) return;
+  const loadEvents = useCallback(async () => {
+    if (!hasVenueScope) return;
     try {
-      const list = await dataService.Event.filter({ venue_id: venueId, status: 'published' }, 'date', 50);
-      setEvents(Array.isArray(list) ? list : []);
+      let list;
+      if (venueScope.inStaffSession && venueScope.staffContextToken) {
+        list = await apiGet(`/api/events?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`);
+      } else if (selectedVenue && selectedVenue !== '__staff__') {
+        list = await dataService.Event.filter({ venue_id: selectedVenue, status: 'published' }, 'date', 50);
+      } else {
+        return;
+      }
+      const rows = Array.isArray(list) ? list : [];
+      setEvents(
+        venueScope.inStaffSession
+          ? rows.filter((e) => e.status === 'published')
+          : rows
+      );
     } catch {
       setEvents([]);
     }
-  }, []);
+  }, [hasVenueScope, venueScope.inStaffSession, venueScope.staffContextToken, selectedVenue]);
 
   useEffect(() => {
-    if (!selectedVenue) return;
+    if (!hasVenueScope) return;
     void (async () => {
-      await Promise.all([loadPromotions(selectedVenue), loadEvents(selectedVenue)]);
+      await Promise.all([loadPromotions(), loadEvents()]);
     })();
-  }, [selectedVenue, loadPromotions, loadEvents]);
+  }, [hasVenueScope, scopeKey, loadPromotions, loadEvents]);
 
   const handlePromotionPublished = useCallback(async () => {
-    await loadPromotions(selectedVenue);
+    await loadPromotions();
     queryClient.invalidateQueries({ queryKey: ['home-feed'] });
     queryClient.invalidateQueries({ queryKey: ['home-promotions-feed'] });
     queryClient.invalidateQueries({ queryKey: ['notifications'] });
-  }, [selectedVenue, loadPromotions, queryClient]);
+  }, [loadPromotions, queryClient]);
 
   const runBoostPayment = useCallback(
     async (promotion) => {
@@ -1279,42 +1328,64 @@ export default function BusinessPromotions() {
   const patchPromotion = useCallback(async (id, payload) => {
     try {
       await apiPatch(`/api/promotions/${id}`, payload);
-      await loadPromotions(selectedVenue);
+      await loadPromotions();
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Update failed');
     }
-  }, [selectedVenue, loadPromotions]);
+  }, [loadPromotions]);
 
   const saveEditedPromotion = useCallback(
     async (payload) => {
       if (!editingPromotion) return;
       try {
         await apiPatch(`/api/promotions/${editingPromotion.id}`, payload);
-        await loadPromotions(selectedVenue);
+        await loadPromotions();
         setEditingPromotion(null);
         toast.success('Promotion updated');
       } catch (e) {
         toast.error(e?.data?.error || e.message || 'Update failed');
       }
     },
-    [editingPromotion, selectedVenue, loadPromotions]
+    [editingPromotion, loadPromotions]
   );
 
   const deletePromotion = useCallback(async (id) => {
     if (!window.confirm('Delete this promotion? It will be removed from discovery.')) return;
     try {
       await apiDelete(`/api/promotions/${id}`);
-      await loadPromotions(selectedVenue);
+      await loadPromotions();
       toast.success('Promotion deleted');
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Delete failed');
     }
-  }, [selectedVenue, loadPromotions]);
+  }, [loadPromotions]);
 
   const livePromotions = useMemo(() => promotions.filter((p) => p.status !== 'ENDED'), [promotions]);
   const pastPromotions = useMemo(() => promotions.filter((p) => p.status === 'ENDED'), [promotions]);
 
   if (!user) return null;
+
+  if (!hasVenueScope) {
+    return (
+      <div style={{ padding: 24, maxWidth: 560, margin: '0 auto' }}>
+        <PageBackHeader title="Promotions" pageName="BusinessPromotions" />
+        <p style={{ color: 'var(--sec-text-muted)', marginTop: 16 }}>
+          {venueScope.inStaffSession
+            ? 'Staff venue context is missing or expired.'
+            : 'No venue found for this account yet. Create a venue first to publish promotions.'}
+        </p>
+        {venueScope.inStaffSession ? (
+          <button
+            type="button"
+            className="sec-btn sec-btn-primary mt-3"
+            onClick={() => navigate(createPageUrl('StaffDashboard'))}
+          >
+            Go to Staff Dashboard
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 920, margin: '0 auto', paddingBottom: 120 }}>
@@ -1352,7 +1423,13 @@ export default function BusinessPromotions() {
         )}
       </div>
 
-      <PromotionCreateForm selectedVenue={selectedVenue} events={events} userEmail={user?.email} onPublished={handlePromotionPublished} />
+      <PromotionCreateForm
+        selectedVenue={venueScope.inStaffSession ? '' : selectedVenue}
+        staffContextToken={venueScope.inStaffSession ? venueScope.staffContextToken : null}
+        events={events}
+        userEmail={user?.email}
+        onPublished={handlePromotionPublished}
+      />
 
       <PublishRepublishModal
         open={!!publishModal}

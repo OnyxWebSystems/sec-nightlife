@@ -65,6 +65,7 @@ function MenuMakerCard({ item, onAdd, added }) {
  * @param {object} props
  * @param {'live'|'draft'} props.mode
  * @param {string} [props.venueId]
+ * @param {string} [props.menuApiBase] — owner or staff menu API root
  * @param {Set<string>} props.addedCatalogIds
  * @param {() => void} [props.onVenueMenuUpdated]
  * @param {(item: object) => void} [props.onAddToDraft]
@@ -72,10 +73,12 @@ function MenuMakerCard({ item, onAdd, added }) {
 export default function MenuCatalogBrowser({
   mode = 'live',
   venueId,
+  menuApiBase: menuApiBaseProp,
   addedCatalogIds = new Set(),
   onVenueMenuUpdated,
   onAddToDraft,
 }) {
+  const menuRoot = menuApiBaseProp || (venueId ? `/api/business/venues/${venueId}` : null);
   const [search, setSearch] = useState('');
   const [topCategory, setTopCategory] = useState('Drinks');
   const [subCategory, setSubCategory] = useState('');
@@ -172,9 +175,9 @@ export default function MenuCatalogBrowser({
       return;
     }
 
-    if (!venueId) return;
+    if (!menuRoot) return;
     try {
-      await apiPost(`/api/business/venues/${venueId}/menu-items/from-catalog`, {
+      await apiPost(`${menuRoot}/menu-items/from-catalog`, {
         items: [{
           catalog_item_id: pendingItem.id,
           price,
@@ -220,9 +223,9 @@ export default function MenuCatalogBrowser({
       return;
     }
 
-    if (!venueId) return;
+    if (!menuRoot) return;
     try {
-      await apiPost(`/api/business/venues/${venueId}/menu-items`, {
+      await apiPost(`${menuRoot}/menu-items`, {
         items: [{
           name,
           price,

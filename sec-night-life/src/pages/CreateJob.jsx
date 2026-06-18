@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
+import { createPageUrl, buildPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { apiPost } from '@/api/client';
 import { JOB_TYPES, COMPENSATION_TYPES, COMPENSATION_PER } from '@/constants/jobPostingForm';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 
 export default function CreateJob() {
   const navigate = useNavigate();
@@ -65,24 +66,39 @@ export default function CreateJob() {
     return () => window.removeEventListener('sec_active_mode_changed', handleModeChange);
   }, []);
 
-  useEffect(() => {
-    if (activeMode !== 'business') {
-      navigate(createPageUrl('Jobs'), { replace: true });
-    }
-  }, [activeMode, navigate]);
+  const venueScope = useBusinessVenueScope();
 
   const { data: venues = [] } = useQuery({
     queryKey: ['biz-venues', user?.id],
     queryFn: () => dataService.Venue.mine(),
-    enabled: !!user,
+    enabled: !!user && !venueScope.inStaffSession,
   });
 
+  const hasVenueScope = venueScope.inStaffSession || venues.some((v) => v.is_owner === true || v.isOwner === true);
+
+  useEffect(() => {
+    if (activeMode !== 'business' && !venueScope.inStaffSession) {
+      navigate(createPageUrl('Jobs'), { replace: true });
+    }
+  }, [activeMode, navigate, venueScope.inStaffSession]);
+
+  const ownedVenues = venues.filter((v) => v.is_owner === true || v.isOwner === true);
+
   const createMutation = useMutation({
-    mutationFn: (payload) => apiPost('/api/jobs', payload),
+    mutationFn: (payload) => {
+      const url = venueScope.inStaffSession && venueScope.staffContextToken
+        ? `/api/jobs?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`
+        : '/api/jobs';
+      return apiPost(url, payload);
+    },
     onSuccess: () => {
       toast.success('Job posted!');
       queryClient.invalidateQueries({ queryKey: ['biz-jobs'] });
-      navigate(createPageUrl('BusinessDashboard'));
+      if (venueScope.inStaffSession && venueScope.staffContextToken) {
+        navigate(buildPageUrl('BusinessJobs', { staff_ctx: venueScope.staffContextToken }));
+      } else {
+        navigate(createPageUrl('BusinessDashboard'));
+      }
     },
     onError: (err) => {
       toast.error(err?.data?.error || err?.message || 'Failed to post job');
@@ -94,7 +110,7 @@ export default function CreateJob() {
       title: form.title.trim() ? '' : 'Job title is required',
       description: form.description.trim() ? '' : 'Description is required',
       requirements: form.requirements.trim() ? '' : 'Requirements are required',
-      venue_id: form.venue_id ? '' : 'Select a venue',
+      venue_id: (venueScope.inStaffSession || form.venue_id) ? '' : 'Select a venue',
       compensationAmount: '',
     };
     if (['FIXED', 'NEGOTIABLE'].includes(form.compensationType) && form.compensationAmount && Number(form.compensationAmount) < 0) {
@@ -104,7 +120,7 @@ export default function CreateJob() {
     if (Object.values(nextErrors).some(Boolean)) return;
 
     const payload = {
-      venueId: form.venue_id,
+      ...(venueScope.inStaffSession ? {} : { venueId: form.venue_id }),
       title: form.title.trim(),
       description: form.description.trim(),
       requirements: form.requirements.trim(),
@@ -122,15 +138,25 @@ export default function CreateJob() {
 
   if (!user) return null;
 
-  if (venues.length === 0) {
+  if (!hasVenueScope) {
     return (
       <div style={{ padding: 24, textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
         <Briefcase size={48} style={{ color: 'var(--sec-text-muted)', margin: '0 auto 16px' }} />
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--sec-text-primary)' }}>No Venue Found</h2>
-        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>Register a venue to post jobs.</p>
-        <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))} className="sec-btn sec-btn-primary">
-          Register Venue
-        </Button>
+        <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 20 }}>
+          {venueScope.inStaffSession
+            ? 'Staff venue context is missing or expired.'
+            : 'Register a venue to post jobs.'}
+        </p>
+        {venueScope.inStaffSession ? (
+          <Button onClick={() => navigate(createPageUrl('StaffDashboard'))} className="sec-btn sec-btn-primary">
+            Go to Staff Dashboard
+          </Button>
+        ) : (
+          <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))} className="sec-btn sec-btn-primary">
+            Register Venue
+          </Button>
+        )}
       </div>
     );
   }
@@ -166,14 +192,23 @@ export default function CreateJob() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <Label className="text-gray-400 text-sm">Venue *</Label>
-              <Select value={form.venue_id} onValueChange={v => setForm(p => ({ ...p, venue_id: v }))}>
-                <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
-                  <SelectValue placeholder="Select venue" />
-                </SelectTrigger>
-                <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
-                  {venues.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              {venueScope.inStaffSession ? (
+                <div
+                  className="mt-1.5 h-11 rounded-xl flex items-center px-3"
+                  style={{ backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}
+                >
+                  {venueScope.venueName || 'Venue'}
+                </div>
+              ) : (
+                <Select value={form.venue_id} onValueChange={v => setForm(p => ({ ...p, venue_id: v }))}>
+                  <SelectTrigger className="mt-1.5 h-11 rounded-xl" style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}>
+                    <SelectValue placeholder="Select venue" />
+                  </SelectTrigger>
+                  <SelectContent style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' }}>
+                    {ownedVenues.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
               {errors.venue_id ? <p style={{ color: 'var(--sec-error)', fontSize: 12, marginTop: 4 }}>{errors.venue_id}</p> : null}
             </div>
             <div>

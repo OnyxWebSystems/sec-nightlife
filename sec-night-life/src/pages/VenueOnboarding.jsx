@@ -52,6 +52,27 @@ function venueOnboardingDraftKey(userId) {
   return `sec-venue-onboarding-draft:${userId}`;
 }
 
+function venueOnboardingNewDraftKey(userId) {
+  return `sec-venue-onboarding-draft-new:${userId}`;
+}
+
+function loadParsedDraftFromKey(key) {
+  if (!key) return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.savedAt !== 'number') return null;
+    if (Date.now() - parsed.savedAt > DRAFT_MAX_AGE_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 const INITIAL_FORM_DATA = {
   name: '',
   venue_type: '',
@@ -82,26 +103,14 @@ const INITIAL_FORM_DATA = {
 };
 
 function loadParsedDraft(userId) {
-  if (!userId) return null;
-  try {
-    const raw = localStorage.getItem(venueOnboardingDraftKey(userId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.savedAt !== 'number') return null;
-    if (Date.now() - parsed.savedAt > DRAFT_MAX_AGE_MS) {
-      localStorage.removeItem(venueOnboardingDraftKey(userId));
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
+  return loadParsedDraftFromKey(venueOnboardingDraftKey(userId));
 }
 
 function clearVenueOnboardingDraft(userId) {
   if (!userId) return;
   try {
     localStorage.removeItem(venueOnboardingDraftKey(userId));
+    localStorage.removeItem(venueOnboardingNewDraftKey(userId));
   } catch {
     /* ignore */
   }
@@ -247,6 +256,7 @@ export default function VenueOnboarding() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isEditMode = searchParams.get('edit') === '1';
+  const isNewVenue = searchParams.get('new') === '1';
   const [step, setStep] = useState(1);
   const [user, setUser] = useState(null);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -266,11 +276,13 @@ export default function VenueOnboarding() {
   const persistBrandingField = useCallback(
     async (field, url) => {
       if (!url) return;
+      if (isNewVenue && !venueId) return;
       let id = venueId;
       if (!id) {
+        if (isNewVenue) return;
         try {
           const mines = await dataService.Venue.mine();
-          id = mines?.[0]?.id ?? null;
+          id = mines?.find((v) => v.is_owner === true || v.isOwner === true)?.id ?? null;
           if (id) setVenueId(id);
         } catch {
           return;
@@ -283,7 +295,7 @@ export default function VenueOnboarding() {
         toast.error(e?.message || 'Saved locally — will sync when you finish onboarding.');
       }
     },
-    [venueId]
+    [venueId, isNewVenue]
   );
 
   const logoCrop = useImageCropUpload({
@@ -372,10 +384,13 @@ export default function VenueOnboarding() {
   useEffect(() => {
     if (!bootstrapped || !user?.id) return;
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    const draftKey = isNewVenue
+      ? venueOnboardingNewDraftKey(user.id)
+      : venueOnboardingDraftKey(user.id);
     draftSaveTimerRef.current = setTimeout(() => {
       try {
         localStorage.setItem(
-          venueOnboardingDraftKey(user.id),
+          draftKey,
           JSON.stringify({
             savedAt: Date.now(),
             step,
@@ -390,7 +405,7 @@ export default function VenueOnboarding() {
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [bootstrapped, user?.id, step, selectedPlan, formData]);
+  }, [bootstrapped, user?.id, step, selectedPlan, formData, isNewVenue]);
 
   const checkAuth = async () => {
     try {
@@ -403,24 +418,40 @@ export default function VenueOnboarding() {
       }
 
       const draft = loadParsedDraft(uid);
-      const urlParams = new URLSearchParams(window.location.search);
-      const editVenueId = urlParams.get('venueId');
-      const isNewVenue = urlParams.get('new') === '1';
+      const editVenueId = searchParams.get('venueId');
       let mines = [];
       try {
         mines = await dataService.Venue.mine();
       } catch {
         mines = [];
       }
+      const ownedVenues = mines.filter((v) => v.is_owner === true || v.isOwner === true);
 
       if (isNewVenue) {
-        if (draft?.formData && typeof draft.formData === 'object') {
-          setFormData({ ...INITIAL_FORM_DATA, ...draft.formData });
+        setVenueId(null);
+        setFormData({ ...INITIAL_FORM_DATA });
+        setStep(1);
+        setSelectedPlan('basic');
+        try {
+          localStorage.removeItem(venueOnboardingDraftKey(uid));
+        } catch {
+          /* ignore */
         }
-      } else if (editVenueId || mines.length > 0) {
-        const targetId = editVenueId || mines[0].id;
+        const newDraft = loadParsedDraftFromKey(venueOnboardingNewDraftKey(uid));
+        if (newDraft?.formData && typeof newDraft.formData === 'object') {
+          setFormData({ ...INITIAL_FORM_DATA, ...newDraft.formData });
+          if (typeof newDraft.step === 'number' && newDraft.step >= 1 && newDraft.step <= 5) {
+            setStep(newDraft.step);
+          }
+          if (newDraft.selectedPlan === 'basic' || newDraft.selectedPlan === 'premium') {
+            setSelectedPlan(newDraft.selectedPlan);
+          }
+          toast.info('Continue your new venue registration where you left off.');
+        }
+      } else if (editVenueId || ownedVenues.length > 0) {
+        const targetId = editVenueId || ownedVenues[0].id;
         setVenueId(targetId);
-        let detail = mines.find((v) => v.id === targetId) || mines[0];
+        let detail = ownedVenues.find((v) => v.id === targetId) || ownedVenues[0];
         try {
           detail = await apiGet(`/api/venues/${targetId}`);
         } catch {
@@ -522,11 +553,9 @@ export default function VenueOnboarding() {
   };
 
   const upsertVenue = async (venueData) => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const editId = urlParams.get('venueId') || venueId;
-    const isNew = urlParams.get('new') === '1';
+    const editId = searchParams.get('venueId') || venueId;
 
-    if (isNew) {
+    if (isNewVenue) {
       const created = await dataService.Venue.create(venueData);
       if (created?.id) setVenueId(created.id);
       return created;
@@ -536,7 +565,9 @@ export default function VenueOnboarding() {
       return dataService.Venue.update(editId, venueData);
     }
 
-    const existingVenues = user?.id ? await dataService.Venue.mine() : [];
+    const existingVenues = user?.id
+      ? (await dataService.Venue.mine()).filter((v) => v.is_owner === true || v.isOwner === true)
+      : [];
     if (existingVenues.length > 0) {
       return dataService.Venue.update(existingVenues[0].id, venueData);
     }
@@ -801,8 +832,12 @@ export default function VenueOnboarding() {
               className="space-y-6"
             >
               <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold mb-2">Register your venue</h1>
-                <p className="text-gray-500">Join the Sec marketplace</p>
+                <h1 className="text-2xl font-bold mb-2">
+                  {isNewVenue ? 'Register another venue' : isEditMode ? 'Edit your venue' : 'Register your venue'}
+                </h1>
+                <p className="text-gray-500">
+                  {isNewVenue ? 'Start fresh — this will not change your existing venue' : 'Join the Sec marketplace'}
+                </p>
               </div>
 
               {/* Logo & Cover Upload */}

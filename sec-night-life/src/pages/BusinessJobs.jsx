@@ -164,14 +164,14 @@ export default function BusinessJobs() {
   useEffect(() => {
     const readMode = () => localStorage.getItem('sec_active_mode') || 'partygoer';
     const guardMode = () => {
-      if (readMode() !== 'business') {
+      if (readMode() !== 'business' && !venueScope.inStaffSession) {
         navigate(createPageUrl('Jobs'), { replace: true });
       }
     };
     guardMode();
     window.addEventListener('sec_active_mode_changed', guardMode);
     return () => window.removeEventListener('sec_active_mode_changed', guardMode);
-  }, [navigate]);
+  }, [navigate, venueScope.inStaffSession]);
 
   useEffect(() => {
     const legacyEdit = searchParams.get('edit');
@@ -197,7 +197,20 @@ export default function BusinessJobs() {
       <div style={{ padding: 16 }}>
         <div className="sec-card" style={{ padding: 16, borderRadius: 12 }}>
           <h2 style={{ fontWeight: 700 }}>Business Jobs</h2>
-          <p style={{ marginTop: 6, fontSize: 13, color: 'var(--sec-text-muted)' }}>No venue found. Register a venue first.</p>
+          <p style={{ marginTop: 6, fontSize: 13, color: 'var(--sec-text-muted)' }}>
+            {venueScope.inStaffSession
+              ? 'Staff venue context is missing or expired.'
+              : 'No venue found. Register a venue first.'}
+          </p>
+          {venueScope.inStaffSession ? (
+            <button
+              type="button"
+              className="sec-btn sec-btn-primary mt-3"
+              onClick={() => navigate(createPageUrl('StaffDashboard'))}
+            >
+              Go to Staff Dashboard
+            </button>
+          ) : null}
         </div>
       </div>
     );
