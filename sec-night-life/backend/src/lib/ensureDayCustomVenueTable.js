@@ -16,11 +16,17 @@ export async function ensureDayCustomVenueTable(venueId) {
       venueId: venue.id,
       eventId: null,
       isCustomListing: true,
-      isActive: true,
     },
-    select: { id: true },
+    select: { id: true, isActive: true },
   });
-  if (existing) return existing;
+  if (existing) {
+    if (existing.isActive) return existing;
+    return prisma.venueTable.update({
+      where: { id: existing.id },
+      data: { isActive: true },
+      select: { id: true },
+    });
+  }
 
   return prisma.venueTable.create({
     data: {
