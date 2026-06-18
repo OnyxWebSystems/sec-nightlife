@@ -43,6 +43,8 @@ export default function BusinessVenueTables() {
   const [declineParamsByMember, setDeclineParamsByMember] = useState({});
   const [venueFees, setVenueFees] = useState({ host_table_fee_zar: '', custom_table_booking_fee_zar: '' });
   const [actionTableId, setActionTableId] = useState(null);
+  const [editingTableId, setEditingTableId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
 
   const { activeVenue: venue } = useActiveVenue();
 
@@ -156,6 +158,55 @@ export default function BusinessVenueTables() {
     },
     onError: (e) => toast.error(e?.message || e?.data?.error || 'Could not create'),
   });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ tableId, payload }) => apiPatch(`/api/venue-tables/${tableId}`, payload),
+    onSuccess: () => {
+      toast.success('Listing updated');
+      qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
+      qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+      setEditingTableId(null);
+      setEditForm(null);
+    },
+    onError: (e) => toast.error(e?.data?.error || e?.message || 'Could not update listing'),
+  });
+
+  const startEditListing = (table) => {
+    setEditingTableId(table.id);
+    setEditForm({
+      tableName: table.tableName || '',
+      description: table.description || '',
+      guestCapacity: String(table.guestCapacity ?? 6),
+      minimumSpend: String(table.minimumSpend ?? 0),
+      hostMinimumSpend: String(table.hostMinimumSpend ?? table.minimumSpend ?? 0),
+      bookingFeeZar: String(table.bookingFeeZar ?? 0),
+      hostTableFeeZar: String(table.hostTableFeeZar ?? 0),
+      serviceDate: table.serviceDate ? new Date(table.serviceDate).toISOString().slice(0, 10) : '',
+      startTime: table.startTime || '19:00',
+      allowsCustomRequests: Boolean(table.allowsCustomRequests),
+    });
+  };
+
+  const submitEditListing = (e) => {
+    e.preventDefault();
+    if (!editingTableId || !editForm) return;
+    updateMutation.mutate({
+      tableId: editingTableId,
+      payload: {
+        tableName: editForm.tableName.trim(),
+        description: editForm.description.trim() || null,
+        guestCapacity: parseInt(editForm.guestCapacity, 10) || 6,
+        minimumSpend: parseFloat(editForm.minimumSpend) || 0,
+        hostMinimumSpend: parseFloat(editForm.hostMinimumSpend) || 0,
+        bookingFeeZar: parseFloat(editForm.bookingFeeZar) || 0,
+        hostTableFeeZar: parseFloat(editForm.hostTableFeeZar) || 0,
+        serviceDate: editForm.serviceDate ? new Date(editForm.serviceDate).toISOString() : null,
+        startTime: editForm.startTime || null,
+        allowsCustomRequests: editForm.allowsCustomRequests,
+        tierLabel: editForm.tableName.trim(),
+      },
+    });
+  };
 
   const reviewMutation = useMutation({
     mutationFn: ({ tableId, memberId, action, declineTemplateKeys, declineParams }) =>
@@ -386,11 +437,22 @@ export default function BusinessVenueTables() {
                       )}
                     </div>
 
-                    {(t.canResetTable || t.canHideFromListings || t.canRestoreToListings) && (
+                    {(t.canResetTable || t.canHideFromListings || t.canRestoreToListings || !t.inUse) && (
                       <div
                         className="px-4 py-3 border-t flex justify-end gap-2 flex-wrap"
                         style={{ borderColor: 'var(--sec-border)', background: 'rgba(0,0,0,0.2)' }}
                       >
+                        {!t.inUse && !t.isCustomListing ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            style={{ borderColor: 'var(--sec-border)' }}
+                            onClick={() => startEditListing(t)}
+                          >
+                            Edit listing
+                          </Button>
+                        ) : null}
                         {t.canResetTable ? (
                           <Button
                             size="sm"
@@ -433,6 +495,112 @@ export default function BusinessVenueTables() {
               })}
             </div>
           )}
+
+          {editingTableId && editForm ? (
+            <form
+              className="sec-card p-5 space-y-4 border border-[var(--sec-accent-border)]"
+              onSubmit={submitEditListing}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold text-sm">Edit listing</h3>
+                <button
+                  type="button"
+                  className="text-xs text-[var(--sec-text-muted)]"
+                  onClick={() => {
+                    setEditingTableId(null);
+                    setEditForm(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+              <div>
+                <Label>Table name</Label>
+                <Input
+                  value={editForm.tableName}
+                  onChange={(e) => setEditForm((f) => ({ ...f, tableName: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <Label>Description</Label>
+                <Input
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Max guests</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editForm.guestCapacity}
+                    onChange={(e) => setEditForm((f) => ({ ...f, guestCapacity: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Service date</Label>
+                  <Input
+                    type="date"
+                    value={editForm.serviceDate}
+                    onChange={(e) => setEditForm((f) => ({ ...f, serviceDate: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Join min spend (R)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editForm.minimumSpend}
+                    onChange={(e) => setEditForm((f) => ({ ...f, minimumSpend: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Host min spend (R)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editForm.hostMinimumSpend}
+                    onChange={(e) => setEditForm((f) => ({ ...f, hostMinimumSpend: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Join fee (R)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editForm.bookingFeeZar}
+                    onChange={(e) => setEditForm((f) => ({ ...f, bookingFeeZar: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Host fee (R)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editForm.hostTableFeeZar}
+                    onChange={(e) => setEditForm((f) => ({ ...f, hostTableFeeZar: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Start time</Label>
+                <Input
+                  type="time"
+                  value={editForm.startTime}
+                  onChange={(e) => setEditForm((f) => ({ ...f, startTime: e.target.value }))}
+                />
+              </div>
+              <Button type="submit" disabled={updateMutation.isPending} className="w-full sec-btn-primary">
+                {updateMutation.isPending ? 'Saving…' : 'Save changes'}
+              </Button>
+            </form>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="requests">

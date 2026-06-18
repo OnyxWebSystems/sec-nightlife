@@ -28,6 +28,7 @@ export default function TablePayment() {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [paymentComplete, setPaymentComplete] = useState(false);
   
   const urlParams = new URLSearchParams(window.location.search);
   const tableId = urlParams.get('id');
@@ -98,7 +99,11 @@ export default function TablePayment() {
           accessCode: res.access_code,
           authorizationUrl: res.authorization_url,
           onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: res.reference, payload, queryClient, showToasts: false });
+            const result = await completePaystackCheckout({ reference: res.reference, payload, queryClient, showToasts: false });
+            if (result?.fulfilled) {
+              setPaymentComplete(true);
+              return;
+            }
             navigate(`${createPageUrl('PaymentSuccess')}?ref=${encodeURIComponent(res.reference)}`);
           },
           onCancel: () => {},
@@ -249,10 +254,15 @@ export default function TablePayment() {
         <div className="max-w-2xl mx-auto">
           <Button
             onClick={handlePayment}
-            disabled={isProcessing}
+            disabled={isProcessing || paymentComplete}
             className="w-full h-14 rounded-xl bg-gradient-to-r from-[var(--sec-success)] to-[var(--sec-success)]/80 font-semibold text-lg"
           >
-            {isProcessing ? (
+            {paymentComplete ? (
+              <>
+                <Check className="w-5 h-5 mr-2" />
+                Paid
+              </>
+            ) : isProcessing ? (
               'Processing...'
             ) : (
               <>

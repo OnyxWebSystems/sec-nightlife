@@ -29,6 +29,7 @@ export default function TicketPurchaseButton({ event }) {
   const [holderNames, setHolderNames] = useState(['']);
   const [menuSelected, setMenuSelected] = useState({});
   const [isProcessing, setIsProcessing] = useState(false);
+  const [paymentComplete, setPaymentComplete] = useState(false);
 
   const menuEnabled = Boolean(event.allows_ticket_menu_addons);
   const venueId = event.venue_id;
@@ -120,7 +121,8 @@ export default function TicketPurchaseButton({ event }) {
           accessCode: res.access_code,
           authorizationUrl: res.authorization_url,
           onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: res.reference, payload, queryClient });
+            const result = await completePaystackCheckout({ reference: res.reference, payload, queryClient });
+            if (result?.fulfilled) setPaymentComplete(true);
           },
           onCancel: () => toast.message('Checkout cancelled'),
         });
@@ -150,10 +152,11 @@ export default function TicketPurchaseButton({ event }) {
     <>
       <Button
         onClick={() => setIsOpen(true)}
+        disabled={paymentComplete}
         className="w-full sec-btn-accent"
       >
         <Ticket className="w-4 h-4 mr-2" />
-        Buy Tickets
+        {paymentComplete ? 'Paid' : 'Buy Tickets'}
       </Button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -326,16 +329,23 @@ export default function TicketPurchaseButton({ event }) {
 
               <Button
                 onClick={handlePurchase}
-                disabled={isProcessing}
+                disabled={isProcessing || paymentComplete}
                 className="w-full sec-btn-accent"
                 style={{ height: 48 }}
               >
-                {isProcessing ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                {paymentComplete ? (
+                  'Paid'
+                ) : isProcessing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Processing…
+                  </>
                 ) : (
-                  <CreditCard className="w-4 h-4 mr-2" />
+                  <>
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    Continue to checkout
+                  </>
                 )}
-                {isProcessing ? 'Processing…' : 'Continue to checkout'}
               </Button>
 
               <p className="text-xs text-center mt-2" style={{ color: 'var(--sec-text-muted)' }}>

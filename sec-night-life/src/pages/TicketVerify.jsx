@@ -125,7 +125,8 @@ export default function TicketVerify() {
   }, [token, queryKey, fetchVerify, onlineNonce]);
 
   const valid = payload?.valid === true;
-  const expired = payload?.valid === false && payload?.reason === 'Ticket expired';
+  const expired = payload?.valid === false && (payload?.expired || payload?.reason === 'Ticket expired');
+  const sessionEnded = payload?.valid === false && payload?.session_ended === true;
 
   const submitAdmit = async () => {
     if (!token) return;
@@ -232,7 +233,11 @@ export default function TicketVerify() {
             className="rounded-2xl border-2 p-5 sm:p-6"
             style={{
               backgroundColor: 'var(--sec-bg-elevated, #0f0f12)',
-              borderColor: valid ? 'rgba(34,197,94,0.45)' : 'rgba(245,158,11,0.35)',
+              borderColor: valid
+                ? 'rgba(34,197,94,0.45)'
+                : sessionEnded
+                  ? 'rgba(239,68,68,0.4)'
+                  : 'rgba(245,158,11,0.35)',
             }}
           >
             <div className="flex items-start gap-3 mb-5">
@@ -246,7 +251,13 @@ export default function TicketVerify() {
                   Door check
                 </p>
                 <h1 className="text-2xl sm:text-3xl font-bold leading-tight">
-                  {valid ? 'Admit — ticket valid' : expired ? 'Do not admit — expired' : 'Do not admit'}
+                  {valid
+                    ? 'Admit — ticket valid'
+                    : expired
+                      ? 'Do not admit — expired'
+                      : sessionEnded
+                        ? 'Checked out — do not admit'
+                        : 'Do not admit'}
                 </h1>
                 {!valid && payload.reason && (
                   <p className="text-base text-gray-400 mt-2">{payload.reason}</p>

@@ -6,6 +6,7 @@ export function invalidatePostPaymentQueries(queryClient, { eventId } = {}) {
   queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
   queryClient.invalidateQueries({ queryKey: ['host-tables'] });
   queryClient.invalidateQueries({ queryKey: ['business-bookings'] });
+  queryClient.invalidateQueries({ queryKey: ['biz-event-table-bookings'] });
   queryClient.invalidateQueries({ queryKey: ['venue-analytics'] });
   queryClient.invalidateQueries({ queryKey: ['biz-ticket-bookings'] });
   queryClient.invalidateQueries({ queryKey: ['venue-table'] });

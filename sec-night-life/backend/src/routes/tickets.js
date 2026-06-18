@@ -6,7 +6,7 @@ import { ticketExpiresAtFromRow } from '../lib/ticketHelpers.js';
 import { buildTicketDoorContext } from '../lib/ticketDoorContext.js';
 import { buildTicketVerifyUrlWithHints, ticketVerifyPublicOrigin } from '../lib/ticketVerifyUrl.js';
 import { evaluatePrintedHints, hostInstructionsForKind } from '../lib/ticketVerifyHints.js';
-import { assertAdmitPermission, admitTicketTx } from '../lib/ticketAdmit.js';
+import { assertAdmitPermission, admitTicketTx, evaluateTicketEntryValidity } from '../lib/ticketAdmit.js';
 
 const router = Router();
 
@@ -175,11 +175,48 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
     const hintEval = evaluatePrintedHints(req.query, door, t);
     const host_instructions = hostInstructionsForKind(t.kind);
 
+    if (expiresAt <= now) {
+      const doorFieldsExpired = {
+        venue_id: door.venue_id,
+        venue_name: door.venue_name,
+        venue_city: door.venue_city,
+        event_title: door.event_title,
+        event_code: door.event_code,
+        table_allocation_label: door.table_allocation_label,
+        check_location_line: door.check_location_line,
+        door_verify_summary,
+        host_instructions,
+        viewer_authenticated: !!req.userId,
+        can_admit_here: false,
+        admit_denied_for_viewer: false,
+        admit_denied_reason: null,
+        already_admitted: !!t.admittedAt,
+        admitted_at: t.admittedAt,
+        ...hintEval,
+      };
+      return res.status(410).json({
+        valid: false,
+        reason: 'Ticket expired',
+        expired: true,
+        ticket_id: t.id,
+        kind: t.kind,
+        title: t.title,
+        subtitle: t.subtitle,
+        holder_display_name: t.holderDisplayName,
+        table_specs_summary: t.tableSpecsSummary,
+        event_starts_at: t.eventStartsAt,
+        expires_at: expiresAt,
+        ...doorFieldsExpired,
+      });
+    }
+
+    const entryValidity = await evaluateTicketEntryValidity(prisma, t);
+
     const viewer_authenticated = !!req.userId;
     let can_admit_here = false;
     let admit_denied_for_viewer = false;
     let admit_denied_reason = null;
-    if (req.userId && expiresAt > now && !t.admittedAt) {
+    if (req.userId && entryValidity.ok && !t.admittedAt) {
       const perm = await assertAdmitPermission(prisma, req.userId, req.userRole, t, door);
       can_admit_here = perm.ok;
       if (!perm.ok) {
@@ -207,10 +244,12 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
       ...hintEval,
     };
 
-    if (expiresAt <= now) {
-      return res.status(410).json({
+    if (!entryValidity.ok) {
+      return res.status(entryValidity.status).json({
         valid: false,
-        reason: 'Ticket expired',
+        reason: entryValidity.reason,
+        expired: !!entryValidity.expired,
+        session_ended: !!entryValidity.session_ended,
         ticket_id: t.id,
         kind: t.kind,
         title: t.title,
@@ -222,6 +261,7 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
         ...doorFields,
       });
     }
+
     res.json({
       valid: true,
       ticket_id: t.id,

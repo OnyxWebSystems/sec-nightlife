@@ -1,7 +1,7 @@
 import { prisma } from './prisma.js';
 import { issueTicketAndNotify } from './issueTicket.js';
 import { ensureHostedTableFromVenueHostPayment } from './venueTableHostAfterPayment.js';
-import { recordEventVenueTableBooking } from './eventVenueBooking.js';
+import { recordEventVenueTableBooking, recordGuestEventVenueTableBookingIfNeeded } from './eventVenueBooking.js';
 import { resolveVenueMenuSelections } from './menuHelpers.js';
 import { buildVenueTableMemberTicketSummary } from './ticketMemberSummary.js';
 import {
@@ -189,6 +189,19 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       });
       repaired = true;
     }
+  }
+
+  if (!isHostMode && refreshedVt?.eventId) {
+    const guestBooking = await recordGuestEventVenueTableBookingIfNeeded({
+      venueTableId: refreshedVt.id,
+      userId: String(userId),
+      paystackReference: reference,
+      amountTotal: amount,
+      selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
+      bookingMode,
+      memberRole: member.memberRole,
+    });
+    if (guestBooking) repaired = true;
   }
 
   const existingTicket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });

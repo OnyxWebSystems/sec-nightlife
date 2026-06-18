@@ -109,19 +109,35 @@ export default function VenueBook() {
                   </div>
                   <div className="grid gap-2">
                     <Link
-                      to={createPageUrl(`TableDetails?id=${t.id}&source=venue&settlement=PREPAY_MENU`)}
+                      to={createPageUrl(`TableDetails?id=${t.id}&source=venue&mode=host&settlement=PREPAY_MENU`)}
                       className="sec-btn sec-btn-primary sec-btn-sm w-full text-center no-underline"
                       style={{ display: 'block', textDecoration: 'none' }}
                     >
-                      Order from menu (meet min spend)
+                      Host table (order from menu)
                     </Link>
-                    {Number(t.minimumSpend) > 0 ? (
+                    {Number(t.hostMinimumSpend ?? t.minimumSpend) > 0 ? (
                       <Link
-                        to={createPageUrl(`TableDetails?id=${t.id}&source=venue&settlement=PREPAY_LUMP`)}
+                        to={createPageUrl(`TableDetails?id=${t.id}&source=venue&mode=host&settlement=PREPAY_LUMP`)}
                         className="sec-btn sec-btn-secondary sec-btn-sm w-full text-center no-underline"
                         style={{ display: 'block', textDecoration: 'none' }}
                       >
-                        Pay minimum spend upfront
+                        Host — pay minimum spend upfront
+                      </Link>
+                    ) : null}
+                    <Link
+                      to={createPageUrl(`TableDetails?id=${t.id}&source=venue&mode=join&settlement=PREPAY_MENU`)}
+                      className="sec-btn sec-btn-ghost sec-btn-sm w-full text-center no-underline"
+                      style={{ display: 'block', textDecoration: 'none', border: '1px solid var(--sec-border)' }}
+                    >
+                      Join table (order from menu)
+                    </Link>
+                    {Number(t.minimumSpend) > 0 ? (
+                      <Link
+                        to={createPageUrl(`TableDetails?id=${t.id}&source=venue&mode=join&settlement=PREPAY_LUMP`)}
+                        className="sec-btn sec-btn-ghost sec-btn-sm w-full text-center no-underline"
+                        style={{ display: 'block', textDecoration: 'none', border: '1px solid var(--sec-border)' }}
+                      >
+                        Join — pay minimum spend upfront
                       </Link>
                     ) : null}
                   </div>

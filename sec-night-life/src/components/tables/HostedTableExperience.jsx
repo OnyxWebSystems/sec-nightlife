@@ -490,7 +490,7 @@ export default function HostedTableExperience({
                   style={{ opacity: 0.7 }}
                 >
                   <Check size={16} className="mr-2" />
-                  Joined
+                  Paid
                 </Button>
                 <Button
                   variant="outline"

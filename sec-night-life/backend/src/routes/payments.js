@@ -24,7 +24,10 @@ import {
 } from '../lib/ticketCheckout.js';
 import { normalizeGuestGenderPreference } from '../lib/genderPreference.js';
 import { getEventEntranceZar } from '../lib/hostedTableSecFees.js';
-import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
+import {
+  recordEventVenueTableBooking,
+  recordGuestEventVenueTableBookingIfNeeded,
+} from '../lib/eventVenueBooking.js';
 import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfterPayment.js';
 import {
   visibleUntilAfterEventDate,
@@ -822,6 +825,17 @@ async function applyReferenceSideEffects(reference, paystackData) {
         recipientUserId: null,
         paystackRecipientCode: venueCode,
       });
+      if (vt.eventId) {
+        await recordGuestEventVenueTableBookingIfNeeded({
+          venueTableId: vt.id,
+          userId: String(userId),
+          paystackReference: reference,
+          amountTotal: Number(amount || 0),
+          selectedMenuItems: metadata.selectedMenuItems || member?.selectedMenuItems,
+          bookingMode,
+          memberRole: member?.memberRole,
+        });
+      }
     }
   }
 

@@ -93,6 +93,68 @@ export async function assertAdmitPermission(tx, staffUserId, staffRole, ticket, 
 }
 
 /**
+ * Whether this ticket still represents an active table booking (not reset / checked out).
+ * @param {import('@prisma/client').Prisma.TransactionClient | typeof prisma} tx
+ */
+export async function evaluateTicketEntryValidity(tx, ticket) {
+  const now = new Date();
+  if (ticketExpiresAtFromRow(ticket) <= now) {
+    return { ok: false, status: 410, reason: 'Ticket expired', expired: true };
+  }
+
+  if (ticket.venueTableId && ticket.userId && ticket.kind === 'VENUE_TABLE_JOIN') {
+    const member = await tx.venueTableMember.findUnique({
+      where: {
+        venueTableId_userId: { venueTableId: ticket.venueTableId, userId: ticket.userId },
+      },
+      select: { status: true },
+    });
+    if (!member || member.status !== 'CONFIRMED') {
+      return {
+        ok: false,
+        status: 403,
+        reason: 'Checked out — this table session was ended. This QR is no longer valid for entry.',
+        session_ended: true,
+      };
+    }
+  }
+
+  if (ticket.hostedTableId) {
+    const ht = await tx.hostedTable.findUnique({
+      where: { id: ticket.hostedTableId },
+      select: { status: true },
+    });
+    if (!ht || ht.status === 'CLOSED') {
+      return {
+        ok: false,
+        status: 403,
+        reason: 'Checked out — this table session was ended. This QR is no longer valid for entry.',
+        session_ended: true,
+      };
+    }
+
+    if (ticket.userId && (ticket.kind === 'HOSTED_TABLE_JOIN' || ticket.kind === 'TABLE_HOST_FEE')) {
+      const member = await tx.hostedTableMember.findUnique({
+        where: {
+          hostedTableId_userId: { hostedTableId: ticket.hostedTableId, userId: ticket.userId },
+        },
+        select: { status: true },
+      });
+      if (!member || member.status !== 'GOING') {
+        return {
+          ok: false,
+          status: 403,
+          reason: 'Checked out — this guest is no longer on the table guest list.',
+          session_ended: true,
+        };
+      }
+    }
+  }
+
+  return { ok: true };
+}
+
+/**
  * @param {import('@prisma/client').Prisma.TransactionClient | typeof prisma} tx
  */
 export async function admitTicketTx(tx, { ticketId, staffUserId, staffRole }) {
@@ -112,20 +174,13 @@ export async function admitTicketTx(tx, { ticketId, staffUserId, staffRole }) {
     };
   }
 
-  if (t.hostedTableId && t.userId) {
-    const member = await tx.hostedTableMember.findUnique({
-      where: {
-        hostedTableId_userId: { hostedTableId: t.hostedTableId, userId: t.userId },
-      },
-      select: { status: true },
-    });
-    if (!member || member.status !== 'GOING') {
-      return {
-        ok: false,
-        status: 403,
-        error: 'This ticket is no longer valid — you are not an active member of this table.',
-      };
-    }
+  const entryValidity = await evaluateTicketEntryValidity(tx, t);
+  if (!entryValidity.ok) {
+    return {
+      ok: false,
+      status: entryValidity.status,
+      error: entryValidity.reason,
+    };
   }
 
   const door = await buildTicketDoorContext(tx, t);

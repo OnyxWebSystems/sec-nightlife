@@ -78,6 +78,7 @@ function groupEventTableBookingsByTable(mapped) {
         lastActivityAt: row.createdAt,
         transactions: [],
         rolesSummary: { hosts: 0, guests: 0 },
+        isDirectVenueSlot: Boolean(row.isDirectVenueSlot),
       });
     }
     const g = groups.get(tableId);
@@ -95,6 +96,115 @@ function groupEventTableBookingsByTable(mapped) {
   return [...groups.values()].sort(
     (a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime(),
   );
+}
+
+/** Include paid venue-table guests missing from EventVenueTableBooking (e.g. direct event slot joins). */
+async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds, existingMapped }) {
+  if (!eventIds.length || !venueIds.length) return existingMapped;
+
+  const existingKeys = new Set(
+    existingMapped.map((r) => `${r.hostedTable?.id}:${r.user?.id}:${r.role}`),
+  );
+
+  const members = await prisma.venueTableMember.findMany({
+    where: {
+      status: 'CONFIRMED',
+      memberRole: 'GUEST',
+      venueTable: {
+        eventId: { in: eventIds },
+        venueId: { in: venueIds },
+      },
+    },
+    include: {
+      venueTable: {
+        include: {
+          event: { select: { id: true, title: true, date: true, city: true } },
+          venue: { select: { id: true, name: true } },
+          hostedTable: {
+            select: {
+              id: true,
+              tableName: true,
+              status: true,
+              hostUserId: true,
+              hostingCategory: true,
+              hostingTierIndex: true,
+              tierMinSpend: true,
+              menuSpendTotal: true,
+              tierIncludedItems: true,
+              guestQuantity: true,
+              spotsRemaining: true,
+            },
+          },
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          username: true,
+          userProfile: { select: { username: true } },
+        },
+      },
+    },
+    orderBy: { paidAt: 'desc' },
+    take: 500,
+  });
+
+  const supplemental = [];
+  for (const m of members) {
+    const vt = m.venueTable;
+    if (!vt?.event) continue;
+
+    let hostedTable = vt.hostedTable;
+    let isDirectVenueSlot = false;
+    if (!hostedTable) {
+      isDirectVenueSlot = true;
+      const session = vt.tableSessionNumber || 1;
+      hostedTable = {
+        id: `direct-vt-${vt.id}-s${session}`,
+        tableName: vt.tableName,
+        status: 'ACTIVE',
+        hostUserId: null,
+        hostingCategory: null,
+        hostingTierIndex: null,
+        tierMinSpend: vt.minimumSpend,
+        menuSpendTotal: null,
+        tierIncludedItems: null,
+        guestQuantity: vt.guestCapacity,
+        spotsRemaining: Math.max(0, Number(vt.guestCapacity) - Number(vt.currentOccupancy)),
+      };
+    }
+
+    const role = 'GUEST';
+    const key = `${hostedTable.id}:${m.userId}:${role}`;
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+
+    supplemental.push({
+      id: `vtm-${m.id}`,
+      role,
+      paystackReference: m.paystackReference,
+      amountTotal: m.amountPaid,
+      entranceZar: null,
+      componentZar: m.amountPaid,
+      lineTotalZar: Number(m.amountPaid || 0),
+      createdAt: m.paidAt || m.createdAt,
+      venue: vt.venue,
+      event: vt.event,
+      hostedTable,
+      isDirectVenueSlot,
+      user: {
+        id: m.user.id,
+        username: m.user.userProfile?.username || m.user.username || m.user.fullName || 'User',
+      },
+      selectedMenuItems: m.selectedMenuItems,
+      hostingTierName: vt.tierLabel,
+      hostingCategory: null,
+      menuTotalZar: m.amountPaid,
+    });
+  }
+
+  return [...existingMapped, ...supplemental];
 }
 
 function emptyEventTableBookingsSummary() {
@@ -471,14 +581,30 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       menuTotalZar: r.menuTotalZar,
     }));
 
-    const rawForStats = rows.map((r) => ({
-      role: r.role,
-      amountTotal: r.amountTotal,
-      entranceZar: r.entranceZar,
-      componentZar: r.componentZar,
-    }));
+    const mappedWithVenueGuests = await supplementEventTableBookingsFromVenueMembers({
+      eventIds,
+      venueIds,
+      existingMapped: mapped,
+    });
 
-    const groupedItems = groupEventTableBookingsByTable(mapped);
+    const rawForStats = [
+      ...rows.map((r) => ({
+        role: r.role,
+        amountTotal: r.amountTotal,
+        entranceZar: r.entranceZar,
+        componentZar: r.componentZar,
+      })),
+      ...mappedWithVenueGuests
+        .filter((r) => String(r.id).startsWith('vtm-'))
+        .map((r) => ({
+          role: r.role,
+          amountTotal: r.amountTotal,
+          entranceZar: r.entranceZar,
+          componentZar: r.componentZar,
+        })),
+    ];
+
+    const groupedItems = groupEventTableBookingsByTable(mappedWithVenueGuests);
 
     const summary = {
       configuredTableSlots,

@@ -118,6 +118,63 @@ router.post('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+const updateTableSchema = z.object({
+  tableName: z.string().trim().min(1).max(60).optional(),
+  description: z.string().trim().max(500).optional().nullable(),
+  guestCapacity: z.number().int().min(1).max(100).optional(),
+  minimumSpend: z.number().min(0).optional(),
+  hostMinimumSpend: z.number().min(0).optional().nullable(),
+  bookingFeeZar: z.number().min(0).optional(),
+  hostTableFeeZar: z.number().min(0).optional(),
+  serviceDate: z.coerce.date().optional().nullable(),
+  startTime: z.string().optional().nullable(),
+  allowsCustomRequests: z.boolean().optional(),
+  tierLabel: z.string().optional().nullable(),
+});
+
+router.patch('/:tableId', authenticateToken, async (req, res, next) => {
+  try {
+    if (!requireVenueOwner(req, res)) return;
+    const parsed = updateTableSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const table = await prisma.venueTable.findUnique({
+      where: { id: req.params.tableId },
+      include: { venue: true },
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    if (table.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (table.eventId) {
+      return res.status(400).json({ error: 'Event-linked tables are managed from Events Manager' });
+    }
+    const inUse = table.currentOccupancy > 0 || table.hostUserId || table.hostedTableId;
+    const d = parsed.data;
+    if (inUse && (d.guestCapacity != null || d.minimumSpend != null || d.hostMinimumSpend != null)) {
+      return res.status(409).json({
+        error: 'Reset this table before changing capacity or minimum spend',
+      });
+    }
+    const updated = await prisma.venueTable.update({
+      where: { id: table.id },
+      data: {
+        ...(d.tableName != null ? { tableName: d.tableName } : {}),
+        ...(d.description !== undefined ? { description: d.description } : {}),
+        ...(d.guestCapacity != null ? { guestCapacity: d.guestCapacity } : {}),
+        ...(d.minimumSpend != null ? { minimumSpend: d.minimumSpend } : {}),
+        ...(d.hostMinimumSpend !== undefined ? { hostMinimumSpend: d.hostMinimumSpend } : {}),
+        ...(d.bookingFeeZar != null ? { bookingFeeZar: d.bookingFeeZar } : {}),
+        ...(d.hostTableFeeZar != null ? { hostTableFeeZar: d.hostTableFeeZar } : {}),
+        ...(d.serviceDate !== undefined ? { serviceDate: d.serviceDate } : {}),
+        ...(d.startTime !== undefined ? { startTime: d.startTime } : {}),
+        ...(d.allowsCustomRequests != null ? { allowsCustomRequests: d.allowsCustomRequests } : {}),
+        ...(d.tierLabel !== undefined ? { tierLabel: d.tierLabel } : {}),
+      },
+    });
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/:tableId/menu-items', authenticateToken, async (req, res, next) => {
   try {
     if (!requireVenueOwner(req, res)) return;

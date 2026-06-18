@@ -80,6 +80,7 @@ export default function TableDetails() {
   const [joinMessage, setJoinMessage] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [hostPaySuccess, setHostPaySuccess] = useState(false);
+  const [paymentComplete, setPaymentComplete] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -216,6 +217,16 @@ export default function TableDetails() {
   }, [isAlreadyHostedByUser]);
 
   useEffect(() => {
+    if (!isVenueSource || !venueMembership) return;
+    if (
+      venueMembership.status === 'CONFIRMED' &&
+      (venueMembership.paidAt || Number(venueMembership.amountPaid) > 0)
+    ) {
+      setPaymentComplete(true);
+    }
+  }, [isVenueSource, venueMembership?.status, venueMembership?.paidAt, venueMembership?.amountPaid]);
+
+  useEffect(() => {
     if (!isVenueSource || !venueTable) return;
     setSelectedMenuItems((prev) => {
       const next = { ...prev };
@@ -287,6 +298,7 @@ export default function TableDetails() {
       };
       if (pay?.confirmed) {
         refreshBookingQueries();
+        setPaymentComplete(true);
         if (isHostCheckout) {
           setHostPaySuccess(true);
           toast.success('You are now hosting this table');
@@ -303,13 +315,16 @@ export default function TableDetails() {
           accessCode: pay.access_code,
           authorizationUrl: pay.authorization_url,
           onSuccess: async (payload) => {
-            await completePaystackCheckout({
+            const result = await completePaystackCheckout({
               reference: pay.reference,
               payload,
               queryClient,
               showToasts: false,
             });
             refreshBookingQueries();
+            if (result?.fulfilled) {
+              setPaymentComplete(true);
+            }
             if (isHostCheckout) {
               setHostPaySuccess(true);
               toast.success('Payment successful — you are hosting this table');
@@ -546,7 +561,7 @@ export default function TableDetails() {
       };
     });
     const membership = venueTable.myMembership;
-    const tablePurchased = hostPaySuccess || isAlreadyHostedByUser;
+    const tablePurchased = paymentComplete || hostPaySuccess || isAlreadyHostedByUser;
     const membershipSpecs = membership?.userSpecs || {};
     const approvedCustomMin =
       membership?.status === 'APPROVED' && membershipSpecs.proposedMinimumSpend != null
@@ -623,7 +638,7 @@ export default function TableDetails() {
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
         </div>
-        {tablePurchased && isHostCheckout ? (
+        {tablePurchased ? (
           <div
             className="sec-card"
             style={{
@@ -634,19 +649,32 @@ export default function TableDetails() {
             }}
           >
             <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-success, #22c55e)', marginBottom: 8 }}>
-              Purchase complete — you are hosting this table
+              {isHostCheckout ? 'Paid — you are hosting this table' : 'Paid — your booking is confirmed'}
             </p>
             <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 12, color: 'var(--sec-text-secondary)' }}>
-              Your QR ticket is in Profile → Tickets. Use Host Dashboard to approve join requests and set your table rules.
+              {isHostCheckout
+                ? 'Your QR ticket is in Profile → Tickets. Use Host Dashboard to approve join requests and set your table rules.'
+                : 'Your QR ticket is in Profile → Tickets.'}
             </p>
-            <button
-              type="button"
-              className="sec-btn sec-btn-primary sec-btn-full"
-              style={{ height: 44 }}
-              onClick={() => navigate(createPageUrl('HostDashboard?tab=tables&manage=1'))}
-            >
-              Open Host Dashboard
-            </button>
+            {isHostCheckout ? (
+              <button
+                type="button"
+                className="sec-btn sec-btn-primary sec-btn-full"
+                style={{ height: 44 }}
+                onClick={() => navigate(createPageUrl('HostDashboard?tab=tables&manage=1'))}
+              >
+                Open Host Dashboard
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="sec-btn sec-btn-primary sec-btn-full"
+                style={{ height: 44 }}
+                onClick={() => navigate(createPageUrl('Profile?tab=tickets'))}
+              >
+                View your QR ticket
+              </button>
+            )}
           </div>
         ) : null}
         {onRequestDetailsStep ? (
@@ -841,16 +869,18 @@ export default function TableDetails() {
             minMet
             onContinue={null}
           >
-            {tablePurchased && isHostCheckout ? (
+        {tablePurchased ? (
+          <>
+            <button
+              type="button"
+              disabled
+              className="sec-btn sec-btn-primary sec-btn-full"
+              style={{ height: 48, minHeight: 44, opacity: 0.65, cursor: 'default' }}
+            >
+              Paid
+            </button>
+            {isHostCheckout ? (
               <>
-                <button
-                  type="button"
-                  disabled
-                  className="sec-btn sec-btn-primary sec-btn-full"
-                  style={{ height: 48, minHeight: 44, opacity: 0.65, cursor: 'default' }}
-                >
-                  Purchase complete
-                </button>
                 <button
                   type="button"
                   className="sec-btn sec-btn-ghost sec-btn-full"
@@ -869,6 +899,17 @@ export default function TableDetails() {
                 </button>
               </>
             ) : (
+              <button
+                type="button"
+                className="sec-btn sec-btn-ghost sec-btn-full"
+                style={{ height: 40, marginTop: 8, fontSize: 13 }}
+                onClick={() => navigate(createPageUrl('Profile?tab=tickets'))}
+              >
+                View your QR ticket
+              </button>
+            )}
+          </>
+        ) : (
               <>
                 <button
                   type="button"
