@@ -28,6 +28,7 @@ export default function TicketVerify() {
   const queryKey = useMemo(() => params.toString(), [params]);
   const hintVenue = params.get('vn');
   const hintAt = params.get('at');
+  const hintEc = params.get('ec');
   const hintTimeLabel = hintAt ? formatWhen(hintAt) : null;
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,6 +49,8 @@ export default function TicketVerify() {
     const search = new URLSearchParams(queryKey);
     const vn = search.get('vn');
     const at = search.get('at');
+    const ec = search.get('ec');
+    if (ec) qs.set('ec', ec);
     if (vn) qs.set('vn', vn);
     if (at) qs.set('at', at);
     return apiGet(`/api/tickets/qr?${qs.toString()}`, { skipAuth: true });
@@ -198,7 +201,7 @@ export default function TicketVerify() {
         <div className="flex flex-col items-center gap-4 text-gray-400 my-auto w-full max-w-lg">
           <Loader2 className="w-10 h-10 animate-spin" />
           <p className="text-sm">Verifying ticket with SEC…</p>
-          {(hintVenue || hintTimeLabel) && (
+          {(hintEc || hintVenue || hintTimeLabel) && (
             <div
               className="w-full rounded-xl border p-4 text-left"
               style={{ borderColor: 'rgba(250,250,250,0.12)', backgroundColor: 'rgba(0,0,0,0.35)' }}
@@ -206,6 +209,11 @@ export default function TicketVerify() {
               <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">
                 Printed on QR (quick glance)
               </p>
+              {hintEc && (
+                <p className="text-lg font-bold font-mono tracking-widest text-[var(--sec-accent,#e8c547)] leading-snug">
+                  {hintEc}
+                </p>
+              )}
               {hintVenue && (
                 <p className="text-lg font-bold text-white leading-snug">{hintVenue}</p>
               )}
@@ -246,6 +254,20 @@ export default function TicketVerify() {
               </div>
             </div>
 
+            {payload.event_code && (
+              <div
+                className="rounded-xl border px-4 py-3 mb-4 text-center"
+                style={{ borderColor: 'rgba(232,197,71,0.35)', backgroundColor: 'rgba(232,197,71,0.08)' }}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                  Event door code
+                </p>
+                <p className="text-2xl sm:text-3xl font-bold font-mono tracking-widest text-[var(--sec-accent,#e8c547)]">
+                  {payload.event_code}
+                </p>
+              </div>
+            )}
+
             {payload.printed_hints_mismatch && (
               <div
                 className="rounded-xl border px-4 py-3 mb-4 text-sm"
@@ -255,7 +277,7 @@ export default function TicketVerify() {
                   color: '#fcd34d',
                 }}
               >
-                The venue or time text in the link does not match this ticket record. Trust only the
+                The event code, venue, or time text in the link does not match this ticket record. Trust only the
                 SEC-validated details below (not an edited screenshot or retyped URL).
               </div>
             )}

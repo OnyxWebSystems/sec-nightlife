@@ -15,7 +15,7 @@ import {
   saveMyTicketsSnapshot,
 } from '@/lib/ticketOfflineCache';
 
-function TicketQrBlock({ verifyUrl }) {
+function TicketQrBlock({ verifyUrl, eventCode }) {
   const [dataUrl, setDataUrl] = useState(null);
   useEffect(() => {
     let cancelled = false;
@@ -42,17 +42,24 @@ function TicketQrBlock({ verifyUrl }) {
   }
 
   return (
-    <div className="relative w-44 h-44 shrink-0">
-      <img src={dataUrl} alt="" className="w-full h-full rounded-md bg-white p-1 object-contain" />
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-5">
-        <img
-          src="/sec-logo.png"
-          alt=""
-          className="w-9 h-9 object-contain drop-shadow-md rounded-sm bg-white/90 p-0.5"
-          onError={(e) => {
-            e.currentTarget.src = '/Logo/sec-email-logo-transparent.png';
-          }}
-        />
+    <div className="flex flex-col items-end gap-1 shrink-0">
+      {eventCode ? (
+        <p className="text-xs font-bold font-mono tracking-widest text-[var(--sec-accent)] text-right">
+          {eventCode}
+        </p>
+      ) : null}
+      <div className="relative w-44 h-44 shrink-0">
+        <img src={dataUrl} alt="" className="w-full h-full rounded-md bg-white p-1 object-contain" />
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-5">
+          <img
+            src="/sec-logo.png"
+            alt=""
+            className="w-9 h-9 object-contain drop-shadow-md rounded-sm bg-white/90 p-0.5"
+            onError={(e) => {
+              e.currentTarget.src = '/Logo/sec-email-logo-transparent.png';
+            }}
+          />
+        </div>
       </div>
     </div>
   );
@@ -166,6 +173,7 @@ export default function MyTickets({ userId }) {
       getTicketVerifyUrl(ticket.qr_token, {
         venueName: ticket.venue_name,
         eventStartsAt: ticket.event_starts_at,
+        eventCode: ticket.event_code,
       });
     const doorTimeLabel = ticket.event_starts_at
       ? format(parseISO(ticket.event_starts_at), 'EEE MMM d · HH:mm')
@@ -234,7 +242,7 @@ export default function MyTickets({ userId }) {
             </div>
 
             <div className="flex flex-col items-end gap-1 shrink-0">
-              <TicketQrBlock verifyUrl={verifyUrl} />
+              <TicketQrBlock verifyUrl={verifyUrl} eventCode={ticket.event_code} />
               {(ticket.venue_name || doorTimeLabel) && (
                 <p className="text-[10px] text-gray-300 text-right max-w-[11rem] leading-snug font-medium">
                   {[ticket.venue_name, doorTimeLabel].filter(Boolean).join(' · ')}

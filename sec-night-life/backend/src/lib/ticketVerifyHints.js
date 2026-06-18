@@ -3,10 +3,17 @@
  * Hints are UX only; token is the source of truth.
  */
 export function evaluatePrintedHints(query, door, ticket) {
+  const rawEc = query.ec != null ? String(query.ec) : '';
   const rawVn = query.vn != null ? String(query.vn) : '';
   const rawAt = query.at != null ? String(query.at) : '';
+  let ec = '';
   let vn = '';
   let at = '';
+  try {
+    ec = rawEc ? decodeURIComponent(rawEc.replace(/\+/g, ' ')).trim().toUpperCase() : '';
+  } catch {
+    ec = rawEc.trim().toUpperCase();
+  }
   try {
     vn = rawVn ? decodeURIComponent(rawVn.replace(/\+/g, ' ')) : '';
   } catch {
@@ -23,6 +30,11 @@ export function evaluatePrintedHints(query, door, ticket) {
       .toLowerCase()
       .replace(/\s+/g, ' ')
       .trim();
+
+  let printed_hint_event_code_ok = null;
+  if (ec && door?.event_code) {
+    printed_hint_event_code_ok = ec === String(door.event_code).trim().toUpperCase();
+  }
 
   let printed_hint_venue_ok = null;
   if (vn && door?.venue_name) {
@@ -43,11 +55,13 @@ export function evaluatePrintedHints(query, door, ticket) {
   }
 
   const printed_hints_mismatch = Boolean(
-    (vn && door?.venue_name && printed_hint_venue_ok === false) ||
+    (ec && door?.event_code && printed_hint_event_code_ok === false) ||
+      (vn && door?.venue_name && printed_hint_venue_ok === false) ||
       (at && ticket?.eventStartsAt && printed_hint_time_ok === false),
   );
 
   return {
+    printed_hint_event_code_ok,
     printed_hint_venue_ok,
     printed_hint_time_ok,
     printed_hints_mismatch,
@@ -65,7 +79,7 @@ export function hostInstructionsForKind(kind) {
     case 'HOUSE_PARTY':
       return 'House party: confirm with the party host — check address on the ticket.';
     case 'EVENT_TICKET':
-      return 'Event door: check tier on ticket and ID matches guest name.';
+      return 'Event door: check event code and tier on ticket; ID must match guest name.';
     case 'EXTERNAL_HOSTED_LISTING':
       return 'External listing: confirm venue name with the host’s published details.';
     default:

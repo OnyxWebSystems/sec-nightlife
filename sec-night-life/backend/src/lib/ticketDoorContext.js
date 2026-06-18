@@ -9,6 +9,7 @@ export async function buildTicketDoorContext(prisma, ticket) {
    *   venue_name: string | null;
    *   venue_city: string | null;
    *   event_title: string | null;
+   *   event_code: string | null;
    *   table_allocation_label: string | null;
    *   check_location_line: string | null;
    * }} */
@@ -17,6 +18,7 @@ export async function buildTicketDoorContext(prisma, ticket) {
     venue_name: null,
     venue_city: null,
     event_title: null,
+    event_code: null,
     table_allocation_label: null,
     check_location_line: null,
   };
@@ -33,14 +35,17 @@ export async function buildTicketDoorContext(prisma, ticket) {
   const applyEventBasics = (ev) => {
     if (!ev) return;
     if (!ctx.event_title && ev.title) ctx.event_title = ev.title;
+    if (!ctx.event_code && ev.eventCode) ctx.event_code = ev.eventCode;
     if (!ctx.venue_city && ev.city) ctx.venue_city = ev.city;
     applyVenue(ev.venue);
   };
 
+  const eventSelect = { title: true, city: true, venueId: true, eventCode: true, venue: { select: venueSelect } };
+
   if (ticket.eventId) {
     const ev = await prisma.event.findFirst({
       where: { id: ticket.eventId, deletedAt: null },
-      select: { title: true, city: true, venueId: true, venue: { select: venueSelect } },
+      select: eventSelect,
     });
     applyEventBasics(ev);
   }
@@ -52,7 +57,7 @@ export async function buildTicketDoorContext(prisma, ticket) {
         name: true,
         tableCategory: true,
         event: {
-          select: { id: true, title: true, city: true, venueId: true, venue: { select: venueSelect } },
+          select: eventSelect,
         },
         venue: { select: venueSelect },
       },
@@ -73,7 +78,7 @@ export async function buildTicketDoorContext(prisma, ticket) {
       select: {
         tableName: true,
         event: {
-          select: { id: true, title: true, city: true, venueId: true, venue: { select: venueSelect } },
+          select: eventSelect,
         },
         venue: { select: venueSelect },
       },
@@ -94,7 +99,7 @@ export async function buildTicketDoorContext(prisma, ticket) {
         venueAddress: true,
         eventId: true,
         event: {
-          select: { id: true, title: true, city: true, venueId: true, venue: { select: venueSelect } },
+          select: eventSelect,
         },
       },
     });

@@ -57,10 +57,13 @@ function eventAtHintIso(eventStartsAt: string | Date | null | undefined): string
  */
 export function getTicketVerifyUrl(
     qrToken: string,
-    hints?: { venueName?: string | null; eventStartsAt?: string | Date | null },
+    hints?: { eventCode?: string | null; venueName?: string | null; eventStartsAt?: string | Date | null },
 ): string {
     const base = getPublicAppOrigin();
-    const parts = [`token=${encodeURIComponent(qrToken)}`];
+    const parts: string[] = [];
+    const ec = hints?.eventCode != null ? String(hints.eventCode).trim().toUpperCase() : '';
+    if (ec) parts.push(`ec=${encodeURIComponent(ec)}`);
+    parts.push(`token=${encodeURIComponent(qrToken)}`);
     const vn = truncateVenueHint(hints?.venueName ?? null);
     if (vn) parts.push(`vn=${encodeURIComponent(vn)}`);
     const at = eventAtHintIso(hints?.eventStartsAt ?? null);

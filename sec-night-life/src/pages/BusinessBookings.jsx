@@ -222,8 +222,11 @@ export default function BusinessBookings() {
   const releaseMutation = useMutation({
     mutationFn: (tableId) => apiPost(`/api/business/venue-tables/${tableId}/release`, {}),
     onSuccess: () => {
-      toast.success('Table is available again');
+      toast.success('Table reset — slot is available for new bookings');
       queryClient.invalidateQueries({ queryKey: ['biz-venue-table-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
+      queryClient.invalidateQueries({ queryKey: ['biz-event-table-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['event-venue-tables'] });
     },
     onError: (err) => {
       toast.error(err?.data?.error || err?.message || 'Could not release table');
@@ -515,6 +518,11 @@ export default function BusinessBookings() {
                             <div>
                               <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
                                 {row.table?.tableName}
+                                {(row.table?.tableSessionNumber ?? 1) > 1 ? (
+                                  <span style={{ marginLeft: 8, fontSize: 10, textTransform: 'uppercase', color: 'var(--sec-text-muted)', letterSpacing: '0.06em' }}>
+                                    Session {row.table.tableSessionNumber}
+                                  </span>
+                                ) : null}
                                 {row.table?.isCustomListing ? (
                                   <span style={{ marginLeft: 8, fontSize: 10, textTransform: 'uppercase', color: 'var(--sec-accent)', letterSpacing: '0.06em' }}>Custom</span>
                                 ) : null}
@@ -552,11 +560,11 @@ export default function BusinessBookings() {
                                 className="sec-btn-secondary"
                                 disabled={releaseMutation.isPending}
                                 onClick={() => {
-                                  if (!window.confirm('Make this table available again? Current booking will be cleared.')) return;
+                                  if (!window.confirm('End this table session and make the slot available for new bookings? Current guests\' table QRs will no longer admit. Past payments stay in Bookings & Analytics.')) return;
                                   releaseMutation.mutate(row.table?.id);
                                 }}
                               >
-                                {releaseMutation.isPending ? 'Releasing…' : 'Make available again'}
+                                {releaseMutation.isPending ? 'Resetting…' : 'Reset table'}
                               </Button>
                             ) : null}
                           </div>

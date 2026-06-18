@@ -18,6 +18,11 @@ import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpe
 import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
 import { buildEventTableTiers, statsFromEventTableTiers } from '../lib/eventTableTiers.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
+import {
+  assertEventCodeUniqueForVenue,
+  normalizeEventCodeInput,
+  validateEventCodeFormat,
+} from '../lib/eventCode.js';
 
 const router = Router();
 
@@ -179,6 +184,10 @@ const eventFields = {
   hosting_config: hostingConfigSchema.optional(),
   event_format: z.enum(['TABLE_HOSTING', 'TICKETING_ONLY']).optional(),
   allows_ticket_menu_addons: z.boolean().optional(),
+  event_code: z.preprocess(
+    (v) => (v === '' || v === undefined ? null : v),
+    z.string().max(32).nullable().optional(),
+  ),
 };
 
 const eventSchema = z.object(eventFields);
@@ -207,6 +216,7 @@ function mapEventRow(e) {
     hosting_config: normalizeHostingConfig(e.hostingConfig),
     event_format: e.eventFormat || 'TABLE_HOSTING',
     allows_ticket_menu_addons: Boolean(e.allowsTicketMenuAddons),
+    event_code: e.eventCode || null,
   };
 }
 
@@ -987,6 +997,15 @@ router.post('/', authenticateToken, async (req, res, next) => {
       if (!tierCheck.ok) return res.status(400).json({ error: tierCheck.error });
     }
 
+    const normalizedEventCode = normalizeEventCodeInput(d.event_code);
+    const codeFmt = validateEventCodeFormat(normalizedEventCode);
+    if (!codeFmt.ok) return res.status(400).json({ error: codeFmt.error });
+    const codeUnique = await assertEventCodeUniqueForVenue(prisma, {
+      venueId: d.venue_id,
+      eventCode: codeFmt.code,
+    });
+    if (!codeUnique.ok) return res.status(400).json({ error: codeUnique.error });
+
     const event = await prisma.event.create({
       data: {
         venueId: d.venue_id,
@@ -1011,6 +1030,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         eventFormat,
         allowsTicketMenuAddons:
           eventFormat === 'TICKETING_ONLY' ? Boolean(d.allows_ticket_menu_addons) : false,
+        eventCode: codeFmt.code,
       },
     });
     if (d.status === 'published' && eventFormat === 'TABLE_HOSTING') {
@@ -1047,6 +1067,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     const hasLocationCityInput = Object.prototype.hasOwnProperty.call(body, 'location_city');
     const hasLocationSuburbInput = Object.prototype.hasOwnProperty.call(body, 'location_suburb');
     const hasLocationProvinceInput = Object.prototype.hasOwnProperty.call(body, 'location_province');
+
+    const hasEventCodeInput = Object.prototype.hasOwnProperty.call(body, 'event_code');
 
     const updates = {};
     if (d.title != null) updates.title = d.title;
@@ -1121,6 +1143,19 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     }
     if (nextFormat === 'TICKETING_ONLY') {
       updates.hostingConfig = null;
+    }
+
+    if (hasEventCodeInput) {
+      const normalizedEventCode = normalizeEventCodeInput(d.event_code);
+      const codeFmt = validateEventCodeFormat(normalizedEventCode);
+      if (!codeFmt.ok) return res.status(400).json({ error: codeFmt.error });
+      const codeUnique = await assertEventCodeUniqueForVenue(prisma, {
+        venueId: event.venueId,
+        eventCode: codeFmt.code,
+        excludeEventId: event.id,
+      });
+      if (!codeUnique.ok) return res.status(400).json({ error: codeUnique.error });
+      updates.eventCode = codeFmt.code;
     }
 
     const mergedDate = updates.date ?? event.date;

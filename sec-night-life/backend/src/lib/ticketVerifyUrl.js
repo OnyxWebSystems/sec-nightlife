@@ -24,15 +24,18 @@ export function eventAtHintIso(eventStartsAt) {
 }
 
 /**
- * Full TicketVerify URL including optional human-readable hints (venue + event time).
+ * Full TicketVerify URL including optional human-readable hints (event code, venue + event time).
  * @param {string} baseUrl — e.g. https://sec-nightlife.vercel.app (no trailing slash)
  * @param {string} qrToken
- * @param {{ venueName?: string | null; eventStartsAt?: Date | string | null }} [hints]
+ * @param {{ eventCode?: string | null; venueName?: string | null; eventStartsAt?: Date | string | null }} [hints]
  */
 export function buildTicketVerifyUrlWithHints(baseUrl, qrToken, hints = {}) {
   const base = String(baseUrl || '').replace(/\/+$/, '');
   const tokenQ = encodeURIComponent(qrToken);
-  const parts = [`token=${tokenQ}`];
+  const parts = [];
+  const ec = hints.eventCode != null ? String(hints.eventCode).trim().toUpperCase() : '';
+  if (ec) parts.push(`ec=${encodeURIComponent(ec)}`);
+  parts.push(`token=${tokenQ}`);
   const vn = truncateVenueHint(hints.venueName);
   if (vn) parts.push(`vn=${encodeURIComponent(vn)}`);
   const at = eventAtHintIso(hints.eventStartsAt);

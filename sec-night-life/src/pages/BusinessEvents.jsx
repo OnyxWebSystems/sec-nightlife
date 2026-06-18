@@ -99,8 +99,29 @@ const EMPTY_EVENT = {
   has_entrance_fee: false,
   entrance_fee_amount: '',
   allows_ticket_menu_addons: false,
+  event_code: '',
   hosting_config: emptyHostingForm(),
 };
+
+const EVENT_CODE_REGEX = /^[A-Z]{2,4}-\d{4}-[A-Z0-9]{1,4}$/;
+
+function suggestEventCode({ venueName, dateIso, existingCodes = [], excludeCode = '' }) {
+  const words = String(venueName || 'SEC').split(/[\s&]+/).filter(Boolean);
+  let prefix = words.map((w) => w.replace(/[^a-zA-Z]/g, '').charAt(0)).join('').toUpperCase().slice(0, 4);
+  if (prefix.length < 2) prefix = (prefix + 'SEC').slice(0, 2);
+  const d = dateIso ? new Date(`${dateIso}T00:00:00`) : new Date();
+  const mmdd = `${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const taken = new Set(
+    (existingCodes || [])
+      .map((c) => String(c).trim().toUpperCase())
+      .filter((c) => c && c !== String(excludeCode || '').trim().toUpperCase()),
+  );
+  for (const suffix of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+    const code = `${prefix}-${mmdd}-${suffix}`;
+    if (!taken.has(code)) return code;
+  }
+  return `${prefix}-${mmdd}-Z`;
+}
 
 export default function BusinessEvents() {
   const navigate = useNavigate();
@@ -115,6 +136,7 @@ export default function BusinessEvents() {
   const [deleteId, setDeleteId] = useState(null);
   const [tablesEventId, setTablesEventId] = useState(null);
   const [hidingTableId, setHidingTableId] = useState(null);
+  const [resettingTableId, setResettingTableId] = useState(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [createMode, setCreateMode] = useState('tables');
   const [selectedPromoterIds, setSelectedPromoterIds] = useState([]);
@@ -213,6 +235,26 @@ export default function BusinessEvents() {
     onError: () => toast.error('Failed to delete event'),
   });
 
+  async function resetTableForRelisting(tableId) {
+    if (
+      !window.confirm(
+        'End this table session and make the slot available for new host/join bookings? Current guests\' table QRs will no longer admit. Past payments stay in Bookings & Analytics.',
+      )
+    ) {
+      return;
+    }
+    setResettingTableId(tableId);
+    try {
+      await apiPost(`/api/business/venue-tables/${tableId}/release`);
+      toast.success('Table reset — slot is available for new bookings');
+      refetchEventTables();
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not reset table');
+    } finally {
+      setResettingTableId(null);
+    }
+  }
+
   async function hideTableFromListings(tableId) {
     if (!window.confirm('Remove this table from guest listings? Guests already on this table are not affected.')) return;
     setHidingTableId(tableId);
@@ -275,6 +317,7 @@ export default function BusinessEvents() {
       hosting_config: hostingFromApi(evt.hosting_config),
       event_format: evt.event_format || 'TABLE_HOSTING',
       allows_ticket_menu_addons: Boolean(evt.allows_ticket_menu_addons),
+      event_code: evt.event_code || '',
     });
     setCreateMode(evt.event_format === 'TICKETING_ONLY' ? 'ticketing' : 'tables');
     try {
@@ -331,6 +374,17 @@ export default function BusinessEvents() {
         ? parseFloat(String(form.entrance_fee_amount).replace(',', '.'))
         : null,
     };
+    const codeRaw = String(form.event_code || '').trim();
+    if (codeRaw) {
+      const code = codeRaw.toUpperCase();
+      if (!EVENT_CODE_REGEX.test(code)) {
+        toast.error('Event code must match PREFIX-MMDD-SUFFIX (e.g. VV-0619-A)');
+        return;
+      }
+      payload.event_code = code;
+    } else {
+      payload.event_code = null;
+    }
     if (form.description) payload.description = form.description;
     if (form.cover_image_url) payload.cover_image_url = form.cover_image_url;
     if (form.ticket_tiers?.length) payload.ticket_tiers = form.ticket_tiers;
@@ -633,6 +687,7 @@ export default function BusinessEvents() {
                   {evt.date}
                   {evt.start_time ? ` · ${evt.start_time}` : ''}
                   {' · '}{evt.location_city || evt.city}
+                  {evt.event_code ? ` · ${evt.event_code}` : ''}
                 </div>
               </div>
 
@@ -734,6 +789,38 @@ export default function BusinessEvents() {
                 className="mt-1.5 h-11 rounded-xl"
                 style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
               />
+            </div>
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-gray-400 text-sm">Door verification code (optional)</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-[var(--sec-accent)]"
+                  onClick={() => {
+                    const suggested = suggestEventCode({
+                      venueName: venue?.name,
+                      dateIso: form.date,
+                      existingCodes: events.map((e) => e.event_code).filter(Boolean),
+                      excludeCode: editingEvent?.event_code,
+                    });
+                    setForm((p) => ({ ...p, event_code: suggested }));
+                  }}
+                >
+                  Use suggested
+                </Button>
+              </div>
+              <Input
+                value={form.event_code}
+                onChange={(e) => setForm((p) => ({ ...p, event_code: e.target.value.toUpperCase() }))}
+                placeholder="VV-0619-A"
+                className="mt-1.5 h-11 rounded-xl font-mono tracking-wide"
+                style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
+              />
+              <p className="text-xs text-gray-500 mt-1.5">
+                Format: PREFIX-MMDD-SUFFIX (e.g. VV-0619-A). Shown on guest QR codes for quick door checks.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1493,6 +1580,9 @@ export default function BusinessEvents() {
                             ) : null}
                           </div>
                           <p className="text-xs text-gray-500 mt-1">{t.tierLabel || 'Table slot'}</p>
+                          {(t.tableSessionNumber ?? 1) > 1 ? (
+                            <p className="text-[10px] text-gray-500 mt-1">Session {t.tableSessionNumber}</p>
+                          ) : null}
                           {t.hostLabel ? (
                             <p className="text-xs mt-1.5 inline-flex items-center gap-1 text-gray-400">
                               <UserCheck size={12} style={{ color: 'var(--sec-accent)' }} />
@@ -1544,11 +1634,25 @@ export default function BusinessEvents() {
                       )}
                     </div>
 
-                    {(t.canHideFromListings || t.canRestoreToListings) && (
+                    {(t.canResetTable || t.canHideFromListings || t.canRestoreToListings) && (
                       <div
-                        className="px-4 py-3 border-t flex justify-end"
+                        className="px-4 py-3 border-t flex justify-end gap-2 flex-wrap"
                         style={{ borderColor: 'var(--sec-border)', background: 'rgba(0,0,0,0.2)' }}
                       >
+                        {t.canResetTable ? (
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs sec-btn-secondary"
+                            disabled={resettingTableId === t.id || hidingTableId === t.id}
+                            onClick={() => resetTableForRelisting(t.id)}
+                          >
+                            {resettingTableId === t.id ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              'Reset table'
+                            )}
+                          </Button>
+                        ) : null}
                         {t.canHideFromListings ? (
                           <Button
                             size="sm"

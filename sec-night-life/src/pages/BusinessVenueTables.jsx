@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiPatch } from '@/api/client';
 import { toast } from 'sonner';
-import { Plus, Armchair, Settings, Loader2 } from 'lucide-react';
+import { Plus, Armchair, Settings, Loader2, Users, UserCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -42,6 +42,7 @@ export default function BusinessVenueTables() {
   const [declineTemplatesByMember, setDeclineTemplatesByMember] = useState({});
   const [declineParamsByMember, setDeclineParamsByMember] = useState({});
   const [venueFees, setVenueFees] = useState({ host_table_fee_zar: '', custom_table_booking_fee_zar: '' });
+  const [actionTableId, setActionTableId] = useState(null);
 
   const { activeVenue: venue } = useActiveVenue();
 
@@ -57,11 +58,65 @@ export default function BusinessVenueTables() {
     enabled: !!venue?.id,
   });
 
-  const { data: tables = [], isLoading } = useQuery({
-    queryKey: ['biz-venue-tables', venue?.id],
-    queryFn: () => apiGet(`/api/venue-tables/venue/${venue.id}?dayOnly=true`),
+  const { data: dayTablesData, isLoading, refetch: refetchDayTables } = useQuery({
+    queryKey: ['biz-day-venue-tables', venue?.id],
+    queryFn: () => apiGet(`/api/business/day-venue-tables?venue_id=${encodeURIComponent(venue.id)}`),
     enabled: !!venue?.id,
   });
+
+  const dayTables = dayTablesData?.items || [];
+  const dayTablesSummary = dayTablesData?.summary;
+
+  async function hideTableFromListings(tableId) {
+    if (!window.confirm('Remove this table from guest listings? Guests already on this table are not affected.')) return;
+    setActionTableId(tableId);
+    try {
+      await apiPost(`/api/business/venue-tables/${tableId}/hide-from-listings`);
+      toast.success('Removed from listings');
+      refetchDayTables();
+      qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not hide table');
+    } finally {
+      setActionTableId(null);
+    }
+  }
+
+  async function restoreTableToListings(tableId) {
+    setActionTableId(tableId);
+    try {
+      await apiPost(`/api/business/venue-tables/${tableId}/restore-to-listings`);
+      toast.success('Restored to listings');
+      refetchDayTables();
+      qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not restore table');
+    } finally {
+      setActionTableId(null);
+    }
+  }
+
+  async function resetTableForRelisting(tableId) {
+    if (
+      !window.confirm(
+        'End this table session and make the slot available for new bookings? Current guests\' table QRs will no longer admit. Past payments stay in Bookings & Analytics.',
+      )
+    ) {
+      return;
+    }
+    setActionTableId(tableId);
+    try {
+      await apiPost(`/api/business/venue-tables/${tableId}/release`);
+      toast.success('Table reset — slot is available for new bookings');
+      refetchDayTables();
+      qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+      qc.invalidateQueries({ queryKey: ['biz-venue-table-bookings'] });
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Could not reset table');
+    } finally {
+      setActionTableId(null);
+    }
+  }
 
   const { data: reservations } = useQuery({
     queryKey: ['biz-venue-reservations'],
@@ -95,6 +150,7 @@ export default function BusinessVenueTables() {
     },
     onSuccess: () => {
       toast.success('Listing(s) created');
+      qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
       qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
       setShowForm(false);
     },
@@ -183,6 +239,28 @@ export default function BusinessVenueTables() {
         </TabsList>
 
         <TabsContent value="listings" className="space-y-4">
+          <p className="text-sm text-[var(--sec-text-muted)] leading-relaxed">
+            Manage day listings — hide empty slots from guest browse, or reset in-use tables so new guests can book again during the same service window.
+          </p>
+
+          {dayTablesSummary ? (
+            <div className="flex flex-wrap gap-2">
+              {[
+                ['In use', dayTablesSummary.inUse, 'var(--sec-accent)'],
+                ['Available', dayTablesSummary.available, '#34d399'],
+                ['Hidden', dayTablesSummary.hidden, '#9ca3af'],
+              ].map(([label, count, color]) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border border-[var(--sec-border)]"
+                  style={{ background: 'var(--sec-bg-elevated)', color }}
+                >
+                  {label}: {count}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
           <Button className="sec-btn sec-btn-primary" onClick={() => setShowForm((v) => !v)}>
             <Plus size={16} className="mr-2" /> New day listing
           </Button>
@@ -220,26 +298,139 @@ export default function BusinessVenueTables() {
 
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="animate-spin" /></div>
-          ) : tables.length === 0 ? (
+          ) : dayTables.length === 0 ? (
             <div className="sec-card p-8 text-center text-sm text-[var(--sec-text-muted)]">
               No day listings yet. Add a listing above, or enable day bookings in Settings so guests can request a custom table.
             </div>
           ) : (
             <div className="space-y-3">
-              {tables.map((t) => (
-                <div key={t.id} className="sec-card p-4 flex justify-between items-start gap-3 border border-[var(--sec-border)]">
-                  <div>
-                    <p className="font-semibold">{t.tableName}</p>
-                    <p className="text-xs text-[var(--sec-text-muted)] mt-1">
-                      Day booking
-                      {' · '}Min R{Number(t.minimumSpend).toFixed(0)}
-                      {' · '}Fee R{Number(t.bookingFeeZar || 0).toFixed(0)}
-                      {' · '}{t.memberCount || 0} bookings
-                    </p>
+              {dayTables.map((t) => {
+                const statusColor = t.inUse
+                  ? 'var(--sec-accent)'
+                  : t.isActive
+                    ? '#34d399'
+                    : '#9ca3af';
+                const serviceLabel = t.serviceDate
+                  ? new Date(t.serviceDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })
+                  : null;
+                return (
+                  <div
+                    key={t.id}
+                    className="sec-card overflow-hidden border"
+                    style={{
+                      borderColor: t.inUse ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                    }}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-sm">{t.tableName}</p>
+                            {t.isCustomListing ? (
+                              <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full"
+                                style={{ color: 'var(--sec-accent)', background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)' }}>
+                                Custom requests
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+                            {t.isCustomListing ? 'Custom table requests' : 'Day booking'}
+                            {serviceLabel ? ` · ${serviceLabel}` : ''}
+                            {t.startTime ? ` · ${t.startTime}` : ''}
+                            {' · '}Min R{Number(t.minimumSpend || 0).toFixed(0)}
+                            {' · '}Fee R{Number(t.bookingFeeZar || 0).toFixed(0)}
+                          </p>
+                          {t.hostLabel ? (
+                            <p className="text-xs mt-1.5 inline-flex items-center gap-1 text-[var(--sec-text-muted)]">
+                              <UserCheck size={12} style={{ color: 'var(--sec-accent)' }} />
+                              Host: {t.hostLabel}
+                            </p>
+                          ) : null}
+                          {(t.tableSessionNumber ?? 1) > 1 ? (
+                            <p className="text-[10px] text-[var(--sec-text-muted)] mt-1">Session {t.tableSessionNumber}</p>
+                          ) : null}
+                        </div>
+                        <span
+                          className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full shrink-0"
+                          style={{
+                            color: statusColor,
+                            background: `${statusColor}18`,
+                            border: `1px solid ${statusColor}44`,
+                          }}
+                        >
+                          {t.inUse ? 'In use' : t.isActive ? 'Available' : 'Hidden'}
+                        </span>
+                      </div>
+
+                      {t.inUse ? (
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between text-xs mb-1.5">
+                            <span className="inline-flex items-center gap-1.5 text-[var(--sec-text-secondary)]">
+                              <Users size={13} style={{ color: 'var(--sec-accent)' }} />
+                              {t.usageLabel}
+                            </span>
+                            <span className="text-[var(--sec-text-muted)]">{t.spotsRemaining ?? 0} spots left</span>
+                          </div>
+                          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${t.fillPercent ?? 0}%`,
+                                background: 'linear-gradient(90deg, var(--sec-accent), #e8c547)',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs mt-2 text-[var(--sec-text-muted)]">{t.usageLabel}</p>
+                      )}
+                    </div>
+
+                    {(t.canResetTable || t.canHideFromListings || t.canRestoreToListings) && (
+                      <div
+                        className="px-4 py-3 border-t flex justify-end gap-2 flex-wrap"
+                        style={{ borderColor: 'var(--sec-border)', background: 'rgba(0,0,0,0.2)' }}
+                      >
+                        {t.canResetTable ? (
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs sec-btn-secondary"
+                            disabled={actionTableId === t.id}
+                            onClick={() => resetTableForRelisting(t.id)}
+                          >
+                            {actionTableId === t.id ? <Loader2 size={14} className="animate-spin" /> : 'Reset table'}
+                          </Button>
+                        ) : null}
+                        {t.canHideFromListings ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={actionTableId === t.id}
+                            className="h-8 text-xs"
+                            style={{ borderColor: 'var(--sec-border)' }}
+                            onClick={() => hideTableFromListings(t.id)}
+                          >
+                            {actionTableId === t.id ? <Loader2 size={14} className="animate-spin" /> : 'Remove from listings'}
+                          </Button>
+                        ) : (
+                          t.canRestoreToListings ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={actionTableId === t.id}
+                              className="h-8 text-xs"
+                              style={{ borderColor: 'var(--sec-accent-border)', color: 'var(--sec-accent)' }}
+                              onClick={() => restoreTableToListings(t.id)}
+                            >
+                              Restore to listings
+                            </Button>
+                          ) : null
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <span className="text-[10px] uppercase tracking-wide opacity-60">{t.status}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </TabsContent>

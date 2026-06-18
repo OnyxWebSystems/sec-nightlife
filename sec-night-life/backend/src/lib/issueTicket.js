@@ -156,6 +156,7 @@ export async function issueTicketAndNotify(db, params) {
   const qrContent = buildTicketVerifyUrlWithHints(base, qrToken, {
     venueName: door.venue_name,
     eventStartsAt: ticket.eventStartsAt,
+    eventCode: door.event_code,
   });
 
   const QR_CID = 'sec-ticket-qr';
@@ -195,6 +196,7 @@ export async function issueTicketAndNotify(db, params) {
           <h2 style="margin:0 0 12px;">Ticket confirmed</h2>
           <p style="margin:0 0 8px;"><strong>${title}</strong></p>
           ${subtitle ? `<p style="color:#aaa;margin:0 0 16px;">${subtitle}</p>` : ''}
+          ${door.event_code ? `<p style="margin:0 0 12px;font-size:15px;font-weight:700;letter-spacing:0.08em;color:#e8c547;">${door.event_code}</p>` : ''}
           <p style="margin:0 0 16px;">Open <a href="${profileUrl}" style="color:#8cf;">Profile → Tickets</a> in the SEC app to show your QR code at the door.</p>
           <p style="margin:0 0 12px;font-size:12px;color:#9aa0a6;line-height:1.5;">Tip: the QR image below is embedded in this email — in most mail apps it stays visible <strong style="color:#e9ecef;">offline</strong> after the message has downloaded. You can also open the link once online so your phone can save the ticket for offline door checks.</p>
           <p style="margin:0 0 16px;font-size:13px;">Staff can scan: <a href="${verifyUrl}" style="color:#8cf;word-break:break-all;">${verifyUrl}</a></p>
@@ -234,6 +236,7 @@ export async function sendConsolidatedEventTicketsEmail({
     const qrContent = buildTicketVerifyUrlWithHints(base, t.qrToken, {
       venueName: door.venue_name,
       eventStartsAt: t.eventStartsAt,
+      eventCode: door.event_code,
     });
     const verifyUrl = qrContent.startsWith('http') ? qrContent : base ? `${base}${qrContent}` : qrContent;
     const cid = `sec-ticket-qr-${i + 1}`;
@@ -249,6 +252,7 @@ export async function sendConsolidatedEventTicketsEmail({
     qrSections.push(`
       <div style="margin:20px 0;padding:16px;border:1px solid #333;border-radius:10px;">
         <p style="margin:0 0 8px;font-weight:600;">${t.holderLabel || `Guest ${i + 1}`}</p>
+        ${door.event_code ? `<p style="margin:0 0 10px;font-size:14px;font-weight:700;letter-spacing:0.08em;color:#e8c547;">${door.event_code}</p>` : ''}
         ${qrPngBuffer ? `<img src="cid:${cid}" alt="QR ${i + 1}" width="180" height="180" style="display:block;border-radius:8px;" />` : ''}
         <p style="margin:8px 0 0;font-size:12px;"><a href="${verifyUrl}" style="color:#8cf;word-break:break-all;">${verifyUrl}</a></p>
         <p style="font-size:11px;color:#666;margin:4px 0 0;">Ref: ${t.paystackReference}</p>

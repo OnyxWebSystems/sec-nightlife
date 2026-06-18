@@ -779,6 +779,8 @@ model Event {
   allowsTicketMenuAddons Boolean @default(false) @map("allows_ticket_menu_addons")
   /// Optional bcrypt hash for venue door staff when recording ticket admits (4–8 digits).
   doorCheckPinHash   String?     @map("door_check_pin_hash")
+  /// Optional door verification code shown on tickets/QR (PREFIX-MMDD-SUFFIX, unique per venue).
+  eventCode         String?     @map("event_code")
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
   deletedAt         DateTime?   @map("deleted_at")
@@ -797,6 +799,7 @@ model Event {
   promoterAssignments        EventPromoterAssignment[]
   promoterConversions        PromoterConversion[]
 
+  @@unique([venueId, eventCode])
   @@index([venueId])
   @@index([date])
   @@index([endsAt])
@@ -1700,6 +1703,8 @@ model VenueTable {
   hostUserId        String?          @map("host_user_id")
   status            VenueTableStatus @default(AVAILABLE)
   isActive          Boolean          @default(true) @map("is_active")
+  /// Incremented each time venue releases/resets the slot for a new booking session.
+  tableSessionNumber Int             @default(1) @map("table_session_number")
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
 

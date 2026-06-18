@@ -12,6 +12,7 @@ const router = Router();
 
 function doorVerifySummary(door, holderName) {
   const bits = [];
+  if (door.event_code) bits.push(door.event_code);
   if (holderName) bits.push(holderName);
   if (door.venue_name) bits.push(door.venue_name);
   if (door.event_title) bits.push(door.event_title);
@@ -56,12 +57,14 @@ async function mapTicketRowWithDoor(req, t) {
   const verify_url = buildTicketVerifyUrlWithHints(origin, t.qrToken, {
     venueName: door.venue_name,
     eventStartsAt: t.eventStartsAt,
+    eventCode: door.event_code,
   });
   return {
     ...mapTicketRow(t),
     venue_name: door.venue_name,
     venue_city: door.venue_city,
     event_title_door: door.event_title,
+    event_code: door.event_code,
     table_allocation_label: door.table_allocation_label,
     check_location_line: door.check_location_line,
     door_verify_summary: doorVerifySummary(door, t.holderDisplayName),
@@ -190,6 +193,7 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
       venue_name: door.venue_name,
       venue_city: door.venue_city,
       event_title: door.event_title,
+      event_code: door.event_code,
       table_allocation_label: door.table_allocation_label,
       check_location_line: door.check_location_line,
       door_verify_summary,
