@@ -15,6 +15,8 @@ import ServiceWeekdayPicker from '@/components/business/ServiceWeekdayPicker';
 import { resolveTierFeesForSave } from '@/lib/tierBookingFees';
 import { resolveTierMinSpends } from '@/lib/tierMinSpend';
 import { emptyServiceScheduleMap, scheduleMapFromApi, scheduleMapToApi, formatServiceScheduleSummary } from '@/lib/serviceSchedule';
+import { parseDayTierIndex, countTierSlotsInList, totalSpotsForTier } from '@/lib/dayListingTiers';
+import { LayoutGrid } from 'lucide-react';
 import { VENUE_DECLINE_TEMPLATES, formatMenuLines } from '@/lib/venueTableMessageTemplates';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
@@ -177,9 +179,14 @@ export default function BusinessVenueTables() {
   });
 
   const startEditListing = (table) => {
+    const tierIndex = parseDayTierIndex(table.hostingTierKey);
+    const tierTableSlots =
+      tierIndex != null ? countTierSlotsInList(dayTables, tierIndex) : 1;
     setEditingTableId(table.id);
     setEditForm({
-      tableName: table.tableName || '',
+      tierIndex,
+      tierTableSlots: String(tierTableSlots),
+      tableName: table.tableName?.replace(/\s#\d+$/, '') || table.tierLabel || '',
       description: table.description || '',
       guestCapacity: String(table.guestCapacity ?? 6),
       minimumSpend: String(table.minimumSpend ?? 0),
@@ -191,7 +198,7 @@ export default function BusinessVenueTables() {
     });
   };
 
-  const submitEditListing = (e) => {
+  const submitEditListing = async (e) => {
     e.preventDefault();
     if (!editingTableId || !editForm) return;
     const serviceSchedule = scheduleMapToApi(editForm.serviceDays);
@@ -199,25 +206,50 @@ export default function BusinessVenueTables() {
       toast.error('Select at least one day of the week');
       return;
     }
-    updateMutation.mutate({
-      tableId: editingTableId,
-      payload: {
-        tableName: editForm.tableName.trim(),
-        description: editForm.description.trim() || null,
-        guestCapacity: parseInt(editForm.guestCapacity, 10) || 6,
-        minimumSpend: parseFloat(editForm.minimumSpend) || 0,
-        hostMinimumSpend: parseFloat(editForm.hostMinimumSpend) || 0,
-        bookingFeeZar: parseFloat(editForm.bookingFeeZar) || 0,
-        hostTableFeeZar: parseFloat(editForm.hostTableFeeZar) || 0,
-        serviceSchedule,
-        serviceDate: null,
-        serviceEndDate: null,
-        startTime: null,
-        endTime: null,
-        allowsCustomRequests: editForm.allowsCustomRequests,
-        tierLabel: editForm.tableName.trim(),
-      },
-    });
+    try {
+      if (editForm.tierIndex != null) {
+        await apiPost('/api/venue-tables/adjust-day-tier', {
+          venueId: venue.id,
+          tierIndex: editForm.tierIndex,
+          tierTableSlots: parseInt(editForm.tierTableSlots, 10) || 1,
+          tableName: editForm.tableName.trim(),
+          description: editForm.description.trim() || null,
+          guestCapacity: parseInt(editForm.guestCapacity, 10) || 6,
+          minimumSpend: parseFloat(editForm.minimumSpend) || 0,
+          hostMinimumSpend: parseFloat(editForm.hostMinimumSpend) || 0,
+          bookingFeeZar: parseFloat(editForm.bookingFeeZar) || 0,
+          hostTableFeeZar: parseFloat(editForm.hostTableFeeZar) || 0,
+          serviceSchedule,
+        });
+        toast.success('Listing updated');
+        qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
+        qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+        setEditingTableId(null);
+        setEditForm(null);
+      } else {
+        updateMutation.mutate({
+          tableId: editingTableId,
+          payload: {
+            tableName: editForm.tableName.trim(),
+            description: editForm.description.trim() || null,
+            guestCapacity: parseInt(editForm.guestCapacity, 10) || 6,
+            minimumSpend: parseFloat(editForm.minimumSpend) || 0,
+            hostMinimumSpend: parseFloat(editForm.hostMinimumSpend) || 0,
+            bookingFeeZar: parseFloat(editForm.bookingFeeZar) || 0,
+            hostTableFeeZar: parseFloat(editForm.hostTableFeeZar) || 0,
+            serviceSchedule,
+            serviceDate: null,
+            serviceEndDate: null,
+            startTime: null,
+            endTime: null,
+            allowsCustomRequests: editForm.allowsCustomRequests,
+            tierLabel: editForm.tableName.trim(),
+          },
+        });
+      }
+    } catch (err) {
+      toast.error(err?.data?.error || err.message || 'Could not update listing');
+    }
   };
 
   const reviewMutation = useMutation({
@@ -595,7 +627,7 @@ export default function BusinessVenueTables() {
                 </div>
               </div>
               <div>
-                <Label>Max guests</Label>
+                <Label>Max guests per table</Label>
                 <Input
                   type="number"
                   min={1}
@@ -603,6 +635,38 @@ export default function BusinessVenueTables() {
                   onChange={(e) => setEditForm((f) => ({ ...f, guestCapacity: e.target.value }))}
                 />
               </div>
+              {editForm.tierIndex != null ? (
+                <div
+                  className="rounded-lg border p-3 space-y-2"
+                  style={{ borderColor: 'var(--sec-accent-border)', background: 'var(--sec-accent-muted)' }}
+                >
+                  <div className="flex items-start gap-2">
+                    <LayoutGrid size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--sec-accent)' }} />
+                    <div className="flex-1">
+                      <Label className="text-sm font-semibold text-[var(--sec-text-primary)]">
+                        Tables available to host / join
+                      </Label>
+                      <p className="text-[11px] text-[var(--sec-text-muted)] mt-0.5">
+                        How many identical tables of this tier guests can book. One host per table; joiners fill remaining spots.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={editForm.tierTableSlots}
+                      onChange={(e) => setEditForm((f) => ({ ...f, tierTableSlots: e.target.value }))}
+                      className="h-10 w-24 text-center font-semibold"
+                    />
+                    <span className="text-xs text-[var(--sec-text-secondary)]">
+                      {totalSpotsForTier(editForm.tierTableSlots, editForm.guestCapacity)} total guest spots
+                      ({editForm.tierTableSlots || 1} × {editForm.guestCapacity || 6})
+                    </span>
+                  </div>
+                </div>
+              ) : null}
               <Button type="submit" disabled={updateMutation.isPending} className="w-full sec-btn-primary">
                 {updateMutation.isPending ? 'Saving…' : 'Save changes'}
               </Button>

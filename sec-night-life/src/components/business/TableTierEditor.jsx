@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { tierFeeTogglesFromTier } from '@/lib/tierBookingFees';
+import { totalSpotsForTier } from '@/lib/dayListingTiers';
 import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
 
 export default function TableTierEditor({ tiers = [], onChange, venueMenuItems = [], showSlots = false }) {
@@ -85,6 +86,8 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
                 />
                 <span className="text-xs text-[var(--sec-text-secondary)]">
                   {slotCount === 1 ? '1 table listing' : `${slotCount} table listings (#1–#${slotCount})`}
+                  {' · '}
+                  {totalSpotsForTier(slotCount, tier.max_guests)} total guest spots
                 </span>
               </div>
             </div>

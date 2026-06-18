@@ -837,6 +837,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           selectedMenuItems: metadata.selectedMenuItems || member?.selectedMenuItems,
           bookingMode,
           memberRole: member?.memberRole,
+          tableSessionNumber: vt.tableSessionNumber,
         });
       }
     }

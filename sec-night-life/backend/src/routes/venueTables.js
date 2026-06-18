@@ -210,6 +210,63 @@ const updateTableSchema = z.object({
   tierLabel: z.string().optional().nullable(),
 });
 
+const adjustDayTierSchema = z.object({
+  venueId: z.string().min(1),
+  tierIndex: z.number().int().min(0),
+  tierTableSlots: z.number().int().min(1).max(50),
+  tableName: z.string().trim().min(1).max(60).optional(),
+  description: z.string().trim().max(500).optional().nullable(),
+  guestCapacity: z.number().int().min(1).max(100).optional(),
+  minimumSpend: z.number().min(0).optional(),
+  hostMinimumSpend: z.number().min(0).optional(),
+  bookingFeeZar: z.number().min(0).optional(),
+  hostTableFeeZar: z.number().min(0).optional(),
+  serviceSchedule: z
+    .array(
+      z.object({
+        day: z.string().min(1),
+        startTime: z.string().min(1),
+        endTime: z.string().min(1),
+      }),
+    )
+    .optional()
+    .nullable(),
+});
+
+router.post('/adjust-day-tier', authenticateToken, async (req, res, next) => {
+  try {
+    if (!requireVenueOwner(req, res)) return;
+    const parsed = adjustDayTierSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const d = parsed.data;
+    const owned = await assertVenueOwnedByUser(d.venueId, req.userId);
+    if (!owned) return res.status(403).json({ error: 'Forbidden' });
+    const { adjustDayTierFromVenueListing } = await import('../lib/syncDayVenueTables.js');
+    const result = await adjustDayTierFromVenueListing(
+      d.venueId,
+      d.tierIndex,
+      {
+        tier_name: d.tableName,
+        description: d.description ?? null,
+        max_guests: d.guestCapacity,
+        min_spend: d.minimumSpend,
+        min_spend_join: d.minimumSpend,
+        min_spend_host: d.hostMinimumSpend,
+        booking_fee_zar: d.bookingFeeZar,
+        host_table_fee_zar: d.hostTableFeeZar,
+        tier_table_slots: d.tierTableSlots,
+      },
+      { serviceSchedule: d.serviceSchedule ?? null },
+    );
+    res.json(result);
+  } catch (e) {
+    if (String(e?.message || e).includes('Tier not found')) {
+      return res.status(404).json({ error: 'Tier not found' });
+    }
+    next(e);
+  }
+});
+
 router.patch('/:tableId', authenticateToken, async (req, res, next) => {
   try {
     if (!requireVenueOwner(req, res)) return;

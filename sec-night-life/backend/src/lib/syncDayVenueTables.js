@@ -126,6 +126,91 @@ export async function syncDayVenueTables(venueId, options = {}) {
   return { synced: desiredKeys.size };
 }
 
+function tierIndexFromHostingKey(key) {
+  const parts = String(key || '').split(':');
+  if (parts[0] !== 'day') return null;
+  const idx = Number(parts[1]);
+  return Number.isFinite(idx) ? idx : null;
+}
+
+function venueTableToTierDef(row) {
+  return {
+    tier_name: row.tierLabel || row.tableName?.replace(/\s#\d+$/, '') || 'Tier',
+    max_guests: row.guestCapacity,
+    min_spend: row.minimumSpend,
+    min_spend_join: row.minimumSpend,
+    min_spend_host: row.hostMinimumSpend ?? row.minimumSpend,
+    booking_fee_zar: row.bookingFeeZar,
+    host_table_fee_zar: row.hostTableFeeZar,
+    tier_table_slots: 1,
+    included_items: Array.isArray(row.includedItems) ? row.includedItems : [],
+  };
+}
+
+/**
+ * Rebuild all day tiers from existing rows and adjust one tier's slot count + fields.
+ */
+export async function adjustDayTierFromVenueListing(venueId, tierIndex, tierPatch = {}, scheduleOptions = {}) {
+  const rows = await prisma.venueTable.findMany({
+    where: {
+      venueId,
+      eventId: null,
+      isCustomListing: false,
+      hostingTierKey: { startsWith: 'day:' },
+    },
+    orderBy: { hostingTierKey: 'asc' },
+  });
+
+  const tierMap = new Map();
+  for (const row of rows) {
+    const idx = tierIndexFromHostingKey(row.hostingTierKey);
+    if (idx == null) continue;
+    if (!tierMap.has(idx)) {
+      tierMap.set(idx, { def: venueTableToTierDef(row), slots: 0, sample: row });
+    }
+    tierMap.get(idx).slots += 1;
+  }
+
+  if (!tierMap.has(tierIndex)) {
+    throw new Error('Tier not found');
+  }
+
+  const existing = tierMap.get(tierIndex);
+  const slots = Math.max(1, Math.min(50, Number(tierPatch.tier_table_slots) || existing.slots));
+  tierMap.set(tierIndex, {
+    ...existing,
+    def: {
+      ...existing.def,
+      tier_name: tierPatch.tier_name ?? existing.def.tier_name,
+      max_guests: tierPatch.max_guests ?? existing.def.max_guests,
+      min_spend: tierPatch.min_spend ?? existing.def.min_spend,
+      min_spend_join: tierPatch.min_spend_join ?? existing.def.min_spend_join,
+      min_spend_host: tierPatch.min_spend_host ?? existing.def.min_spend_host,
+      booking_fee_zar: tierPatch.booking_fee_zar ?? existing.def.booking_fee_zar,
+      host_table_fee_zar: tierPatch.host_table_fee_zar ?? existing.def.host_table_fee_zar,
+      tier_table_slots: slots,
+      included_items: tierPatch.included_items ?? existing.def.included_items,
+    },
+    slots,
+  });
+
+  const tiers = [...tierMap.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, v]) => ({ ...v.def, tier_table_slots: v.slots }));
+
+  const sample = existing.sample;
+  const schedule =
+    scheduleOptions.serviceSchedule ??
+    (sample?.serviceSchedule ? sample.serviceSchedule : null);
+
+  return syncDayVenueTables(venueId, {
+    description: tierPatch.description ?? sample?.description ?? null,
+    serviceSchedule: schedule,
+    allowsCustomRequests: false,
+    tiers,
+  });
+}
+
 async function ensureDayCustomListingFlag(venueId) {
   const existing = await prisma.venueTable.findFirst({
     where: { venueId, eventId: null, isCustomListing: true, isActive: true },

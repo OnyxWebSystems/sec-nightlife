@@ -18,6 +18,7 @@ import {
   venueIdFromQuery,
 } from '../lib/access.js';
 import { eventEndsAtFromEvent } from '../lib/ticketHelpers.js';
+import { repairGuestEventVenueTableBookingsForEvents } from '../lib/eventVenueBooking.js';
 
 const router = Router();
 
@@ -62,10 +63,35 @@ function rollBookingStats(rows) {
   };
 }
 
+function bookingGroupKey(row) {
+  if (row.hostedTable?.id) return String(row.hostedTable.id);
+  if (row.venueTableId) {
+    return `direct-vt-${row.venueTableId}-s${row.tableSessionNumber || 1}`;
+  }
+  return null;
+}
+
+function syntheticHostedTableFromVenueRow(vt, sessionNumber = 1) {
+  if (!vt) return null;
+  return {
+    id: `direct-vt-${vt.id}-s${sessionNumber}`,
+    tableName: vt.tableName,
+    status: 'ACTIVE',
+    hostUserId: null,
+    hostingCategory: null,
+    hostingTierIndex: null,
+    tierMinSpend: vt.minimumSpend,
+    menuSpendTotal: null,
+    tierIncludedItems: null,
+    guestQuantity: vt.guestCapacity,
+    spotsRemaining: Math.max(0, Number(vt.guestCapacity) - Number(vt.currentOccupancy)),
+  };
+}
+
 function groupEventTableBookingsByTable(mapped) {
   const groups = new Map();
   for (const row of mapped) {
-    const tableId = row.hostedTable?.id;
+    const tableId = bookingGroupKey(row);
     if (!tableId) continue;
     if (!groups.has(tableId)) {
       groups.set(tableId, {
@@ -103,13 +129,20 @@ async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds
   if (!eventIds.length || !venueIds.length) return existingMapped;
 
   const existingKeys = new Set(
-    existingMapped.map((r) => `${r.hostedTable?.id}:${r.user?.id}:${r.role}`),
+    existingMapped.map((r) => {
+      const gk = bookingGroupKey(r);
+      return gk ? `${gk}:${r.user?.id}:${r.role}` : null;
+    }).filter(Boolean),
+  );
+  const existingRefs = new Set(
+    existingMapped.map((r) => r.paystackReference).filter(Boolean),
   );
 
   const members = await prisma.venueTableMember.findMany({
     where: {
-      status: 'CONFIRMED',
       memberRole: 'GUEST',
+      paystackReference: { not: null },
+      status: { in: ['CONFIRMED', 'LEFT'] },
       venueTable: {
         eventId: { in: eventIds },
         venueId: { in: venueIds },
@@ -166,28 +199,19 @@ async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds
 
     let hostedTable = vt.hostedTableId ? hostedById.get(vt.hostedTableId) || null : null;
     let isDirectVenueSlot = false;
+    let sessionNumber = Number(vt.tableSessionNumber) || 1;
     if (!hostedTable) {
       isDirectVenueSlot = true;
-      const session = vt.tableSessionNumber || 1;
-      hostedTable = {
-        id: `direct-vt-${vt.id}-s${session}`,
-        tableName: vt.tableName,
-        status: 'ACTIVE',
-        hostUserId: null,
-        hostingCategory: null,
-        hostingTierIndex: null,
-        tierMinSpend: vt.minimumSpend,
-        menuSpendTotal: null,
-        tierIncludedItems: null,
-        guestQuantity: vt.guestCapacity,
-        spotsRemaining: Math.max(0, Number(vt.guestCapacity) - Number(vt.currentOccupancy)),
-      };
+      if (m.status === 'LEFT') sessionNumber = Math.max(1, sessionNumber - 1);
+      hostedTable = syntheticHostedTableFromVenueRow(vt, sessionNumber);
     }
 
     const role = 'GUEST';
-    const key = `${hostedTable.id}:${m.userId}:${role}`;
+    if (m.paystackReference && existingRefs.has(m.paystackReference)) continue;
+    const key = `${bookingGroupKey({ hostedTable, venueTableId: vt.id, tableSessionNumber: sessionNumber })}:${m.userId}:${role}`;
     if (existingKeys.has(key)) continue;
     existingKeys.add(key);
+    if (m.paystackReference) existingRefs.add(m.paystackReference);
 
     supplemental.push({
       id: `vtm-${m.id}`,
@@ -201,6 +225,8 @@ async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds
       venue: vt.venue,
       event: vt.event,
       hostedTable,
+      venueTableId: isDirectVenueSlot ? vt.id : null,
+      tableSessionNumber: isDirectVenueSlot ? sessionNumber : null,
       isDirectVenueSlot,
       user: {
         id: m.user.id,
@@ -549,6 +575,8 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       });
     }
 
+    await repairGuestEventVenueTableBookingsForEvents(eventIds);
+
     let configuredTableSlots = 0;
     for (const ev of eventsInScope) {
       const c = normalizeHostingConfig(ev.hostingConfig);
@@ -608,12 +636,30 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
           },
         },
         user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
+        venueTable: {
+          select: {
+            id: true,
+            tableName: true,
+            guestCapacity: true,
+            currentOccupancy: true,
+            minimumSpend: true,
+            tierLabel: true,
+            tableSessionNumber: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 500,
     });
 
-    const mapped = rows.map((r) => ({
+    const mapped = rows.map((r) => {
+      const sessionNumber = r.tableSessionNumber || r.venueTable?.tableSessionNumber || 1;
+      const hostedTable =
+        r.hostedTable ||
+        (r.venueTableId && r.venueTable
+          ? syntheticHostedTableFromVenueRow(r.venueTable, sessionNumber)
+          : null);
+      return {
       id: r.id,
       role: r.role,
       paystackReference: r.paystackReference,
@@ -624,7 +670,10 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       createdAt: r.createdAt,
       venue: r.venue,
       event: r.event,
-      hostedTable: r.hostedTable,
+      hostedTable,
+      venueTableId: r.venueTableId,
+      tableSessionNumber: r.venueTableId ? sessionNumber : null,
+      isDirectVenueSlot: Boolean(r.venueTableId && !r.hostedTableId),
       user: {
         id: r.user.id,
         username: r.user.userProfile?.username || r.user.username || r.user.fullName || 'User',
@@ -633,7 +682,8 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       hostingTierName: r.hostingTierName,
       hostingCategory: r.hostingCategory,
       menuTotalZar: r.menuTotalZar,
-    }));
+    };
+    });
 
     const mappedWithVenueGuests = await supplementEventTableBookingsFromVenueMembers({
       eventIds,
