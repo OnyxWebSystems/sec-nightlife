@@ -211,6 +211,76 @@ export async function adjustDayTierFromVenueListing(venueId, tierIndex, tierPatc
   });
 }
 
+/**
+ * Remove a day tier and re-index remaining tiers. Blocks if any slot is in use.
+ */
+export async function deleteDayTier(venueId, tierIndex) {
+  const rows = await prisma.venueTable.findMany({
+    where: {
+      venueId,
+      eventId: null,
+      isCustomListing: false,
+      hostingTierKey: { startsWith: 'day:' },
+    },
+    orderBy: { hostingTierKey: 'asc' },
+  });
+
+  const tierMap = new Map();
+  for (const row of rows) {
+    const idx = tierIndexFromHostingKey(row.hostingTierKey);
+    if (idx == null) continue;
+    if (!tierMap.has(idx)) {
+      tierMap.set(idx, { def: venueTableToTierDef(row), slots: 0, sample: row });
+    }
+    tierMap.get(idx).slots += 1;
+  }
+
+  if (!tierMap.has(tierIndex)) {
+    throw new Error('Tier not found');
+  }
+
+  const tierRows = rows.filter((r) => tierIndexFromHostingKey(r.hostingTierKey) === tierIndex);
+  for (const row of tierRows) {
+    if (row.currentOccupancy > 0 || row.hostUserId || row.hostedTableId) {
+      const err = new Error('Reset all tables in this tier before deleting');
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
+  const tableIds = tierRows.map((r) => r.id);
+  const activeMemberCount = await prisma.venueTableMember.count({
+    where: {
+      venueTableId: { in: tableIds },
+      status: { in: ['CONFIRMED', 'APPROVED', 'PENDING_PAYMENT', 'PENDING_VENUE_REVIEW'] },
+    },
+  });
+  if (activeMemberCount > 0) {
+    const err = new Error('Reset all tables in this tier before deleting');
+    err.statusCode = 409;
+    throw err;
+  }
+
+  await prisma.venueTable.deleteMany({ where: { id: { in: tableIds } } });
+
+  tierMap.delete(tierIndex);
+  const tiers = [...tierMap.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, v]) => ({ ...v.def, tier_table_slots: v.slots }));
+
+  const sample =
+    [...tierMap.values()][0]?.sample ||
+    tierRows[0];
+  const schedule = sample?.serviceSchedule ?? null;
+
+  return syncDayVenueTables(venueId, {
+    description: sample?.description ?? null,
+    serviceSchedule: schedule,
+    allowsCustomRequests: false,
+    tiers,
+  });
+}
+
 async function ensureDayCustomListingFlag(venueId) {
   const existing = await prisma.venueTable.findFirst({
     where: { venueId, eventId: null, isCustomListing: true, isActive: true },

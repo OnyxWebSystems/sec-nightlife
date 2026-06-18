@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiPatch } from '@/api/client';
 import { toast } from 'sonner';
-import { Plus, Armchair, Settings, Loader2, Users, UserCheck } from 'lucide-react';
+import { Plus, Armchair, Settings, Loader2, Users, UserCheck, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -249,6 +249,30 @@ export default function BusinessVenueTables() {
       }
     } catch (err) {
       toast.error(err?.data?.error || err.message || 'Could not update listing');
+    }
+  };
+
+  const deleteTierListing = async () => {
+    if (editForm?.tierIndex == null || !venue?.id) return;
+    if (
+      !window.confirm(
+        'Delete this tier and all its table slots? Empty slots are removed permanently. You must reset any in-use tables first.',
+      )
+    ) {
+      return;
+    }
+    try {
+      await apiPost('/api/venue-tables/delete-day-tier', {
+        venueId: venue.id,
+        tierIndex: editForm.tierIndex,
+      });
+      toast.success('Tier deleted');
+      qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
+      qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+      setEditingTableId(null);
+      setEditForm(null);
+    } catch (err) {
+      toast.error(err?.data?.error || err.message || 'Could not delete tier');
     }
   };
 
@@ -667,9 +691,22 @@ export default function BusinessVenueTables() {
                   </div>
                 </div>
               ) : null}
-              <Button type="submit" disabled={updateMutation.isPending} className="w-full sec-btn-primary">
-                {updateMutation.isPending ? 'Saving…' : 'Save changes'}
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Button type="submit" disabled={updateMutation.isPending} className="w-full sec-btn-primary">
+                  {updateMutation.isPending ? 'Saving…' : 'Save changes'}
+                </Button>
+                {editForm.tierIndex != null ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full text-red-400 border-red-400/40 hover:bg-red-400/10"
+                    onClick={deleteTierListing}
+                  >
+                    <Trash2 size={14} className="mr-2" />
+                    Delete tier
+                  </Button>
+                ) : null}
+              </div>
             </form>
           ) : null}
         </TabsContent>

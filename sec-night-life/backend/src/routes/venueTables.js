@@ -233,6 +233,33 @@ const adjustDayTierSchema = z.object({
     .nullable(),
 });
 
+const deleteDayTierSchema = z.object({
+  venueId: z.string().min(1),
+  tierIndex: z.number().int().min(0),
+});
+
+router.post('/delete-day-tier', authenticateToken, async (req, res, next) => {
+  try {
+    if (!requireVenueOwner(req, res)) return;
+    const parsed = deleteDayTierSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    const d = parsed.data;
+    const owned = await assertVenueOwnedByUser(d.venueId, req.userId);
+    if (!owned) return res.status(403).json({ error: 'Forbidden' });
+    const { deleteDayTier } = await import('../lib/syncDayVenueTables.js');
+    const result = await deleteDayTier(d.venueId, d.tierIndex);
+    res.json(result);
+  } catch (e) {
+    if (e?.statusCode === 409 || String(e?.message || '').includes('Reset all tables')) {
+      return res.status(409).json({ error: e.message || 'Reset all tables in this tier before deleting' });
+    }
+    if (String(e?.message || e).includes('Tier not found')) {
+      return res.status(404).json({ error: 'Tier not found' });
+    }
+    next(e);
+  }
+});
+
 router.post('/adjust-day-tier', authenticateToken, async (req, res, next) => {
   try {
     if (!requireVenueOwner(req, res)) return;

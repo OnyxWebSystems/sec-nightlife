@@ -40,7 +40,7 @@ import {
 } from '../lib/menuHelpers.js';
 import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
-import { canJoinTablesAsGuest } from '../lib/access.js';
+import { canJoinTablesAsGuest, staffHasVenuePermission } from '../lib/access.js';
 import { parseGuestCountFromSpecs, resolveLinkedVenueTableForHostedTable } from '../lib/venueTableHostAfterPayment.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
@@ -429,14 +429,20 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     if (!t) return res.status(404).json({ error: 'Not found' });
     const uid = req.userId;
     const venueOwnerUserId = t.event?.venue?.ownerUserId || null;
+    const venueId = t.event?.venueId || t.event?.venue?.id || null;
     const isVenueOwner = Boolean(uid && venueOwnerUserId && uid === venueOwnerUserId);
+    const hasBookingsStaff =
+      venueId && uid ? await staffHasVenuePermission(uid, venueId, 'bookings') : false;
     if (t.status === 'DRAFT') {
-      if (uid !== t.hostUserId && !isVenueOwner) return res.status(404).json({ error: 'Not found' });
+      if (uid !== t.hostUserId && !isVenueOwner && !hasBookingsStaff) {
+        return res.status(404).json({ error: 'Not found' });
+      }
     } else if (t.status === 'CLOSED') {
       const allowed =
         uid &&
         (t.hostUserId === uid ||
           isVenueOwner ||
+          hasBookingsStaff ||
           (await prisma.hostedTableMember.findFirst({
             where: { hostedTableId: t.id, userId: uid },
           })));
@@ -457,7 +463,6 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     const minSpendPerPerson =
       tierMin != null && tierMin > 0 ? Math.ceil(tierMin / gq) : null;
     const totalPayOnlineZar = entranceZar + joinZar;
-    const venueId = t.event?.venueId || t.event?.venue?.id;
     let venueMenu = [];
     if (venueId) {
       venueMenu = await fetchGuestVenueMenuItems(venueId);

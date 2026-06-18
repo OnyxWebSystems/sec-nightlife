@@ -603,6 +603,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
           paidAt: new Date(),
           paystackReference: reference,
+          tableSessionNumber: Number(table.tableSessionNumber) || 1,
         },
       });
       try {

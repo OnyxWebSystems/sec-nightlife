@@ -1742,6 +1742,7 @@ model VenueTableMember {
   settlementMode    MinSpendSettlement?    @map("settlement_mode")
   memberRole        VenueTableMemberRole   @default(GUEST) @map("member_role")
   status            VenueTableMemberStatus @default(PENDING_PAYMENT)
+  tableSessionNumber Int?                  @map("table_session_number")
   joinedAt          DateTime               @default(now()) @map("joined_at")
   paidAt            DateTime?              @map("paid_at")
 

@@ -92,6 +92,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           selectedMenuItems: metadata.selectedMenuItems || freshMember.selectedMenuItems,
           paidAt: new Date(),
           paystackReference: reference,
+          tableSessionNumber: Number(table.tableSessionNumber) || 1,
         },
       });
       await tx.venueTable.update({

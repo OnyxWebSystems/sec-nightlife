@@ -117,6 +117,44 @@ function roleLabel(role) {
   return role || 'Payment';
 }
 
+function isSyntheticHostedId(id) {
+  return String(id || '').startsWith('direct-vt-');
+}
+
+function sessionQueryFromEventGroup(group) {
+  const htId = group.hostedTable?.id;
+  if (htId && !isSyntheticHostedId(htId)) {
+    return { hosted_table_id: htId };
+  }
+  const tx = (group.transactions || [])[0];
+  const venueTableId = tx?.venueTableId;
+  const session = tx?.tableSessionNumber || 1;
+  if (venueTableId) {
+    return { venue_table_id: venueTableId, session };
+  }
+  return null;
+}
+
+function sessionStatusLabel(status) {
+  if (status === 'ACTIVE') return 'Active';
+  if (status === 'RESET') return 'Reset';
+  return 'Ended';
+}
+
+function MenuItemsBlock({ items }) {
+  if (!Array.isArray(items) || !items.length) return null;
+  return (
+    <ul style={{ margin: '8px 0 0', padding: 0, listStyle: 'none', fontSize: 11, color: 'var(--sec-text-secondary)' }}>
+      {items.map((item, i) => (
+        <li key={i} style={{ marginTop: i ? 4 : 0 }}>
+          {item.qty || item.quantity}× {item.name || item.label}
+          {item.lineTotal != null ? ` · R${Number(item.lineTotal).toFixed(0)}` : ''}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function EmptyState({ icon: Icon, title, description }) {
   return (
     <div
@@ -166,8 +204,8 @@ export default function BusinessBookings() {
   const [ticketEventTimeScope, setTicketEventTimeScope] = useState('all');
   const [selectedEventId, setSelectedEventId] = useState('all');
   const [ticketEventId, setTicketEventId] = useState('all');
-  const [detailTable, setDetailTable] = useState(null);
   const [detailTicket, setDetailTicket] = useState(null);
+  const [sessionView, setSessionView] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -217,6 +255,25 @@ export default function BusinessBookings() {
     },
     enabled: !!user && mainTab === 'tickets',
     refetchOnWindowFocus: true,
+  });
+
+  const { data: sessionDetail, isLoading: sessionDetailLoading } = useQuery({
+    queryKey: ['biz-table-booking-detail', sessionView?.query, scopeKey],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      const q = sessionView.query;
+      if (q.hosted_table_id) params.set('hosted_table_id', q.hosted_table_id);
+      if (q.venue_table_id) {
+        params.set('venue_table_id', q.venue_table_id);
+        params.set('session', String(q.session || 1));
+      }
+      if (venueScope.venueQuery) {
+        const extra = new URLSearchParams(venueScope.venueQuery);
+        extra.forEach((v, k) => params.set(k, v));
+      }
+      return apiGet(`/api/business/table-booking-detail?${params.toString()}`);
+    },
+    enabled: !!user && !!sessionView?.query,
   });
 
   const releaseMutation = useMutation({
@@ -310,6 +367,29 @@ export default function BusinessBookings() {
     );
   });
 
+  const openEventTableSession = (group) => {
+    const query = sessionQueryFromEventGroup(group);
+    if (!query) return;
+    setSessionView({
+      query,
+      title: group.hostedTable?.tableName || 'Hosted table',
+      subtitle: group.event?.title || 'Event booking',
+    });
+  };
+
+  const openDayTableSession = (row) => {
+    setSessionView({
+      query: {
+        venue_table_id: row.table?.id,
+        session: row.sessionNumber ?? row.table?.tableSessionNumber ?? 1,
+      },
+      title: row.table?.tableName || 'Day table',
+      subtitle: row.table?.venue?.name ? `${row.table.venue.name} · Day booking` : 'Day booking',
+    });
+  };
+
+  const closeSessionView = () => setSessionView(null);
+
   const eventTableStats = {
     tableCount: filteredEventTables.length,
     totalRevenue: filteredEventTables.reduce((s, g) => s + Number(g.totalPaidZar || 0), 0),
@@ -378,7 +458,7 @@ export default function BusinessBookings() {
                   className="rounded-full px-4 py-2 text-sm data-[state=active]:bg-[var(--sec-accent-muted)] data-[state=active]:text-[var(--sec-accent)]"
                   style={{ border: '1px solid var(--sec-border)', marginBottom: 0 }}
                 >
-                  Venue &amp; day tables
+                  Day table bookings
                 </TabsTrigger>
               </TabsList>
 
@@ -455,8 +535,8 @@ export default function BusinessBookings() {
                         key={group.id}
                         className="sec-card"
                         style={{ padding: '14px 16px', border: '1px solid var(--sec-border)', cursor: 'pointer' }}
-                        onClick={() => setDetailTable(group)}
-                        onKeyDown={(e) => e.key === 'Enter' && setDetailTable(group)}
+                        onClick={() => openEventTableSession(group)}
+                        onKeyDown={(e) => e.key === 'Enter' && openEventTableSession(group)}
                         role="button"
                         tabIndex={0}
                       >
@@ -498,7 +578,7 @@ export default function BusinessBookings() {
 
               <TabsContent value="venue-day" className="mt-0">
                 <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-                  Paid bookings from Book on Sec and custom table requests after guests complete checkout.
+                  Paid bookings from day table listings and custom table requests after guests complete checkout.
                 </p>
 
                 <FilterBar>
@@ -519,8 +599,8 @@ export default function BusinessBookings() {
                 ) : filteredVenueTables.length === 0 ? (
                   <EmptyState
                     icon={CalendarDays}
-                    title="No venue or day bookings"
-                    description="When guests pay for venue tables or custom requests, they will show up here."
+                    title="No day table bookings"
+                    description="When guests pay for day tables or custom requests, they will show up here."
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -532,9 +612,9 @@ export default function BusinessBookings() {
                             <div>
                               <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
                                 {row.table?.tableName}
-                                {(row.table?.tableSessionNumber ?? 1) > 1 ? (
+                                {(row.sessionNumber ?? row.table?.tableSessionNumber ?? 1) > 1 ? (
                                   <span style={{ marginLeft: 8, fontSize: 10, textTransform: 'uppercase', color: 'var(--sec-text-muted)', letterSpacing: '0.06em' }}>
-                                    Session {row.table.tableSessionNumber}
+                                    Session {row.sessionNumber ?? row.table.tableSessionNumber}
                                   </span>
                                 ) : null}
                                 {row.table?.isCustomListing ? (
@@ -543,7 +623,8 @@ export default function BusinessBookings() {
                               </p>
                               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                                 {row.table?.venue?.name}
-                                {row.table?.event?.title ? ` · ${row.table.event.title}` : ' · Day booking'}
+                                {' · Day booking'}
+                                {row.status === 'LEFT' ? ' · Past session' : ''}
                               </p>
                               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                                 @{row.user?.username || row.user?.fullName || 'Guest'}
@@ -565,8 +646,8 @@ export default function BusinessBookings() {
                             </div>
                           ) : null}
                           <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            <Button variant="outline" size="sm" onClick={() => navigate(createPageUrl(`TableDetails?id=${row.table?.id}&source=venue`))}>
-                              View table
+                            <Button variant="outline" size="sm" onClick={() => openDayTableSession(row)}>
+                              View session
                             </Button>
                             {row.canRelease ? (
                               <Button
@@ -711,36 +792,86 @@ export default function BusinessBookings() {
         </Tabs>
       </div>
 
-      {/* Event table detail */}
-      <Dialog open={!!detailTable} onOpenChange={() => setDetailTable(null)}>
+      {/* Table session detail (event + day bookings) */}
+      <Dialog open={!!sessionView} onOpenChange={(open) => { if (!open) closeSessionView(); }}>
         <DialogContent className="sm:max-w-[480px] p-0 gap-0" style={dialogContentStyle}>
-          {detailTable && (
+          {sessionView && (
             <>
               <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--sec-border)' }}>
                 <DialogHeader className="space-y-1 text-left">
                   <DialogTitle style={{ fontSize: 17, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
-                    {detailTable.hostedTable?.tableName || 'Hosted table'}
+                    {sessionDetail?.tableName || sessionView.title}
                   </DialogTitle>
                   <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0 }}>
-                    {detailTable.event?.title || 'Event booking'}
+                    {sessionDetail?.eventTitle || sessionView.subtitle}
                   </p>
+                  {sessionDetail?.sessionNumber ? (
+                    <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', margin: '6px 0 0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Session {sessionDetail.sessionNumber}
+                    </p>
+                  ) : null}
                 </DialogHeader>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-                  <StatusBadge status={(detailTable.hostedTable?.status || '').toLowerCase()} />
-                  <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
-                    {detailTable.transactionCount} transaction{detailTable.transactionCount === 1 ? '' : 's'}
-                  </span>
+                  {sessionDetail ? (
+                    <StatusBadge status={sessionDetail.status === 'ACTIVE' ? 'active' : 'closed'} label={sessionStatusLabel(sessionDetail.status)} />
+                  ) : null}
+                  {sessionDetailLoading ? (
+                    <Loader2 size={14} className="animate-spin" style={{ color: 'var(--sec-text-muted)' }} />
+                  ) : null}
                   <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)', marginLeft: 'auto' }}>
-                    R{Number(detailTable.totalPaidZar || 0).toFixed(0)} paid
+                    R{Number(sessionDetail?.totalPaidZar || 0).toFixed(0)} paid
                   </span>
                 </div>
               </div>
-              <div style={{ padding: '16px 20px', maxHeight: 'min(50vh, 360px)', overflowY: 'auto' }}>
+              <div style={{ padding: '16px 20px', maxHeight: 'min(55vh, 400px)', overflowY: 'auto' }}>
+                {sessionDetail?.host ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8 }}>
+                      Host
+                    </p>
+                    <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+                          @{sessionDetail.host.username || 'host'}
+                        </p>
+                        <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)' }}>
+                          R{Number(sessionDetail.host.amountPaid || 0).toFixed(0)}
+                        </p>
+                      </div>
+                      <MenuItemsBlock items={sessionDetail.host.menuItems} />
+                    </div>
+                  </div>
+                ) : null}
+                {(sessionDetail?.members || []).length > 0 ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8 }}>
+                      Joiners
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {sessionDetail.members.map((member, idx) => (
+                        <div
+                          key={`${member.user?.id || idx}`}
+                          style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+                              @{member.user?.username || 'guest'}
+                            </p>
+                            <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)' }}>
+                              R{Number(member.amountPaid || 0).toFixed(0)}
+                            </p>
+                          </div>
+                          <MenuItemsBlock items={member.menuItems} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 10 }}>
                   Activity on this table
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(detailTable.transactions || []).map((tx) => (
+                  {(sessionDetail?.transactions || []).map((tx) => (
                     <div
                       key={tx.id}
                       style={{
@@ -763,6 +894,7 @@ export default function BusinessBookings() {
                               {format(parseISO(tx.createdAt), 'EEE d MMM yyyy · HH:mm')}
                             </p>
                           ) : null}
+                          <MenuItemsBlock items={tx.menuItems} />
                         </div>
                         <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)', flexShrink: 0 }}>
                           R{Number(tx.lineTotalZar || 0).toFixed(0)}
@@ -770,19 +902,24 @@ export default function BusinessBookings() {
                       </div>
                     </div>
                   ))}
+                  {!sessionDetailLoading && !(sessionDetail?.transactions || []).length ? (
+                    <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>No transactions recorded for this session.</p>
+                  ) : null}
                 </div>
               </div>
-              <div style={{ padding: '16px 20px 20px', borderTop: '1px solid var(--sec-border)' }}>
-                <Button
-                  onClick={() => {
-                    setDetailTable(null);
-                    navigate(createPageUrl('TableDetails') + `?id=${detailTable.hostedTable?.id}&source=hosted`);
-                  }}
-                  className="w-full h-11 rounded-xl font-semibold sec-btn-accent"
-                >
-                  Manage table <ChevronRight size={15} className="ml-1" />
-                </Button>
-              </div>
+              {sessionDetail?.canManageLive && sessionDetail?.hostedTableId ? (
+                <div style={{ padding: '16px 20px 20px', borderTop: '1px solid var(--sec-border)' }}>
+                  <Button
+                    onClick={() => {
+                      closeSessionView();
+                      navigate(createPageUrl('TableDetails') + `?id=${sessionDetail.hostedTableId}&source=hosted`);
+                    }}
+                    className="w-full h-11 rounded-xl font-semibold sec-btn-accent"
+                  >
+                    Manage table <ChevronRight size={15} className="ml-1" />
+                  </Button>
+                </div>
+              ) : null}
             </>
           )}
         </DialogContent>

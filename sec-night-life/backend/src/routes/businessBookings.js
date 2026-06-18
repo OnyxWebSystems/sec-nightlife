@@ -19,6 +19,7 @@ import {
 } from '../lib/access.js';
 import { eventEndsAtFromEvent } from '../lib/ticketHelpers.js';
 import { repairGuestEventVenueTableBookingsForEvents } from '../lib/eventVenueBooking.js';
+import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
 
 const router = Router();
 
@@ -359,6 +360,36 @@ function canHideTableFromListings(table, hostedTable = null) {
   if (!table?.isActive) return false;
   if (table.isCustomListing) return false;
   return !tableInUse(table, hostedTable);
+}
+
+function isSyntheticHostedId(id) {
+  return String(id || '').startsWith('direct-vt-');
+}
+
+function inferMemberSessionNumber(member, venueTable) {
+  if (member.tableSessionNumber != null) return Number(member.tableSessionNumber) || 1;
+  const vtSession = Number(venueTable?.tableSessionNumber) || 1;
+  if (member.status === 'LEFT') return Math.max(1, vtSession - 1);
+  return vtSession;
+}
+
+function mapUserBrief(u) {
+  if (!u) return null;
+  return {
+    id: u.id,
+    username: u.userProfile?.username || u.username || u.fullName || 'User',
+    fullName: u.fullName,
+  };
+}
+
+async function resolveMenuLinesForVenue(selectedMenuItems, venueId) {
+  if (!Array.isArray(selectedMenuItems) || !selectedMenuItems.length || !venueId) return [];
+  const resolved = await resolveVenueMenuSelections(selectedMenuItems, venueId);
+  return (resolved.items || []).map((item) => ({
+    name: item.name || 'Item',
+    quantity: Number(item.quantity) || 1,
+    lineTotal: (Number(item.price) || 0) * (Number(item.quantity) || 1),
+  }));
 }
 
 function computeCanRelease(table, hostedTable) {
@@ -1221,7 +1252,7 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
   }
 });
 
-/** Paid venue & day table bookings (incl. custom tables after guest checkout). */
+/** Paid day table bookings (incl. custom tables after guest checkout). */
 router.get('/venue-table-bookings', authenticateToken, async (req, res, next) => {
   try {
     const venueIdFilter = venueIdFromQuery(req.query);
@@ -1232,20 +1263,20 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
     }
     const members = await prisma.venueTableMember.findMany({
       where: {
-        status: 'CONFIRMED',
-        venueTable: { venueId: { in: venueIds } },
+        paystackReference: { not: null },
+        status: { in: ['CONFIRMED', 'LEFT'] },
+        venueTable: { venueId: { in: venueIds }, eventId: null },
       },
       include: {
         user: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
         venueTable: {
           include: {
-            event: { select: { id: true, title: true, date: true } },
             venue: { select: { id: true, name: true, city: true } },
           },
         },
       },
       orderBy: { paidAt: 'desc' },
-      take: 120,
+      take: 200,
     });
 
     const hostedTableIds = [
@@ -1262,6 +1293,7 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
 
     res.json({
       items: members.map((m) => {
+        const sessionNumber = inferMemberSessionNumber(m, m.venueTable);
         const hostedTable = m.venueTable.hostedTableId
           ? hostedById.get(m.venueTable.hostedTableId) || null
           : null;
@@ -1276,11 +1308,8 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
           paidAt: m.paidAt,
           memberRole: m.memberRole,
           paystackReference: m.paystackReference,
-          user: {
-            id: m.user.id,
-            username: m.user.userProfile?.username,
-            fullName: m.user.fullName,
-          },
+          sessionNumber,
+          user: mapUserBrief(m.user),
           table: {
             id: m.venueTable.id,
             tableName: m.venueTable.tableName,
@@ -1295,12 +1324,277 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
             hostUserId: m.venueTable.hostUserId,
             hostedTableId: m.venueTable.hostedTableId,
             tableSessionNumber: m.venueTable.tableSessionNumber ?? 1,
-            event: m.venueTable.event,
             venue: m.venueTable.venue,
-            canRelease: computeCanRelease(m.venueTable, hostedTable),
+            canRelease: m.status === 'CONFIRMED' && computeCanRelease(m.venueTable, hostedTable),
           },
         };
       }),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Business read-only session detail for event/day table bookings (past, reset, or live). */
+router.get('/table-booking-detail', authenticateToken, async (req, res, next) => {
+  try {
+    const hostedTableId =
+      typeof req.query.hosted_table_id === 'string' ? req.query.hosted_table_id.trim() : '';
+    const venueTableId =
+      typeof req.query.venue_table_id === 'string' ? req.query.venue_table_id.trim() : '';
+    const sessionNumber = Math.max(1, Number(req.query.session) || 1);
+
+    if (hostedTableId && isSyntheticHostedId(hostedTableId)) {
+      return res.status(400).json({ error: 'Invalid hosted table id' });
+    }
+    if (!hostedTableId && !venueTableId) {
+      return res.status(400).json({ error: 'hosted_table_id or venue_table_id is required' });
+    }
+
+    let venueId = null;
+    let tableName = 'Table';
+    let eventTitle = null;
+    let eventId = null;
+    let status = 'ENDED';
+    let canManageLive = false;
+    let host = null;
+    const members = [];
+    const transactions = [];
+
+    if (hostedTableId) {
+      const ht = await prisma.hostedTable.findUnique({
+        where: { id: hostedTableId },
+        include: {
+          event: { select: { id: true, title: true, venueId: true, date: true, endsAt: true } },
+          members: {
+            include: {
+              user: {
+                select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+              },
+            },
+          },
+        },
+      });
+      if (!ht) return res.status(404).json({ error: 'Table not found' });
+      venueId = ht.event?.venueId;
+      if (!venueId) return res.status(404).json({ error: 'Table not found' });
+      const canManage = await staffHasVenuePermission(req.userId, venueId, 'bookings');
+      if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+
+      tableName = ht.tableName;
+      eventTitle = ht.event?.title || null;
+      eventId = ht.eventId;
+      status = ht.status === 'ACTIVE' || ht.status === 'FULL' ? 'ACTIVE' : 'ENDED';
+      canManageLive = status === 'ACTIVE' && !isSyntheticHostedId(ht.id);
+
+      const hostUser = ht.members.find((m) => m.userId === ht.hostUserId);
+      if (hostUser) {
+        host = {
+          ...mapUserBrief(hostUser.user),
+          role: 'HOST',
+          amountPaid: Number(hostUser.menuSpendPaid || 0),
+          menuItems: await resolveMenuLinesForVenue(hostUser.selectedMenuItems, venueId),
+        };
+      }
+
+      const ledgerRows = await prisma.eventVenueTableBooking.findMany({
+        where: { hostedTableId: ht.id },
+        include: {
+          user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      for (const row of ledgerRows) {
+        const lineTotal = bookingDisplayTotalZar(row);
+        const menuItems = await resolveMenuLinesForVenue(row.selectedMenuItems, venueId);
+        transactions.push({
+          id: row.id,
+          role: row.role,
+          user: mapUserBrief(row.user),
+          lineTotalZar: lineTotal,
+          createdAt: row.createdAt,
+          settlementMode: row.settlementMode,
+          menuItems,
+          hostingTierName: row.hostingTierName,
+        });
+        if (row.role !== 'HOST') {
+          members.push({
+            role: 'GUEST',
+            user: mapUserBrief(row.user),
+            amountPaid: lineTotal,
+            settlementMode: row.settlementMode,
+            menuItems,
+            paidAt: row.createdAt,
+          });
+        }
+      }
+
+      for (const m of ht.members.filter((x) => x.status === 'GOING' || x.status === 'CANCELLED')) {
+        const already = transactions.some((t) => t.user?.id === m.userId);
+        if (already || m.userId === ht.hostUserId) continue;
+        const menuItems = await resolveMenuLinesForVenue(m.selectedMenuItems, venueId);
+        const amt = Number(m.menuSpendPaid || m.joinFeePaid || 0);
+        members.push({
+          role: 'GUEST',
+          user: mapUserBrief(m.user),
+          amountPaid: amt,
+          settlementMode: null,
+          menuItems,
+          paidAt: m.joinedAt,
+          memberStatus: m.status,
+        });
+      }
+    } else {
+      const vt = await prisma.venueTable.findUnique({
+        where: { id: venueTableId },
+        include: {
+          venue: { select: { id: true, name: true } },
+          event: { select: { id: true, title: true } },
+        },
+      });
+      if (!vt) return res.status(404).json({ error: 'Table not found' });
+      venueId = vt.venueId;
+      const canManage = await staffHasVenuePermission(req.userId, venueId, 'bookings');
+      if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+
+      tableName = vt.tableName;
+      eventTitle = vt.event?.title || null;
+      eventId = vt.eventId;
+      const currentSession = Number(vt.tableSessionNumber) || 1;
+      const isPastSession = sessionNumber < currentSession;
+      status = isPastSession ? 'RESET' : vt.currentOccupancy > 0 || vt.hostUserId ? 'ACTIVE' : 'ENDED';
+      canManageLive = false;
+
+      const ledgerRows = vt.eventId
+        ? await prisma.eventVenueTableBooking.findMany({
+            where: { venueTableId: vt.id, tableSessionNumber: sessionNumber },
+            include: {
+              user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : [];
+
+      for (const row of ledgerRows) {
+        const lineTotal = bookingDisplayTotalZar(row);
+        const menuItems = await resolveMenuLinesForVenue(row.selectedMenuItems, venueId);
+        transactions.push({
+          id: row.id,
+          role: row.role,
+          user: mapUserBrief(row.user),
+          lineTotalZar: lineTotal,
+          createdAt: row.createdAt,
+          settlementMode: row.settlementMode,
+          menuItems,
+          hostingTierName: row.hostingTierName,
+        });
+        if (row.role === 'HOST' && !host) {
+          host = {
+            ...mapUserBrief(row.user),
+            role: 'HOST',
+            amountPaid: lineTotal,
+            menuItems,
+          };
+        } else if (row.role === 'GUEST') {
+          members.push({
+            role: 'GUEST',
+            user: mapUserBrief(row.user),
+            amountPaid: lineTotal,
+            settlementMode: row.settlementMode,
+            menuItems,
+            paidAt: row.createdAt,
+          });
+        }
+      }
+
+      const vtMembers = await prisma.venueTableMember.findMany({
+        where: {
+          venueTableId: vt.id,
+          paystackReference: { not: null },
+          status: { in: ['CONFIRMED', 'LEFT'] },
+        },
+        include: {
+          user: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
+        },
+        orderBy: { paidAt: 'desc' },
+      });
+
+      for (const m of vtMembers) {
+        const memberSession = inferMemberSessionNumber(m, vt);
+        if (memberSession !== sessionNumber) continue;
+        const menuItems = await resolveMenuLinesForVenue(m.selectedMenuItems, venueId);
+        const amt = Number(m.amountPaid || 0);
+        const entry = {
+          role: m.memberRole === 'HOST' ? 'HOST' : 'GUEST',
+          user: mapUserBrief(m.user),
+          amountPaid: amt,
+          settlementMode: m.settlementMode,
+          menuItems,
+          paidAt: m.paidAt || m.joinedAt,
+          memberStatus: m.status,
+        };
+        if (m.memberRole === 'HOST') {
+          if (!host) host = entry;
+        } else {
+          const dup = members.some((x) => x.user?.id === m.userId);
+          if (!dup) members.push(entry);
+        }
+        if (!transactions.some((t) => t.user?.id === m.userId)) {
+          transactions.push({
+            id: `vtm-${m.id}`,
+            role: m.memberRole === 'HOST' ? 'HOST' : 'GUEST',
+            user: mapUserBrief(m.user),
+            lineTotalZar: amt,
+            createdAt: m.paidAt || m.joinedAt,
+            settlementMode: m.settlementMode,
+            menuItems,
+          });
+        }
+      }
+
+      if (vt.hostedTableId && !host) {
+        const ht = await prisma.hostedTable.findUnique({
+          where: { id: vt.hostedTableId },
+          include: {
+            members: {
+              include: {
+                user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
+              },
+            },
+          },
+        });
+        if (ht?.hostUserId) {
+          const hostMem = ht.members.find((x) => x.userId === ht.hostUserId);
+          if (hostMem) {
+            host = {
+              ...mapUserBrief(hostMem.user),
+              role: 'HOST',
+              amountPaid: Number(hostMem.menuSpendPaid || 0),
+              menuItems: await resolveMenuLinesForVenue(hostMem.selectedMenuItems, venueId),
+            };
+          }
+        }
+      }
+    }
+
+    totalPaidZar = Math.round(
+      transactions.reduce((s, t) => s + Number(t.lineTotalZar || 0), 0) * 100,
+    ) / 100;
+
+    res.json({
+      tableName,
+      eventTitle,
+      eventId,
+      sessionNumber: hostedTableId ? null : sessionNumber,
+      status,
+      host,
+      members,
+      transactions: transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+      totalPaidZar,
+      canManageLive,
+      hostedTableId: hostedTableId || null,
+      venueTableId: venueTableId || null,
     });
   } catch (e) {
     next(e);
