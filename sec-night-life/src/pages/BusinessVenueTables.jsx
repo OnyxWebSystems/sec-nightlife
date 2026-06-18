@@ -347,8 +347,6 @@ export default function BusinessVenueTables() {
     }
   }
 
-  }
-
   if (!venue) {
     return (
       <div className="sec-page flex flex-col items-center justify-center min-h-[50vh] px-6 text-center">
