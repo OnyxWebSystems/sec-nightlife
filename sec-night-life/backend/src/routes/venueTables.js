@@ -123,6 +123,16 @@ router.post('/', authenticateToken, async (req, res, next) => {
 const syncDayListingsSchema = z.object({
   venueId: z.string().min(1),
   description: z.string().trim().max(500).optional().nullable(),
+  serviceSchedule: z
+    .array(
+      z.object({
+        day: z.string().min(1),
+        startTime: z.string().min(1),
+        endTime: z.string().min(1),
+      }),
+    )
+    .optional()
+    .nullable(),
   serviceDate: z.coerce.date().optional().nullable(),
   serviceEndDate: z.coerce.date().optional().nullable(),
   startTime: z.string().optional().nullable(),
@@ -156,6 +166,7 @@ router.post('/sync-day-listings', authenticateToken, async (req, res, next) => {
     const { syncDayVenueTables } = await import('../lib/syncDayVenueTables.js');
     const result = await syncDayVenueTables(d.venueId, {
       description: d.description ?? null,
+      serviceSchedule: d.serviceSchedule ?? null,
       serviceDate: d.serviceDate ?? null,
       serviceEndDate: d.serviceEndDate ?? null,
       startTime: d.startTime ?? null,
@@ -183,6 +194,16 @@ const updateTableSchema = z.object({
   hostTableFeeZar: z.number().min(0).optional(),
   serviceDate: z.coerce.date().optional().nullable(),
   serviceEndDate: z.coerce.date().optional().nullable(),
+  serviceSchedule: z
+    .array(
+      z.object({
+        day: z.string().min(1),
+        startTime: z.string().min(1),
+        endTime: z.string().min(1),
+      }),
+    )
+    .optional()
+    .nullable(),
   startTime: z.string().optional().nullable(),
   endTime: z.string().optional().nullable(),
   allowsCustomRequests: z.boolean().optional(),
@@ -222,6 +243,7 @@ router.patch('/:tableId', authenticateToken, async (req, res, next) => {
         ...(d.hostTableFeeZar != null ? { hostTableFeeZar: d.hostTableFeeZar } : {}),
         ...(d.serviceDate !== undefined ? { serviceDate: d.serviceDate } : {}),
         ...(d.serviceEndDate !== undefined ? { serviceEndDate: d.serviceEndDate } : {}),
+        ...(d.serviceSchedule !== undefined ? { serviceSchedule: d.serviceSchedule } : {}),
         ...(d.startTime !== undefined ? { startTime: d.startTime } : {}),
         ...(d.endTime !== undefined ? { endTime: d.endTime } : {}),
         ...(d.allowsCustomRequests != null ? { allowsCustomRequests: d.allowsCustomRequests } : {}),

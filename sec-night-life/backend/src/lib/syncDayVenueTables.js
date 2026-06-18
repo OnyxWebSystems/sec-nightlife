@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { resolveTierBookingFees } from './hostingConfig.js';
+import { normalizeServiceSchedule } from './serviceSchedule.js';
 
 function resolveTierMinSpendsFromTier(tier) {
   const joinMin =
@@ -19,6 +20,7 @@ function resolveTierMinSpendsFromTier(tier) {
 export async function syncDayVenueTables(venueId, options = {}) {
   const {
     description = null,
+    serviceSchedule = null,
     serviceDate = null,
     serviceEndDate = null,
     startTime = null,
@@ -26,6 +28,8 @@ export async function syncDayVenueTables(venueId, options = {}) {
     allowsCustomRequests = false,
     tiers = [],
   } = options;
+
+  const scheduleRows = normalizeServiceSchedule(serviceSchedule);
 
   const desiredKeys = new Set();
 
@@ -57,10 +61,11 @@ export async function syncDayVenueTables(venueId, options = {}) {
         bookingFeeZar: joinFee,
         hostTableFeeZar: hostFee,
         minSpendSettlement: 'PREPAY_MENU',
-        serviceDate: serviceDate ?? null,
-        serviceEndDate: serviceEndDate ?? null,
-        startTime: startTime ?? null,
-        endTime: endTime ?? null,
+        serviceDate: scheduleRows.length ? null : (serviceDate ?? null),
+        serviceEndDate: scheduleRows.length ? null : (serviceEndDate ?? null),
+        serviceSchedule: scheduleRows.length ? scheduleRows : null,
+        startTime: scheduleRows.length ? null : (startTime ?? null),
+        endTime: scheduleRows.length ? null : (endTime ?? null),
         tierLabel: tier.tier_name || null,
         hostingTierKey,
         includedItems: includedItems.length ? includedItems : null,
@@ -80,6 +85,7 @@ export async function syncDayVenueTables(venueId, options = {}) {
                 description: data.description,
                 serviceDate: data.serviceDate,
                 serviceEndDate: data.serviceEndDate,
+                serviceSchedule: data.serviceSchedule,
                 startTime: data.startTime,
                 endTime: data.endTime,
                 isActive: true,

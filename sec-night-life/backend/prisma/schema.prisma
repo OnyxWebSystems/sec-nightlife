@@ -1692,6 +1692,7 @@ model VenueTable {
   amountContributed Float            @default(0) @map("amount_contributed")
   serviceDate       DateTime?        @map("service_date")
   serviceEndDate    DateTime?        @map("service_end_date")
+  serviceSchedule   Json?            @map("service_schedule")
   startTime         String?          @map("start_time")
   endTime           String?          @map("end_time")
   partySize         Int?             @map("party_size")

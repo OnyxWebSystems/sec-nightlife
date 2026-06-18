@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { ensureDayCustomVenueTable } from './ensureDayCustomVenueTable.js';
+import { isVenueTableBookableToday } from './serviceSchedule.js';
 
 function buildHostedTablePayload(ht, { goingCount = null, requestedGuestCount = null } = {}) {
   const going =
@@ -88,6 +89,7 @@ export async function buildVenueDayTableTiers(venueId) {
   const tierMap = new Map();
 
   for (const vt of venueTables) {
+    if (!isVenueTableBookableToday(vt)) continue;
     const parts = String(vt.hostingTierKey || '').split(':');
     const tierIdx = Number(parts[1]);
     const tierKey = Number.isFinite(tierIdx) ? `day:${tierIdx}` : `day:${vt.tierLabel || vt.id}`;

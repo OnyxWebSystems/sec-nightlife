@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, LayoutGrid } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,10 +38,11 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
         const toggles = tierFeeTogglesFromTier(tier);
         const includeJoin = tier.include_join_booking_fee ?? toggles.include_join_booking_fee;
         const includeHost = tier.include_host_booking_fee ?? toggles.include_host_booking_fee;
+        const slotCount = Math.max(1, parseInt(tier.tier_table_slots, 10) || 1);
         return (
         <div
           key={idx}
-          className="rounded-xl border p-3 space-y-2"
+          className="rounded-xl border p-4 space-y-3"
           style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-card)' }}
         >
           <div className="flex justify-between items-center">
@@ -56,17 +57,51 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
               <Trash2 size={14} />
             </Button>
           </div>
+
+          {showSlots ? (
+            <div
+              className="rounded-lg border p-3 space-y-2"
+              style={{ borderColor: 'var(--sec-accent-border)', background: 'var(--sec-accent-muted)' }}
+            >
+              <div className="flex items-start gap-2">
+                <LayoutGrid size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--sec-accent)' }} />
+                <div className="flex-1 min-w-0">
+                  <Label className="text-sm font-semibold text-[var(--sec-text-primary)]">
+                    Tables available to host / join
+                  </Label>
+                  <p className="text-[11px] text-[var(--sec-text-muted)] mt-0.5 leading-relaxed">
+                    How many identical tables of this tier guests can book at the same time. Each table gets its own host or join slot.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={tier.tier_table_slots || '1'}
+                  onChange={(e) => updateTier(idx, { tier_table_slots: e.target.value })}
+                  className="h-10 w-24 text-center font-semibold"
+                />
+                <span className="text-xs text-[var(--sec-text-secondary)]">
+                  {slotCount === 1 ? '1 table listing' : `${slotCount} table listings (#1–#${slotCount})`}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-2 gap-2">
             <div className="col-span-2">
-              <Label className="text-xs">Name</Label>
+              <Label className="text-xs">Tier name</Label>
               <Input
                 value={tier.tier_name || ''}
                 onChange={(e) => updateTier(idx, { tier_name: e.target.value })}
+                placeholder="e.g. Standard, VIP Lounge"
                 className="h-9 mt-1"
               />
             </div>
             <div>
-              <Label className="text-xs">Max guests</Label>
+              <Label className="text-xs">Max guests per table</Label>
               <Input
                 type="number"
                 min={1}
@@ -127,16 +162,6 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
                 />
               </div>
             </div>
-            {showSlots ? (
-              <div>
-                <Label className="text-xs">Table slots</Label>
-                <Input
-                  value={tier.tier_table_slots || ''}
-                  onChange={(e) => updateTier(idx, { tier_table_slots: e.target.value })}
-                  className="h-9 mt-1"
-                />
-              </div>
-            ) : null}
           </div>
           {venueMenuItems.length > 0 && (
             <div>

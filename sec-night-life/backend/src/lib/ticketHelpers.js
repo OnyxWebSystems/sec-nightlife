@@ -1,4 +1,9 @@
 import crypto from 'crypto';
+import {
+  dayEndsAtFromVenueTableSchedule,
+  dayStartsAtFromVenueTableSchedule,
+  serviceScheduleFromTable,
+} from './serviceSchedule.js';
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 
@@ -38,8 +43,10 @@ export function visibleUntilForVenueTableMember(table, event) {
   return visibleUntilAfterEventDate(evDate);
 }
 
-/** Combine day listing service end date + end time; fallback start date + 24h. */
-export function dayEndsAtFromVenueTable(table) {
+/** Combine day listing service end date + end time; fallback weekly schedule or start date + 24h. */
+export function dayEndsAtFromVenueTable(table, refDate = new Date()) {
+  const fromSchedule = dayEndsAtFromVenueTableSchedule(table, refDate);
+  if (fromSchedule) return fromSchedule;
   if (!table) return null;
   const endDateRaw = table.serviceEndDate ?? table.service_end_date ?? table.serviceDate ?? table.service_date;
   if (!endDateRaw) return null;
@@ -60,7 +67,9 @@ export function dayEndsAtFromVenueTable(table) {
   return end;
 }
 
-export function dayStartsAtFromVenueTable(table) {
+export function dayStartsAtFromVenueTable(table, refDate = new Date()) {
+  const fromSchedule = dayStartsAtFromVenueTableSchedule(table, refDate);
+  if (fromSchedule) return fromSchedule;
   if (!table) return null;
   const startDateRaw = table.serviceDate ?? table.service_date;
   if (!startDateRaw) return null;
@@ -80,10 +89,15 @@ export function dayStartsAtFromVenueTable(table) {
 }
 
 /** Ticket QR expiry for day venue table bookings. */
-export function visibleUntilForDayVenueTable(table) {
-  const endsAt = dayEndsAtFromVenueTable(table);
+export function visibleUntilForDayVenueTable(table, refDate = new Date()) {
+  const schedule = serviceScheduleFromTable(table);
+  if (schedule.length) {
+    const endsAt = dayEndsAtFromVenueTableSchedule(table, refDate);
+    if (endsAt) return new Date(endsAt.getTime() + MS_DAY);
+  }
+  const endsAt = dayEndsAtFromVenueTable(table, refDate);
   if (endsAt) return new Date(endsAt.getTime() + MS_DAY);
-  const startsAt = dayStartsAtFromVenueTable(table);
+  const startsAt = dayStartsAtFromVenueTable(table, refDate);
   if (startsAt) return new Date(startsAt.getTime() + MS_DAY);
   return visibleUntilAfterEventDate(new Date());
 }

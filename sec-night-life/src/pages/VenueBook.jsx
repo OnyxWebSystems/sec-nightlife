@@ -88,7 +88,7 @@ export default function VenueBook() {
         <>
           {tiers.length === 0 ? (
             <div className="sec-card p-8 text-center text-sm text-[var(--sec-text-muted)] mb-4">
-              No day tables listed right now. You can still request a custom table below.
+              No day tables are open for booking today. Check back on another day, or request a custom table below.
             </div>
           ) : (
             <div className="space-y-3 mb-6">

@@ -120,21 +120,6 @@ async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds
         include: {
           event: { select: { id: true, title: true, date: true, city: true } },
           venue: { select: { id: true, name: true } },
-          hostedTable: {
-            select: {
-              id: true,
-              tableName: true,
-              status: true,
-              hostUserId: true,
-              hostingCategory: true,
-              hostingTierIndex: true,
-              tierMinSpend: true,
-              menuSpendTotal: true,
-              tierIncludedItems: true,
-              guestQuantity: true,
-              spotsRemaining: true,
-            },
-          },
         },
       },
       user: {
@@ -150,12 +135,36 @@ async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds
     take: 500,
   });
 
+  const hostedIds = [
+    ...new Set(members.map((m) => m.venueTable?.hostedTableId).filter(Boolean)),
+  ];
+  const hostedById = new Map();
+  if (hostedIds.length) {
+    const hostedRows = await prisma.hostedTable.findMany({
+      where: { id: { in: hostedIds } },
+      select: {
+        id: true,
+        tableName: true,
+        status: true,
+        hostUserId: true,
+        hostingCategory: true,
+        hostingTierIndex: true,
+        tierMinSpend: true,
+        menuSpendTotal: true,
+        tierIncludedItems: true,
+        guestQuantity: true,
+        spotsRemaining: true,
+      },
+    });
+    for (const ht of hostedRows) hostedById.set(ht.id, ht);
+  }
+
   const supplemental = [];
   for (const m of members) {
     const vt = m.venueTable;
     if (!vt?.event) continue;
 
-    let hostedTable = vt.hostedTable;
+    let hostedTable = vt.hostedTableId ? hostedById.get(vt.hostedTableId) || null : null;
     let isDirectVenueSlot = false;
     if (!hostedTable) {
       isDirectVenueSlot = true;
@@ -384,6 +393,7 @@ function mapVenueTableManagementItem(t, hosted, goingCount = null) {
     bookingFeeZar: t.bookingFeeZar,
     serviceDate: t.serviceDate,
     serviceEndDate: t.serviceEndDate,
+    serviceSchedule: t.serviceSchedule,
     startTime: t.startTime,
     endTime: t.endTime,
     description: t.description,
