@@ -41,6 +41,9 @@ export async function buildVenueDayTableTiers(venueId) {
   });
   if (!venue) return null;
 
+  const { repairLegacyDayVenueTables } = await import('./syncDayVenueTables.js');
+  await repairLegacyDayVenueTables(venueId);
+
   const venueTables = await prisma.venueTable.findMany({
     where: {
       venueId,

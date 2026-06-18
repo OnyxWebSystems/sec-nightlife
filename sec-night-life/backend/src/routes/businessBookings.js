@@ -356,6 +356,20 @@ function resolveEventTableGuestStats(table, hostedTable = null, goingMemberCount
   };
 }
 
+function canDeleteDayTier(table, hostedTable = null) {
+  if (!table || table.isCustomListing) return false;
+  if (!String(table.hostingTierKey || '').startsWith('day:')) return false;
+  if (tableInUse(table, hostedTable)) return false;
+  return tierIndexFromHostingKey(table.hostingTierKey) != null;
+}
+
+function tierIndexFromHostingKey(key) {
+  const parts = String(key || '').split(':');
+  if (parts[0] !== 'day') return null;
+  const idx = Number(parts[1]);
+  return Number.isFinite(idx) ? idx : null;
+}
+
 function canHideTableFromListings(table, hostedTable = null) {
   if (!table?.isActive) return false;
   if (table.isCustomListing) return false;
@@ -443,6 +457,7 @@ function mapVenueTableManagementItem(t, hosted, goingCount = null) {
     joiningFee: hosted?.hasJoiningFee ? Number(hosted.joiningFee || 0) : 0,
     usageLabel,
     canHideFromListings: canHideTableFromListings(t, hosted),
+    canDeleteTier: canDeleteDayTier(t, hosted),
     canRestoreToListings: !t.isActive && !inUse,
     canResetTable: inUse,
     tableSessionNumber: t.tableSessionNumber ?? 1,
@@ -2068,6 +2083,9 @@ router.get('/day-venue-tables', authenticateToken, async (req, res, next) => {
       select: { id: true, name: true, acceptsDayBookings: true },
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
+
+    const { repairLegacyDayVenueTables } = await import('../lib/syncDayVenueTables.js');
+    await repairLegacyDayVenueTables(venueId);
 
     const tables = await prisma.venueTable.findMany({
       where: { venueId, eventId: null },

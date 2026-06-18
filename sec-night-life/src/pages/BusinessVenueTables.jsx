@@ -252,8 +252,9 @@ export default function BusinessVenueTables() {
     }
   };
 
-  const deleteTierListing = async () => {
-    if (editForm?.tierIndex == null || !venue?.id) return;
+  const deleteTierListing = async (tierIndex) => {
+    const idx = tierIndex ?? editForm?.tierIndex;
+    if (idx == null || !venue?.id) return;
     if (
       !window.confirm(
         'Delete this tier and all its table slots? Empty slots are removed permanently. You must reset any in-use tables first.',
@@ -264,7 +265,7 @@ export default function BusinessVenueTables() {
     try {
       await apiPost('/api/venue-tables/delete-day-tier', {
         venueId: venue.id,
-        tierIndex: editForm.tierIndex,
+        tierIndex: idx,
       });
       toast.success('Tier deleted');
       qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
@@ -432,7 +433,13 @@ export default function BusinessVenueTables() {
             </div>
           ) : (
             <div className="space-y-3">
-              {dayTables.map((t) => {
+              {(() => {
+                const deleteTierShown = new Set();
+                return dayTables.map((t) => {
+                const tierIdx = parseDayTierIndex(t.hostingTierKey);
+                const showDeleteTier =
+                  t.canDeleteTier && tierIdx != null && !deleteTierShown.has(tierIdx);
+                if (showDeleteTier) deleteTierShown.add(tierIdx);
                 const statusColor = t.inUse
                   ? 'var(--sec-accent)'
                   : t.isActive
@@ -514,7 +521,7 @@ export default function BusinessVenueTables() {
                       )}
                     </div>
 
-                    {(t.canResetTable || t.canHideFromListings || t.canRestoreToListings || !t.inUse) && (
+                    {(t.canResetTable || t.canHideFromListings || t.canRestoreToListings || t.canDeleteTier || !t.inUse) && (
                       <div
                         className="px-4 py-3 border-t flex justify-end gap-2 flex-wrap"
                         style={{ borderColor: 'var(--sec-border)', background: 'rgba(0,0,0,0.2)' }}
@@ -528,6 +535,17 @@ export default function BusinessVenueTables() {
                             onClick={() => startEditListing(t)}
                           >
                             Edit listing
+                          </Button>
+                        ) : null}
+                        {showDeleteTier ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs text-red-400 border-red-400/40"
+                            onClick={() => deleteTierListing(tierIdx)}
+                          >
+                            <Trash2 size={12} className="mr-1" />
+                            Delete tier
                           </Button>
                         ) : null}
                         {t.canResetTable ? (
@@ -569,7 +587,8 @@ export default function BusinessVenueTables() {
                     )}
                   </div>
                 );
-              })}
+              });
+              })()}
             </div>
           )}
 
@@ -700,7 +719,7 @@ export default function BusinessVenueTables() {
                     type="button"
                     variant="outline"
                     className="w-full text-red-400 border-red-400/40 hover:bg-red-400/10"
-                    onClick={deleteTierListing}
+                    onClick={() => deleteTierListing()}
                   >
                     <Trash2 size={14} className="mr-2" />
                     Delete tier

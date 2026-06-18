@@ -126,6 +126,64 @@ export async function syncDayVenueTables(venueId, options = {}) {
   return { synced: desiredKeys.size };
 }
 
+/**
+ * Assign day:{tier}:{slot} keys to listings created before tier sync (guest browse requires these).
+ */
+export async function repairLegacyDayVenueTables(venueId) {
+  const legacy = await prisma.venueTable.findMany({
+    where: {
+      venueId,
+      eventId: null,
+      isCustomListing: false,
+      OR: [{ hostingTierKey: null }, { hostingTierKey: '' }],
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (!legacy.length) return { repaired: 0 };
+
+  const keyed = await prisma.venueTable.findMany({
+    where: {
+      venueId,
+      eventId: null,
+      isCustomListing: false,
+      hostingTierKey: { startsWith: 'day:' },
+    },
+    select: { hostingTierKey: true },
+  });
+
+  let nextTierIdx = 0;
+  for (const row of keyed) {
+    const idx = tierIndexFromHostingKey(row.hostingTierKey);
+    if (idx != null && idx >= nextTierIdx) nextTierIdx = idx + 1;
+  }
+
+  const groups = new Map();
+  for (const row of legacy) {
+    const base = row.tierLabel || row.tableName?.replace(/\s#\d+$/, '').trim() || 'Standard';
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(row);
+  }
+
+  let repaired = 0;
+  for (const rows of [...groups.values()]) {
+    const tierIdx = nextTierIdx++;
+    for (let slotIdx = 0; slotIdx < rows.length; slotIdx++) {
+      const row = rows[slotIdx];
+      const tierLabel = row.tierLabel || row.tableName?.replace(/\s#\d+$/, '').trim() || null;
+      await prisma.venueTable.update({
+        where: { id: row.id },
+        data: {
+          hostingTierKey: `day:${tierIdx}:${slotIdx}`,
+          tierLabel,
+        },
+      });
+      repaired += 1;
+    }
+  }
+
+  return { repaired };
+}
+
 function tierIndexFromHostingKey(key) {
   const parts = String(key || '').split(':');
   if (parts[0] !== 'day') return null;
