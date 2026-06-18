@@ -1,5 +1,4 @@
 import { prisma } from './prisma.js';
-import { ensureDayCustomVenueTable } from './ensureDayCustomVenueTable.js';
 import { isVenueTableBookableToday } from './serviceSchedule.js';
 
 function buildHostedTablePayload(ht, { goingCount = null, requestedGuestCount = null } = {}) {
