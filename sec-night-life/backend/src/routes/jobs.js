@@ -109,12 +109,13 @@ function publicJobWhere(query = {}) {
   return where;
 }
 
-async function createJobNotification({ userId, type, title, body, actionUrl }) {
+async function createJobNotification({ userId, type, title, body, actionUrl, venueId = null }) {
   if (!userId) return;
   try {
     await prisma.notification.create({
       data: {
         userId,
+        venueId,
         type,
         title,
         body: body ?? null,
@@ -888,7 +889,8 @@ router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
       type: 'job_application',
       title: 'New job application',
       body: `${user?.fullName || 'Someone'} applied for ${job.title} at ${job.venue.name}.`,
-      actionUrl: `/BusinessJobs`,
+      actionUrl: `/BusinessMessages?tab=jobs&application=${created.id}&venue_id=${job.venueId}`,
+      venueId: job.venueId,
     });
     return res.status(201).json(created);
   } catch (err) {

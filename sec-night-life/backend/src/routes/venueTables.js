@@ -685,10 +685,11 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
     await prisma.notification.create({
       data: {
         userId: table.venue.ownerUserId,
+        venueId: table.venueId,
         type: 'TABLE_REQUEST',
         title: 'New table request',
         body: `A guest requested ${table.tableName}. Review in Tables & day bookings.`,
-        actionUrl: '/BusinessVenueTables?tab=requests',
+        actionUrl: `/BusinessVenueTables?tab=requests&venue_id=${table.venueId}`,
       },
     });
     const ownerEmail = table.venue.owner?.email;

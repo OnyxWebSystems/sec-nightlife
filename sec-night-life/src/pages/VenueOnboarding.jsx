@@ -31,6 +31,9 @@ import GoogleMapDisplay from '@/components/GoogleMapDisplay';
 import SecLogo from '@/components/ui/SecLogo';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
+import { staffVenueApiBase } from '@/lib/staffVenueApi';
 
 const VENUE_TYPES = [
   { value: 'nightclub', label: 'Nightclub' },
@@ -257,6 +260,11 @@ export default function VenueOnboarding() {
   const [searchParams] = useSearchParams();
   const isEditMode = searchParams.get('edit') === '1';
   const isNewVenue = searchParams.get('new') === '1';
+  const venueScope = useBusinessVenueScope();
+  const staffCtxToken = searchParams.get('staff_ctx')?.trim() || venueScope.staffContextToken || null;
+  const isStaffEdit = Boolean(staffCtxToken) && isEditMode && !isNewVenue;
+  const staffVenueBase = staffVenueApiBase(staffCtxToken);
+  const maxStep = isStaffEdit ? 3 : 5;
   const [step, setStep] = useState(1);
   const [user, setUser] = useState(null);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -290,12 +298,16 @@ export default function VenueOnboarding() {
       }
       if (!id) return;
       try {
-        await dataService.Venue.update(id, { [field]: url });
+        if (isStaffEdit && staffVenueBase) {
+          await apiPatch(staffVenueBase, { [field]: url });
+        } else {
+          await dataService.Venue.update(id, { [field]: url });
+        }
       } catch (e) {
         toast.error(e?.message || 'Saved locally — will sync when you finish onboarding.');
       }
     },
-    [venueId, isNewVenue]
+    [venueId, isNewVenue, isStaffEdit, staffVenueBase]
   );
 
   const logoCrop = useImageCropUpload({
@@ -448,6 +460,11 @@ export default function VenueOnboarding() {
           }
           toast.info('Continue your new venue registration where you left off.');
         }
+      } else if (isStaffEdit && staffCtxToken) {
+        const base = staffVenueApiBase(staffCtxToken);
+        const detail = await apiGet(base);
+        setVenueId(detail.id);
+        setFormData(mapVenueDetailToForm(detail));
       } else if (editVenueId || ownedVenues.length > 0) {
         const targetId = editVenueId || ownedVenues[0].id;
         setVenueId(targetId);
@@ -553,6 +570,10 @@ export default function VenueOnboarding() {
   };
 
   const upsertVenue = async (venueData) => {
+    if (isStaffEdit && staffVenueBase) {
+      return apiPatch(staffVenueBase, venueData);
+    }
+
     const editId = searchParams.get('venueId') || venueId;
 
     if (isNewVenue) {
@@ -701,6 +722,42 @@ export default function VenueOnboarding() {
     });
   };
 
+  const handleStaffSaveAndExit = async () => {
+    setIsSubmitting(true);
+    setError('');
+    try {
+      const normalizedVenueEmail = normalizeOptionalEmail(formData.email);
+      const normalizedWebsite = normalizeOptionalWebsite(formData.website);
+      const venueData = {
+        name: formData.name,
+        venue_type: formData.venue_type,
+        city: formData.city,
+        capacity: parseInt(formData.capacity) || 0,
+        age_limit: parseInt(formData.age_limit) || 18,
+      };
+      if (formData.bio) venueData.bio = formData.bio;
+      if (formData.address) venueData.address = formData.address;
+      if (formData.suburb) venueData.suburb = formData.suburb;
+      if (formData.province) venueData.province = formData.province;
+      if (formData.latitude != null) venueData.latitude = formData.latitude;
+      if (formData.longitude != null) venueData.longitude = formData.longitude;
+      if (formData.phone) venueData.phone = formData.phone;
+      if (normalizedVenueEmail) venueData.email = normalizedVenueEmail;
+      if (normalizedWebsite) venueData.website = normalizedWebsite;
+      if (formData.instagram) venueData.instagram = formData.instagram;
+      if (formData.logo_url) venueData.logo_url = formData.logo_url;
+      if (formData.cover_image_url) venueData.cover_image_url = formData.cover_image_url;
+      await upsertVenue(venueData);
+      toast.success('Venue updated');
+      navigate(createPageUrl('StaffDashboard'));
+    } catch (e) {
+      setError(e?.message || 'Failed to save venue');
+      toast.error(e?.message || 'Failed to save venue');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const steps = [
     { number: 1, title: 'Info', icon: Building },
     { number: 2, title: 'Details', icon: MapPin },
@@ -708,6 +765,8 @@ export default function VenueOnboarding() {
     { number: 4, title: 'Compliance', icon: Shield },
     { number: 5, title: 'Payout', icon: CreditCard },
   ];
+
+  const visibleSteps = isStaffEdit ? steps.filter((s) => s.number <= 3) : steps;
 
   const canProceed = () => {
     if (step === 1) return formData.name && formData.venue_type && formData.city;
@@ -788,17 +847,26 @@ export default function VenueOnboarding() {
 
   return (
     <div className="min-h-screen p-4 flex flex-col" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+      {isStaffEdit ? (
+        <PageBackHeader
+          title="Edit venue setup"
+          subtitle={venueScope.venueName ? `Managing ${venueScope.venueName}` : 'Staff access'}
+          pageName="VenueOnboarding"
+        />
+      ) : null}
       {/* Header — SEC logo + Sec for Business */}
+      {!isStaffEdit ? (
       <div className="flex items-center justify-center pt-8 pb-6 max-w-md mx-auto w-full">
         <div className="flex items-center gap-3">
           <SecLogo size={40} variant="full" />
           <span className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--sec-text-primary)' }}>Sec for Business</span>
         </div>
       </div>
+      ) : null}
 
       {/* Progress Steps — SEC theme: black + silver, no gradients */}
       <div className="flex items-center justify-center gap-1 sm:gap-2 mb-8 px-2">
-        {steps.map((s, index) => (
+        {visibleSteps.map((s, index) => (
           <React.Fragment key={s.number}>
             <div
               className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-full"
@@ -810,7 +878,7 @@ export default function VenueOnboarding() {
               <s.icon className="w-3.5 sm:w-4 h-3.5 sm:h-4" style={{ color: step >= s.number ? 'var(--sec-accent)' : 'var(--sec-text-muted)' }} />
               <span className="text-xs sm:text-sm font-medium" style={{ color: step >= s.number ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)' }}>{s.title}</span>
             </div>
-            {index < steps.length - 1 && (
+            {index < visibleSteps.length - 1 && (
               <div
                 className="w-4 sm:w-8 h-0.5"
                 style={{ backgroundColor: step > s.number ? 'var(--sec-accent)' : 'var(--sec-border)' }}
@@ -833,10 +901,12 @@ export default function VenueOnboarding() {
             >
               <div className="text-center mb-8">
                 <h1 className="text-2xl font-bold mb-2">
-                  {isNewVenue ? 'Register another venue' : isEditMode ? 'Edit your venue' : 'Register your venue'}
+                  {isStaffEdit ? 'Edit venue setup' : isNewVenue ? 'Register another venue' : isEditMode ? 'Edit your venue' : 'Register your venue'}
                 </h1>
                 <p className="text-gray-500">
-                  {isNewVenue ? 'Start fresh — this will not change your existing venue' : 'Join the Sec marketplace'}
+                  {isStaffEdit
+                    ? 'Update venue profile, details, and menu for this venue'
+                    : isNewVenue ? 'Start fresh — this will not change your existing venue' : 'Join the Sec marketplace'}
                 </p>
               </div>
 
@@ -1129,7 +1199,7 @@ export default function VenueOnboarding() {
             </motion.div>
           )}
 
-          {step === 4 && (
+          {step === 4 && !isStaffEdit && (
             <motion.div
               key="step4-compliance"
               initial={{ opacity: 0, x: 20 }}
@@ -1194,7 +1264,7 @@ export default function VenueOnboarding() {
             </motion.div>
           )}
 
-          {step === 5 && (
+          {step === 5 && !isStaffEdit && (
            <motion.div
              key="step5-payout"
              initial={{ opacity: 0, x: 20 }}
@@ -1256,7 +1326,11 @@ export default function VenueOnboarding() {
           <Button
             onClick={() => {
               if (step === 1) {
-                navigate(createPageUrl(isEditMode ? 'BusinessDashboard' : 'Onboarding'));
+                if (isStaffEdit) {
+                  navigate(createPageUrl('StaffDashboard'));
+                } else {
+                  navigate(createPageUrl(isEditMode ? 'BusinessDashboard' : 'Onboarding'));
+                }
               } else {
                 setStep(step - 1);
               }
@@ -1266,7 +1340,7 @@ export default function VenueOnboarding() {
           >
             <ChevronLeft className="w-5 h-5" />
           </Button>
-          {step < 5 ? (
+          {step < maxStep ? (
             <Button
               onClick={() => setStep(step + 1)}
               disabled={!canProceed()}
@@ -1275,6 +1349,16 @@ export default function VenueOnboarding() {
             >
               {step === 4 && !hasComplianceDocs() ? 'Skip for now' : 'Continue'}
               <ChevronRight className="w-5 h-5 ml-2" />
+            </Button>
+          ) : isStaffEdit ? (
+            <Button
+              onClick={handleStaffSaveAndExit}
+              disabled={isSubmitting || !canProceed()}
+              className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
+              style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
+            >
+              {isSubmitting ? 'Saving...' : 'Save & return'}
+              {!isSubmitting && <Check className="w-5 h-5 ml-2" />}
             </Button>
           ) : (
             <>

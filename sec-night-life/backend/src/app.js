@@ -50,6 +50,7 @@ import venueMessageGroupRoutes from './routes/venueMessageGroups.js';
 import staffContextGroupRoutes from './routes/staffContextGroups.js';
 import staffContextMenuRoutes from './routes/staffContextMenu.js';
 import staffContextPromotionRoutes from './routes/staffContextPromotions.js';
+import staffContextVenueRoutes from './routes/staffContextVenue.js';
 import venueStaffRoutes, { staffVenuesRouter } from './routes/venueStaff.js';
 import menuCatalogRoutes from './routes/menuCatalog.js';
 import homeFeedRoutes from './routes/homeFeed.js';
@@ -206,6 +207,7 @@ app.use('/api/business/venues/:venueId/groups', generalLimiter, venueMessageGrou
 app.use('/api/staff/context/:accessToken/groups', generalLimiter, staffContextGroupRoutes);
 app.use('/api/staff/context/:accessToken/menu', generalLimiter, staffContextMenuRoutes);
 app.use('/api/staff/context/:accessToken/promotions', generalLimiter, staffContextPromotionRoutes);
+app.use('/api/staff/context/:accessToken/venue', generalLimiter, staffContextVenueRoutes);
 app.use('/api/business/venues/:venueId/staff', generalLimiter, venueStaffRoutes);
 app.use('/api/staff', generalLimiter, staffVenuesRouter);
 app.use('/api/business', generalLimiter, businessMenuRoutes);

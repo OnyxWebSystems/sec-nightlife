@@ -25,6 +25,7 @@ import { isEventEnded } from '@/lib/eventLifecycle';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
+import { menuApiBase } from '@/lib/staffVenueApi';
 
 const EVENT_COVER_CROP_ASPECT = 16 / 9;
 const EVENT_COVER_CROP_DIALOG_PROPS = {
@@ -174,10 +175,16 @@ export default function BusinessEvents() {
   const scopeKey = venueScope.staffContextToken || venue?.id;
   const hasVenueScope = venueScope.inStaffSession || !!venue;
 
+  const menuBase = menuApiBase({
+    inStaffSession: venueScope.inStaffSession,
+    staffContextToken: venueScope.staffContextToken,
+    venueId: venue?.id,
+  });
+
   const { data: venueMenuItems = [] } = useQuery({
     queryKey: ['venue-menu', scopeKey],
-    queryFn: () => apiGet(`/api/business/venues/${venue.id}/menu-items`),
-    enabled: !!venue?.id && !venueScope.inStaffSession,
+    queryFn: () => apiGet(`${menuBase}/menu-items`),
+    enabled: !!menuBase,
   });
 
   const { data: events = [], isLoading } = useQuery({
@@ -189,10 +196,16 @@ export default function BusinessEvents() {
     enabled: hasVenueScope && (venueScope.inStaffSession || !!venue),
   });
 
+  const promotersUrl = venueScope.inStaffSession && venueScope.staffContextToken
+    ? `/api/events/roster/promoters?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`
+    : venue?.id
+      ? `/api/events/venue/${venue.id}/promoters`
+      : null;
+
   const { data: venuePromoters = [] } = useQuery({
-    queryKey: ['venue-promoters', venue?.id],
-    queryFn: () => apiGet(`/api/events/venue/${venue.id}/promoters`).then((r) => r?.data || []),
-    enabled: !!venue?.id,
+    queryKey: ['venue-promoters', scopeKey],
+    queryFn: () => apiGet(promotersUrl).then((r) => r?.data || []),
+    enabled: !!promotersUrl,
   });
 
   const { data: eventTablesData, isLoading: eventTablesLoading, refetch: refetchEventTables } = useQuery({
@@ -209,7 +222,13 @@ export default function BusinessEvents() {
       if (editingEvent) {
         saved = await dataService.Event.update(editingEvent.id, data);
       } else {
-        saved = await dataService.Event.create({ ...data, venue_id: venue.id });
+        const createUrl = venueScope.inStaffSession && venueScope.staffContextToken
+          ? `/api/events?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`
+          : '/api/events';
+        const createBody = venueScope.inStaffSession
+          ? data
+          : { ...data, venue_id: venue.id };
+        saved = await apiPost(createUrl, createBody);
       }
       const eventId = editingEvent?.id || saved?.id;
       if (eventId && selectedPromoterIds.length >= 0) {
@@ -578,9 +597,9 @@ export default function BusinessEvents() {
   const displayVenueName = venueScope.venueName || venue?.name || 'Venue';
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+    <div className="max-w-[900px] mx-auto">
       <PageBackHeader title="Events Manager" subtitle={`${displayVenueName} · ${events.length} events`} pageName="BusinessEvents" />
-      <div style={{ padding: '16px 20px 24px' }}>
+      <div className="px-4 pb-6 pt-4">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 20 }}>
         <Button onClick={openCreate} style={{ backgroundColor: 'var(--sec-accent)', color: '#000', fontWeight: 600 }} className="h-10 rounded-xl">
           <Plus size={16} className="mr-1.5" /> Create Event
@@ -655,83 +674,72 @@ export default function BusinessEvents() {
           {filtered.map((evt) => {
             const ended = isEventEnded(evt);
             return (
-            <div
-              key={evt.id}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
-                borderRadius: 14, backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)',
-              }}
-            >
-              {evt.cover_image_url ? (
-                <img src={evt.cover_image_url} alt="" style={{ width: 56, height: 56, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
-              ) : (
-                <div style={{
-                  width: 56, height: 56, borderRadius: 10, flexShrink: 0,
-                  backgroundColor: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--sec-accent)', lineHeight: 1 }}>
-                    {evt.date ? new Date(evt.date + 'T00:00').getDate() : '—'}
-                  </span>
-                  <span style={{ fontSize: 9, color: 'var(--sec-text-muted)', textTransform: 'uppercase' }}>
-                    {evt.date ? new Date(evt.date + 'T00:00').toLocaleDateString('en', { month: 'short' }) : ''}
-                  </span>
-                </div>
-              )}
-
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {evt.title}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 2 }}>
-                  {evt.date}
-                  {evt.start_time ? ` · ${evt.start_time}` : ''}
-                  {' · '}{evt.location_city || evt.city}
-                  {evt.event_code ? ` · ${evt.event_code}` : ''}
+            <div key={evt.id} className="sec-biz-list-card">
+              <div className="sec-biz-list-card__head">
+                {evt.cover_image_url ? (
+                  <img src={evt.cover_image_url} alt="" className="sec-biz-list-card__thumb" />
+                ) : (
+                  <div className="sec-biz-list-card__thumb-placeholder">
+                    <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--sec-accent)', lineHeight: 1 }}>
+                      {evt.date ? new Date(evt.date + 'T00:00').getDate() : '—'}
+                    </span>
+                    <span style={{ fontSize: 9, color: 'var(--sec-text-muted)', textTransform: 'uppercase' }}>
+                      {evt.date ? new Date(evt.date + 'T00:00').toLocaleDateString('en', { month: 'short' }) : ''}
+                    </span>
+                  </div>
+                )}
+                <div className="sec-biz-list-card__body">
+                  <div className="sec-biz-list-card__title">{evt.title}</div>
+                  <div className="sec-biz-list-card__meta">
+                    {evt.date}
+                    {evt.start_time ? ` · ${evt.start_time}` : ''}
+                    {' · '}{evt.location_city || evt.city}
+                    {evt.event_code ? ` · ${evt.event_code}` : ''}
+                  </div>
                 </div>
               </div>
-
-              <span
-                className={`sec-badge ${
-                  ended ? 'sec-badge-gold' : evt.status === 'published' ? 'sec-badge-success' : 'sec-badge-gold'
-                }`}
-              >
-                {ended ? 'Ended' : evt.status}
-              </span>
-
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button
-                  onClick={() => navigate(createPageUrl('EventDetails') + '?id=' + evt.id)}
-                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
-                  title="View"
+              <div className="sec-biz-list-card__footer">
+                <span
+                  className={`sec-badge ${
+                    ended ? 'sec-badge-gold' : evt.status === 'published' ? 'sec-badge-success' : 'sec-badge-gold'
+                  }`}
                 >
-                  <Eye size={16} />
-                </button>
-                {!ended && evt.status === 'published' && evt.event_format !== 'TICKETING_ONLY' ? (
-                <button
-                  onClick={() => setTablesEventId(evt.id)}
-                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
-                  title="Manage tables"
-                >
-                  <Armchair size={16} />
-                </button>
-                ) : null}
-                {!ended ? (
-                <button
-                  onClick={() => openEdit(evt)}
-                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
-                  title="Edit"
-                >
-                  <Edit2 size={16} />
-                </button>
-                ) : null}
-                <button
-                  onClick={() => setDeleteId(evt.id)}
-                  style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-error)' }}
-                  title="Delete"
-                >
-                  <Trash2 size={16} />
-                </button>
+                  {ended ? 'Ended' : evt.status}
+                </span>
+                <div className="sec-biz-list-card__actions">
+                  <button
+                    onClick={() => navigate(createPageUrl('EventDetails') + '?id=' + evt.id)}
+                    style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
+                    title="View"
+                  >
+                    <Eye size={16} />
+                  </button>
+                  {!ended && evt.status === 'published' && evt.event_format !== 'TICKETING_ONLY' ? (
+                  <button
+                    onClick={() => setTablesEventId(evt.id)}
+                    style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
+                    title="Manage tables"
+                  >
+                    <Armchair size={16} />
+                  </button>
+                  ) : null}
+                  {!ended ? (
+                  <button
+                    onClick={() => openEdit(evt)}
+                    style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
+                    title="Edit"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  ) : null}
+                  <button
+                    onClick={() => setDeleteId(evt.id)}
+                    style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-error)' }}
+                    title="Delete"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
             </div>
             );
@@ -791,7 +799,7 @@ export default function BusinessEvents() {
               />
             </div>
             <div>
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <Label className="text-gray-400 text-sm">Door verification code (optional)</Label>
                 <Button
                   type="button"
@@ -800,7 +808,7 @@ export default function BusinessEvents() {
                   className="h-7 text-xs text-[var(--sec-accent)]"
                   onClick={() => {
                     const suggested = suggestEventCode({
-                      venueName: venue?.name,
+                      venueName: displayVenueName,
                       dateIso: form.date,
                       existingCodes: events.map((e) => e.event_code).filter(Boolean),
                       excludeCode: editingEvent?.event_code,
@@ -822,7 +830,7 @@ export default function BusinessEvents() {
                 Format: PREFIX-MMDD-SUFFIX (e.g. VV-0619-A). Shown on guest QR codes for quick door checks.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-gray-400 text-sm">Date *</Label>
                 <Input
@@ -984,7 +992,7 @@ export default function BusinessEvents() {
                       }}
                       className="h-10 rounded-xl"
                     />
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <Input
                         type="number"
                         min={0}

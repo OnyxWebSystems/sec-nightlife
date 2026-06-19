@@ -564,6 +564,8 @@ model Venue {
   messageGroups       VenueMessageGroup[]
   staffAssignments    VenueStaffAssignment[]
   promoterVenueThreads PromoterVenueThread[]
+  legacyNotifications Notification[]
+  inAppNotifications  InAppNotification[] @relation("VenueInAppNotifications")
 
   @@index([ownerUserId])
   @@index([city])
@@ -1182,6 +1184,7 @@ model Message {
 model Notification {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
+  venueId   String?  @map("venue_id")
   type      String
   title     String
   body      String?
@@ -1189,7 +1192,10 @@ model Notification {
   isRead    Boolean  @default(false) @map("is_read")
   createdAt DateTime @default(now()) @map("created_at")
 
+  venue Venue? @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
   @@index([userId])
+  @@index([userId, venueId])
   @@index([isRead])
   @@map("notifications")
 }
@@ -1414,6 +1420,7 @@ model GroupChatMessage {
 model InAppNotification {
   id            String           @id @default(cuid())
   userId        String           @map("user_id")
+  venueId       String?          @map("venue_id")
   type          NotificationType
   title         String
   body          String
@@ -1422,10 +1429,12 @@ model InAppNotification {
   read          Boolean          @default(false)
   createdAt     DateTime         @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  venue Venue? @relation("VenueInAppNotifications", fields: [venueId], references: [id], onDelete: SetNull)
 
   @@index([userId, read])
   @@index([userId, createdAt])
+  @@index([userId, venueId])
   @@map("in_app_notifications")
 }
 

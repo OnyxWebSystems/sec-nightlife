@@ -37,6 +37,7 @@ import InterestsEditor from '@/components/profile/InterestsEditor';
 import TableHistorySection from '@/components/profile/TableHistorySection';
 import UserSecWallet from '@/components/wallet/UserSecWallet';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import RoleAccessPanel from '@/components/profile/RoleAccessPanel';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false, onDismiss }) {
   const renderEvent = (item, { showRemove = false } = {}) => {
@@ -188,6 +189,23 @@ export default function Profile() {
     queryFn: () => dataService.Promoters.myHub(),
     enabled: !!isOwnProfile && !!user?.id,
   });
+
+  const { data: staffAssignments = [] } = useQuery({
+    queryKey: ['staff-venues'],
+    queryFn: () => apiGet('/api/staff/venues').then((r) => (Array.isArray(r) ? r : r?.items || [])),
+    enabled: !!isOwnProfile && !!user?.id,
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: complianceAccess } = useQuery({
+    queryKey: ['compliance-access'],
+    queryFn: () => apiGet('/api/compliance-documents/me/access'),
+    enabled: !!isOwnProfile && !!user?.id,
+    staleTime: 5 * 60_000,
+  });
+
+  const canAdminDashboard =
+    Boolean(user?.can_admin_dashboard) || ['ADMIN', 'SUPER_ADMIN'].includes(user?.role);
 
   const dismissPromotionMutation = useMutation({
     mutationFn: (assignmentId) => apiDelete(`/api/promoters/me/assignments/${assignmentId}`),
@@ -596,6 +614,14 @@ export default function Profile() {
               </Link>
             </div>
           )}
+
+          {isOwnProfile ? (
+            <RoleAccessPanel
+              canAdminDashboard={canAdminDashboard}
+              hasStaffAssignments={staffAssignments.length > 0}
+              canReviewCompliance={!!complianceAccess?.canReview}
+            />
+          ) : null}
 
           {/* Job applications - only on own profile */}
           {isOwnProfile && (

@@ -14,6 +14,7 @@ import VenueCard from '@/components/home/VenueCard';
 import TableOfferingCard from '@/components/home/TableOfferingCard';
 import QuickActions from '@/components/home/QuickActions';
 import StaffAccessBanner from '@/components/home/StaffAccessBanner';
+import AdminAccessBanner from '@/components/home/AdminAccessBanner';
 import PlatformAnnouncementBanner from '@/components/home/PlatformAnnouncementBanner';
 import SecLogo from '@/components/ui/SecLogo';
 import { getEventImage } from '@/lib/placeholders';
@@ -602,6 +603,9 @@ export default function Home() {
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '24px 20px 0' }}>
 
         <StaffAccessBanner assignments={staffAssignments} />
+        {user?.can_admin_dashboard || ['ADMIN', 'SUPER_ADMIN'].includes(user?.role) ? (
+          <AdminAccessBanner />
+        ) : null}
 
         {/* ── Quick Actions ── */}
         <div style={{ marginBottom: 32 }}>

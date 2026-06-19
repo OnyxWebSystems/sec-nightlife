@@ -4,6 +4,8 @@ import { createPageUrl, buildPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPatch } from '@/api/client';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
+import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { 
   Bell,
   Users,
@@ -89,18 +91,33 @@ export default function Notifications() {
   const [deletedIds, setDeletedIds] = useState([]);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const venueScope = useBusinessVenueScope();
 
-  const favKey = user?.id ? `sec_notifications_favorites_${user.id}` : null;
-  const archivedKey = user?.id ? `sec_notifications_archived_${user.id}` : null;
-  const deletedKey = user?.id ? `sec_notifications_deleted_${user.id}` : null;
-
-  const isBusinessViewer = () => {
+  const businessMode = (() => {
     try {
       const mode = localStorage.getItem('sec_active_mode');
       return user?.role === 'VENUE' || mode === 'business';
     } catch {
       return user?.role === 'VENUE';
     }
+  })();
+
+  const venueScopeSuffix =
+    businessMode && venueScope.venueQuery
+      ? `_${venueScope.staffContextToken || venueScope.venueId || 'scoped'}`
+      : '';
+
+  const favKey = user?.id ? `sec_notifications_favorites_${user.id}${venueScopeSuffix}` : null;
+  const archivedKey = user?.id ? `sec_notifications_archived_${user.id}${venueScopeSuffix}` : null;
+  const deletedKey = user?.id ? `sec_notifications_deleted_${user.id}${venueScopeSuffix}` : null;
+
+  const isBusinessViewer = () => businessMode;
+
+  const withVenueQuery = (path) => {
+    if (!businessMode || !venueScope.venueQuery || !path) return path;
+    const sep = path.includes('?') ? '&' : '?';
+    if (path.includes('venue_id=') || path.includes('staff_ctx=')) return path;
+    return `${path}${sep}${venueScope.venueQuery}`;
   };
 
   const normalizeActionUrl = (notification) => {
@@ -160,7 +177,7 @@ export default function Notifications() {
     if (t === 'FRIEND_ACCEPTED') return `${createPageUrl('Friends')}?tab=all`;
 
     if (t === 'TABLE_REQUEST' || t === 'table_request') {
-      return business ? `${createPageUrl('BusinessVenueTables')}?tab=requests` : null;
+      return business ? withVenueQuery(`${createPageUrl('BusinessVenueTables')}?tab=requests`) : null;
     }
     if (t === 'TABLE_APPROVED' || t === 'table_approved') {
       const tableId = extractTableIdFromNotification(n, actionUrl);
@@ -183,13 +200,13 @@ export default function Notifications() {
       const promoterVenue = extractQueryParam(actionUrl, 'promoterVenue');
       if (promoterVenue) {
         return business
-          ? `${createPageUrl('BusinessMessages')}?tab=promoters&promoterVenue=${encodeURIComponent(promoterVenue)}`
+          ? withVenueQuery(`${createPageUrl('BusinessMessages')}?tab=promoters&promoterVenue=${encodeURIComponent(promoterVenue)}`)
           : `${createPageUrl('Messages')}?promoterVenue=${encodeURIComponent(promoterVenue)}`;
       }
       const threadId = n.referenceId || extractQueryParam(actionUrl, 'venueTableThread');
       if (!threadId) return actionUrl;
       return business
-        ? `${createPageUrl('BusinessMessages')}?tab=tables&thread=${encodeURIComponent(threadId)}`
+        ? withVenueQuery(`${createPageUrl('BusinessMessages')}?tab=tables&thread=${encodeURIComponent(threadId)}`)
         : `${createPageUrl('Messages')}?venueTableThread=${encodeURIComponent(threadId)}`;
     }
 
@@ -244,8 +261,11 @@ export default function Notifications() {
     }
 
     if (t === 'message' || t === 'job_application') {
-      if (actionUrl) return actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
-      return business ? createPageUrl('BusinessJobs') : createPageUrl('MyJobApplications');
+      if (actionUrl) {
+        const path = actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`;
+        return business ? withVenueQuery(path) : path;
+      }
+      return business ? withVenueQuery(createPageUrl('BusinessJobs')) : createPageUrl('MyJobApplications');
     }
 
     if (t === 'payment' || t === 'system' || t === 'table_update' || t === 'table_full') {
@@ -336,10 +356,13 @@ export default function Notifications() {
     localStorage.setItem(deletedKey, JSON.stringify(deletedIds));
   }, [deletedKey, deletedIds]);
 
+  const notificationScopeKey = venueScope.staffContextToken || venueScope.venueId || null;
+
   const { data: notifications = [], isLoading } = useQuery({
-    queryKey: ['notifications', user?.id],
-    queryFn: () =>
-      apiGet('/api/notifications?limit=100').then((rows) =>
+    queryKey: ['notifications', user?.id, businessMode ? notificationScopeKey : null],
+    queryFn: () => {
+      const qs = businessMode && venueScope.venueQuery ? `&${venueScope.venueQuery}` : '';
+      return apiGet(`/api/notifications?limit=100${qs}`).then((rows) =>
         (Array.isArray(rows) ? rows : []).map((n) => {
           const actionFromRef =
             (n.referenceType === 'ROUTE' || n.referenceType === 'LEGACY') &&
@@ -355,8 +378,9 @@ export default function Notifications() {
             created_date: n.createdAt ?? n.created_at ?? n.created_date,
           };
         }),
-      ),
-    enabled: !!user?.id,
+      );
+    },
+    enabled: !!user?.id && (!businessMode || !!venueScope.venueQuery),
     refetchInterval: 30000,
   });
 
@@ -389,7 +413,8 @@ export default function Notifications() {
     const visibleUnread = visibleNotifications.filter((n) => !n.is_read).length;
     if (visibleUnread === 0) return;
     try {
-      await apiPatch('/api/notifications/read-all', {});
+      const qs = businessMode && venueScope.venueQuery ? `?${venueScope.venueQuery}` : '';
+      await apiPatch(`/api/notifications/read-all${qs}`, {});
       toast.success('All notifications marked as read');
       await queryClient.invalidateQueries({ queryKey: ['notifications'] });
       window.dispatchEvent(new CustomEvent('sec_notifications_refresh'));
@@ -473,6 +498,9 @@ export default function Notifications() {
               {unreadCount > 0 && (
                 <p className="text-sm text-gray-500">{unreadCount} unread</p>
               )}
+              {businessMode && venueScope.venueName ? (
+                <p className="text-xs text-gray-500 mt-1">{venueScope.venueName}</p>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               {visibleNotifications.length > 0 && (
@@ -514,6 +542,11 @@ export default function Notifications() {
       </header>
 
       <div className="px-4 lg:px-8 py-4">
+        {businessMode ? (
+          <div className="mb-4">
+            <VenueSwitcher />
+          </div>
+        ) : null}
         <div className="mb-3 flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
           <Button variant={view === 'all' ? 'default' : 'outline'} size="sm" className="flex-shrink-0" onClick={() => setView('all')}>All</Button>
           <Button variant={view === 'favorites' ? 'default' : 'outline'} size="sm" className="flex-shrink-0" onClick={() => setView('favorites')}>Favorites</Button>

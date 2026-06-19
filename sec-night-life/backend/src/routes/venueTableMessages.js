@@ -196,15 +196,17 @@ router.post('/:threadId/messages', authenticateToken, async (req, res, next) => 
       ? access.thread.member.userId
       : access.thread.member.venueTable.venue.ownerUserId;
 
+    const venueId = access.thread.member.venueTable.venueId;
     await prisma.notification.create({
       data: {
         userId: recipientUserId,
+        venueId: access.isOwner ? null : venueId,
         type: 'TABLE_MESSAGE',
         title: access.thread.member.venueTable.venue.name,
         body: label,
         actionUrl: access.isOwner
           ? `/Messages?venueTableThread=${access.thread.id}`
-          : `/BusinessMessages?tab=tables&thread=${access.thread.id}`,
+          : `/BusinessMessages?tab=tables&thread=${access.thread.id}&venue_id=${venueId}`,
       },
     });
 

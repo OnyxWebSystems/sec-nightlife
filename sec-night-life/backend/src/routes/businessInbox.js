@@ -1,19 +1,39 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { resolveAccessibleVenueIds } from '../lib/access.js';
+import {
+  resolveAccessibleVenueIds,
+  resolveBusinessVenueScope,
+  staffCtxFromQuery,
+  venueIdFromQuery,
+} from '../lib/access.js';
 import { getTemplateLabel, MESSAGABLE_VENUE_MEMBER_STATUSES } from '../lib/venueTableMessageTemplates.js';
 import { ensurePromoterVenueThread } from '../lib/promoterVenueThread.js';
 
 const router = Router();
 
-async function accessibleMessageVenueIds(userId, venueIdFilter = null) {
-  return resolveAccessibleVenueIds(userId, { venueIdFilter, permission: 'messages' });
+async function resolveInboxVenueIds(userId, query) {
+  const venueIdFilter = venueIdFromQuery(query);
+  const staffCtx = staffCtxFromQuery(query);
+  if (venueIdFilter || staffCtx) {
+    const scope = await resolveBusinessVenueScope(userId, {
+      venueIdFilter,
+      staffCtx,
+      permission: 'messages',
+    });
+    if (!scope.ok) return { ok: false, status: scope.status || 403, error: scope.error || 'Forbidden' };
+    if (!scope.venueIds.length) return { ok: false, status: 404, error: 'Venue not found' };
+    return { ok: true, venueIds: scope.venueIds };
+  }
+  const venueIds = await resolveAccessibleVenueIds(userId, { permission: 'messages' });
+  return { ok: true, venueIds };
 }
 
 router.get('/unread-count', authenticateToken, async (req, res, next) => {
   try {
-    const venueIds = await accessibleMessageVenueIds(req.userId);
+    const resolved = await resolveInboxVenueIds(req.userId, req.query);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+    const venueIds = resolved.venueIds;
     if (!venueIds.length) return res.json({ count: 0 });
 
     const [jobUnread, tableThreadUnread, promoterVenueUnread] = await Promise.all([
@@ -58,7 +78,9 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
 
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const venueIds = await accessibleMessageVenueIds(req.userId);
+    const resolved = await resolveInboxVenueIds(req.userId, req.query);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+    const venueIds = resolved.venueIds;
     if (!venueIds.length) return res.json({ items: [] });
 
     const filter = typeof req.query.type === 'string' ? req.query.type : 'jobs';
@@ -72,7 +94,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
           venueHiddenAt: null,
         },
         include: {
-          jobPosting: { select: { id: true, title: true, jobType: true } },
+          jobPosting: { select: { id: true, title: true, jobType: true, venueId: true } },
           applicant: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
           messages: { orderBy: { sentAt: 'desc' }, take: 1 },
         },
@@ -91,6 +113,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
           referenceId: app.jobPostingId,
           applicationId: app.id,
           jobType: app.jobPosting.jobType,
+          venueId: app.jobPosting.venueId,
           updatedAt: last?.sentAt || app.updatedAt,
           unread: Boolean(last && !last.readAt && last.senderUserId !== req.userId),
         });
@@ -173,7 +196,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
             include: {
               user: { select: { fullName: true, userProfile: { select: { username: true } } } },
               venueTable: {
-                include: { venue: { select: { name: true } }, event: { select: { title: true } } },
+                include: { venue: { select: { id: true, name: true } }, event: { select: { title: true } } },
               },
             },
           },
@@ -193,6 +216,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
           subtitle: `${t.member.venueTable.venue.name}${t.member.venueTable.event?.title ? ` · ${t.member.venueTable.event.title}` : ''} · ${t.member.user.userProfile?.username || t.member.user.fullName || 'Guest'}`,
           body: last ? (last.displayLabel || getTemplateLabel(last.templateKey)) : null,
           referenceId: t.member.venueTableId,
+          venueId: t.member.venueTable.venue.id,
           updatedAt: last?.sentAt || t.updatedAt,
           unread: Boolean(last && !last.readAt && last.senderUserId !== req.userId),
         });
@@ -208,7 +232,9 @@ router.get('/', authenticateToken, async (req, res, next) => {
 
 router.delete('/threads/:threadId', authenticateToken, async (req, res, next) => {
   try {
-    const venueIds = await accessibleMessageVenueIds(req.userId);
+    const resolved = await resolveInboxVenueIds(req.userId, req.query);
+    if (!resolved.ok) return res.status(resolved.status).json({ error: resolved.error });
+    const venueIds = resolved.venueIds;
     if (!venueIds.length) return res.status(403).json({ error: 'Forbidden' });
 
     const application = await prisma.jobApplication.findFirst({

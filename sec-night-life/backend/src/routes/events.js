@@ -191,6 +191,7 @@ const eventFields = {
 };
 
 const eventSchema = z.object(eventFields);
+const eventCreateSchema = eventSchema.extend({ venue_id: z.string().uuid().optional() });
 
 function mapEventRow(e) {
   const resolvedLocationCity = e.locationCity || e.city;
@@ -740,6 +741,54 @@ router.get('/venue/:venueId/promoter/:promoterUserId/assignments', authenticateT
   }
 });
 
+router.get('/roster/promoters', authenticateToken, async (req, res, next) => {
+  try {
+    const staffCtx = staffCtxFromQuery(req.query);
+    let venueId = null;
+    if (staffCtx) {
+      const scope = await resolveBusinessVenueScope(req.userId, {
+        staffCtx,
+        permission: 'events',
+      });
+      if (!scope.ok) return res.status(scope.status || 403).json({ error: scope.error || 'Forbidden' });
+      venueId = scope.venueIds[0];
+    } else if (req.query.venue_id) {
+      venueId = String(req.query.venue_id);
+      const ok = await staffHasVenuePermission(req.userId, venueId, 'events');
+      if (!ok) return res.status(403).json({ error: 'Forbidden' });
+    } else {
+      return res.status(400).json({ error: 'staff_ctx or venue_id is required' });
+    }
+
+    const roster = await prisma.venuePromoter.findMany({
+      where: { venueId, status: 'ACTIVE' },
+      include: {
+        promoter: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+            userProfile: { select: { avatarUrl: true, username: true } },
+          },
+        },
+      },
+      orderBy: { hiredAt: 'desc' },
+    });
+
+    res.json({
+      data: roster.map((r) => ({
+        promoterUserId: r.promoterUserId,
+        hiredAt: r.hiredAt,
+        username: r.promoter.userProfile?.username || r.promoter.username,
+        fullName: r.promoter.fullName,
+        avatarUrl: r.promoter.userProfile?.avatarUrl || null,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/venue/:venueId/promoters', authenticateToken, async (req, res, next) => {
   try {
     const ok = await staffHasVenuePermission(req.userId, req.params.venueId, 'events');
@@ -951,14 +1000,25 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
 
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
-    const parsed = eventSchema.safeParse(req.body);
+    const parsed = eventCreateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const d = parsed.data;
+    const staffCtx = staffCtxFromQuery(req.query);
+    let resolvedVenueId = d.venue_id;
+    if (staffCtx) {
+      const scope = await resolveBusinessVenueScope(req.userId, {
+        staffCtx,
+        permission: 'events',
+      });
+      if (!scope.ok) return res.status(scope.status || 403).json({ error: scope.error || 'Forbidden' });
+      resolvedVenueId = scope.venueIds[0];
+    }
+    if (!resolvedVenueId) return res.status(400).json({ error: 'venue_id or staff_ctx is required' });
     const hasFee = d.has_entrance_fee ?? false;
     if (hasFee && (d.entrance_fee_amount == null || Number.isNaN(d.entrance_fee_amount))) {
       return res.status(400).json({ error: 'Invalid input' });
     }
-    const venue = await prisma.venue.findFirst({ where: { id: d.venue_id, deletedAt: null } });
+    const venue = await prisma.venue.findFirst({ where: { id: resolvedVenueId, deletedAt: null } });
     const canCreate =
       venue &&
       (isStaff(req.userRole) || (await staffHasVenuePermission(req.userId, venue.id, 'events')));
@@ -989,7 +1049,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
     if (eventFormat === 'TABLE_HOSTING' && d.hosting_config) {
       const hostCfgCheck = validateHostingTierSlotsConfig(normalizedHosting);
       if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
-      const menuCheck = await validateHostingMenuItems(d.venue_id, normalizedHosting);
+      const menuCheck = await validateHostingMenuItems(resolvedVenueId, normalizedHosting);
       if (!menuCheck.ok) return res.status(400).json({ error: menuCheck.error });
     }
     if (d.status === 'published' && eventFormat === 'TICKETING_ONLY') {
@@ -1001,14 +1061,14 @@ router.post('/', authenticateToken, async (req, res, next) => {
     const codeFmt = validateEventCodeFormat(normalizedEventCode);
     if (!codeFmt.ok) return res.status(400).json({ error: codeFmt.error });
     const codeUnique = await assertEventCodeUniqueForVenue(prisma, {
-      venueId: d.venue_id,
+      venueId: resolvedVenueId,
       eventCode: codeFmt.code,
     });
     if (!codeUnique.ok) return res.status(400).json({ error: codeUnique.error });
 
     const event = await prisma.event.create({
       data: {
-        venueId: d.venue_id,
+        venueId: resolvedVenueId,
         title: d.title,
         description: d.description,
         date: new Date(d.date),

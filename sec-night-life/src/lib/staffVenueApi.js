@@ -15,6 +15,12 @@ export function promotionsApiQuery({ inStaffSession, staffContextToken } = {}) {
   return '';
 }
 
+/** Staff-context venue profile endpoint. */
+export function staffVenueApiBase(staffContextToken) {
+  if (!staffContextToken) return null;
+  return `/api/staff/context/${encodeURIComponent(staffContextToken)}/venue`;
+}
+
 /** Staff-context promotions list endpoint. */
 export function staffPromotionsListUrl(staffContextToken) {
   if (!staffContextToken) return null;

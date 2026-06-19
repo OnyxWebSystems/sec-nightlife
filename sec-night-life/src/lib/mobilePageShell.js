@@ -1,5 +1,5 @@
 /** Mobile hub pages that keep the floating bottom nav (no drill-down back header from Layout). */
-export const MOBILE_NAV_ROOT_PAGES = new Set(['Home', 'BusinessDashboard']);
+export const MOBILE_NAV_ROOT_PAGES = new Set(['Home', 'BusinessDashboard', 'StaffDashboard']);
 
 /** Pages that already render their own mobile back header (avoid duplicate). */
 export const MOBILE_OWN_BACK_HEADER = new Set([

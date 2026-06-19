@@ -14,6 +14,7 @@ import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 import { shouldShowMobileBackHeader, getMobilePageTitle } from '@/lib/mobilePageShell';
 import { BUSINESS_PAGE_PERMISSIONS, useVenueStaffAccess } from '@/hooks/useVenueStaffAccess';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { useScrollDirection } from '@/hooks/useScrollDirection';
 import { getMobileNavState } from '@/lib/mobileNavVisibility';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -52,6 +53,7 @@ export default function Layout({ children, currentPageName }) {
   const [searchParams] = useSearchParams();
   const { user, userProfile } = useAuth();
   const staffAccess = useVenueStaffAccess();
+  const venueScope = useBusinessVenueScope();
   const [notificationCount, setNotificationCount] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
   const [hostUnread, setHostUnread] = useState(0);
@@ -91,10 +93,25 @@ export default function Layout({ children, currentPageName }) {
 
   const fetchNotificationCounts = useCallback(async () => {
     if (!user?.id) return;
-    const msgUrl =
-      activeMode === 'business' ? '/api/business/inbox/unread-count' : '/api/messages/unread-total';
+    const businessMode = activeMode === 'business';
+    const venueQs = businessMode && venueScope.venueQuery ? `?${venueScope.venueQuery}` : '';
+
+    if (businessMode && !venueScope.venueQuery) {
+      setNotificationCount(0);
+      setMessageUnread(0);
+      setHostUnread(0);
+      return;
+    }
+
+    const msgUrl = businessMode
+      ? `/api/business/inbox/unread-count${venueQs}`
+      : '/api/messages/unread-total';
+    const notifUrl = businessMode
+      ? `/api/notifications/unread-count${venueQs}`
+      : '/api/notifications/unread-count';
+
     const [unreadRes, msgRes, hostRes] = await Promise.allSettled([
-      apiGet('/api/notifications/unread-count'),
+      apiGet(notifUrl),
       apiGet(msgUrl),
       apiGet('/api/host/notifications/unread-count'),
     ]);
@@ -117,7 +134,7 @@ export default function Layout({ children, currentPageName }) {
     } else {
       setHostUnread(0);
     }
-  }, [user?.id, activeMode]);
+  }, [user?.id, activeMode, venueScope.venueQuery]);
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -194,7 +211,7 @@ export default function Layout({ children, currentPageName }) {
       let defaultMode = 'partygoer';
       if (saved === 'business' && canUseBusinessMode) defaultMode = 'business';
       else if (saved === 'partygoer') defaultMode = 'partygoer';
-      else if (canUseBusinessMode) defaultMode = 'business';
+      else if (ownsVenue) defaultMode = 'business';
       else defaultMode = 'partygoer';
       if (saved === 'business' && !canUseBusinessMode) {
         localStorage.setItem('sec_active_mode', 'partygoer');
@@ -225,6 +242,15 @@ export default function Layout({ children, currentPageName }) {
   };
 
   useEffect(() => {
+    const onModeChanged = (event) => {
+      const mode = event?.detail?.mode || localStorage.getItem('sec_active_mode');
+      if (mode === 'partygoer' || mode === 'business') setActiveMode(mode);
+    };
+    window.addEventListener('sec_active_mode_changed', onModeChanged);
+    return () => window.removeEventListener('sec_active_mode_changed', onModeChanged);
+  }, []);
+
+  useEffect(() => {
     if (!user?.id) return undefined;
     const pages = ['Notifications', 'Friends', 'Profile', 'Messages', 'HostDashboard', 'Events', 'Home'];
     const run = () => {
@@ -251,12 +277,12 @@ export default function Layout({ children, currentPageName }) {
       navigate(createPageUrl('StaffDashboard'), { replace: true });
       return;
     }
-    if (modeForGuard !== 'business') return;
+    if (!staffAccess.inStaffSession && modeForGuard !== 'business') return;
     const perm = BUSINESS_PAGE_PERMISSIONS[currentPageName];
     if (perm && !staffAccess.can(perm)) {
       navigate(createPageUrl('StaffDashboard'), { replace: true });
     }
-  }, [user, modeForGuard, staffAccess.isStaffOnly, staffAccess.venuesLoading, staffAccess.can, currentPageName, navigate]);
+  }, [user, modeForGuard, staffAccess.isStaffOnly, staffAccess.inStaffSession, staffAccess.venuesLoading, staffAccess.can, currentPageName, navigate]);
 
   const { hideBottomNav } = getMobileNavState({ pageName: currentPageName, searchParams });
   const navScrollCompact = useScrollDirection({ enabled: !hideBottomNav });
@@ -276,6 +302,8 @@ export default function Layout({ children, currentPageName }) {
 
   const badge = Math.max(0, Number(notificationCount) || 0);
   const availableModes = MODES.filter(m => userRoles[m.id]);
+  const canAdminDashboard =
+    Boolean(user?.can_admin_dashboard) || ['ADMIN', 'SUPER_ADMIN'].includes(user?.role);
   const complianceNavItem = complianceAccess.canReview
     ? [{ name: 'Compliance Review', icon: Shield, page: 'AdminDashboard', query: '?tab=compliance-documents' }]
     : [];
@@ -297,7 +325,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
         ...(hasStaffAssignments ? [{ name: 'Staff Dashboard', icon: Shield, page: 'StaffDashboard' }] : []),
         ...complianceNavItem,
-        ...((['SUPER_ADMIN', 'ADMIN', 'admin'].includes(user?.role)) ? [{ name: 'Admin', icon: LayoutDashboard, page: 'AdminDashboard' }] : []),
+        ...(canAdminDashboard ? [{ name: 'Admin', icon: LayoutDashboard, page: 'AdminDashboard' }] : []),
       ],
     },
     business: {
@@ -354,8 +382,9 @@ export default function Layout({ children, currentPageName }) {
   const attachNavTargets = (items) =>
     items.map((item) => ({ ...item, navTo: item.page ? resolveNavTarget(item) : null }));
 
-  // Mobile: Unified 5-tab bottom nav — Home, Events, Create, Messages, Profile
-  let mobileNav = mode === 'business'
+  // Mobile: Unified 5-tab bottom nav — stay party-goer during staff sessions
+  const effectiveNavMode = staffAccess.inStaffSession ? 'partygoer' : mode;
+  let mobileNav = effectiveNavMode === 'business'
     ? [
         { name: 'Home', icon: LayoutDashboard, page: 'BusinessDashboard' },
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
@@ -503,7 +532,7 @@ export default function Layout({ children, currentPageName }) {
           hideBottomNav ? 'pb-[env(safe-area-inset-bottom)]' : 'pb-[calc(88px+env(safe-area-inset-bottom))]'
         }`}
       >
-        {complianceAccess.canReview && currentPageName !== 'AdminDashboard' && (
+        {complianceAccess.canReview && currentPageName !== 'AdminDashboard' && currentPageName !== 'Profile' && (
           <div className="lg:hidden" style={{ padding: '12px 16px 0' }}>
             <Link
               to={`${createPageUrl('AdminDashboard')}?tab=compliance-documents`}

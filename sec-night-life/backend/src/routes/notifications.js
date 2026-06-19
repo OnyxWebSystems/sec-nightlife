@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { isStaff } from '../lib/access.js';
 import { dedupeInAppRows, filterDuplicateLegacyRows } from '../lib/notificationMerge.js';
+import { buildNotificationVenueWhere } from '../lib/notificationVenueScope.js';
 
 const router = Router();
 
@@ -71,15 +72,20 @@ function mapInApp(n) {
 router.get('/unread-count', authenticateToken, async (req, res, next) => {
   try {
     const type = req.query.type ? String(req.query.type) : null;
+    const venueScope = await buildNotificationVenueWhere(req.userId, req.query);
+    if (!venueScope.ok) return res.status(venueScope.status).json({ error: venueScope.error });
+
     const inAppWhere = {
       userId: req.userId,
       read: false,
       ...(type ? { type } : { NOT: { type: { in: EXCLUDED_IN_APP_TYPES } } }),
+      ...(venueScope.where || {}),
     };
     const legacyWhere = {
       userId: req.userId,
       isRead: false,
       ...(type ? { type } : { NOT: { type: { in: EXCLUDED_IN_APP_TYPES } } }),
+      ...(venueScope.where || {}),
     };
     const [inAppRows, legacyRows] = await Promise.all([
       prisma.inAppNotification.findMany({
@@ -105,17 +111,25 @@ router.get('/', authenticateToken, async (req, res, next) => {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
     const take = page * limit;
 
+    const venueScope = await buildNotificationVenueWhere(req.userId, req.query);
+    if (!venueScope.ok) return res.status(venueScope.status).json({ error: venueScope.error });
+
+    const baseWhere = {
+      userId: req.userId,
+      ...(venueScope.where || {}),
+    };
+
     const [inAppRows, legacyRows] = await Promise.all([
       prisma.inAppNotification.findMany({
         where: {
-          userId: req.userId,
+          ...baseWhere,
           NOT: { type: { in: EXCLUDED_IN_APP_TYPES } },
         },
         orderBy: { createdAt: 'desc' },
         take,
       }),
       prisma.notification.findMany({
-        where: { userId: req.userId },
+        where: baseWhere,
         orderBy: { createdAt: 'desc' },
         take,
       }),
@@ -180,21 +194,29 @@ router.post('/', authenticateToken, async (req, res, next) => {
 router.patch('/read-all', authenticateToken, async (req, res, next) => {
   try {
     const type = req.body?.type ? String(req.body.type) : null;
+    const venueScope = await buildNotificationVenueWhere(req.userId, { ...req.query, ...req.body });
+    if (!venueScope.ok) return res.status(venueScope.status).json({ error: venueScope.error });
+
+    const baseWhere = {
+      userId: req.userId,
+      ...(venueScope.where || {}),
+    };
+
     let updated = 0;
     if (type) {
       const r = await prisma.inAppNotification.updateMany({
-        where: { userId: req.userId, type, read: false },
+        where: { ...baseWhere, type, read: false },
         data: { read: true },
       });
       updated += r.count;
     } else {
       const [a, b] = await Promise.all([
         prisma.inAppNotification.updateMany({
-          where: { userId: req.userId, read: false },
+          where: { ...baseWhere, read: false },
           data: { read: true },
         }),
         prisma.notification.updateMany({
-          where: { userId: req.userId, isRead: false },
+          where: { ...baseWhere, isRead: false },
           data: { isRead: true },
         }),
       ]);

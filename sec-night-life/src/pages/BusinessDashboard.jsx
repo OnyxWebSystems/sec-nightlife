@@ -439,7 +439,7 @@ export default function BusinessDashboard() {
                 <Building2 size={22} style={{ color: 'var(--sec-accent)' }} />
               </div>
             )}
-            <div style={{ flex: 1, minWidth: 200 }}>
+            <div className="flex-1 min-w-0">
               <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>
                 {displayVenueName}
               </h1>
@@ -461,13 +461,7 @@ export default function BusinessDashboard() {
           </div>
 
           {isVenueOwner && venue ? (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-              gap: 10,
-            }}
-          >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <button
               type="button"
               className="biz-dash-action"
@@ -707,7 +701,7 @@ export default function BusinessDashboard() {
                   </div>
                   <span className={`sec-badge ${j.status === 'OPEN' ? 'sec-badge-success' : j.status === 'FILLED' ? 'sec-badge-gold' : 'sec-badge-muted'}`}>{j.status}</span>
                 </div>
-                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Link
                     to={buildPageUrl('BusinessJobs', { job: j.id, view: 'applicants' })}
                     className="sec-btn sec-btn-secondary"

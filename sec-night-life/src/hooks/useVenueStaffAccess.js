@@ -15,6 +15,7 @@ export const BUSINESS_PAGE_PERMISSIONS = {
   BusinessMessages: 'messages',
   BusinessVenueTables: 'bookings',
   VenueProfile: 'venue_page',
+  VenueOnboarding: 'venue_page',
   FeedbackInsights: 'analytics',
 };
 

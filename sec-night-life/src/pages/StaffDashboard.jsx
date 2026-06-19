@@ -31,7 +31,7 @@ const PERM_PAGES = {
   jobs: { page: 'BusinessJobs', label: 'Jobs', icon: Briefcase },
   posts: { page: 'BusinessPromotions', label: 'Posts', icon: Megaphone },
   messages: { page: 'BusinessMessages', label: 'Messages', icon: MessageCircle },
-  venue_page: { page: 'VenueProfile', label: 'Venue page', icon: Building2 },
+  venue_page: { page: 'VenueOnboarding', label: 'Venue setup', icon: Building2, query: '?edit=1' },
 };
 
 function permLabel(key) {
@@ -137,7 +137,10 @@ export default function StaffDashboard() {
                         if (!meta) return null;
                         const Icon = meta.icon;
                         if (!accessToken) return null;
-                        const linkParams = { staff_ctx: accessToken };
+                        const linkParams =
+                          key === 'venue_page'
+                            ? { staff_ctx: accessToken, edit: '1' }
+                            : { staff_ctx: accessToken };
                         return (
                           <Link
                             key={key}
@@ -149,8 +152,6 @@ export default function StaffDashboard() {
                                 venueLogoUrl: venueLogo,
                                 permissions: perms,
                               });
-                              localStorage.setItem('sec_active_mode', 'business');
-                              window.dispatchEvent(new CustomEvent('sec_active_mode_changed', { detail: { mode: 'business' } }));
                             }}
                             className="flex items-center gap-3 p-3 rounded-xl transition-colors"
                             style={{

@@ -34,6 +34,7 @@ export default function BusinessMessages() {
   const initialTab = searchParams.get('tab') || 'jobs';
   const { activeVenue } = useActiveVenue();
   const venueScope = useBusinessVenueScope();
+  const scopeKey = venueScope.staffContextToken || venueScope.venueId;
   const [filter, setFilter] = useState(
     ['jobs', 'promoters', 'tables', 'groups'].includes(initialTab) ? initialTab : 'jobs',
   );
@@ -79,10 +80,20 @@ export default function BusinessMessages() {
     filter === 'tables' ? 'tables' : filter === 'promoters' ? 'promoters' : filter === 'groups' ? null : 'jobs';
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['business-inbox', inboxType],
-    queryFn: () => apiGet(`/api/business/inbox?type=${inboxType}`),
-    enabled: !!inboxType,
+    queryKey: ['business-inbox', inboxType, scopeKey],
+    queryFn: () => {
+      const qs = venueScope.venueQuery ? `&${venueScope.venueQuery}` : '';
+      return apiGet(`/api/business/inbox?type=${inboxType}${qs}`);
+    },
+    enabled: !!inboxType && !!venueScope.venueQuery,
   });
+
+  useEffect(() => {
+    setSelectedJobAppId(null);
+    setSelectedTableThreadId(null);
+    setSelectedPromoterVenueId(null);
+    setSearchParams({ tab: filter });
+  }, [scopeKey]); // eslint-disable-line react-hooks/exhaustive-deps -- reset thread on venue switch
 
   const items = data?.items ?? [];
 
@@ -194,6 +205,23 @@ export default function BusinessMessages() {
   function selectJobItem(item) {
     setSelectedJobAppId(item.id);
     setSearchParams({ tab: filter, application: item.id });
+  }
+
+  if (!venueScope.venueQuery) {
+    return (
+      <div className="sec-page max-w-3xl mx-auto pb-24">
+        <PageBackHeader
+          title="Business messages"
+          subtitle="Job and promoter threads — table requests are under Tables & day bookings"
+          pageName="BusinessMessages"
+        />
+        <div className="px-4 pt-8 text-center text-sm text-[var(--sec-text-muted)]">
+          {venueScope.inStaffSession
+            ? 'Staff venue context is missing or expired.'
+            : 'Select a venue to view messages.'}
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -6,6 +6,7 @@ export async function createInAppNotification(data, db = prisma) {
     return await db.inAppNotification.create({
       data: {
         userId: data.userId,
+        venueId: data.venueId ?? null,
         type: data.type,
         title: data.title,
         body: data.body,
@@ -26,6 +27,7 @@ export async function createInAppNotificationsForUsers(userIds, data) {
     await prisma.inAppNotification.createMany({
       data: ids.map((userId) => ({
         userId,
+        venueId: data.venueId ?? null,
         type: data.type,
         title: data.title,
         body: data.body,

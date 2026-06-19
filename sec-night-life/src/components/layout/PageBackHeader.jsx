@@ -4,6 +4,8 @@ import { ChevronLeft } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { MOBILE_PAGE_PARENT, mobileBackNavigate } from '@/lib/mobileBackNavigation';
 import { useIsMobile } from '@/hooks/useIsDesktop';
+import { useStaffVenueOptional } from '@/context/StaffVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 
 /**
  * Sticky back header for drill-down pages (business tools, settings subpages, messages).
@@ -19,6 +21,14 @@ export default function PageBackHeader({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
+  const staffVenueCtx = useStaffVenueOptional();
+  const venueScope = useBusinessVenueScope();
+
+  const staffSubtitle =
+    venueScope.inStaffSession && venueScope.venueName && !subtitle
+      ? `Managing ${venueScope.venueName} · Staff`
+      : null;
+  const displaySubtitle = subtitle ?? staffSubtitle;
 
   const handleBack = () => {
     if (onBack) {
@@ -26,7 +36,11 @@ export default function PageBackHeader({
       return;
     }
     if (isMobile && pageName) {
-      mobileBackNavigate(navigate, setSearchParams, pageName, searchParams);
+      mobileBackNavigate(navigate, setSearchParams, pageName, searchParams, {
+        inStaffSession: venueScope.inStaffSession,
+        clearStaffContext: staffVenueCtx?.clearStaffContext,
+        staffContextToken: venueScope.staffContextToken,
+      });
       return;
     }
     if (typeof window !== 'undefined' && window.history.length > 1) {
@@ -61,9 +75,9 @@ export default function PageBackHeader({
               {title}
             </h1>
           ) : null}
-          {subtitle ? (
+          {displaySubtitle ? (
             <p className="text-xs truncate" style={{ color: 'var(--sec-text-muted)' }}>
-              {subtitle}
+              {displaySubtitle}
             </p>
           ) : null}
         </div>
