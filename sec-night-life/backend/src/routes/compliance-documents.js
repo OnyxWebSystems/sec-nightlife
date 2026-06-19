@@ -152,6 +152,11 @@ router.get('/me/access', authenticateToken, async (req, res, next) => {
     const isSuperAdmin = isSuperAdminUser({ role: user.role, email: userEmail, superAdminEmail });
     if (isSuperAdmin) return res.json({ canReview: true, isSuperAdmin: true });
 
+    const delegate = await prisma.adminDashboardDelegate.findFirst({
+      where: { isActive: true, email: userEmail },
+    });
+    if (delegate) return res.json({ canReview: true, isSuperAdmin: false });
+
     const reviewer = await prisma.adminReviewer.findFirst({
       where: { isActive: true, email: userEmail }
     });

@@ -1,16 +1,18 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { LayoutDashboard, Shield, ChevronRight } from 'lucide-react';
+import { enterPartygoerMode } from '@/lib/activeViewMode';
 
-function AccessCard({ to, icon: Icon, title, description, variant = 'neutral' }) {
+function AccessCard({ onClick, icon: Icon, title, description, variant = 'neutral' }) {
   const isGold = variant === 'gold';
   const isCompliance = variant === 'compliance';
 
   return (
-    <Link
-      to={to}
-      className="flex items-center gap-4 p-4 rounded-xl border transition-all"
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-4 p-4 rounded-xl border transition-all w-full text-left"
       style={{
         textDecoration: 'none',
         color: 'var(--sec-text-primary)',
@@ -42,7 +44,7 @@ function AccessCard({ to, icon: Icon, title, description, variant = 'neutral' })
         </p>
       </div>
       <ChevronRight size={18} className="flex-shrink-0" style={{ color: 'var(--sec-text-muted)' }} />
-    </Link>
+    </button>
   );
 }
 
@@ -54,11 +56,15 @@ export default function RoleAccessPanel({
   hasStaffAssignments = false,
   canReviewCompliance = false,
 }) {
+  const navigate = useNavigate();
   const items = [];
   if (canAdminDashboard) {
     items.push({
       key: 'admin',
-      to: createPageUrl('AdminDashboard'),
+      onClick: () => {
+        enterPartygoerMode();
+        navigate(createPageUrl('AdminDashboard'));
+      },
       icon: LayoutDashboard,
       title: 'Admin Dashboard',
       description: 'Platform administration, users, and moderation tools.',
@@ -68,7 +74,7 @@ export default function RoleAccessPanel({
   if (hasStaffAssignments) {
     items.push({
       key: 'staff',
-      to: createPageUrl('StaffDashboard'),
+      onClick: () => navigate(createPageUrl('StaffDashboard')),
       icon: Shield,
       title: 'Staff Dashboard',
       description: 'Venues you help manage and your assigned permissions.',
@@ -78,7 +84,10 @@ export default function RoleAccessPanel({
   if (canReviewCompliance) {
     items.push({
       key: 'compliance',
-      to: `${createPageUrl('AdminDashboard')}?tab=compliance-documents`,
+      onClick: () => {
+        enterPartygoerMode();
+        navigate(`${createPageUrl('AdminDashboard')}?tab=compliance-documents`);
+      },
       icon: Shield,
       title: 'Compliance Review',
       description: 'Review venue compliance documents and submissions.',

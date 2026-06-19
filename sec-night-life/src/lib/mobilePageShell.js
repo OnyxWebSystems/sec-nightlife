@@ -48,6 +48,7 @@ export const MOBILE_OWN_BACK_HEADER = new Set([
   'Payments',
   'CelebrationRequest',
   'AgeVerificationDeclaration',
+  'AdminDashboard',
 ]);
 
 const AUTH_FLOW_PAGES = new Set([

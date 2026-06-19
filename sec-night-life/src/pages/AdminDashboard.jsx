@@ -3,6 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
+import { enterPartygoerMode } from '@/lib/activeViewMode';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 import {
   LayoutDashboard,
   Users,
@@ -49,6 +52,7 @@ function withPdfInlineParams(fileUrl) {
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const isMobile = useIsMobile();
   const requestedVenueId = searchParams.get('venueId');
   const [user, setUser] = useState(null);
   const [stats, setStats] = useState(null);
@@ -94,6 +98,46 @@ export default function AdminDashboard() {
     ctaLabel: '',
   });
   const [publishingAnnouncement, setPublishingAnnouncement] = useState(false);
+
+  const ADMIN_TABS = [
+    'overview',
+    'announcements',
+    'promoters',
+    'reports',
+    'payments',
+    'users',
+    'venues',
+    'flagged-reviews',
+    'compliance-documents',
+  ];
+
+  const canAdminDashboard = Boolean(user?.can_admin_dashboard) || ['ADMIN', 'SUPER_ADMIN'].includes(user?.role);
+  const isSuperAdminUser = Boolean(
+    complianceAccess?.isSuperAdmin || user?.role === 'SUPER_ADMIN',
+  );
+
+  const visibleTabs = useMemo(() => {
+    if (!user) return [];
+    if (isSuperAdminUser || canAdminDashboard) return ADMIN_TABS;
+    if (complianceAccess?.canReview) return ['compliance-documents'];
+    return [];
+  }, [user, isSuperAdminUser, canAdminDashboard, complianceAccess?.canReview]);
+
+  useEffect(() => {
+    enterPartygoerMode();
+  }, []);
+
+  useEffect(() => {
+    const requested = searchParams.get('tab');
+    if (!visibleTabs.length) return;
+    if (requested && visibleTabs.includes(requested)) {
+      setTab(requested);
+      return;
+    }
+    if (!visibleTabs.includes(tab)) {
+      setTab(visibleTabs[0]);
+    }
+  }, [visibleTabs, searchParams, tab]);
 
   const loadFlaggedReviews = async () => {
     try {
@@ -200,14 +244,15 @@ export default function AdminDashboard() {
         }
         setComplianceAccess(access);
 
-        const canAdminDashboard = Boolean(u?.can_admin_dashboard) || ['ADMIN', 'SUPER_ADMIN'].includes(u?.role);
-        if (!canAdminDashboard) {
+        const hasAdminDashboard = Boolean(u?.can_admin_dashboard) || ['ADMIN', 'SUPER_ADMIN'].includes(u?.role);
+        const hasComplianceReview = !!access?.canReview;
+        if (!hasAdminDashboard && !hasComplianceReview) {
           navigate(createPageUrl('Home'));
           return;
         }
 
-        const shouldLoadAdminQueues = canAdminDashboard;
-        const isSuperAdminUser = !!(access?.isSuperAdmin || u?.role === 'SUPER_ADMIN');
+        const shouldLoadAdminQueues = hasAdminDashboard;
+        const isSuperAdmin = !!(access?.isSuperAdmin || u?.role === 'SUPER_ADMIN');
         if (shouldLoadAdminQueues) {
           const adminEndpoints = [
             { key: 'dashboard', label: 'dashboard stats', fetch: () => apiGet('/api/admin/dashboard') },
@@ -243,22 +288,22 @@ export default function AdminDashboard() {
               toast.error(`Could not load ${label}${msg ? `: ${msg}` : ''}`);
             }
           });
-          if (isSuperAdminUser) {
-            const flaggedSettled = await Promise.allSettled([apiGet('/api/reviews/admin/flagged')]);
-            if (flaggedSettled[0].status === 'fulfilled') {
-              const flaggedRes = flaggedSettled[0].value;
-              setFlaggedReviews({
-                userReviews: flaggedRes?.userReviews || [],
-                venueReviews: flaggedRes?.venueReviews || [],
-              });
-            } else {
-              setFlaggedReviews({ userReviews: [], venueReviews: [] });
-              const err = flaggedSettled[0].reason;
-              toast.error(`Could not load flagged reviews${err?.message ? `: ${err.message}` : ''}`);
-            }
-            await loadReports();
-            await loadAnnouncements();
+          const flaggedSettled = await Promise.allSettled([apiGet('/api/reviews/admin/flagged')]);
+          if (flaggedSettled[0].status === 'fulfilled') {
+            const flaggedRes = flaggedSettled[0].value;
+            setFlaggedReviews({
+              userReviews: flaggedRes?.userReviews || [],
+              venueReviews: flaggedRes?.venueReviews || [],
+            });
+          } else {
+            setFlaggedReviews({ userReviews: [], venueReviews: [] });
+            const err = flaggedSettled[0].reason;
+            toast.error(`Could not load flagged reviews${err?.message ? `: ${err.message}` : ''}`);
           }
+          await loadReports();
+          await loadAnnouncements();
+        } else if (hasComplianceReview) {
+          setTab(searchParams.get('tab') || 'compliance-documents');
         }
       } catch (e) {
         if (e?.status === 403) navigate(createPageUrl('Home'));
@@ -687,18 +732,27 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
       <header className="sticky top-0 z-40 bg-[#0A0A0B]/95 backdrop-blur-xl border-b border-[#262629]">
-        <div className="px-4 py-4">
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <LayoutDashboard size={22} style={{ color: 'var(--sec-accent)' }} />
-            Admin Dashboard
-          </h1>
-          <p className="text-sm text-[var(--sec-text-muted)] mt-1">Payments, users & verification</p>
-        </div>
+        {isMobile ? (
+          <PageBackHeader
+            title="Admin Dashboard"
+            subtitle="Payments, users & verification"
+            pageName="AdminDashboard"
+            onBack={() => {
+              enterPartygoerMode();
+              navigate(createPageUrl('Home'));
+            }}
+          />
+        ) : (
+          <div className="px-4 py-4">
+            <h1 className="text-xl font-bold flex items-center gap-2">
+              <LayoutDashboard size={22} style={{ color: 'var(--sec-accent)' }} />
+              Admin Dashboard
+            </h1>
+            <p className="text-sm text-[var(--sec-text-muted)] mt-1">Payments, users & verification</p>
+          </div>
+        )}
         <div className="flex border-b border-[#262629] overflow-x-auto">
-          {((complianceAccess?.isSuperAdmin || user.role === 'SUPER_ADMIN')
-            ? ['overview', 'announcements', 'promoters', 'reports', 'payments', 'users', 'venues', 'flagged-reviews', 'compliance-documents']
-            : ['promoters', 'compliance-documents']
-          ).map((t) => {
+          {visibleTabs.map((t) => {
             const flaggedCount =
               (flaggedReviews.userReviews?.length || 0)
               + (flaggedReviews.venueReviews?.length || 0)

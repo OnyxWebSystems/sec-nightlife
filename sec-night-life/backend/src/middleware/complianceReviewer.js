@@ -80,7 +80,7 @@ export async function requireComplianceReviewer(req, res, next) {
     return next();
   }
 
-  // Active AdminReviewer
+  // Active AdminReviewer or dashboard delegate
   const reviewer = await prisma.adminReviewer.findFirst({
     where: {
       isActive: true,
@@ -88,10 +88,14 @@ export async function requireComplianceReviewer(req, res, next) {
     }
   });
 
-  if (!reviewer) {
-    return res.status(403).json({ error: 'Reviewer access required' });
-  }
+  if (reviewer) return next();
 
-  next();
+  const delegate = await prisma.adminDashboardDelegate.findFirst({
+    where: { isActive: true, email: userEmail },
+  });
+
+  if (delegate) return next();
+
+  return res.status(403).json({ error: 'Reviewer access required' });
 }
 

@@ -1,13 +1,21 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { motion } from 'framer-motion';
 import { LayoutDashboard, ChevronRight } from 'lucide-react';
+import { enterPartygoerMode } from '@/lib/activeViewMode';
 
 /**
  * Shown on Home when the user can access the admin dashboard (party-goer mode).
  */
 export default function AdminAccessBanner() {
+  const navigate = useNavigate();
+
+  const openAdmin = () => {
+    enterPartygoerMode();
+    navigate(createPageUrl('AdminDashboard'));
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -15,16 +23,21 @@ export default function AdminAccessBanner() {
       transition={{ duration: 0.25 }}
       style={{ marginBottom: 20 }}
     >
-      <Link
-        to={createPageUrl('AdminDashboard')}
+      <button
+        type="button"
+        onClick={openAdmin}
         style={{
           display: 'block',
+          width: '100%',
+          textAlign: 'left',
+          cursor: 'pointer',
           textDecoration: 'none',
           borderRadius: 16,
           border: '1px solid var(--sec-border)',
           background: 'linear-gradient(135deg, var(--sec-bg-elevated) 0%, var(--sec-bg-card) 100%)',
           padding: '14px 16px',
           boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+          color: 'inherit',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -73,7 +86,7 @@ export default function AdminAccessBanner() {
             style={{ flexShrink: 0, color: 'var(--sec-text-muted)' }}
           />
         </div>
-      </Link>
+      </button>
     </motion.div>
   );
 }

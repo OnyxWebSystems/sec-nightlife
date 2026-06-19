@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireRole, requireAdmin } from '../middleware/rbac.js';
 import { checkUserReviewEligibility } from '../lib/reviewEligibility.js';
 import { createInAppNotification, createInAppNotificationsForUsers } from '../lib/inAppNotifications.js';
 import { notifyAdmins } from '../lib/adminNotify.js';
@@ -195,7 +195,7 @@ router.get('/me/given', authenticateToken, async (req, res, next) => {
 });
 
 // --- Admin (must be before /users/:userId) ---
-router.get('/admin/flagged', authenticateToken, requireRole('SUPER_ADMIN'), async (req, res, next) => {
+router.get('/admin/flagged', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
     const [userReviews, venueReviews, venueUserReviews] = await Promise.all([
       prisma.userReview.findMany({

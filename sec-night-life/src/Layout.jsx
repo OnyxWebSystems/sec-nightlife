@@ -17,6 +17,7 @@ import { BUSINESS_PAGE_PERMISSIONS, useVenueStaffAccess } from '@/hooks/useVenue
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { useScrollDirection } from '@/hooks/useScrollDirection';
 import { getMobileNavState } from '@/lib/mobileNavVisibility';
+import { enterPartygoerMode } from '@/lib/activeViewMode';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
@@ -382,6 +383,10 @@ export default function Layout({ children, currentPageName }) {
   const attachNavTargets = (items) =>
     items.map((item) => ({ ...item, navTo: item.page ? resolveNavTarget(item) : null }));
 
+  const onAdminNavClick = (page) => {
+    if (page === 'AdminDashboard') enterPartygoerMode();
+  };
+
   // Mobile: Unified 5-tab bottom nav — stay party-goer during staff sessions
   const effectiveNavMode = staffAccess.inStaffSession ? 'partygoer' : mode;
   let mobileNav = effectiveNavMode === 'business'
@@ -472,6 +477,7 @@ export default function Layout({ children, currentPageName }) {
                 key={item.page + item.name + (item.query || '')}
                 to={item.navTo}
                 className="sec-nav-item"
+                onClick={() => onAdminNavClick(item.page)}
                 onMouseEnter={() => prefetchNav(item.page)}
                 onFocus={() => prefetchNav(item.page)}
                 style={{ position: 'relative', ...(isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}) }}
@@ -494,6 +500,7 @@ export default function Layout({ children, currentPageName }) {
               key={item.page + item.name}
               to={item.navTo}
               className="sec-nav-item"
+              onClick={() => onAdminNavClick(item.page)}
               onMouseEnter={() => prefetchNav(item.page)}
               onFocus={() => prefetchNav(item.page)}
               style={{ position: 'relative', ...(isActive(item.page) ? { color: 'var(--sec-text-primary)', backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)' } : {}) }}
@@ -534,23 +541,29 @@ export default function Layout({ children, currentPageName }) {
       >
         {complianceAccess.canReview && currentPageName !== 'AdminDashboard' && currentPageName !== 'Profile' && (
           <div className="lg:hidden" style={{ padding: '12px 16px 0' }}>
-            <Link
-              to={`${createPageUrl('AdminDashboard')}?tab=compliance-documents`}
+            <button
+              type="button"
+              onClick={() => {
+                enterPartygoerMode();
+                navigate(`${createPageUrl('AdminDashboard')}?tab=compliance-documents`);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
+                width: '100%',
                 padding: '12px 14px',
                 borderRadius: 14,
                 textDecoration: 'none',
                 color: 'var(--sec-text-primary)',
                 backgroundColor: 'var(--sec-accent-muted)',
                 border: '1px solid var(--sec-accent-border)',
+                cursor: 'pointer',
               }}
             >
               <Shield size={16} style={{ color: 'var(--sec-accent)' }} />
               <span style={{ fontSize: 14, fontWeight: 600 }}>Open Compliance Review</span>
-            </Link>
+            </button>
           </div>
         )}
         {showLayoutBackHeader ? (

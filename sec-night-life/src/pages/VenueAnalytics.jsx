@@ -269,7 +269,13 @@ export default function VenueAnalytics() {
         {/* Venue Selector */}
         <Card className="glass-card border-[#262629]">
           <CardContent className="pt-6">
-            {venues.length === 0 ? (
+            {venueScope.inStaffSession && selectedVenueRecord ? (
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Venue</p>
+                <p className="text-white font-medium">{selectedVenueRecord.name}</p>
+                <p className="text-xs text-gray-500 mt-1">Staff access</p>
+              </div>
+            ) : venues.length === 0 ? (
               <p className="text-sm text-gray-500">No venues linked to this account yet.</p>
             ) : venues.length === 1 && selectedVenueRecord ? (
               <div>

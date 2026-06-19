@@ -1,4 +1,5 @@
 import { createPageUrl } from '@/utils';
+import { enterPartygoerMode } from '@/lib/activeViewMode';
 
 /** Default parent page when back is pressed (mobile hierarchical nav). */
 export const MOBILE_PAGE_PARENT = {
@@ -155,6 +156,9 @@ export function mobileBackNavigate(
     return;
   }
   if (target.type === 'page') {
+    if (pageName === 'AdminDashboard') {
+      enterPartygoerMode();
+    }
     if (target.clearStaffContext && clearStaffContext) {
       clearStaffContext();
     }
