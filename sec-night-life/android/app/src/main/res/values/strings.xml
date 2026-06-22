@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SEC Nightlife</string>
+    <string name="title_activity_main">SEC Nightlife</string>
+    <string name="package_name">com.secnightlife.app</string>
+    <string name="custom_url_scheme">com.secnightlife.app</string>
+</resources>

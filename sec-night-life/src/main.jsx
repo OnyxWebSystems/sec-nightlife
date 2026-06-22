@@ -7,7 +7,12 @@ import {
   isStaleChunkLoadError,
   scheduleChunkReloadOnce,
 } from '@/lib/chunkLoadRecovery'
+import { initSentry } from '@/lib/sentry'
+import { initNativeShell } from '@/lib/capacitorNative'
+import { initPushNotifications } from '@/lib/pushNotifications'
 import '@/index.css'
+
+initSentry()
 
 window.addEventListener('load', () => {
   window.setTimeout(clearChunkReloadAttemptFlag, 2500)
@@ -33,3 +38,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <App />
   </ErrorBoundary>
 )
+
+void initNativeShell()
+void initPushNotifications()

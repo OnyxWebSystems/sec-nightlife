@@ -4,7 +4,9 @@
     "target": {
       "namespace": "android_app",
       "package_name": "com.secnightlife.app",
-      "sha256_cert_fingerprints": ["TODO_ADD_BEFORE_LAUNCH"]
+      "sha256_cert_fingerprints": [
+        "FOUNDER_ANDROID_SHA256_FINGERPRINT"
+      ]
     }
   }
 ]
