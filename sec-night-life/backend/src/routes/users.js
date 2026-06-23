@@ -1563,4 +1563,42 @@ router.delete('/me', authenticateToken, async (req, res, next) => {
   }
 });
 
+const pushTokenSchema = z.object({
+  token: z.string().trim().min(20).max(4096),
+  platform: z.enum(['ios', 'android', 'web']),
+});
+
+/** Register or refresh a native push device token (FCM/APNs). */
+router.post('/push-token', authenticateToken, requireVerified, async (req, res, next) => {
+  try {
+    const parsed = pushTokenSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid push token payload' });
+    }
+    const { token, platform } = parsed.data;
+    await prisma.pushDeviceToken.upsert({
+      where: { userId_token: { userId: req.userId, token } },
+      create: { userId: req.userId, token, platform },
+      update: { platform, updatedAt: new Date() },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Remove a push device token (e.g. on logout). */
+router.delete('/push-token', authenticateToken, async (req, res, next) => {
+  try {
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    if (!token) return res.status(400).json({ error: 'token required' });
+    await prisma.pushDeviceToken.deleteMany({
+      where: { userId: req.userId, token },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

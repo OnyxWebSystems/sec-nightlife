@@ -402,6 +402,7 @@ model User {
   promoterVenueThreads        PromoterVenueThread[]      @relation("PromoterVenueThreadUser")
   promoterVenueMessagesSent   PromoterVenueMessage[]     @relation("PromoterVenueMessageSender")
   weekendRemindersSent        WeekendReminderSent[]
+  pushDeviceTokens            PushDeviceToken[]
 
   @@unique([email, role])
   @@index([email])
@@ -2412,4 +2413,19 @@ model WeekendReminderSent {
 
   @@unique([userId, weekKey])
   @@map("weekend_reminder_sent")
+}
+
+model PushDeviceToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String
+  platform  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId])
+  @@map("push_device_tokens")
 }

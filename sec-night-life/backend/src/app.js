@@ -56,6 +56,7 @@ import staffContextVenueRoutes from './routes/staffContextVenue.js';
 import venueStaffRoutes, { staffVenuesRouter } from './routes/venueStaff.js';
 import menuCatalogRoutes from './routes/menuCatalog.js';
 import homeFeedRoutes from './routes/homeFeed.js';
+import mapRoutes from './routes/map.js';
 import celebrationRoutes from './routes/celebrations.js';
 import walletRoutes from './routes/wallet.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -215,6 +216,7 @@ app.use('/api/staff', generalLimiter, staffVenuesRouter);
 app.use('/api/business', generalLimiter, businessMenuRoutes);
 app.use('/api/menu-catalog', generalLimiter, menuCatalogRoutes);
 app.use('/api/home', generalLimiter, homeFeedRoutes);
+app.use('/api/map', generalLimiter, mapRoutes);
 app.use('/api/celebrations', generalLimiter, celebrationRoutes);
 
 app.get('/', (req, res) => {
@@ -223,6 +225,16 @@ app.get('/', (req, res) => {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+/** Public readiness probe — verifies DB connectivity for deploy monitors. */
+app.get('/api/health/ready', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ready', db: 'ok', timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ status: 'not_ready', db: 'error', timestamp: new Date().toISOString() });
+  }
 });
 
 /** Compare venue counts with Neon SQL without Prisma CLI. Dev: open. Production: admin JWT only. */

@@ -236,15 +236,11 @@ export default function Home() {
   const refreshHomeData = useCallback(
     async (showToast = true) => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['home-promotions-feed'] }),
+        queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] }),
         queryClient.invalidateQueries({ queryKey: ['home-feed'] }),
         queryClient.invalidateQueries({ queryKey: ['featured-events'] }),
         queryClient.invalidateQueries({ queryKey: ['featured-events-details'] }),
-        queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] }),
-        queryClient.invalidateQueries({ queryKey: ['host-parties-public-home'] }),
         queryClient.invalidateQueries({ queryKey: ['all-venues'] }),
-        queryClient.invalidateQueries({ queryKey: ['home-platform-announcements'] }),
-        queryClient.invalidateQueries({ queryKey: ['home-followed-promoters'] }),
         queryClient.invalidateQueries({ queryKey: ['staff-venues'] }),
       ]);
       if (showToast) toast.success('Feed refreshed');
@@ -373,26 +369,16 @@ export default function Home() {
     staleTime: 60_000,
   });
 
-  const { data: followedPromotersData } = useQuery({
-    queryKey: ['home-followed-promoters'],
-    queryFn: () => apiGet('/api/home/followed-promoters'),
-    enabled: !isLoadingAuth && !!user,
-    staleTime: 60_000,
-  });
-  const followedPromoterEvents = followedPromotersData?.items || [];
+  const bootstrapScopeKey = homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity || 'all';
 
-  const { data: platformAnnouncementsData } = useQuery({
-    queryKey: ['home-platform-announcements'],
-    queryFn: () => apiGet('/api/home/announcements'),
-    enabled: !isLoadingAuth && !!user?.id,
-    staleTime: 30_000,
-  });
-  const platformAnnouncements = platformAnnouncementsData?.announcements || [];
-
-  const { data: promotionsFeedData, isLoading: promotionsFeedLoading } = useQuery({
-    queryKey: ['home-promotions-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity],
+  const { data: homeBootstrap, isLoading: bootstrapLoading } = useQuery({
+    queryKey: ['home-bootstrap', sessionId, bootstrapScopeKey],
     queryFn: async () => {
-      const params = new URLSearchParams({ limit: '12', page: '1', sessionId });
+      const params = new URLSearchParams({
+        sessionId,
+        tableLimit: '24',
+        promoLimit: '12',
+      });
       if (homeFeedScopeAll) params.set('scope', 'all');
       else if (homeFeedGeoKey && geoCoords) {
         params.set('lat', String(geoCoords.lat));
@@ -400,15 +386,18 @@ export default function Home() {
         params.set('radius_km', String(locPrefs?.radiusKm ?? 25));
       } else if (homeFeedCity) params.set('city', homeFeedCity);
       else params.set('scope', 'all');
-      return apiGet(`/api/promotions/feed?${params.toString()}`, {
+      return apiGet(`/api/home/bootstrap?${params.toString()}`, {
         headers: { 'x-session-id': sessionId },
-        skipAuth: true,
       });
     },
-    staleTime: 60_000,
     enabled: !isLoadingAuth && !!user?.id,
+    staleTime: 60_000,
   });
-  const homePromotions = promotionsFeedData?.results || [];
+
+  const followedPromoterEvents = homeBootstrap?.followedPromoters?.items || [];
+  const platformAnnouncements = homeBootstrap?.announcements || [];
+  const homePromotions = homeBootstrap?.promotions?.results || [];
+  const promotionsFeedLoading = bootstrapLoading;
 
   const feedRows = useMemo(() => (feedPages?.pages || []).flatMap((p) => p.items || []), [feedPages]);
 
@@ -419,22 +408,14 @@ export default function Home() {
     enabled: !isLoadingAuth && !!user?.id,
   });
 
-  const { data: tableOfferingsData, isLoading: tablesLoading } = useQuery({
-    queryKey: ['home-table-offerings', sessionId],
-    queryFn: () =>
-      apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}`, {
-        headers: { 'x-session-id': sessionId },
-      }),
-    staleTime: listStale,
-    enabled: !isLoadingAuth && !!user?.id,
-  });
   const tableOfferings = useMemo(() => {
-    const items = tableOfferingsData?.items || [];
+    const items = homeBootstrap?.tableOfferings || [];
     return items.filter((o) => {
       if (o.type !== 'venue_event') return true;
       return !isEventEnded({ date: o.eventDate, ends_at: o.eventEndsAt, endsAt: o.eventEndsAt });
     });
-  }, [tableOfferingsData?.items]);
+  }, [homeBootstrap?.tableOfferings]);
+  const tablesLoading = bootstrapLoading;
 
   const { data: venues = [] } = useQuery({
     queryKey: ['all-venues', selectedCity],

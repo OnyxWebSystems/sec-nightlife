@@ -29,12 +29,22 @@ Production readiness improved from **~62/100** to **~78/100** via safe, low-risk
 - **Fonts** — Inter 400/600 only + preload
 - **Dependencies** — removed unused heavy packages (maps, three, lodash, moment, etc.)
 
-## Phase 2 — Deferred (requires approval)
+## Phase 2 — Partial / deferred
 
+- **`GET /api/home/bootstrap`** — implemented (announcements, tables, promos, followed promoters)
 - Upstash Redis for public feeds + distributed rate limits
-- `GET /api/home/bootstrap` aggregated endpoint
 - Short-lived auth suspension cache
+- FCM push **delivery** from backend (token storage implemented)
 - Lazy Layout shell refactor
+
+## Phase 1.5 — Launch hardening (latest)
+
+- **`GET /api/health/ready`** — public DB readiness probe
+- **`GET /api/map/pins`** — geo-filtered map data (up to 200 venues)
+- **`POST /api/users/push-token`** — native device token registration
+- **Production env guards** — fatal if `SKIP_EMAIL_VERIFICATION`, `ALLOW_UNVERIFIED_LOGIN`, or missing `CRON_SECRET`
+- **Messages `/filter`** — cursor via `before_message_id`
+- **`docs/LAUNCH_CHECKLIST.md`** — pre-launch verification list
 
 ## Deploy notes
 

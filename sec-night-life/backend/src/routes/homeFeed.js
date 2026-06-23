@@ -4,6 +4,8 @@ import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { buildTableOfferings } from '../lib/tableOfferings.js';
 import { parseGeoQuery, distanceKm } from '../lib/geo.js';
 
+import { buildHomeBootstrap } from '../lib/homeBootstrap.js';
+
 const router = Router();
 
 function hashString(input) {
@@ -334,6 +336,16 @@ router.get('/announcements', optionalAuth, async (req, res, next) => {
         createdAt: r.createdAt.toISOString(),
       })),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Single round-trip payload for authenticated Home (announcements, tables, promos, followed promoters). */
+router.get('/bootstrap', optionalAuth, async (req, res, next) => {
+  try {
+    const payload = await buildHomeBootstrap(req);
+    res.json(payload);
   } catch (err) {
     next(err);
   }

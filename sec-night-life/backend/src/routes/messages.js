@@ -444,11 +444,28 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
     const sort = String(req.query.sort || 'created_date');
-    const orderBy = { createdAt: sort === '-created_date' ? 'desc' : 'asc' };
+    const desc = sort === '-created_date';
+    const orderBy = { createdAt: desc ? 'desc' : 'asc' };
     const take = Math.min(parseInt(req.query.limit, 10) || 100, 100);
+    const beforeMessageId = typeof req.query.before_message_id === 'string'
+      ? req.query.before_message_id.trim()
+      : '';
+
+    let cursorClause = {};
+    if (beforeMessageId) {
+      const anchor = await prisma.message.findFirst({
+        where: { id: beforeMessageId, chatId: String(chatId) },
+        select: { createdAt: true },
+      });
+      if (anchor) {
+        cursorClause = desc
+          ? { createdAt: { lt: anchor.createdAt } }
+          : { createdAt: { gt: anchor.createdAt } };
+      }
+    }
 
     const rows = await prisma.message.findMany({
-      where: { chatId: String(chatId) },
+      where: { chatId: String(chatId), ...cursorClause },
       orderBy,
       take,
     });

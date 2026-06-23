@@ -161,11 +161,25 @@ export function validateEnv() {
     }
 
     if (!process.env.CRON_SECRET || process.env.CRON_SECRET.trim() === '') {
-      warn(
-        'CRON_SECRET is not set. Vercel Cron jobs that call /api/cron/* will receive 401 until ' +
-        'CRON_SECRET is set to the same value configured in the Vercel project (Bearer token). ' +
-        'Event interest reminders (T-3h) and other cron tasks will not run.'
+      fatal(
+        'CRON_SECRET must be set in production.\n' +
+        '  Vercel Cron invokes /api/cron/* with Authorization: Bearer <CRON_SECRET>.\n' +
+        '  Without it, promotion expiry, party completion, and reminder jobs will not run.'
       );
+    }
+
+    if (
+      process.env.SKIP_EMAIL_VERIFICATION === 'true' ||
+      process.env.SKIP_EMAIL_VERIFICATION === '1'
+    ) {
+      fatal('SKIP_EMAIL_VERIFICATION must not be set in production.');
+    }
+
+    if (
+      process.env.ALLOW_UNVERIFIED_LOGIN === 'true' ||
+      process.env.ALLOW_UNVERIFIED_LOGIN === '1'
+    ) {
+      fatal('ALLOW_UNVERIFIED_LOGIN must not be set in production.');
     }
   }
 }

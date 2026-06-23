@@ -67,23 +67,39 @@ export default function Map() {
   const mapRef = React.useRef(null);
   const { status: mapsStatus, error: mapsError } = useGoogleMaps();
 
-  const { data: venues = [] } = useQuery({
-    queryKey: ['map-venues-full'],
-    queryFn: () => dataService.Venue.filter({}, '-rating', 1000),
+  const mapPinsScope = areaMode === 'all'
+    ? 'all'
+    : `${userLocation?.lat ?? geoCoords?.lat ?? ''},${userLocation?.lng ?? geoCoords?.lng ?? ''},${nearbyRadiusKm}`;
+
+  const { data: mapPins } = useQuery({
+    queryKey: ['map-pins', mapPinsScope],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (areaMode === 'all') {
+        params.set('scope', 'all');
+      } else {
+        const lat = userLocation?.lat ?? geoCoords?.lat;
+        const lng = userLocation?.lng ?? geoCoords?.lng;
+        if (lat != null && lng != null) {
+          params.set('lat', String(lat));
+          params.set('lng', String(lng));
+          params.set('radius_km', String(nearbyRadiusKm));
+        } else {
+          params.set('scope', 'all');
+        }
+      }
+      return apiGet(`/api/map/pins?${params.toString()}`);
+    },
+    staleTime: 120_000,
   });
+
+  const venues = mapPins?.venues || [];
+  const events = mapPins?.events || [];
+  const tables = mapPins?.tables || [];
+
   const { data: myVenues = [] } = useQuery({
     queryKey: ['map-my-venues'],
     queryFn: () => dataService.Venue.mine(),
-  });
-
-  const { data: events = [] } = useQuery({
-    queryKey: ['map-events-full'],
-    queryFn: () => dataService.Event.filter({}, 'date', 1000),
-  });
-
-  const { data: tables = [] } = useQuery({
-    queryKey: ['map-tables-full'],
-    queryFn: () => dataService.Table.filter({}, '-created_date', 1000),
   });
 
   const { data: userProfile } = useQuery({
