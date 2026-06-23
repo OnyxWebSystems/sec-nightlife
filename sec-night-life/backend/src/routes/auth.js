@@ -3,7 +3,6 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../lib/prisma.js';
 import { audit } from '../lib/audit.js';
 import { logger } from '../lib/logger.js';
@@ -12,6 +11,12 @@ import { authenticateToken } from '../middleware/auth.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
+import {
+  createRefreshTokenRow,
+  findRefreshTokenRecord,
+  pruneUserRefreshTokens,
+  revokeRefreshToken,
+} from '../lib/refreshTokens.js';
 
 const router = Router();
 const SALT_ROUNDS = 12;
@@ -20,7 +25,11 @@ const SALT_ROUNDS = 12;
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 const JWT_ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '15m';
-const JWT_REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '90d';
+const JWT_REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '365d';
+
+function accessTokenExpiresInSeconds() {
+  return Math.max(60, Math.floor(parseExpiryToMs(JWT_ACCESS_EXPIRY) / 1000));
+}
 
 function parseExpiryToMs(expiry) {
   const match = /^(\d+)([smhd])$/.exec(String(expiry || '').trim());
@@ -46,30 +55,16 @@ function hashTokenSha256(raw) {
   return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
-/** bcrypt hash for refresh tokens (slower, stored in refresh_tokens table) */
-async function hashRefreshToken(raw) {
-  return bcrypt.hash(raw, 10);
-}
-
-async function verifyRefreshTokenHash(raw, hash) {
-  return bcrypt.compare(raw, hash);
-}
-
-/** Issue a new access + refresh token pair; stores hashed refresh token */
+/** Issue a new access + refresh token pair; stores hashed refresh token with fast lookup key */
 async function issueTokens(user) {
   const accessToken = jwt.sign(
     { userId: user.id, role: user.role },
     JWT_ACCESS_SECRET,
     { expiresIn: JWT_ACCESS_EXPIRY }
   );
-  const rawRefresh = uuidv4() + '.' + uuidv4(); // high-entropy opaque token
-  const refreshHash = await hashRefreshToken(rawRefresh);
   const refreshExpiry = new Date(Date.now() + parseExpiryToMs(JWT_REFRESH_EXPIRY));
-
-  await prisma.refreshToken.create({
-    data: { userId: user.id, token: refreshHash, expiresAt: refreshExpiry }
-  });
-
+  await pruneUserRefreshTokens(user.id);
+  const rawRefresh = await createRefreshTokenRow(user.id, refreshExpiry);
   return { accessToken, refreshToken: rawRefresh };
 }
 
@@ -406,7 +401,7 @@ router.post('/register', async (req, res, next) => {
       user: userPayload(user),
       accessToken,
       refreshToken,
-      expiresIn: 900,
+      expiresIn: accessTokenExpiresInSeconds(),
       emailVerificationRequired: !skipVerification
     });
   } catch (err) {
@@ -580,7 +575,7 @@ router.post('/login', async (req, res, next) => {
       }),
       accessToken,
       refreshToken,
-      expiresIn: 900
+      expiresIn: accessTokenExpiresInSeconds()
     });
   } catch (err) {
     next(err);
@@ -685,31 +680,7 @@ router.post('/refresh', async (req, res, next) => {
     }
     const { refreshToken: rawToken } = parsed.data;
 
-    // Try to narrow by userId from JWT if rawToken happens to be a JWT (legacy)
-    let payloadUserId = null;
-    try {
-      const p = jwt.verify(rawToken, JWT_REFRESH_SECRET);
-      payloadUserId = p?.userId || null;
-    } catch {
-      // opaque token — no JWT payload, that's fine
-    }
-
-    const candidates = await prisma.refreshToken.findMany({
-      where: {
-        expiresAt: { gt: new Date() },
-        ...(payloadUserId ? { userId: payloadUserId } : {})
-      },
-      take: 20
-    });
-
-    let matched = null;
-    for (const c of candidates) {
-      if (await verifyRefreshTokenHash(rawToken, c.token)) {
-        matched = c;
-        break;
-      }
-    }
-
+    const matched = await findRefreshTokenRecord(rawToken);
     if (!matched) {
       return res.status(401).json({ error: 'Invalid or expired refresh token' });
     }
@@ -741,7 +712,7 @@ router.post('/refresh', async (req, res, next) => {
       }),
       accessToken,
       refreshToken: newRefreshToken,
-      expiresIn: 900
+      expiresIn: accessTokenExpiresInSeconds()
     });
   } catch (err) {
     next(err);
@@ -754,16 +725,7 @@ router.post('/logout', async (req, res, next) => {
   try {
     const { refreshToken: rawToken } = req.body;
     if (rawToken && typeof rawToken === 'string') {
-      const candidates = await prisma.refreshToken.findMany({
-        where: { expiresAt: { gt: new Date() } },
-        take: 50
-      });
-      for (const c of candidates) {
-        if (await verifyRefreshTokenHash(rawToken, c.token)) {
-          await prisma.refreshToken.delete({ where: { id: c.id } });
-          break;
-        }
-      }
+      await revokeRefreshToken(rawToken);
     }
     res.json({ success: true });
   } catch (err) {

@@ -10,6 +10,7 @@ import {
 import { initSentry } from '@/lib/sentry'
 import { initNativeShell } from '@/lib/capacitorNative'
 import { initPushNotifications } from '@/lib/pushNotifications'
+import { startSessionKeepalive } from '@/lib/sessionKeepalive'
 import '@/index.css'
 
 initSentry()
@@ -41,3 +42,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
 void initNativeShell()
 void initPushNotifications()
+startSessionKeepalive()

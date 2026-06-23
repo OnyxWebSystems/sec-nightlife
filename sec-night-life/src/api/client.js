@@ -20,6 +20,8 @@ function getRefreshToken() {
   }
 }
 
+export { getRefreshToken };
+
 function getTokenStorage() {
   try {
     if (localStorage.getItem('access_token') || localStorage.getItem('refresh_token')) {
@@ -43,7 +45,7 @@ function getHeaders(includeAuth = true) {
 
 let refreshInFlight = null;
 
-async function doRefreshAccessToken() {
+async function doRefreshAccessToken(opts = {}) {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 
@@ -67,6 +69,13 @@ async function doRefreshAccessToken() {
 
   if (!res.ok || !data?.accessToken) {
     if (res.status === 401 || res.status === 403) {
+      // Another tab may have rotated the refresh token — retry once with latest storage value.
+      if (!opts._storageRetry) {
+        const latest = getRefreshToken();
+        if (latest && latest !== refreshToken) {
+          return doRefreshAccessToken({ ...opts, _storageRetry: true });
+        }
+      }
       clearTokens();
     }
     return false;
@@ -75,6 +84,9 @@ async function doRefreshAccessToken() {
   const storage = getTokenStorage();
   storage.setItem('access_token', data.accessToken);
   if (data.refreshToken) storage.setItem('refresh_token', data.refreshToken);
+  try {
+    localStorage.setItem('sec_tokens_updated', String(Date.now()));
+  } catch {}
   return true;
 }
 
