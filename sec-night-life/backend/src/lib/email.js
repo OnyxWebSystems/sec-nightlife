@@ -15,7 +15,7 @@ function createResendClient() {
 }
 
 function getPublicAppBaseUrl() {
-  const raw = (process.env.APP_URL || 'https://sec-nightlife.vercel.app').trim();
+  const raw = (process.env.APP_URL || 'https://secnightlife.com').trim();
   return raw.replace(/\/+$/, '');
 }
 

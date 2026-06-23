@@ -25,7 +25,7 @@ export function eventAtHintIso(eventStartsAt) {
 
 /**
  * Full TicketVerify URL including optional human-readable hints (event code, venue + event time).
- * @param {string} baseUrl — e.g. https://sec-nightlife.vercel.app (no trailing slash)
+ * @param {string} baseUrl — e.g. https://secnightlife.com (no trailing slash)
  * @param {string} qrToken
  * @param {{ eventCode?: string | null; venueName?: string | null; eventStartsAt?: Date | string | null }} [hints]
  */

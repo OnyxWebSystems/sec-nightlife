@@ -21,8 +21,8 @@ Redeploy after changes. Cron jobs require `CRON_SECRET` to match Vercel Cron aut
 | Variable | Example placeholder | Where to get it | Used in |
 |----------|---------------------|-----------------|---------|
 | `NODE_ENV` | `production` | Set manually | Startup validation |
-| `CORS_ORIGIN` | `https://app.secnightlife.com` | Frontend URL | `src/app.js` |
-| `APP_URL` | `https://app.secnightlife.com` | Frontend URL | Email links, deep links |
+| `CORS_ORIGIN` | `https://secnightlife.com` | Frontend URL | `src/app.js` |
+| `APP_URL` | `https://secnightlife.com` | Frontend URL | Email links, deep links |
 | `RESEND_API_KEY` | `re_...` | resend.com | `src/lib/email.js` |
 | `EMAIL_FROM` | `SEC Nightlife <noreply@secnightlife.com>` | After Resend domain verify | Transactional email |
 

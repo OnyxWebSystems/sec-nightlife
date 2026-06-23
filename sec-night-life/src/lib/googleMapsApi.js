@@ -8,7 +8,7 @@ function withHelpfulMessage(err) {
 
   if (/RefererNotAllowedMapError/i.test(raw)) {
     return new Error(
-      'Google Maps blocked this domain (RefererNotAllowedMapError). Ensure your key allows https://sec-nightlife.vercel.app/* and redeploy after env updates.'
+      'Google Maps blocked this domain (RefererNotAllowedMapError). Ensure your key allows https://secnightlife.com/* and redeploy after env updates.'
     );
   }
   if (/InvalidKeyMapError/i.test(raw)) {

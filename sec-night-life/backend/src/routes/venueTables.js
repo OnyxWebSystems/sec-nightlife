@@ -693,7 +693,7 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
       },
     });
     const ownerEmail = table.venue.owner?.email;
-    const reviewUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/BusinessVenueTables?tab=requests`;
+    const reviewUrl = `${process.env.APP_URL || 'https://secnightlife.com'}/BusinessVenueTables?tab=requests`;
     if (ownerEmail) {
       try {
         await sendEmail({
@@ -749,7 +749,7 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
     if (member.venueTable.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
     const guestEmail = member.user?.email;
     const tableLabel = member.venueTable.tableName;
-    const payUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/TableDetails?id=${member.venueTableId}&source=venue&checkout=1`;
+    const payUrl = `${process.env.APP_URL || 'https://secnightlife.com'}/TableDetails?id=${member.venueTableId}&source=venue&checkout=1`;
     if (payload.action === 'decline') {
       const templateKeys =
         payload.declineTemplateKeys?.length
@@ -795,7 +795,7 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
           },
         });
       }
-      const threadUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/Messages?venueTableThread=${thread.id}`;
+      const threadUrl = `${process.env.APP_URL || 'https://secnightlife.com'}/Messages?venueTableThread=${thread.id}`;
       await prisma.notification.create({
         data: {
           userId: member.userId,

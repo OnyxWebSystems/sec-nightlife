@@ -24,7 +24,7 @@ export async function notifyPaymentSuccess({
     referenceType,
   });
   if (email) {
-    const appBase = process.env.APP_URL || 'https://sec-nightlife.vercel.app';
+    const appBase = process.env.APP_URL || 'https://secnightlife.com';
     const link = actionUrl ? `${appBase.replace(/\/$/, '')}${actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`}` : null;
     sendEmail({
       to: email,

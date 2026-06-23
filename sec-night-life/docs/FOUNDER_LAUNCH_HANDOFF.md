@@ -148,26 +148,27 @@ Cloudinary accounts **cannot be transferred**. Founder must own the account.
 
 ## Custom domain setup (two Vercel projects)
 
-Replace `YOUR_DOMAIN` with the real domain (e.g. `secnightlife.com`).
+**Production:** `secnightlife.com` (frontend) + `api.secnightlife.com` (backend).  
+See [CUSTOM_DOMAIN_DNS.md](./CUSTOM_DOMAIN_DNS.md) for DNS verification at GoDaddy.
 
 ### 1. Frontend Vercel project
 
-- Add domain: `app.YOUR_DOMAIN` (or root `YOUR_DOMAIN`)
-- DNS: CNAME to `cname.vercel-dns.com` (Vercel shows exact record)
+- Add domain: `secnightlife.com` (and optional `www.secnightlife.com`)
+- DNS at GoDaddy: use records Vercel shows (A or CNAME to Vercel)
 
 ### 2. Backend Vercel project
 
-- Add domain: `api.YOUR_DOMAIN`
-- DNS: CNAME per Vercel instructions
+- Add domain: `api.secnightlife.com`
+- DNS at GoDaddy: CNAME `api` → Vercel target
 
 ### 3. Update environment variables
 
 | Project | Variable | Value |
 |---------|----------|-------|
-| Frontend | `VITE_API_URL` | `https://api.YOUR_DOMAIN` |
-| Frontend | `VITE_PUBLIC_APP_URL` | `https://app.YOUR_DOMAIN` |
-| Backend | `CORS_ORIGIN` | `https://app.YOUR_DOMAIN` |
-| Backend | `APP_URL` | `https://app.YOUR_DOMAIN` |
+| Frontend | `VITE_API_URL` | `https://api.secnightlife.com` |
+| Frontend | `VITE_PUBLIC_APP_URL` | `https://secnightlife.com` |
+| Backend | `CORS_ORIGIN` | `https://secnightlife.com` |
+| Backend | `APP_URL` | `https://secnightlife.com` |
 
 Redeploy **both** projects after changes.
 
@@ -175,21 +176,21 @@ Redeploy **both** projects after changes.
 
 In Google Cloud Console → APIs & Services → Credentials:
 
-- HTTP referrers: `https://app.YOUR_DOMAIN/*`, `http://localhost:*`
+- HTTP referrers: `https://secnightlife.com/*`, `http://localhost:*`
 - Android app: package `com.secnightlife.app` + SHA-1 from release keystore
 - iOS app: bundle ID `com.secnightlife.app`
 
 ### 5. Resend domain verification
 
-- Add domain in Resend → copy DNS records (SPF, DKIM) to domain registrar
-- Wait for verification → set `EMAIL_FROM=noreply@YOUR_DOMAIN`
+- Add domain in Resend → copy DNS records (SPF, DKIM) to GoDaddy
+- Wait for verification → set `EMAIL_FROM=noreply@secnightlife.com`
 
 ### 6. Verify deep links
 
 After deploy, these must return **JSON** (not HTML):
 
-- `https://app.YOUR_DOMAIN/.well-known/assetlinks.json`
-- `https://app.YOUR_DOMAIN/.well-known/apple-app-site-association`
+- `https://secnightlife.com/.well-known/assetlinks.json`
+- `https://secnightlife.com/.well-known/apple-app-site-association`
 
 Update placeholders in `public/.well-known/`:
 
@@ -205,8 +206,8 @@ Update placeholders in `public/.well-known/`:
 | `SKIP_EMAIL_VERIFICATION` | unset or `false` |
 | `ALLOW_UNVERIFIED_LOGIN` | unset or `false` |
 | `NODE_ENV` | `production` |
-| `CORS_ORIGIN` | `https://app.YOUR_DOMAIN` only (no localhost) |
-| `APP_URL` | `https://app.YOUR_DOMAIN` |
+| `CORS_ORIGIN` | `https://secnightlife.com` only (no localhost) |
+| `APP_URL` | `https://secnightlife.com` |
 
 ---
 
@@ -246,6 +247,7 @@ See also: [CAPACITOR_BUILD.md](./CAPACITOR_BUILD.md), [FIREBASE_PUSH_SETUP.md](.
 
 ## Related docs
 
+- [CUSTOM_DOMAIN_DNS.md](./CUSTOM_DOMAIN_DNS.md)
 - [VERCEL_ENV_FRONTEND.md](./VERCEL_ENV_FRONTEND.md)
 - [VERCEL_ENV_BACKEND.md](./VERCEL_ENV_BACKEND.md)
 - [CAPACITOR_BUILD.md](./CAPACITOR_BUILD.md)

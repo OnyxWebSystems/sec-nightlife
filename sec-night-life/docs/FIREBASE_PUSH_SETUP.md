@@ -6,11 +6,11 @@ Web/PWA does not use Firebase env vars — only native Android/iOS builds.
 
 ---
 
-## 1. Create Firebase project
+## Project (configured)
 
-1. Go to [console.firebase.google.com](https://console.firebase.google.com)
-2. Create project (e.g. `sec-nightlife`)
-3. Enable **Google Analytics** (optional)
+- Project ID: `sec-nightlife-55ed4`
+- Android package / iOS bundle: `com.secnightlife.app`
+- Config files: `android/app/google-services.json`, `ios/App/App/GoogleService-Info.plist`
 
 ---
 

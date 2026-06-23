@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "889948385319",
+    "project_id": "sec-nightlife-55ed4",
+    "storage_bucket": "sec-nightlife-55ed4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889948385319:android:71ce0c84f552c6ce1d5e02",
+        "android_client_info": {
+          "package_name": "com.secnightlife.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCw7tNfJh_knGlg1DkjIi_eaY2yZdcLpPc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

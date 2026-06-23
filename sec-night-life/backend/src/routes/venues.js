@@ -528,7 +528,7 @@ router.post('/:id/custom-table-request', authenticateToken, async (req, res, nex
       },
     });
 
-    const reviewUrl = `${process.env.APP_URL || 'https://sec-nightlife.vercel.app'}/BusinessVenueTables?tab=requests`;
+    const reviewUrl = `${process.env.APP_URL || 'https://secnightlife.com'}/BusinessVenueTables?tab=requests`;
     if (venue.owner?.email) {
       try {
         await sendEmail({

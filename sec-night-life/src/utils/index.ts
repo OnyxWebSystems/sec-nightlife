@@ -31,7 +31,7 @@ export function buildPageUrl(
 
 /** Canonical web origin for share links (not the API URL). */
 export function getPublicAppOrigin(): string {
-    const raw = import.meta.env.VITE_PUBLIC_APP_URL || 'https://sec-nightlife.vercel.app';
+    const raw = import.meta.env.VITE_PUBLIC_APP_URL || 'https://secnightlife.com';
     return String(raw).replace(/\/+$/, '');
 }
 

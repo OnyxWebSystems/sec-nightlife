@@ -10,8 +10,8 @@ Apply to **Production**, **Preview**, and **Development** as appropriate. Redepl
 
 | Variable | Example placeholder | Where to get it | Used in |
 |----------|---------------------|-----------------|---------|
-| `VITE_API_URL` | `https://api.secnightlife.com` | Backend Vercel custom domain | `src/api/client.js`, `src/config/env.js` |
-| `VITE_PUBLIC_APP_URL` | `https://app.secnightlife.com` | Frontend custom domain | `src/utils/index.ts` (share links, ticket QR) |
+| `VITE_API_URL` | `https://api.secnightlife.com` | Backend custom domain | `src/api/client.js`, `src/config/env.js` |
+| `VITE_PUBLIC_APP_URL` | `https://secnightlife.com` | Frontend custom domain | `src/utils/index.ts` (share links, ticket QR) |
 | `VITE_CLOUDINARY_CLOUD_NAME` | `founder_cloud_name` | Cloudinary dashboard | Venue onboarding, promotions, uploads |
 | `VITE_CLOUDINARY_UPLOAD_PRESET` | `sec_unsigned_uploads` | Cloudinary → Upload presets (unsigned) | Browser direct uploads |
 | `VITE_GOOGLE_MAPS_API_KEY` | `AIza...` | Google Cloud Console (founder) | Map, address autocomplete |
