@@ -21,7 +21,18 @@ export async function requireVerified(req, res, next) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  // SECURITY: always check DB — never trust a cached value
+  if (req.emailVerified === true) {
+    return next();
+  }
+
+  if (req.emailVerified === false) {
+    return res.status(403).json({
+      error: 'Email verification required. Please verify your email before performing this action.',
+      code: 'EMAIL_NOT_VERIFIED',
+    });
+  }
+
+  // Fallback when optionalAuth or legacy path did not set emailVerified
   const user = await prisma.user.findUnique({
     where: { id: req.userId },
     select: { emailVerified: true, deletedAt: true }

@@ -445,7 +445,7 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
 
     const sort = String(req.query.sort || 'created_date');
     const orderBy = { createdAt: sort === '-created_date' ? 'desc' : 'asc' };
-    const take = Math.min(parseInt(req.query.limit) || 500, 1000);
+    const take = Math.min(parseInt(req.query.limit, 10) || 100, 100);
 
     const rows = await prisma.message.findMany({
       where: { chatId: String(chatId) },

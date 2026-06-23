@@ -23,27 +23,7 @@ function isSchemaDriftError(err) {
 }
 
 async function promoterActivityMap(userIds) {
-  const map = new Map();
-  for (const id of userIds) map.set(id, { acceptedJobs: 0, completedJobs: 0, lastActivityAt: null });
-  if (!userIds.length) return map;
-
-  const jobs = await prisma.job.findMany({
-    where: { deletedAt: null },
-    select: { applicants: true, updatedAt: true },
-  });
-  for (const job of jobs) {
-    const applicants = Array.isArray(job.applicants) ? job.applicants : [];
-    for (const app of applicants) {
-      const uid = app?.user_account_id;
-      if (!uid || !map.has(uid)) continue;
-      const item = map.get(uid);
-      if ((app.status || '').toLowerCase() === 'accepted') item.acceptedJobs += 1;
-      if (app.work_completed_at) item.completedJobs += 1;
-      const d = new Date(app.work_completed_at || job.updatedAt);
-      if (!item.lastActivityAt || d > item.lastActivityAt) item.lastActivityAt = d;
-    }
-  }
-  return map;
+  return promoterActivityMapFromJobApplications(userIds);
 }
 
 async function promoterActivityMapFromJobApplications(userIds) {
@@ -142,7 +122,7 @@ export async function getPromotersLeaderboard({ page = 1, limit = 50, includeUnv
     const staleCutoff = new Date(Date.now() - POLICY.staleDays * 24 * 60 * 60 * 1000);
 
     const [legacyActivity, postingActivity, legalAcceptances, ratingsByUser, reportsByUser, blocksByUser, conversionStats] = await Promise.all([
-      promoterActivityMap(userIds),
+      Promise.resolve(new Map()),
       promoterActivityMapFromJobApplications(userIds),
       prisma.legalDocumentAcceptance.findMany({
         where: { userId: { in: userIds }, documentType: 'PROMOTER_CODE_OF_CONDUCT' },

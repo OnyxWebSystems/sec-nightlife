@@ -87,19 +87,11 @@ router.get('/unread-count', authenticateToken, async (req, res, next) => {
       ...(type ? { type } : { NOT: { type: { in: EXCLUDED_IN_APP_TYPES } } }),
       ...(venueScope.where || {}),
     };
-    const [inAppRows, legacyRows] = await Promise.all([
-      prisma.inAppNotification.findMany({
-        where: inAppWhere,
-        select: { id: true, type: true, title: true, body: true, referenceType: true, createdAt: true },
-      }),
-      prisma.notification.findMany({
-        where: legacyWhere,
-        select: { id: true, type: true, title: true, body: true, createdAt: true },
-      }),
+    const [inAppCount, legacyCount] = await Promise.all([
+      prisma.inAppNotification.count({ where: inAppWhere }),
+      prisma.notification.count({ where: legacyWhere }),
     ]);
-    const uniqueInApp = dedupeInAppRows(inAppRows);
-    const dedupedLegacy = filterDuplicateLegacyRows(legacyRows, uniqueInApp);
-    res.json({ count: uniqueInApp.length + dedupedLegacy.length });
+    res.json({ count: inAppCount + legacyCount });
   } catch (err) {
     next(err);
   }

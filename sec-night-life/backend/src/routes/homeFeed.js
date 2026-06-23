@@ -97,11 +97,6 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
 
     const now = new Date();
 
-    await prisma.promotion.updateMany({
-      where: { deletedAt: null, boosted: true, boostExpiresAt: { lt: now } },
-      data: { boosted: false },
-    });
-
     const [promotionRows, eventRows, venueRows, followedRows] = await Promise.all([
       prisma.promotion.findMany({
         where: {

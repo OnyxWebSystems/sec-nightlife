@@ -22,6 +22,7 @@ const ONBOARDING_EXEMPT_PAGES = new Set([
   'ProfileSetup',
   'VenueOnboarding',
   'Welcome',
+  'Home',
   'Login',
   'Register',
   'ResetPassword',
@@ -33,7 +34,9 @@ const ONBOARDING_EXEMPT_PAGES = new Set([
 ]);
 
 function isPublicAppPath(pathname) {
-  const segment = String(pathname || '').replace(/^\//, '').split('/')[0];
+  const normalized = String(pathname || '/').replace(/\/+$/, '') || '/';
+  if (normalized === '/' || normalized === '/Home') return true;
+  const segment = normalized.replace(/^\//, '').split('/')[0];
   return ONBOARDING_EXEMPT_PAGES.has(segment);
 }
 const BUSINESS_ONLY_PAGES = new Set([

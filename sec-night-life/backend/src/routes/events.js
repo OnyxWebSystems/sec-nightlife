@@ -398,15 +398,19 @@ function mapHostedTableToStatRow(ht) {
   };
 }
 
-async function computeEventStats(eventId, hostingRaw) {
+async function computeEventStats(eventId, hostingRaw, opts = {}) {
   const hosting = normalizeHostingConfig(hostingRaw);
+  const goingCountPromise =
+    opts.goingCount != null
+      ? Promise.resolve(opts.goingCount)
+      : prisma.eventAttendance.count({ where: { eventId, confirmed: true } });
   const hasVenueTiers =
     (Array.isArray(hosting?.general?.tiers) && hosting.general.tiers.length > 0) ||
     (Array.isArray(hosting?.vip?.tiers) && hosting.vip.tiers.length > 0);
 
   if (hasVenueTiers) {
     const [goingCount, tierPayload] = await Promise.all([
-      prisma.eventAttendance.count({ where: { eventId, confirmed: true } }),
+      goingCountPromise,
       buildEventTableTiers(eventId),
     ]);
     const tiers = tierPayload?.tiers || [];
@@ -428,7 +432,7 @@ async function computeEventStats(eventId, hostingRaw) {
   }
 
   const [goingCount, tableRows, hostedSecRows] = await Promise.all([
-    prisma.eventAttendance.count({ where: { eventId, confirmed: true } }),
+    goingCountPromise,
     prisma.table.findMany({
       where: { eventId, deletedAt: null },
       select: {
@@ -682,11 +686,19 @@ router.get('/featured-details', optionalAuth, async (req, res, next) => {
       include: { venue: true },
     });
     const byId = new Map(events.map((e) => [e.id, e]));
+    const goingRows = await prisma.eventAttendance.groupBy({
+      by: ['eventId'],
+      where: { eventId: { in: ids }, confirmed: true },
+      _count: { _all: true },
+    });
+    const goingByEvent = new Map(goingRows.map((r) => [r.eventId, r._count._all]));
     const out = await Promise.all(
       ids.map(async (id) => {
         const event = byId.get(id);
         if (!event) return null;
-        const stats = await computeEventStats(event.id, event.hostingConfig);
+        const stats = await computeEventStats(event.id, event.hostingConfig, {
+          goingCount: goingByEvent.get(id) || 0,
+        });
         return mapEventDetail(event, stats);
       }),
     );

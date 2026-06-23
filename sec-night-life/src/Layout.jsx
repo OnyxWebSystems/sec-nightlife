@@ -4,9 +4,10 @@ import { createPageUrl, buildPageUrl } from './utils';
 import { prefetchPage } from './pages.config';
 import * as authService from '@/services/authService';
 import { useAuth } from '@/lib/AuthContext';
-import { dataService } from '@/services/dataService';
 import { apiGet } from '@/api/client';
 import { flushPendingLegalAccepts } from '@/lib/pendingLegalAccept';
+import { useQuery } from '@tanstack/react-query';
+import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import SecLogo from '@/components/ui/SecLogo';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import MobileBottomNav from '@/components/layout/MobileBottomNav';
@@ -55,6 +56,7 @@ export default function Layout({ children, currentPageName }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, userProfile } = useAuth();
+  const activeVenueCtx = useActiveVenueOptional();
   const staffAccess = useVenueStaffAccess();
   const venueScope = useBusinessVenueScope();
   const [notificationCount, setNotificationCount] = useState(0);
@@ -66,6 +68,28 @@ export default function Layout({ children, currentPageName }) {
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
   const [complianceAccess, setComplianceAccess] = useState({ canReview: false, isSuperAdmin: false });
   const [hasStaffAssignments, setHasStaffAssignments] = useState(false);
+
+  const { data: staffVenuesList = [] } = useQuery({
+    queryKey: ['staff-venues'],
+    queryFn: () =>
+      apiGet('/api/staff/venues').then((r) => (Array.isArray(r) ? r : r?.items || [])),
+    enabled: !!user?.id,
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: rolesMe } = useQuery({
+    queryKey: ['user-roles-me', user?.id],
+    queryFn: () => apiGet('/api/user-roles/me'),
+    enabled: !!user?.id,
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: complianceData } = useQuery({
+    queryKey: ['compliance-access'],
+    queryFn: () => apiGet('/api/compliance-documents/me/access'),
+    enabled: !!user?.id,
+    staleTime: 5 * 60_000,
+  });
 
   function playMessageChime() {
     try {
@@ -179,32 +203,13 @@ export default function Layout({ children, currentPageName }) {
       try {
         await flushPendingLegalAccepts();
       } catch {}
-      let ownsVenue = user.role === 'VENUE';
-      try {
-        const rolesRes = await apiGet('/api/user-roles/me');
-        if (rolesRes?.business) ownsVenue = true;
-      } catch {}
-      if (!ownsVenue) {
-        try {
-          const venues = await dataService.Venue.mine();
-          const list = Array.isArray(venues) ? venues : [];
-          ownsVenue = list.some((v) => v.is_owner === true || v.isOwner === true);
-        } catch {}
-      }
-      let hasStaff = false;
-      try {
-        const staffVenues = await apiGet('/api/staff/venues');
-        if (!cancelled) {
-          const staffList = Array.isArray(staffVenues) ? staffVenues : (staffVenues?.items || []);
-          hasStaff = staffList.length > 0;
-          setHasStaffAssignments(hasStaff);
-        }
-      } catch {
-        if (!cancelled) {
-          hasStaff = false;
-          setHasStaffAssignments(false);
-        }
-      }
+      const ownedVenues = activeVenueCtx?.venues ?? [];
+      const ownsVenue =
+        user.role === 'VENUE' ||
+        !!rolesMe?.business ||
+        ownedVenues.some((v) => v.is_owner === true || v.isOwner === true);
+      const hasStaff = staffVenuesList.length > 0;
+      if (!cancelled) setHasStaffAssignments(hasStaff);
 
       const canUseBusinessMode = ownsVenue || hasStaff;
       if (cancelled) return;
@@ -220,23 +225,24 @@ export default function Layout({ children, currentPageName }) {
         localStorage.setItem('sec_active_mode', 'partygoer');
       }
       setActiveMode(defaultMode);
-
-      try {
-        const access = await apiGet('/api/compliance-documents/me/access');
-        if (!cancelled) {
-          setComplianceAccess({
-            canReview: !!access?.canReview,
-            isSuperAdmin: !!access?.isSuperAdmin,
-          });
-        }
-      } catch {
-        if (!cancelled) setComplianceAccess({ canReview: false, isSuperAdmin: false });
-      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [user?.id, user?.email, user?.role]);
+  }, [user?.id, user?.role, rolesMe, staffVenuesList, activeVenueCtx?.venues]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setComplianceAccess({ canReview: false, isSuperAdmin: false });
+      return;
+    }
+    if (complianceData) {
+      setComplianceAccess({
+        canReview: !!complianceData.canReview,
+        isSuperAdmin: !!complianceData.isSuperAdmin,
+      });
+    }
+  }, [user?.id, complianceData]);
 
   const switchMode = (mode) => {
     setActiveMode(mode);

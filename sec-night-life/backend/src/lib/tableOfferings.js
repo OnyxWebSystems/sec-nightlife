@@ -101,6 +101,8 @@ function sortOfferings(list, friendIds, sessionSeed = 'default') {
  * Grouped table offerings for Home / Tables browse.
  */
 export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'default' } = {}) {
+  const cappedLimit = Math.min(Math.max(limit, 1), 60);
+  const rowCap = Math.min(cappedLimit * 8, 240);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -119,6 +121,8 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
   };
   const venueRows = await prisma.venueTable.findMany({
     where: venueWhere,
+    take: rowCap,
+    orderBy: { updatedAt: 'desc' },
     include: {
       venue: { select: { id: true, name: true, city: true, coverImageUrl: true } },
       event: {
@@ -169,6 +173,8 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
 
   const hostedRows = await prisma.hostedTable.findMany({
     where: hostedWhere,
+    take: rowCap,
+    orderBy: { eventDate: 'asc' },
     include: {
       host: {
         select: {
@@ -409,5 +415,5 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
   for (const g of hostedSoloMap.values()) offerings.push(g);
 
   const sorted = sortOfferings(offerings, friendIds, sessionSeed);
-  return sorted.slice(0, Math.min(limit, 60));
+  return sorted.slice(0, cappedLimit);
 }

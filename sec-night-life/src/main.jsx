@@ -7,13 +7,12 @@ import {
   isStaleChunkLoadError,
   scheduleChunkReloadOnce,
 } from '@/lib/chunkLoadRecovery'
-import { initSentry } from '@/lib/sentry'
+import '@/index.css'
 import { initNativeShell } from '@/lib/capacitorNative'
 import { initPushNotifications } from '@/lib/pushNotifications'
 import { startSessionKeepalive } from '@/lib/sessionKeepalive'
-import '@/index.css'
 
-initSentry()
+void import('@/lib/sentry').then(({ initSentry }) => initSentry())
 
 window.addEventListener('load', () => {
   window.setTimeout(clearChunkReloadAttemptFlag, 2500)

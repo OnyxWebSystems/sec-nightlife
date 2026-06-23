@@ -5,6 +5,10 @@ import { authenticateToken } from '../middleware/auth.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { normalizeUsername } from '../lib/username.js';
+import {
+  buildConversationMap,
+  buildFriendshipContext,
+} from '../lib/friendshipBatch.js';
 
 const router = Router();
 
@@ -106,31 +110,45 @@ router.get('/search', authenticateToken, async (req, res, next) => {
     });
     const privacyByUser = new Map(profileRows.map((p) => [p.userId, p.privacySettings]));
 
+    const candidateIds = users.map((u) => u.id);
+    const friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { requesterId: me, receiverId: { in: candidateIds } },
+          { requesterId: { in: candidateIds }, receiverId: me },
+        ],
+      },
+      select: { requesterId: true, receiverId: true, status: true },
+    });
+    const { statusByTarget, blockedTargets } = buildFriendshipContext(me, candidateIds, friendships);
+
+    const acceptedIds = candidateIds.filter((id) => statusByTarget.get(id) === 'ACCEPTED');
+    const convPairs = acceptedIds.map((tid) => orderedParticipants(me, tid));
+    const conversations =
+      convPairs.length > 0
+        ? await prisma.conversation.findMany({
+            where: {
+              OR: convPairs.map((p) => ({
+                participantAId: p.participantAId,
+                participantBId: p.participantBId,
+              })),
+            },
+            select: { id: true, participantAId: true, participantBId: true },
+          })
+        : [];
+    const conversationByTarget = buildConversationMap(me, acceptedIds, conversations);
+
     const out = [];
     for (const u of users) {
       if (blockSet.has(u.id)) continue;
       const priv = privacyByUser.get(u.id);
       if (priv && typeof priv === 'object' && priv.searchVisible === false) continue;
-      const fb = await isFriendshipBlockedBetween(me, u.id);
-      if (fb) continue;
+      if (blockedTargets.has(u.id)) continue;
 
-      const st = await computeFriendshipStatus(me, u.id);
+      const st = statusByTarget.get(u.id) || 'NONE';
       if (st === 'BLOCKED') continue;
 
-      let conversationId = null;
-      if (st === 'ACCEPTED') {
-        const parts = orderedParticipants(me, u.id);
-        const conv = await prisma.conversation.findUnique({
-          where: {
-            participantAId_participantBId: {
-              participantAId: parts.participantAId,
-              participantBId: parts.participantBId,
-            },
-          },
-          select: { id: true },
-        });
-        conversationId = conv?.id || null;
-      }
+      const conversationId = st === 'ACCEPTED' ? conversationByTarget.get(u.id) || null : null;
 
       out.push({
         id: u.id,
@@ -262,14 +280,25 @@ router.get('/suggestions', authenticateToken, async (req, res, next) => {
     });
     const suggestPrivacyMap = new Map(suggestPrivacy.map((p) => [p.userId, p.privacySettings]));
 
+    const friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { requesterId: me, receiverId: { in: sorted } },
+          { requesterId: { in: sorted }, receiverId: me },
+        ],
+      },
+      select: { requesterId: true, receiverId: true, status: true },
+    });
+    const { statusByTarget, blockedTargets } = buildFriendshipContext(me, sorted, friendships);
+
     const out = [];
     for (const uid of sorted) {
       const u = byId.get(uid);
       if (!u) continue;
       const priv = suggestPrivacyMap.get(u.id);
       if (priv && typeof priv === 'object' && priv.searchVisible === false) continue;
-      if (await isFriendshipBlockedBetween(me, u.id)) continue;
-      const st = await computeFriendshipStatus(me, u.id);
+      if (blockedTargets.has(u.id)) continue;
+      const st = statusByTarget.get(u.id) || 'NONE';
       if (st === 'BLOCKED') continue;
       out.push({
         id: u.id,

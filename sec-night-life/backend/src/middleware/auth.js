@@ -18,7 +18,7 @@ export async function authenticateToken(req, res, next) {
     // SECURITY: verify user is still active and not suspended on every authenticated request
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { id: true, role: true, suspendedAt: true, deletedAt: true }
+      select: { id: true, role: true, suspendedAt: true, deletedAt: true, emailVerified: true }
     });
 
     if (!user || user.deletedAt) {
@@ -30,6 +30,7 @@ export async function authenticateToken(req, res, next) {
 
     req.userId = user.id;
     req.userRole = user.role; // SECURITY: always use DB role, never trust JWT role
+    req.emailVerified = user.emailVerified;
     next();
   } catch {
     return res.status(403).json({ error: 'Invalid or expired token' });
@@ -46,6 +47,7 @@ export async function optionalAuth(req, res, next) {
   if (!token) {
     req.userId = null;
     req.userRole = null;
+    req.emailVerified = null;
     return next();
   }
 
@@ -53,19 +55,22 @@ export async function optionalAuth(req, res, next) {
     const payload = jwt.verify(token, JWT_ACCESS_SECRET);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { id: true, role: true, suspendedAt: true, deletedAt: true }
+      select: { id: true, role: true, suspendedAt: true, deletedAt: true, emailVerified: true }
     });
     if (!user || user.deletedAt || user.suspendedAt) {
       req.userId = null;
       req.userRole = null;
+      req.emailVerified = null;
     } else {
       req.userId = user.id;
       req.userRole = user.role; // SECURITY: always use DB role
+      req.emailVerified = user.emailVerified;
     }
     next();
   } catch {
     req.userId = null;
     req.userRole = null;
+    req.emailVerified = null;
     next();
   }
 }

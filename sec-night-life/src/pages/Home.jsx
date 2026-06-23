@@ -369,7 +369,7 @@ export default function Home() {
       return apiGet(`/api/home/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
     },
     getNextPageParam: (lastPage) => (lastPage?.nextCursor != null ? parseInt(lastPage.nextCursor, 10) : undefined),
-    enabled: !isLoadingAuth,
+    enabled: !isLoadingAuth && !!user?.id,
     staleTime: 60_000,
   });
 
@@ -384,7 +384,7 @@ export default function Home() {
   const { data: platformAnnouncementsData } = useQuery({
     queryKey: ['home-platform-announcements'],
     queryFn: () => apiGet('/api/home/announcements'),
-    enabled: !isLoadingAuth,
+    enabled: !isLoadingAuth && !!user?.id,
     staleTime: 30_000,
   });
   const platformAnnouncements = platformAnnouncementsData?.announcements || [];
@@ -406,7 +406,7 @@ export default function Home() {
       });
     },
     staleTime: 60_000,
-    enabled: !isLoadingAuth,
+    enabled: !isLoadingAuth && !!user?.id,
   });
   const homePromotions = promotionsFeedData?.results || [];
 
@@ -416,7 +416,7 @@ export default function Home() {
     queryKey: ['featured-events'],
     queryFn: () => dataService.Event.filter({ status: 'published' }, '-date', 10),
     staleTime: listStale,
-    enabled: !isLoadingAuth,
+    enabled: !isLoadingAuth && !!user?.id,
   });
 
   const { data: tableOfferingsData, isLoading: tablesLoading } = useQuery({
@@ -426,7 +426,7 @@ export default function Home() {
         headers: { 'x-session-id': sessionId },
       }),
     staleTime: listStale,
-    enabled: !isLoadingAuth,
+    enabled: !isLoadingAuth && !!user?.id,
   });
   const tableOfferings = useMemo(() => {
     const items = tableOfferingsData?.items || [];
@@ -444,7 +444,7 @@ export default function Home() {
       return apiGet(`/api/venues?${params.toString()}`);
     },
     staleTime: listStale,
-    enabled: !isLoadingAuth,
+    enabled: !isLoadingAuth && !!user?.id,
   });
 
   const cities = [...new Set(venues.map(v => v.city).filter(Boolean))];
@@ -498,7 +498,7 @@ export default function Home() {
     queryKey: ['featured-events-details', featuredEventIds],
     queryFn: () => apiGet(`/api/events/featured-details?ids=${encodeURIComponent(featuredEventIds)}`),
     staleTime: listStale,
-    enabled: !isLoadingAuth && featuredEventIds.length > 0,
+    enabled: !isLoadingAuth && !!user?.id && featuredEventIds.length > 0,
   });
   const featuredCards =
     featuredEventDetails?.length > 0 ? featuredEventDetails : featuredEvents;
