@@ -10,7 +10,7 @@ import { auditFromReq } from '../lib/audit.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
 import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
-import { mapTableHistoryRow } from '../lib/tableHistory.js';
+import { mergeTableHistoryForUser, participationKey } from '../lib/tableHistory.js';
 import { idDocumentUrlChanged } from '../lib/idDocumentUrl.js';
 import { notifyAdmins } from '../lib/adminNotify.js';
 
@@ -450,17 +450,19 @@ router.get('/stats/social/:targetUserId([0-9a-f-]{36})', authenticateToken, asyn
         },
       }),
       prisma.venueTable.count({
-        where: { hostUserId: targetUserId, isActive: true },
+        where: { hostUserId: targetUserId },
       }),
       prisma.hostedTableMember.count({
         where: {
           userId: targetUserId,
+          status: 'GOING',
           hostedTable: { NOT: { hostUserId: targetUserId } },
         },
       }),
       prisma.venueTableMember.count({
         where: {
           userId: targetUserId,
+          status: 'CONFIRMED',
           venueTable: { NOT: { hostUserId: targetUserId } },
         },
       }),
@@ -521,11 +523,18 @@ router.get('/:userId([0-9a-f-]{36})/table-history', authenticateToken, async (re
     const rows = await prisma.userTableHistory.findMany({
       where: { userId: targetUserId, hiddenAt: null },
       orderBy: { occurredAt: 'desc' },
-      take: limit,
     });
 
+    const hiddenRows = await prisma.userTableHistory.findMany({
+      where: { userId: targetUserId, hiddenAt: { not: null } },
+      select: { role: true, tableId: true, hostedTableId: true, venueTableId: true },
+    });
+    const hiddenKeys = new Set(hiddenRows.map((r) => participationKey(r.role, r)));
+
+    const items = await mergeTableHistoryForUser(targetUserId, rows, hiddenKeys, limit);
+
     res.json({
-      items: rows.map(mapTableHistoryRow),
+      items,
       isOwn: viewerId === targetUserId,
     });
   } catch (err) {

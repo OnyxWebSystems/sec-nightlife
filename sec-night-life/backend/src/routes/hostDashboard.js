@@ -3001,9 +3001,9 @@ router.get('/activity/summary', authenticateToken, async (req, res, next) => {
   try {
     if (!assertHostEligibleRole(req, res)) return;
     const uid = req.userId;
-    const [tablesCount, activeTablesCount, tableMembers, reviews] = await Promise.all([
+    const [tablesCount, totalJoinedEvents, tableMembers, reviews] = await Promise.all([
       prisma.hostedTable.count({ where: { hostUserId: uid } }),
-      prisma.hostedTable.count({ where: { hostUserId: uid, status: { in: ['ACTIVE', 'FULL'] } } }),
+      prisma.eventAttendance.count({ where: { userId: uid, confirmed: true } }),
       prisma.hostedTableMember.count({
         where: { hostedTable: { hostUserId: uid }, status: 'GOING', userId: { not: uid } },
       }),
@@ -3011,7 +3011,7 @@ router.get('/activity/summary', authenticateToken, async (req, res, next) => {
     ]);
     res.json({
       totalTablesHosted: tablesCount,
-      activeTablesHosted: activeTablesCount,
+      totalJoinedEvents,
       totalTableJoiners: tableMembers,
       averageRatingReceived: reviews?.serviceRatingAvg != null ? Number(reviews.serviceRatingAvg) : null,
       ratingCount: reviews?.serviceRatingCount ?? 0,

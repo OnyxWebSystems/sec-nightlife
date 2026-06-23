@@ -224,10 +224,12 @@ export default function Profile() {
     )
     : (profilePromotions?.current?.length > 0 || profilePromotions?.past?.length > 0);
 
-  const { data: socialStats } = useQuery({
-    queryKey: ['profile-social', authUserId],
-    queryFn: () => apiGet(`/api/users/stats/social/${authUserId}`),
-    enabled: !!authUserId,
+  const statsUserId = isOwnProfile ? (user?.id || authUserId) : authUserId;
+
+  const { data: socialStats, isLoading: socialStatsLoading, isError: socialStatsError } = useQuery({
+    queryKey: ['profile-social', statsUserId],
+    queryFn: () => apiGet(`/api/users/stats/social/${statsUserId}`),
+    enabled: !!statsUserId,
   });
 
   const { data: friendsPreview = [] } = useQuery({
@@ -379,9 +381,17 @@ export default function Profile() {
     },
   });
 
-  const hostedCount = socialStats?.tablesHosted ?? 0;
-  const tablesJoinedCount = socialStats?.tablesJoined ?? 0;
-  const friendsCount = socialStats?.friendCount ?? (displayProfile?.friends?.length || 0);
+  const statDisplay = (value) => {
+    if (socialStatsLoading) return '—';
+    if (socialStatsError) return '—';
+    return value;
+  };
+
+  const hostedCount = statDisplay(socialStats?.tablesHosted ?? 0);
+  const tablesJoinedCount = statDisplay(socialStats?.tablesJoined ?? 0);
+  const friendsCount = statDisplay(
+    socialStats?.friendCount ?? (socialStatsLoading || socialStatsError ? undefined : (displayProfile?.friends?.length || 0))
+  );
   const genderLabel =
     displayProfile?.gender === 'male'
       ? 'Male'

@@ -76,7 +76,7 @@ export default function TableHistorySection({ userId, isOwn = false, limit = 8 }
                 }`}>
                   {row.role === 'host' ? 'Hosted' : 'Joined'}
                 </span>
-                {canDelete && (
+                {canDelete && row.id && !String(row.id).startsWith('synth-') && (
                   <button
                     type="button"
                     className="p-2 text-gray-500 hover:text-red-400 shrink-0"

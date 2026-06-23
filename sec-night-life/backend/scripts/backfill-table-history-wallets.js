@@ -53,6 +53,7 @@ async function backfillTableHistory() {
   }
 
   const htMembers = await prisma.hostedTableMember.findMany({
+    where: { status: 'GOING' },
     include: { hostedTable: { include: { event: { select: { title: true } } } } },
   });
   for (const m of htMembers) {
@@ -66,6 +67,61 @@ async function backfillTableHistory() {
       eventTitle: m.hostedTable.event?.title || null,
       occurredAt: m.joinedAt,
     });
+  }
+
+  const venueHosted = await prisma.venueTable.findMany({
+    where: { hostUserId: { not: null } },
+    include: { event: { select: { title: true } } },
+  });
+  for (const vt of venueHosted) {
+    if (!vt.hostUserId) continue;
+    recordTableHistory({
+      userId: vt.hostUserId,
+      role: 'HOST',
+      venueTableId: vt.id,
+      eventId: vt.eventId,
+      tableName: vt.tableName,
+      eventTitle: vt.event?.title || null,
+      occurredAt: vt.createdAt,
+    });
+  }
+
+  const venueMembers = await prisma.venueTableMember.findMany({
+    where: { status: 'CONFIRMED' },
+    include: { venueTable: { include: { event: { select: { title: true } } } } },
+  });
+  for (const m of venueMembers) {
+    if (m.userId === m.venueTable.hostUserId) continue;
+    recordTableHistory({
+      userId: m.userId,
+      role: 'JOINED',
+      venueTableId: m.venueTableId,
+      eventId: m.venueTable.eventId,
+      tableName: m.venueTable.tableName,
+      eventTitle: m.venueTable.event?.title || null,
+      occurredAt: m.paidAt || m.joinedAt,
+    });
+  }
+
+  const legacyTables = await prisma.table.findMany({
+    where: { deletedAt: null, event: { deletedAt: null, status: 'published' } },
+    include: { event: { select: { title: true } } },
+  });
+  for (const t of legacyTables) {
+    const members = Array.isArray(t.members) ? t.members : [];
+    for (const m of members) {
+      const uid = typeof m === 'object' && m ? m.user_id || m.userId : m;
+      if (!uid || uid === t.hostUserId) continue;
+      recordTableHistory({
+        userId: String(uid),
+        role: 'JOINED',
+        tableId: t.id,
+        eventId: t.eventId,
+        tableName: t.name,
+        eventTitle: t.event?.title || null,
+        occurredAt: t.createdAt,
+      });
+    }
   }
 
   await new Promise((r) => setTimeout(r, 3000));

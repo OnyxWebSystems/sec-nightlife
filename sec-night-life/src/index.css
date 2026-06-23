@@ -398,8 +398,12 @@
 
   @media (max-width: 1023px) {
     .sec-bottom-bar {
-      bottom: calc(64px + env(safe-area-inset-bottom));
+      bottom: calc(68px + env(safe-area-inset-bottom));
       z-index: 40;
+    }
+    [data-mobile-nav-visible='false'] .sec-bottom-bar {
+      bottom: 0;
+      padding-bottom: max(14px, env(safe-area-inset-bottom));
     }
   }
 

@@ -1,6 +1,26 @@
 /** Mobile hub pages that keep the floating bottom nav (no drill-down back header from Layout). */
 export const MOBILE_NAV_ROOT_PAGES = new Set(['Home', 'BusinessDashboard', 'StaffDashboard']);
 
+/** Pages where the bottom nav must stay hidden (auth, onboarding, heavy forms). */
+export const MOBILE_NAV_HIDDEN_PAGES = new Set([
+  'Onboarding',
+  'ProfileSetup',
+  'VenueOnboarding',
+  'Welcome',
+  'Login',
+  'Register',
+  'ResetPassword',
+  'VerifyEmail',
+  'ForgotPassword',
+  'PaymentSuccess',
+  'TicketSuccess',
+  'TicketVerify',
+  'TableJoinOnboarding',
+  'CreateTable',
+  'CreateHostEvent',
+  'EditProfile',
+]);
+
 /** Pages that already render their own mobile back header (avoid duplicate). */
 export const MOBILE_OWN_BACK_HEADER = new Set([
   'Messages',

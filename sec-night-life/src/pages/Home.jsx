@@ -549,7 +549,7 @@ export default function Home() {
   const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div className="pb-10" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
+    <div className="min-h-screen" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
 
       {/* ── Header ── */}
       <header

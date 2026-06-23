@@ -8,7 +8,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Plus, Loader2, Armchair, Users, Star, Activity } from 'lucide-react';
+import { Plus, Loader2, Armchair, Users, Star, Calendar } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { Input } from '@/components/ui/input';
@@ -896,7 +896,7 @@ export default function HostDashboard() {
             <div className="min-w-0">
               <h2 className="font-semibold text-lg">My tables</h2>
               <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
-                Live and upcoming tables stay here. After an SEC event ends, or 24 hours after a private meet-up starts,
+                Live and upcoming tables stay here. After a SEC event ends, or 24 hours after a private meet-up starts,
                 the table moves to Past tables.
               </p>
             </div>
@@ -957,10 +957,10 @@ export default function HostDashboard() {
                 hint: 'All-time listings',
               },
               {
-                icon: Activity,
-                label: 'Active tables',
-                value: activity?.activeTablesHosted ?? '—',
-                hint: 'Live or full right now',
+                icon: Calendar,
+                label: 'Joined events',
+                value: activity?.totalJoinedEvents ?? '—',
+                hint: "Tables and ticketed events you've attended",
               },
               {
                 icon: Users,

@@ -17,6 +17,8 @@ import { BUSINESS_PAGE_PERMISSIONS, useVenueStaffAccess } from '@/hooks/useVenue
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { useScrollDirection } from '@/hooks/useScrollDirection';
 import { getMobileNavState } from '@/lib/mobileNavVisibility';
+import { MOBILE_MAIN_PADDING_BOTTOM } from '@/lib/layoutConstants';
+import { useMobileNavFormHide } from '@/hooks/useMobileNavFormHide';
 import { enterPartygoerMode } from '@/lib/activeViewMode';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
@@ -285,7 +287,9 @@ export default function Layout({ children, currentPageName }) {
     }
   }, [user, modeForGuard, staffAccess.isStaffOnly, staffAccess.inStaffSession, staffAccess.venuesLoading, staffAccess.can, currentPageName, navigate]);
 
-  const { hideBottomNav } = getMobileNavState({ pageName: currentPageName, searchParams });
+  const { hideBottomNav: pageHidesNav } = getMobileNavState({ pageName: currentPageName, searchParams });
+  const formHidesNav = useMobileNavFormHide();
+  const hideBottomNav = pageHidesNav || formHidesNav;
   const navScrollCompact = useScrollDirection({ enabled: !hideBottomNav });
   const isMobile = useIsMobile();
   const showLayoutBackHeader = isMobile && shouldShowMobileBackHeader(currentPageName);
@@ -420,7 +424,11 @@ export default function Layout({ children, currentPageName }) {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
+    <div
+      className="min-h-screen"
+      style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}
+      data-mobile-nav-visible={hideBottomNav ? 'false' : 'true'}
+    >
 
       {/* ── Desktop Sidebar ── */}
       <aside
@@ -536,8 +544,13 @@ export default function Layout({ children, currentPageName }) {
       {/* ── Main Content ── */}
       <main
         className={`lg:ml-[240px] min-h-screen w-full lg:w-[calc(100%-240px)] max-w-app md:max-w-app-md lg:max-w-none mx-auto lg:mx-0 px-4 sm:px-6 box-border min-w-0 lg:pb-10 ${
-          hideBottomNav ? 'pb-[env(safe-area-inset-bottom)]' : 'pb-[calc(88px+env(safe-area-inset-bottom))]'
+          hideBottomNav ? 'pb-[env(safe-area-inset-bottom)]' : 'pb-[calc(84px+env(safe-area-inset-bottom))]'
         }`}
+        style={
+          isMobile && !hideBottomNav
+            ? { scrollPaddingBottom: MOBILE_MAIN_PADDING_BOTTOM }
+            : undefined
+        }
       >
         {complianceAccess.canReview && currentPageName !== 'AdminDashboard' && currentPageName !== 'Profile' && (
           <div className="lg:hidden" style={{ padding: '12px 16px 0' }}>

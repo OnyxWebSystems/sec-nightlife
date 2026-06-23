@@ -153,6 +153,8 @@ export default function BusinessDashboard() {
   const [complianceError, setComplianceError] = useState('');
   const [uploading, setUploading] = useState({});
   const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const statsYear = new Date().getFullYear();
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
 
   const cloudinaryConfig = {
     cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
@@ -182,11 +184,15 @@ export default function BusinessDashboard() {
     staleTime: 2 * 60_000,
   });
 
-  const { data: reviewsRaw } = useQuery({
-    queryKey: ['biz-reviews', venue?.id],
-    queryFn: () => dataService.Review.filter({ venue_id: venue.id }),
-    enabled: !!venue && (!isStaffOnly || can('analytics')),
-    staleTime: 5 * 60_000,
+  const { data: monthlyStatsRaw, isLoading: monthlyStatsLoading } = useQuery({
+    queryKey: ['biz-dashboard-monthly-stats', scopeKey, statsYear],
+    queryFn: () =>
+      apiGet(`/api/business/dashboard-monthly-stats?year=${statsYear}&${venueScope.venueQuery}`),
+    enabled:
+      hasVenueScope
+      && !!venueScope.venueQuery
+      && (!isStaffOnly || can('bookings') || can('events') || can('analytics')),
+    staleTime: 2 * 60_000,
   });
 
   const { data: jobsRaw } = useQuery({
@@ -197,7 +203,6 @@ export default function BusinessDashboard() {
   });
 
   const events = asArray(eventsRaw);
-  const reviews = asArray(reviewsRaw);
   const jobs = asArray(jobsRaw);
   const bookingStats = bookingStatsRaw || {};
   const recentBookings = asArray(bookingStats.recentBookings).slice(0, 5);
@@ -298,12 +303,21 @@ export default function BusinessDashboard() {
     .filter(e => e.date >= today && e.status === 'published')
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 5);
-  const totalBookings = bookingStats.totalBookings ?? 0;
-  const activeBookings = bookingStats.activeBookings ?? 0;
-  const avgRating = reviews.length > 0
-    ? (reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length).toFixed(1)
-    : '—';
-  const totalGuests = bookingStats.totalGuests ?? 0;
+  const monthlyStats = monthlyStatsRaw || {};
+  const monthlyBuckets = asArray(monthlyStats.months);
+  const selectedMonthStats = monthlyBuckets.find((m) => m.month === selectedMonth) || {
+    month: selectedMonth,
+    label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][selectedMonth - 1],
+    events: 0,
+    bookings: 0,
+    guests: 0,
+  };
+  const monthStatValue = (value) => (monthlyStatsLoading ? '—' : value);
+  const avgRating =
+    monthlyStats.averageRating != null
+      ? Number(monthlyStats.averageRating).toFixed(1)
+      : '—';
+  const reviewCount = monthlyStats.reviewCount ?? 0;
 
   const displayVenueName = venueScope.venueName || venue?.name || 'Venue';
 
@@ -632,20 +646,104 @@ export default function BusinessDashboard() {
 
       {/* Stat Cards */}
       {(showEventsStats || showBookingsStats || showAnalyticsStats) && (
+      <>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)', margin: 0 }}>
+            {statsYear} stats
+          </h3>
+          <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Select a month</span>
+        </div>
+        <div
+          className="scrollbar-hide"
+          style={{
+            display: 'flex',
+            gap: 8,
+            overflowX: 'auto',
+            paddingBottom: 4,
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          {monthlyBuckets.length > 0
+            ? monthlyBuckets.map((m) => {
+              const active = m.month === selectedMonth;
+              return (
+                <button
+                  key={m.month}
+                  type="button"
+                  onClick={() => setSelectedMonth(m.month)}
+                  className="sec-btn"
+                  style={{
+                    flexShrink: 0,
+                    padding: '8px 14px',
+                    borderRadius: 9999,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: `1px solid ${active ? 'var(--sec-accent-border)' : 'var(--sec-border)'}`,
+                    background: active ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
+                    color: active ? 'var(--sec-accent-bright)' : 'var(--sec-text-secondary)',
+                  }}
+                >
+                  {m.label}
+                </button>
+              );
+            })
+            : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((label, i) => {
+              const month = i + 1;
+              const active = month === selectedMonth;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setSelectedMonth(month)}
+                  className="sec-btn"
+                  style={{
+                    flexShrink: 0,
+                    padding: '8px 14px',
+                    borderRadius: 9999,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: `1px solid ${active ? 'var(--sec-accent-border)' : 'var(--sec-border)'}`,
+                    background: active ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
+                    color: active ? 'var(--sec-accent-bright)' : 'var(--sec-text-secondary)',
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+        </div>
+      </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: 24 }}>
         {showEventsStats ? (
-          <StatCard icon={Calendar} label="Total Events" value={events.length} sub={`${upcomingEvents.length} upcoming`} />
+          <StatCard
+            icon={Calendar}
+            label="Events"
+            value={monthStatValue(selectedMonthStats.events)}
+            sub={`${selectedMonthStats.label} ${statsYear}`}
+          />
         ) : null}
         {showBookingsStats ? (
           <>
-            <StatCard icon={BookOpen} label="Table Bookings" value={totalBookings} sub={`${activeBookings} active`} />
-            <StatCard icon={Users} label="Total Guests" value={totalGuests} />
+            <StatCard
+              icon={BookOpen}
+              label="Table Bookings"
+              value={monthStatValue(selectedMonthStats.bookings)}
+              sub={`${selectedMonthStats.label} ${statsYear}`}
+            />
+            <StatCard
+              icon={Users}
+              label="Total Guests"
+              value={monthStatValue(selectedMonthStats.guests)}
+              sub={`${selectedMonthStats.label} ${statsYear}`}
+            />
           </>
         ) : null}
         {showAnalyticsStats ? (
-          <StatCard icon={Star} label="Average Rating" value={avgRating} sub={`${reviews.length} reviews`} />
+          <StatCard icon={Star} label="Average Rating" value={avgRating} sub={`${reviewCount} reviews (all time)`} />
         ) : null}
       </div>
+      </>
       )}
 
       {/* Quick Actions */}
