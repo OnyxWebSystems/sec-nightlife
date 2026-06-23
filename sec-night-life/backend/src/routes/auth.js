@@ -456,13 +456,19 @@ router.post('/register', async (req, res, next) => {
       ipAddress: getIp(req)
     });
 
-    res.status(201).json({
+    const response = {
       user: userPayload(user),
       emailVerificationRequired: !skipVerification,
-      ...(skipVerification
-        ? await buildLoginSuccessPayload(user)
-        : {}),
-    });
+    };
+    if (skipVerification) {
+      const loginPayload = await buildLoginSuccessPayload(user);
+      response.user = loginPayload.user;
+      response.accessToken = loginPayload.accessToken;
+      response.refreshToken = loginPayload.refreshToken;
+      response.expiresIn = loginPayload.expiresIn;
+    }
+
+    res.status(201).json(response);
   } catch (err) {
     next(err);
   }
