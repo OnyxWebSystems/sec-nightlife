@@ -436,8 +436,6 @@ router.post('/register', async (req, res, next) => {
       });
     }
 
-    const { accessToken, refreshToken } = await issueTokens(user);
-
     await prisma.userProfile.upsert({
       where: { userId: user.id },
       create: { userId: user.id, username: usernameNormalized },
@@ -460,10 +458,10 @@ router.post('/register', async (req, res, next) => {
 
     res.status(201).json({
       user: userPayload(user),
-      accessToken,
-      refreshToken,
-      expiresIn: accessTokenExpiresInSeconds(),
-      emailVerificationRequired: !skipVerification
+      emailVerificationRequired: !skipVerification,
+      ...(skipVerification
+        ? await buildLoginSuccessPayload(user)
+        : {}),
     });
   } catch (err) {
     next(err);

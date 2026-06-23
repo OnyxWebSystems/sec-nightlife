@@ -78,8 +78,10 @@ export async function register(email, password, fullName, role, username) {
     role: role || 'USER',
     username,
   };
-  const data = await apiPost('/api/auth/register', body);
-  setTokens(data.accessToken, data.refreshToken);
+  const data = await apiPost('/api/auth/register', body, { skipAuth: true });
+  if (data.accessToken) {
+    setTokens(data.accessToken, data.refreshToken);
+  }
   return data.user;
 }
 
