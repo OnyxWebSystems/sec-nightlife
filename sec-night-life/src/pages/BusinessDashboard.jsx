@@ -155,6 +155,7 @@ export default function BusinessDashboard() {
   const [staffModalOpen, setStaffModalOpen] = useState(false);
   const statsYear = new Date().getFullYear();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [statsPeriod, setStatsPeriod] = useState('month');
 
   const cloudinaryConfig = {
     cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
@@ -312,6 +313,20 @@ export default function BusinessDashboard() {
     bookings: 0,
     guests: 0,
   };
+  const yearTotalStats = monthlyStats.yearTotal || { events: 0, bookings: 0, guests: 0 };
+  const allTimeStats = monthlyStats.allTime || { events: 0, bookings: 0, guests: 0 };
+  const activeStats =
+    statsPeriod === 'all'
+      ? allTimeStats
+      : statsPeriod === 'year'
+        ? yearTotalStats
+        : selectedMonthStats;
+  const statSubLabel =
+    statsPeriod === 'all'
+      ? 'All time'
+      : statsPeriod === 'year'
+        ? `${statsYear} total`
+        : `${selectedMonthStats.label} ${statsYear}`;
   const monthStatValue = (value) => (monthlyStatsLoading ? '—' : value);
   const avgRating =
     monthlyStats.averageRating != null
@@ -650,10 +665,50 @@ export default function BusinessDashboard() {
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--sec-text-primary)', margin: 0 }}>
-            {statsYear} stats
+            Venue stats
           </h3>
-          <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Select a month</span>
+          <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
+            {statsPeriod === 'month' ? 'Select a month' : statsPeriod === 'year' ? `${statsYear} combined` : 'Lifetime totals'}
+          </span>
         </div>
+        <div
+          className="scrollbar-hide"
+          style={{
+            display: 'flex',
+            gap: 8,
+            overflowX: 'auto',
+            paddingBottom: 8,
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          {[
+            { id: 'year', label: `Full ${statsYear}` },
+            { id: 'all', label: 'All time' },
+          ].map((opt) => {
+            const active = statsPeriod === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setStatsPeriod(opt.id)}
+                className="sec-btn"
+                style={{
+                  flexShrink: 0,
+                  padding: '8px 14px',
+                  borderRadius: 9999,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  border: `1px solid ${active ? 'var(--sec-accent-border)' : 'var(--sec-border)'}`,
+                  background: active ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
+                  color: active ? 'var(--sec-accent-bright)' : 'var(--sec-text-secondary)',
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        {statsPeriod === 'month' ? (
         <div
           className="scrollbar-hide"
           style={{
@@ -671,7 +726,10 @@ export default function BusinessDashboard() {
                 <button
                   key={m.month}
                   type="button"
-                  onClick={() => setSelectedMonth(m.month)}
+                  onClick={() => {
+                    setStatsPeriod('month');
+                    setSelectedMonth(m.month);
+                  }}
                   className="sec-btn"
                   style={{
                     flexShrink: 0,
@@ -695,7 +753,10 @@ export default function BusinessDashboard() {
                 <button
                   key={label}
                   type="button"
-                  onClick={() => setSelectedMonth(month)}
+                  onClick={() => {
+                    setStatsPeriod('month');
+                    setSelectedMonth(month);
+                  }}
                   className="sec-btn"
                   style={{
                     flexShrink: 0,
@@ -713,14 +774,15 @@ export default function BusinessDashboard() {
               );
             })}
         </div>
+        ) : null}
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: 24 }}>
         {showEventsStats ? (
           <StatCard
             icon={Calendar}
             label="Events"
-            value={monthStatValue(selectedMonthStats.events)}
-            sub={`${selectedMonthStats.label} ${statsYear}`}
+            value={monthStatValue(activeStats.events)}
+            sub={statSubLabel}
           />
         ) : null}
         {showBookingsStats ? (
@@ -728,14 +790,14 @@ export default function BusinessDashboard() {
             <StatCard
               icon={BookOpen}
               label="Table Bookings"
-              value={monthStatValue(selectedMonthStats.bookings)}
-              sub={`${selectedMonthStats.label} ${statsYear}`}
+              value={monthStatValue(activeStats.bookings)}
+              sub={statSubLabel}
             />
             <StatCard
               icon={Users}
               label="Total Guests"
-              value={monthStatValue(selectedMonthStats.guests)}
-              sub={`${selectedMonthStats.label} ${statsYear}`}
+              value={monthStatValue(activeStats.guests)}
+              sub={statSubLabel}
             />
           </>
         ) : null}

@@ -1271,7 +1271,7 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function emptyMonthlyBuckets(year) {
+function emptyMonthlyBuckets() {
   return MONTH_LABELS.map((label, i) => ({
     month: i + 1,
     label,
@@ -1281,18 +1281,149 @@ function emptyMonthlyBuckets(year) {
   }));
 }
 
-function calendarMonth(dateValue, year) {
+/** Bucket a date into 1–12; when year is set, returns null if the date is outside that year. */
+function bucketMonth(dateValue, year = null) {
   if (!dateValue) return null;
-  const d = new Date(dateValue);
-  if (Number.isNaN(d.getTime()) || d.getFullYear() !== year) return null;
-  return d.getMonth() + 1;
+  let y;
+  let m;
+  if (dateValue instanceof Date) {
+    y = dateValue.getUTCFullYear();
+    m = dateValue.getUTCMonth() + 1;
+  } else {
+    const s = String(dateValue);
+    const match = s.match(/^(\d{4})-(\d{2})/);
+    if (match) {
+      y = parseInt(match[1], 10);
+      m = parseInt(match[2], 10);
+    } else {
+      const d = new Date(dateValue);
+      if (Number.isNaN(d.getTime())) return null;
+      y = d.getUTCFullYear();
+      m = d.getUTCMonth() + 1;
+    }
+  }
+  if (year != null && y !== year) return null;
+  return m;
+}
+
+/** Venue dashboard stats — aligned with dashboard-booking-stats, with monthly buckets. */
+async function computeVenueDashboardStats(venueIds, year) {
+  const months = emptyMonthlyBuckets();
+  const allTime = { events: 0, bookings: 0, guests: 0 };
+
+  const bump = (month, field, amount = 1) => {
+    if (month && month >= 1 && month <= 12) months[month - 1][field] += amount;
+  };
+
+  const eventsInScope = await prisma.event.findMany({
+    where: { venueId: { in: venueIds }, deletedAt: null },
+    select: { id: true, date: true },
+  });
+  const eventIds = eventsInScope.map((e) => e.id);
+
+  allTime.events = eventsInScope.length;
+  for (const ev of eventsInScope) {
+    bump(bucketMonth(ev.date, year), 'events');
+  }
+
+  const allEventTableIds = new Set();
+  const eventTablesByMonth = Array.from({ length: 12 }, () => new Set());
+
+  if (eventIds.length) {
+    const hostedInScope = await prisma.hostedTable.findMany({
+      where: { eventId: { in: eventIds }, tableType: 'IN_APP_EVENT' },
+      select: { id: true },
+    });
+    const hostedIds = hostedInScope.map((h) => h.id);
+
+    const bookingRows = await prisma.eventVenueTableBooking.findMany({
+      where: { venueId: { in: venueIds }, eventId: { in: eventIds } },
+      select: { hostedTableId: true, createdAt: true },
+    });
+
+    for (const row of bookingRows) {
+      if (!row.hostedTableId) continue;
+      allEventTableIds.add(row.hostedTableId);
+      const m = bucketMonth(row.createdAt, year);
+      if (m) eventTablesByMonth[m - 1].add(row.hostedTableId);
+    }
+
+    if (hostedIds.length) {
+      const goingMembers = await prisma.hostedTableMember.findMany({
+        where: { hostedTableId: { in: hostedIds }, status: 'GOING' },
+        select: { joinedAt: true },
+      });
+      for (const g of goingMembers) {
+        allTime.guests += 1;
+        bump(bucketMonth(g.joinedAt, year), 'guests');
+      }
+    }
+  }
+
+  const allVenueTableIds = new Set();
+  const venueTablesByMonth = Array.from({ length: 12 }, () => new Set());
+
+  const venueMembers = await prisma.venueTableMember.findMany({
+    where: {
+      status: 'CONFIRMED',
+      venueTable: { venueId: { in: venueIds } },
+    },
+    select: { venueTableId: true, paidAt: true, joinedAt: true },
+  });
+
+  for (const member of venueMembers) {
+    allVenueTableIds.add(member.venueTableId);
+    allTime.guests += 1;
+    const at = member.paidAt || member.joinedAt;
+    const m = bucketMonth(at, year);
+    if (m) venueTablesByMonth[m - 1].add(member.venueTableId);
+    bump(bucketMonth(at, year), 'guests');
+  }
+
+  allTime.bookings = allEventTableIds.size + allVenueTableIds.size;
+
+  for (let i = 0; i < 12; i++) {
+    months[i].bookings = eventTablesByMonth[i].size + venueTablesByMonth[i].size;
+  }
+
+  const yearTotal = {
+    events: months.reduce((sum, m) => sum + m.events, 0),
+    bookings: months.reduce((sum, m) => sum + m.bookings, 0),
+    guests: months.reduce((sum, m) => sum + m.guests, 0),
+  };
+
+  const reviewAgg = await prisma.venueReview.aggregate({
+    where: { venueId: { in: venueIds } },
+    _avg: { rating: true },
+    _count: { id: true },
+  });
+
+  return {
+    months,
+    yearTotal,
+    allTime,
+    averageRating: reviewAgg._avg.rating != null ? Number(reviewAgg._avg.rating) : null,
+    reviewCount: reviewAgg._count.id ?? 0,
+  };
 }
 
 /** Monthly venue stats (Jan–Dec) for dashboard month picker; average rating is all-time. */
 router.get('/dashboard-monthly-stats', authenticateToken, async (req, res, next) => {
   try {
-    const scope = await requireVenueScope(req, res, 'bookings');
-    if (!scope) return;
+    const scopeOpts = {
+      staffCtx: staffCtxFromQuery(req.query),
+      venueIdFilter: venueIdFromQuery(req.query),
+    };
+    let scope = await resolveBusinessVenueScope(req.userId, { ...scopeOpts, permission: 'bookings' });
+    if (!scope.ok) {
+      scope = await resolveBusinessVenueScope(req.userId, { ...scopeOpts, permission: 'events' });
+    }
+    if (!scope.ok) {
+      scope = await resolveBusinessVenueScope(req.userId, { ...scopeOpts, permission: 'analytics' });
+    }
+    if (!scope.ok) {
+      return res.status(scope.status).json({ error: scope.error });
+    }
     const venueIds = scope.venueIds;
     const venueIdFilter = venueIdFromQuery(req.query);
     const year = Math.min(2100, Math.max(2000, parseInt(req.query.year, 10) || new Date().getFullYear()));
@@ -1303,82 +1434,19 @@ router.get('/dashboard-monthly-stats', authenticateToken, async (req, res, next)
       }
       return res.json({
         year,
-        months: emptyMonthlyBuckets(year),
+        months: emptyMonthlyBuckets(),
+        yearTotal: { events: 0, bookings: 0, guests: 0 },
+        allTime: { events: 0, bookings: 0, guests: 0 },
         averageRating: null,
         reviewCount: 0,
       });
     }
 
-    const months = emptyMonthlyBuckets(year);
-    const bump = (month, field, amount = 1) => {
-      if (!month || month < 1 || month > 12) return;
-      months[month - 1][field] += amount;
-    };
-
-    const [eventsInScope, bookingRows, venueMembers, hostedGuests, reviewAgg] = await Promise.all([
-      prisma.event.findMany({
-        where: { venueId: { in: venueIds }, deletedAt: null, status: 'published' },
-        select: { date: true },
-      }),
-      prisma.eventVenueTableBooking.findMany({
-        where: { venueId: { in: venueIds } },
-        select: { hostedTableId: true, createdAt: true },
-      }),
-      prisma.venueTableMember.findMany({
-        where: {
-          status: 'CONFIRMED',
-          venueTable: { venueId: { in: venueIds } },
-        },
-        select: { venueTableId: true, paidAt: true, joinedAt: true },
-      }),
-      prisma.hostedTableMember.findMany({
-        where: {
-          status: 'GOING',
-          hostedTable: { event: { venueId: { in: venueIds } } },
-        },
-        select: { joinedAt: true },
-      }),
-      prisma.review.aggregate({
-        where: { venueId: { in: venueIds } },
-        _avg: { rating: true },
-        _count: { id: true },
-      }),
-    ]);
-
-    for (const ev of eventsInScope) {
-      bump(calendarMonth(ev.date, year), 'events');
-    }
-
-    const eventBookingsByMonth = Array.from({ length: 12 }, () => new Set());
-    for (const row of bookingRows) {
-      if (!row.hostedTableId) continue;
-      const m = calendarMonth(row.createdAt, year);
-      if (m) eventBookingsByMonth[m - 1].add(row.hostedTableId);
-    }
-
-    const venueBookingsByMonth = Array.from({ length: 12 }, () => new Set());
-    for (const m of venueMembers) {
-      const at = m.paidAt || m.joinedAt;
-      const month = calendarMonth(at, year);
-      if (month) {
-        venueBookingsByMonth[month - 1].add(m.venueTableId);
-        bump(month, 'guests');
-      }
-    }
-
-    for (let i = 0; i < 12; i++) {
-      months[i].bookings = eventBookingsByMonth[i].size + venueBookingsByMonth[i].size;
-    }
-
-    for (const g of hostedGuests) {
-      bump(calendarMonth(g.joinedAt, year), 'guests');
-    }
+    const stats = await computeVenueDashboardStats(venueIds, year);
 
     res.json({
       year,
-      months,
-      averageRating: reviewAgg._avg.rating != null ? Number(reviewAgg._avg.rating) : null,
-      reviewCount: reviewAgg._count.id ?? 0,
+      ...stats,
     });
   } catch (e) {
     next(e);
