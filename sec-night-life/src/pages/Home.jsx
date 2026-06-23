@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
-import { useAuth } from '@/lib/AuthContext';
+import { useAuth, hasStoredAuthTokens } from '@/lib/AuthContext';
 import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { format, isToday, isTomorrow, isValid, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -371,25 +371,58 @@ export default function Home() {
 
   const bootstrapScopeKey = homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity || 'all';
 
-  const { data: homeBootstrap, isLoading: bootstrapLoading } = useQuery({
-    queryKey: ['home-bootstrap', sessionId, bootstrapScopeKey],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        sessionId,
-        tableLimit: '24',
-        promoLimit: '12',
-      });
-      if (homeFeedScopeAll) params.set('scope', 'all');
-      else if (homeFeedGeoKey && geoCoords) {
-        params.set('lat', String(geoCoords.lat));
-        params.set('lng', String(geoCoords.lng));
-        params.set('radius_km', String(locPrefs?.radiusKm ?? 25));
-      } else if (homeFeedCity) params.set('city', homeFeedCity);
-      else params.set('scope', 'all');
-      return apiGet(`/api/home/bootstrap?${params.toString()}`, {
+  const fetchHomeBootstrap = useCallback(async () => {
+    const params = new URLSearchParams({
+      sessionId,
+      tableLimit: '24',
+      promoLimit: '12',
+    });
+    if (homeFeedScopeAll) params.set('scope', 'all');
+    else if (homeFeedGeoKey && geoCoords) {
+      params.set('lat', String(geoCoords.lat));
+      params.set('lng', String(geoCoords.lng));
+      params.set('radius_km', String(locPrefs?.radiusKm ?? 25));
+    } else if (homeFeedCity) params.set('city', homeFeedCity);
+    else params.set('scope', 'all');
+
+    try {
+      return await apiGet(`/api/home/bootstrap?${params.toString()}`, {
         headers: { 'x-session-id': sessionId },
       });
-    },
+    } catch (err) {
+      const [announcementsRes, tableRes, promoRes, followedRes] = await Promise.allSettled([
+        apiGet('/api/home/announcements'),
+        apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}`, {
+          headers: { 'x-session-id': sessionId },
+        }),
+        apiGet(`/api/promotions/feed?limit=12&page=1&${params.toString()}`, {
+          headers: { 'x-session-id': sessionId },
+          skipAuth: true,
+        }),
+        apiGet('/api/home/followed-promoters'),
+      ]);
+      return {
+        announcements:
+          announcementsRes.status === 'fulfilled'
+            ? announcementsRes.value?.announcements || []
+            : [],
+        tableOfferings:
+          tableRes.status === 'fulfilled' ? tableRes.value?.items || [] : [],
+        promotions: {
+          results:
+            promoRes.status === 'fulfilled' ? promoRes.value?.results || [] : [],
+        },
+        followedPromoters: {
+          items:
+            followedRes.status === 'fulfilled' ? followedRes.value?.items || [] : [],
+        },
+      };
+    }
+  }, [sessionId, homeFeedScopeAll, homeFeedGeoKey, geoCoords, homeFeedCity, locPrefs?.radiusKm]);
+
+  const { data: homeBootstrap, isLoading: bootstrapLoading } = useQuery({
+    queryKey: ['home-bootstrap', sessionId, bootstrapScopeKey],
+    queryFn: fetchHomeBootstrap,
     enabled: !isLoadingAuth && !!user?.id,
     staleTime: 60_000,
   });
@@ -484,10 +517,13 @@ export default function Home() {
   const featuredCards =
     featuredEventDetails?.length > 0 ? featuredEventDetails : featuredEvents;
 
-  if (isLoadingAuth) {
+  if (isLoadingAuth && hasStoredAuthTokens()) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
-        <div className="sec-spinner" />
+        <div
+          className="h-9 w-9 rounded-full border-2 border-white/20 border-t-white animate-spin"
+          aria-label="Loading"
+        />
       </div>
     );
   }

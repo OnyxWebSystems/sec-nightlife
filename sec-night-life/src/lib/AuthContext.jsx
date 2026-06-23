@@ -3,6 +3,28 @@ import * as authService from '@/services/authService';
 
 const AuthContext = createContext();
 
+export function hasStoredAuthTokens() {
+  try {
+    return Boolean(
+      localStorage.getItem('access_token') ||
+      sessionStorage.getItem('access_token') ||
+      localStorage.getItem('refresh_token') ||
+      sessionStorage.getItem('refresh_token'),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function withTimeout(promise, ms, label = 'Request') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    }),
+  ]);
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
@@ -32,7 +54,11 @@ export const AuthProvider = ({ children }) => {
     }
     try {
       setAuthError(null);
-      const { user: currentUser, userProfile: profile } = await authService.getAuthSession();
+      const { user: currentUser, userProfile: profile } = await withTimeout(
+        authService.getAuthSession(),
+        15000,
+        'Session check',
+      );
       setUser({
         id: currentUser.id,
         email: currentUser.email,
