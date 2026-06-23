@@ -7,17 +7,20 @@ export function errorHandler(err, req, res, next) {
 
   // STEP 3/4: Never expose stack traces in production; never log sensitive fields
   if (isProd) {
-    // Only log 5xx errors in production — 4xx are client errors, not our fault
     if (status >= 500) {
       logger.error('Internal server error', {
         status,
         method: req.method,
         path: req.path,
         message: err.message
-        // SECURITY: no stack, no body, no headers
       });
+      return res.status(status).json({ error: 'Internal server error' });
     }
-    return res.status(status).json({ error: 'Internal server error' });
+    return res.status(status).json({
+      error: err.message || 'Request failed',
+      ...(err.code && { code: err.code }),
+      ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+    });
   }
 
   // Development: log full error for debugging

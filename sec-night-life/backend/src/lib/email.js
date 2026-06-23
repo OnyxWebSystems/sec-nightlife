@@ -92,8 +92,14 @@ export async function sendEmail({ to, subject, html, text, attachments }) {
       return row;
     });
   }
-  await resend.emails.send(payload);
-  logger.info('Email sent via Resend', { to, subject });
+  const result = await resend.emails.send(payload);
+  if (result?.error) {
+    logger.error('Resend API error', { to, subject, error: result.error });
+    const err = new Error(result.error.message || 'Email delivery failed');
+    err.code = 'EMAIL_SEND_FAILED';
+    throw err;
+  }
+  logger.info('Email sent via Resend', { to, subject, id: result?.data?.id });
 }
 
 export async function sendBulkEmails(messages) {

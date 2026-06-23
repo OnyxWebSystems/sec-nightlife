@@ -346,10 +346,34 @@ async function issueLoginOtpChallenge(user) {
     where: { id: user.id },
     data: { loginOtpHash: otpHash, loginOtpExpiry: expiry },
   });
-  sendLoginOtpEmail(user.email, otp).catch((err) => {
-    logger.error('Failed to send login OTP email', { userId: user.id, message: err.message });
-  });
-  return signLoginChallengeToken(user.id);
+  try {
+    await sendLoginOtpEmail(user.email, otp);
+  } catch (err) {
+    await prisma.user.update({ where: { id: user.id }, data: clearLoginOtpState() });
+    logger.error('Failed to send login OTP email', {
+      userId: user.id,
+      email: user.email,
+      message: err.message,
+      code: err.code,
+    });
+    const sendErr = new Error(
+      'We could not send your sign-in code. Check your email address and try again, or use Resend code shortly.'
+    );
+    sendErr.statusCode = 422;
+    sendErr.code = 'EMAIL_SEND_FAILED';
+    throw sendErr;
+  }
+  return {
+    loginChallengeToken: signLoginChallengeToken(user.id),
+    resendAvailableInSeconds: Math.ceil(LOGIN_OTP_RESEND_COOLDOWN_MS / 1000),
+  };
+}
+
+function loginOtpResendCooldownSeconds(user) {
+  if (!user?.loginOtpExpiry) return 0;
+  const sentAt = user.loginOtpExpiry.getTime() - LOGIN_OTP_EXPIRY_MS;
+  const remainingMs = LOGIN_OTP_RESEND_COOLDOWN_MS - (Date.now() - sentAt);
+  return Math.max(0, Math.ceil(remainingMs / 1000));
 }
 
 async function buildLoginSuccessPayload(user) {
@@ -617,7 +641,7 @@ router.post('/login', async (req, res, next) => {
       });
     }
 
-    const loginChallengeToken = await issueLoginOtpChallenge(user);
+    const { loginChallengeToken, resendAvailableInSeconds } = await issueLoginOtpChallenge(user);
 
     await audit({
       userId: user.id,
@@ -628,7 +652,7 @@ router.post('/login', async (req, res, next) => {
       ipAddress: getIp(req)
     });
 
-    res.json({ requiresOtp: true, loginChallengeToken });
+    res.json({ requiresOtp: true, loginChallengeToken, resendAvailableInSeconds });
   } catch (err) {
     next(err);
   }
@@ -789,14 +813,21 @@ router.post('/resend-login-otp', async (req, res, next) => {
       return res.status(401).json({ error: 'Login session expired. Please sign in again.' });
     }
     if (user.loginOtpExpiry) {
-      const sentAt = user.loginOtpExpiry.getTime() - LOGIN_OTP_EXPIRY_MS;
-      if (Date.now() - sentAt < LOGIN_OTP_RESEND_COOLDOWN_MS) {
-        return res.status(429).json({ error: 'Please wait a minute before requesting a new code.' });
+      const cooldownSec = loginOtpResendCooldownSeconds(user);
+      if (cooldownSec > 0) {
+        return res.status(429).json({
+          error: `Please wait ${cooldownSec} seconds before requesting a new code.`,
+          retryAfterSeconds: cooldownSec,
+        });
       }
     }
 
-    const loginChallengeToken = await issueLoginOtpChallenge(user);
-    res.json({ loginChallengeToken, message: 'A new sign-in code was sent to your email.' });
+    const { loginChallengeToken, resendAvailableInSeconds } = await issueLoginOtpChallenge(user);
+    res.json({
+      loginChallengeToken,
+      resendAvailableInSeconds,
+      message: 'A new sign-in code was sent to your email.',
+    });
   } catch (err) {
     next(err);
   }

@@ -90,7 +90,11 @@ export async function login(email, password, role) {
   if (role) body.role = role;
   const data = await apiPost('/api/auth/login', body, { skipAuth: true });
   if (data.requiresOtp) {
-    return { requiresOtp: true, loginChallengeToken: data.loginChallengeToken };
+    return {
+      requiresOtp: true,
+      loginChallengeToken: data.loginChallengeToken,
+      resendAvailableInSeconds: data.resendAvailableInSeconds ?? 60,
+    };
   }
   setTokens(data.accessToken, data.refreshToken);
   return { user: data.user };

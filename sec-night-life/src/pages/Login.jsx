@@ -11,6 +11,13 @@ import { toast } from 'sonner';
 
 const ROLE_INTENT_KEY = 'sec-role-intent';
 const STAFF_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
+const DEFAULT_RESEND_COOLDOWN_SEC = 60;
+
+function formatCooldown(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
+}
 
 function readStoredConsumerIntent() {
   try {
@@ -37,6 +44,7 @@ export default function Login() {
   const [loginChallengeToken, setLoginChallengeToken] = useState('');
   const [otp, setOtp] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   useEffect(() => {
     if (roleParam === 'VENUE' || roleParam === 'PARTY_GOER') {
@@ -45,6 +53,14 @@ export default function Login() {
       } catch {}
     }
   }, [roleParam]);
+
+  useEffect(() => {
+    if (step !== 'otp' || resendCooldown <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setResendCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [step, resendCooldown]);
 
   const consumerIntent = roleParam === 'VENUE' || roleParam === 'PARTY_GOER'
     ? roleParam
@@ -90,6 +106,7 @@ export default function Login() {
       const result = await authService.login(email.trim(), password, resolveLoginRole());
       if (result.requiresOtp) {
         setLoginChallengeToken(result.loginChallengeToken);
+        setResendCooldown(result.resendAvailableInSeconds ?? DEFAULT_RESEND_COOLDOWN_SEC);
         setStep('otp');
         setOtp('');
         toast.success('Check your email for a 6-digit sign-in code');
@@ -144,12 +161,18 @@ export default function Login() {
   };
 
   const handleResendOtp = async () => {
+    if (resendCooldown > 0) return;
     setOtpLoading(true);
     try {
       const data = await authService.resendLoginOtp(loginChallengeToken);
       if (data?.loginChallengeToken) setLoginChallengeToken(data.loginChallengeToken);
+      setResendCooldown(data?.resendAvailableInSeconds ?? DEFAULT_RESEND_COOLDOWN_SEC);
       toast.success('A new code was sent to your email');
     } catch (err) {
+      const retryAfter = err?.data?.retryAfterSeconds;
+      if (typeof retryAfter === 'number' && retryAfter > 0) {
+        setResendCooldown(retryAfter);
+      }
       toast.error(err?.data?.error || err?.message || 'Could not resend code');
     } finally {
       setOtpLoading(false);
@@ -163,6 +186,7 @@ export default function Login() {
     setStep('credentials');
     setOtp('');
     setLoginChallengeToken('');
+    setResendCooldown(0);
   };
 
   return (
@@ -180,6 +204,9 @@ export default function Login() {
           <div className="space-y-4">
             <p className="text-sm text-gray-400 text-center">
               We sent a 6-digit code to <span className="text-white">{email}</span>
+            </p>
+            <p className="text-xs text-gray-500 text-center">
+              Check your inbox and spam folder. The code expires in 10 minutes.
             </p>
             <div className="flex justify-center">
               <InputOTP maxLength={6} value={otp} onChange={setOtp}>
@@ -199,11 +226,13 @@ export default function Login() {
             <div className="flex flex-col gap-2 text-center text-sm">
               <button
                 type="button"
-                className="text-[var(--sec-accent)] hover:underline disabled:opacity-50"
+                className="text-[var(--sec-accent)] hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed"
                 onClick={handleResendOtp}
-                disabled={otpLoading}
+                disabled={otpLoading || resendCooldown > 0}
               >
-                Resend code
+                {resendCooldown > 0
+                  ? `Resend code in ${formatCooldown(resendCooldown)}`
+                  : 'Resend code'}
               </button>
               <button
                 type="button"
