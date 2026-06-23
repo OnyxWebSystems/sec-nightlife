@@ -34,7 +34,7 @@ export async function ensureSession() {
 export function redirectToLogin(returnUrl) {
   clearTokens();
   const base = window.location.origin;
-  const loginPath = '/Login'; // Must match route in pages.config
+  const loginPath = '/Login';
   let pathOnly = null;
   if (returnUrl && typeof returnUrl === 'string') {
     if (returnUrl.startsWith('http')) {
@@ -86,7 +86,28 @@ export async function register(email, password, fullName, role, username) {
 export async function login(email, password, role) {
   const body = { email, password };
   if (role) body.role = role;
-  const data = await apiPost('/api/auth/login', body);
+  const data = await apiPost('/api/auth/login', body, { skipAuth: true });
+  if (data.requiresOtp) {
+    return { requiresOtp: true, loginChallengeToken: data.loginChallengeToken };
+  }
+  setTokens(data.accessToken, data.refreshToken);
+  return { user: data.user };
+}
+
+export async function verifyLoginOtp(loginChallengeToken, otp) {
+  const data = await apiPost('/api/auth/verify-login-otp', { loginChallengeToken, otp }, { skipAuth: true });
   setTokens(data.accessToken, data.refreshToken);
   return data.user;
+}
+
+export async function resendLoginOtp(loginChallengeToken) {
+  return apiPost('/api/auth/resend-login-otp', { loginChallengeToken }, { skipAuth: true });
+}
+
+export async function cancelLoginOtp(loginChallengeToken) {
+  return apiPost('/api/auth/cancel-login-otp', { loginChallengeToken }, { skipAuth: true });
+}
+
+export async function resendVerificationEmail(email) {
+  return apiPost('/api/auth/resend-verification', { email: email.trim().toLowerCase() }, { skipAuth: true });
 }

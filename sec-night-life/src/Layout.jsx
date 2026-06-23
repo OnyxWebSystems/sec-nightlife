@@ -291,7 +291,7 @@ export default function Layout({ children, currentPageName }) {
   const showLayoutBackHeader = isMobile && shouldShowMobileBackHeader(currentPageName);
 
   const hideNav =
-    ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register'].includes(currentPageName) ||
+    ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register', 'VerifyEmail', 'ForgotPassword', 'ResetPassword'].includes(currentPageName) ||
     (currentPageName === 'Home' && !user);
   if (hideNav) {
     return (

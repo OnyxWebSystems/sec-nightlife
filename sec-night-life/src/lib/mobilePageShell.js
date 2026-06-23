@@ -59,6 +59,8 @@ const AUTH_FLOW_PAGES = new Set([
   'Login',
   'Register',
   'ResetPassword',
+  'VerifyEmail',
+  'ForgotPassword',
   'PaymentSuccess',
   'TicketSuccess',
   'TicketVerify',

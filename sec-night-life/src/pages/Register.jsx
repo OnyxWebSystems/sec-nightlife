@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import SecLogo from '@/components/ui/SecLogo';
 import { toast } from 'sonner';
 import { Loader2, Check, X } from 'lucide-react';
 import { LEGAL_ACCEPT_VERSION } from '@/legal/documentUrls';
@@ -112,7 +113,7 @@ export default function Register() {
         termsVersion: LEGAL_ACCEPT_VERSION.termsOfService,
         privacyVersion: LEGAL_ACCEPT_VERSION.privacyPolicy,
       });
-      toast.success('Account created! Please sign in.');
+      toast.success('Account created! Check your email to verify before signing in.');
       const roleIntent = r === 'VENUE' ? 'VENUE' : 'PARTY_GOER';
       let loginUrl = returnUrl ? createPageUrl('Login') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Login');
       loginUrl += (loginUrl.includes('?') ? '&' : '?') + 'role=' + encodeURIComponent(roleIntent);
@@ -128,8 +129,11 @@ export default function Register() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[#0A0A0B]">
       <div className="w-full max-w-app md:max-w-app-md">
-        <h1 className="text-2xl font-bold text-white mb-2">Create Account</h1>
-        <p className="text-gray-400 mb-6">SEC Nightlife</p>
+        <div className="flex flex-col items-center mb-6">
+          <SecLogo size={96} asset="transparent" className="mb-4" />
+          <h1 className="text-2xl font-bold text-white mb-1">Create Account</h1>
+          <p className="text-gray-400">SEC Nightlife</p>
+        </div>
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div>
             <Label className="text-gray-400">Full Name</Label>

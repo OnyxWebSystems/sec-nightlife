@@ -25,6 +25,8 @@ const ONBOARDING_EXEMPT_PAGES = new Set([
   'Login',
   'Register',
   'ResetPassword',
+  'VerifyEmail',
+  'ForgotPassword',
   'PaymentSuccess',
   'TicketSuccess',
   'TicketVerify',
@@ -104,6 +106,26 @@ const AuthenticatedApp = () => {
           <LayoutWrapper currentPageName="ResetPassword">
             <Suspense fallback={<RoutePageFallback />}>
               {Pages.ResetPassword ? <Pages.ResetPassword /> : null}
+            </Suspense>
+          </LayoutWrapper>
+        }
+      />
+      <Route
+        path="/verify-email"
+        element={
+          <LayoutWrapper currentPageName="VerifyEmail">
+            <Suspense fallback={<RoutePageFallback />}>
+              {Pages.VerifyEmail ? <Pages.VerifyEmail /> : null}
+            </Suspense>
+          </LayoutWrapper>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <LayoutWrapper currentPageName="ForgotPassword">
+            <Suspense fallback={<RoutePageFallback />}>
+              {Pages.ForgotPassword ? <Pages.ForgotPassword /> : null}
             </Suspense>
           </LayoutWrapper>
         }

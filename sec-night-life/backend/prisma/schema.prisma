@@ -322,6 +322,8 @@ model User {
   emailChangeNewEmail         String?   @map("email_change_new_email")
   emailChangeNewOtpHash       String?   @map("email_change_new_otp_hash")
   emailChangeNewOtpExpiry     DateTime? @map("email_change_new_otp_expiry")
+  loginOtpHash                String?   @map("login_otp_hash")
+  loginOtpExpiry              DateTime? @map("login_otp_expiry")
   isPremium             Boolean   @default(false) @map("is_premium")
   paystackRecipientCode String?   @map("paystack_recipient_code")
   suspendedAt           DateTime? @map("suspended_at")

@@ -46,7 +46,7 @@ export default function ResetPassword() {
       <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
         <div className="max-w-md w-full rounded-2xl p-6 text-center" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
           <p className="text-gray-400 mb-4">This reset link is invalid or incomplete.</p>
-          <Link to={createPageUrl('ChangePassword')} className="text-[var(--sec-accent)] hover:underline">
+          <Link to={createPageUrl('ForgotPassword')} className="text-[var(--sec-accent)] hover:underline">
             Request a new reset link
           </Link>
         </div>

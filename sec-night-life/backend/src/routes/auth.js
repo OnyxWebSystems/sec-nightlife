@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { audit } from '../lib/audit.js';
 import { logger } from '../lib/logger.js';
-import { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeOtpEmail } from '../lib/email.js';
+import { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeOtpEmail, sendLoginOtpEmail } from '../lib/email.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
@@ -293,6 +293,18 @@ const changeEmailConfirmSchema = z.object({
   otp: z.string().length(6).regex(/^\d{6}$/).optional(),
 });
 
+const loginOtpSchema = z.object({
+  loginChallengeToken: z.string().min(1),
+  otp: z.string().length(6).regex(/^\d{6}$/),
+});
+
+const loginChallengeSchema = z.object({
+  loginChallengeToken: z.string().min(1),
+});
+
+const LOGIN_OTP_EXPIRY_MS = 10 * 60 * 1000;
+const LOGIN_OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+
 function generateOtp6() {
   return String(crypto.randomInt(100000, 1000000));
 }
@@ -305,6 +317,55 @@ function clearEmailChangeState() {
     emailChangeNewEmail: null,
     emailChangeNewOtpHash: null,
     emailChangeNewOtpExpiry: null,
+  };
+}
+
+function clearLoginOtpState() {
+  return { loginOtpHash: null, loginOtpExpiry: null };
+}
+
+function verifyLoginChallengeToken(rawToken) {
+  try {
+    const payload = jwt.verify(rawToken, JWT_ACCESS_SECRET);
+    if (payload?.purpose !== 'login_otp' || !payload?.userId) return null;
+    return payload.userId;
+  } catch {
+    return null;
+  }
+}
+
+function signLoginChallengeToken(userId) {
+  return jwt.sign({ userId, purpose: 'login_otp' }, JWT_ACCESS_SECRET, { expiresIn: '10m' });
+}
+
+async function issueLoginOtpChallenge(user) {
+  const otp = generateOtp6();
+  const otpHash = hashTokenSha256(otp);
+  const expiry = new Date(Date.now() + LOGIN_OTP_EXPIRY_MS);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { loginOtpHash: otpHash, loginOtpExpiry: expiry },
+  });
+  sendLoginOtpEmail(user.email, otp).catch((err) => {
+    logger.error('Failed to send login OTP email', { userId: user.id, message: err.message });
+  });
+  return signLoginChallengeToken(user.id);
+}
+
+async function buildLoginSuccessPayload(user) {
+  const { accessToken, refreshToken } = await issueTokens(user);
+  const vStatus = await readVerificationStatusCompat(user.id);
+  const canAdminDashboard = await canAccessAdminDashboard(user);
+  await ensureIdentityReminderNotification(user.id, vStatus);
+  return {
+    user: userPayload(user, {
+      verification_status: vStatus,
+      identity_verified: isIdentityVerifiedStatus(vStatus),
+      can_admin_dashboard: canAdminDashboard,
+    }),
+    accessToken,
+    refreshToken,
+    expiresIn: accessTokenExpiresInSeconds(),
   };
 }
 
@@ -552,31 +613,18 @@ router.post('/login', async (req, res, next) => {
       });
     }
 
-    const { accessToken, refreshToken } = await issueTokens(user);
+    const loginChallengeToken = await issueLoginOtpChallenge(user);
 
     await audit({
       userId: user.id,
-      action: 'LOGIN_SUCCESS',
+      action: 'LOGIN_OTP_SENT',
       entityType: 'user',
       entityId: user.id,
       metadata: { email: user.email },
       ipAddress: getIp(req)
     });
 
-    const vStatus = await readVerificationStatusCompat(user.id);
-    const canAdminDashboard = await canAccessAdminDashboard(user);
-    await ensureIdentityReminderNotification(user.id, vStatus);
-
-    res.json({
-      user: userPayload(user, {
-        verification_status: vStatus,
-        identity_verified: isIdentityVerifiedStatus(vStatus),
-        can_admin_dashboard: canAdminDashboard,
-      }),
-      accessToken,
-      refreshToken,
-      expiresIn: accessTokenExpiresInSeconds()
-    });
+    res.json({ requiresOtp: true, loginChallengeToken });
   } catch (err) {
     next(err);
   }
@@ -665,6 +713,102 @@ router.post('/resend-verification', async (req, res, next) => {
     }
 
     res.json({ message: 'If the email exists and is unverified, a new verification link was sent.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Login OTP (email 2FA) ─────────────────────────────────────────────────
+
+router.post('/verify-login-otp', async (req, res, next) => {
+  try {
+    const parsed = loginOtpSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Valid login challenge and 6-digit code required' });
+    }
+    const { loginChallengeToken, otp } = parsed.data;
+    const userId = verifyLoginChallengeToken(loginChallengeToken);
+    if (!userId) {
+      return res.status(401).json({ error: 'Login session expired. Please sign in again.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId, deletedAt: null } });
+    if (!user || !user.loginOtpHash || !user.loginOtpExpiry) {
+      return res.status(401).json({ error: 'Login session expired. Please sign in again.' });
+    }
+    if (user.loginOtpExpiry <= new Date()) {
+      await prisma.user.update({ where: { id: user.id }, data: clearLoginOtpState() });
+      return res.status(401).json({ error: 'Code expired. Please sign in again.' });
+    }
+    if (hashTokenSha256(otp) !== user.loginOtpHash) {
+      await audit({
+        userId: user.id,
+        action: 'LOGIN_OTP_FAILED',
+        entityType: 'user',
+        entityId: user.id,
+        ipAddress: getIp(req),
+      });
+      return res.status(401).json({ error: 'Invalid code. Try again or request a new one.' });
+    }
+
+    await prisma.user.update({ where: { id: user.id }, data: clearLoginOtpState() });
+
+    await audit({
+      userId: user.id,
+      action: 'LOGIN_SUCCESS',
+      entityType: 'user',
+      entityId: user.id,
+      metadata: { email: user.email, viaOtp: true },
+      ipAddress: getIp(req),
+    });
+
+    const payload = await buildLoginSuccessPayload(user);
+    res.json(payload);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/resend-login-otp', async (req, res, next) => {
+  try {
+    const parsed = loginChallengeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Login challenge required' });
+    }
+    const userId = verifyLoginChallengeToken(parsed.data.loginChallengeToken);
+    if (!userId) {
+      return res.status(401).json({ error: 'Login session expired. Please sign in again.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId, deletedAt: null } });
+    if (!user) {
+      return res.status(401).json({ error: 'Login session expired. Please sign in again.' });
+    }
+    if (user.loginOtpExpiry) {
+      const sentAt = user.loginOtpExpiry.getTime() - LOGIN_OTP_EXPIRY_MS;
+      if (Date.now() - sentAt < LOGIN_OTP_RESEND_COOLDOWN_MS) {
+        return res.status(429).json({ error: 'Please wait a minute before requesting a new code.' });
+      }
+    }
+
+    const loginChallengeToken = await issueLoginOtpChallenge(user);
+    res.json({ loginChallengeToken, message: 'A new sign-in code was sent to your email.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/cancel-login-otp', async (req, res, next) => {
+  try {
+    const parsed = loginChallengeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Login challenge required' });
+    }
+    const userId = verifyLoginChallengeToken(parsed.data.loginChallengeToken);
+    if (userId) {
+      await prisma.user.update({ where: { id: userId }, data: clearLoginOtpState() });
+    }
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
