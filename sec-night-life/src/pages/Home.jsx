@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
-import { useAuth, hasStoredAuthTokens } from '@/lib/AuthContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { format, isToday, isTomorrow, isValid, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -17,7 +17,6 @@ import StaffAccessBanner from '@/components/home/StaffAccessBanner';
 import AdminAccessBanner from '@/components/home/AdminAccessBanner';
 import PlatformAnnouncementBanner from '@/components/home/PlatformAnnouncementBanner';
 import SecLogo from '@/components/ui/SecLogo';
-import SecLoadingScreen from '@/components/ui/SecLoadingScreen';
 import { getEventImage } from '@/lib/placeholders';
 import { toast } from 'sonner';
 import { launchPaystackInline } from '@/lib/paystackInline';
@@ -225,16 +224,6 @@ export default function Home() {
   const [selectedVenueType, setSelectedVenueType] = useState('all');
   const [sessionId] = useState(() => getOrCreateSessionId());
   const pullCooldownRef = useRef(0);
-  const [sessionWaitTimedOut, setSessionWaitTimedOut] = useState(false);
-
-  useEffect(() => {
-    if (!isLoadingAuth || !hasStoredAuthTokens()) {
-      setSessionWaitTimedOut(false);
-      return undefined;
-    }
-    const timer = window.setTimeout(() => setSessionWaitTimedOut(true), 8000);
-    return () => window.clearTimeout(timer);
-  }, [isLoadingAuth]);
 
   const { data: staffAssignments = [] } = useQuery({
     queryKey: ['staff-venues'],
@@ -534,12 +523,6 @@ export default function Home() {
   });
   const featuredCards =
     featuredEventDetails?.length > 0 ? featuredEventDetails : featuredEvents;
-
-  const pendingSession = isLoadingAuth && hasStoredAuthTokens();
-
-  if (!user && pendingSession && !sessionWaitTimedOut) {
-    return <SecLoadingScreen />;
-  }
 
   if (!user) {
     return (

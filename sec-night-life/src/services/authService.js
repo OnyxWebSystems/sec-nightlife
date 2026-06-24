@@ -2,6 +2,7 @@
  * Auth service - uses backend API for registration, login, and session.
  */
 import { apiGet, apiPost, setTokens, clearTokens, refreshAccessToken } from '@/api/client';
+import { writeSessionCache, clearSessionCache } from '@/lib/sessionCache';
 
 export async function getAuthSession() {
   const data = await apiGet('/api/auth/me');
@@ -21,6 +22,23 @@ export async function getAuthSession() {
 export async function getCurrentUser() {
   const { user } = await getAuthSession();
   return user;
+}
+
+/** Cache session before a full-page redirect so the next load is instant. */
+export async function persistSessionCache() {
+  const { user, userProfile } = await getAuthSession();
+  writeSessionCache(user, userProfile);
+  return { user, userProfile };
+}
+
+async function cacheSessionAfterTokens(apiUser) {
+  if (apiUser?.id) {
+    writeSessionCache(apiUser, apiUser.user_profile ?? null);
+    return;
+  }
+  try {
+    await persistSessionCache();
+  } catch {}
 }
 
 export async function ensureSession() {
@@ -60,6 +78,7 @@ export function logout(shouldRedirect) {
   const rt = localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
   if (rt) apiPost('/api/auth/logout', { refreshToken: rt }).catch(() => {});
   clearTokens();
+  clearSessionCache();
   if (shouldRedirect !== false) window.location.href = window.location.origin + '/';
 }
 
@@ -67,6 +86,7 @@ export async function deleteAccount() {
   const { apiDelete } = await import('@/api/client');
   await apiDelete('/api/auth/account');
   clearTokens();
+  clearSessionCache();
   window.location.href = window.location.origin + '/';
 }
 
@@ -81,6 +101,7 @@ export async function register(email, password, fullName, role, username) {
   const data = await apiPost('/api/auth/register', body, { skipAuth: true });
   if (data.accessToken) {
     setTokens(data.accessToken, data.refreshToken);
+    await cacheSessionAfterTokens(data.user);
   }
   return data.user;
 }
@@ -97,12 +118,14 @@ export async function login(email, password, role) {
     };
   }
   setTokens(data.accessToken, data.refreshToken);
+  await cacheSessionAfterTokens(data.user);
   return { user: data.user };
 }
 
 export async function verifyLoginOtp(loginChallengeToken, otp) {
   const data = await apiPost('/api/auth/verify-login-otp', { loginChallengeToken, otp }, { skipAuth: true });
   setTokens(data.accessToken, data.refreshToken);
+  await cacheSessionAfterTokens(data.user);
   return data.user;
 }
 

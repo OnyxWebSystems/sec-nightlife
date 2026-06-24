@@ -62,12 +62,12 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   : <>{children}</>;
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { isLoadingAuth, authError, navigateToLogin, user } = useAuth();
   const location = useLocation();
   const isPublicPage = isPublicAppPath(location.pathname);
 
-  // Show loading only briefly on protected routes — never block public Home.
-  if (!isPublicPage && (isLoadingPublicSettings || isLoadingAuth)) {
+  // Only block protected routes when we have no user to show yet (no cached session).
+  if (!isPublicPage && isLoadingAuth && !user) {
     return <SecLoadingScreen message="Signing you in…" />;
   }
 

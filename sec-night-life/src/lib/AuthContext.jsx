@@ -1,6 +1,12 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
 import * as authService from '@/services/authService';
-import { clearTokens } from '@/api/client';
+import { getRefreshToken } from '@/api/client';
+import {
+  readSessionCache,
+  writeSessionCache,
+  clearSessionCache,
+  userFromSessionCache,
+} from '@/lib/sessionCache';
 
 const AuthContext = createContext();
 
@@ -26,138 +32,114 @@ function withTimeout(promise, ms, label = 'Request') {
   ]);
 }
 
-const SESSION_USER_CACHE_KEY = 'sec_session_user';
-
-function readCachedSessionUser() {
-  if (!hasStoredAuthTokens()) return null;
-  try {
-    const raw = sessionStorage.getItem(SESSION_USER_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedSessionUser(user, profile) {
-  if (!user?.id) return;
-  try {
-    sessionStorage.setItem(SESSION_USER_CACHE_KEY, JSON.stringify({
-      id: user.id,
-      email: user.email,
-      full_name: user.full_name,
-      role: user.role,
-      verified: user.verified,
-      verification_status: user.verification_status,
-      identity_verified: user.identity_verified,
-      can_admin_dashboard: user.can_admin_dashboard,
-      profile,
-    }));
-  } catch {}
-}
-
-function clearCachedSessionUser() {
-  try {
-    sessionStorage.removeItem(SESSION_USER_CACHE_KEY);
-  } catch {}
-}
-
-function hydrateFromCache() {
-  const cached = readCachedSessionUser();
-  if (!cached) return { user: null, profile: null };
+function mapUser(currentUser) {
   return {
-    user: {
-      id: cached.id,
-      email: cached.email,
-      full_name: cached.full_name,
-      role: cached.role,
-      verified: cached.verified,
-      verification_status: cached.verification_status,
-      identity_verified: cached.identity_verified,
-      can_admin_dashboard: cached.can_admin_dashboard,
-    },
-    profile: cached.profile ?? null,
+    id: currentUser.id,
+    email: currentUser.email,
+    full_name: currentUser.full_name,
+    role: currentUser.role,
+    verified: currentUser.verified,
+    verification_status: currentUser.verification_status,
+    identity_verified: currentUser.identity_verified,
+    can_admin_dashboard: currentUser.can_admin_dashboard,
   };
 }
 
+function restoreCachedSession(setUser, setUserProfile, setIsAuthenticated) {
+  const cached = readSessionCache();
+  const restored = userFromSessionCache(cached);
+  if (!restored.user) return false;
+  setUser(restored.user);
+  setUserProfile(restored.profile);
+  setIsAuthenticated(true);
+  return true;
+}
+
 export const AuthProvider = ({ children }) => {
-  const cached = hydrateFromCache();
-  const [user, setUser] = useState(cached.user);
-  const [userProfile, setUserProfile] = useState(cached.profile);
-  const [isAuthenticated, setIsAuthenticated] = useState(!!cached.user);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(() => hasStoredAuthTokens());
+  const hasTokens = hasStoredAuthTokens();
+  const initialCache = hasTokens ? readSessionCache() : null;
+  const initialSession = userFromSessionCache(initialCache);
+
+  const [user, setUser] = useState(initialSession.user);
+  const [userProfile, setUserProfile] = useState(initialSession.profile);
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    Boolean(initialSession.user) || hasTokens,
+  );
+  /** True only when we have tokens but no cached user to show yet (first open after login). */
+  const [isLoadingAuth, setIsLoadingAuth] = useState(hasTokens && !initialSession.user);
   const [authError, setAuthError] = useState(null);
+  const checkInFlight = useRef(false);
 
   const checkAuth = async () => {
+    if (checkInFlight.current) return;
+    checkInFlight.current = true;
+
     const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
     const refreshToken = localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
+
     if (!token && !refreshToken) {
       setUser(null);
       setUserProfile(null);
       setIsAuthenticated(false);
       setIsLoadingAuth(false);
+      checkInFlight.current = false;
       return;
     }
+
     if (!token && refreshToken) {
-      let refreshed = false;
       try {
-        refreshed = await withTimeout(authService.ensureSession(), 10000, 'Session refresh');
+        await withTimeout(authService.ensureSession(), 20000, 'Session refresh');
       } catch {
-        refreshed = false;
-      }
-      if (!refreshed) {
-        clearTokens();
-        setUser(null);
-        setUserProfile(null);
-        setIsAuthenticated(false);
-        clearCachedSessionUser();
-        setIsLoadingAuth(false);
-        return;
+        // Offline or slow network — keep tokens and cached user; never force logout here.
       }
     }
+
     try {
       setAuthError(null);
       const { user: currentUser, userProfile: profile } = await withTimeout(
         authService.getAuthSession(),
-        8000,
+        20000,
         'Session check',
       );
-      setUser({
-        id: currentUser.id,
-        email: currentUser.email,
-        full_name: currentUser.full_name,
-        role: currentUser.role,
-        verified: currentUser.verified,
-        verification_status: currentUser.verification_status,
-        identity_verified: currentUser.identity_verified,
-        can_admin_dashboard: currentUser.can_admin_dashboard,
-      });
+      const nextUser = mapUser(currentUser);
+      setUser(nextUser);
       setIsAuthenticated(true);
       setUserProfile(profile);
-      writeCachedSessionUser(currentUser, profile);
+      writeSessionCache(currentUser, profile);
     } catch (err) {
-      setUser(null);
-      setUserProfile(null);
-      setIsAuthenticated(false);
-      clearCachedSessionUser();
-      if (err?.status === 401 || err?.status === 403) {
+      const refreshStillValid = Boolean(getRefreshToken());
+      const hadCachedUser = restoreCachedSession(setUser, setUserProfile, setIsAuthenticated);
+
+      if ((err?.status === 401 || err?.status === 403) && !refreshStillValid && !hadCachedUser) {
+        clearSessionCache();
+        setUser(null);
+        setUserProfile(null);
+        setIsAuthenticated(false);
         setAuthError({ type: 'auth_required', message: 'Please sign in' });
+      } else if (hadCachedUser || refreshStillValid) {
+        setAuthError(null);
       } else {
         setAuthError({ type: 'unknown', message: err?.message || 'Auth check failed' });
       }
     } finally {
       setIsLoadingAuth(false);
+      checkInFlight.current = false;
     }
   };
 
   useEffect(() => {
-    checkAuth();
+    if (hasTokens) {
+      void checkAuth();
+    } else {
+      setIsLoadingAuth(false);
+    }
   }, []);
 
   const logout = (shouldRedirect = true) => {
     setUser(null);
     setUserProfile(null);
     setIsAuthenticated(false);
-    clearCachedSessionUser();
+    clearSessionCache();
     authService.logout(shouldRedirect);
   };
 
@@ -166,18 +148,20 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      userProfile,
-      isAuthenticated,
-      isLoadingAuth,
-      isLoadingPublicSettings: isLoadingAuth,
-      authError,
-      appPublicSettings: null,
-      logout,
-      navigateToLogin,
-      checkAppState: checkAuth
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        userProfile,
+        isAuthenticated,
+        isLoadingAuth,
+        isLoadingPublicSettings: isLoadingAuth,
+        authError,
+        appPublicSettings: null,
+        logout,
+        navigateToLogin,
+        checkAppState: checkAuth,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

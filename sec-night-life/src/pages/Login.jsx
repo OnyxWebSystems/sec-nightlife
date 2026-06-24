@@ -78,7 +78,12 @@ export default function Login() {
     ? `${createPageUrl('ForgotPassword')}?email=${encodeURIComponent(email.trim())}`
     : createPageUrl('ForgotPassword');
 
-  const redirectAfterLogin = () => {
+  const redirectAfterLogin = async () => {
+    try {
+      await authService.persistSessionCache();
+    } catch {
+      // Tokens are set; AuthContext will hydrate on the next page.
+    }
     const path =
       returnUrl && returnUrl.startsWith('/')
         ? returnUrl
@@ -113,7 +118,7 @@ export default function Login() {
         return;
       }
       toast.success('Signed in successfully');
-      redirectAfterLogin();
+      await redirectAfterLogin();
     } catch (err) {
       const code = err?.data?.code;
       if (code === 'EMAIL_NOT_VERIFIED') {
@@ -152,7 +157,7 @@ export default function Login() {
     try {
       await authService.verifyLoginOtp(loginChallengeToken, otp);
       toast.success('Signed in successfully');
-      redirectAfterLogin();
+      await redirectAfterLogin();
     } catch (err) {
       toast.error(err?.data?.error || err?.message || 'Invalid code');
     } finally {
