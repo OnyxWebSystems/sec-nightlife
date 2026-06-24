@@ -5,6 +5,7 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { toast } from 'sonner';
 import LegalDocLink from '@/components/legal/LegalDocLink';
 import { Button } from "@/components/ui/button";
@@ -156,11 +157,6 @@ export default function BusinessDashboard() {
   const statsYear = new Date().getFullYear();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [statsPeriod, setStatsPeriod] = useState('month');
-
-  const cloudinaryConfig = {
-    cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
-    uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
-  };
 
   const { data: complianceLatest, refetch: refetchCompliance } = useQuery({
     queryKey: ['biz-compliance-latest', venue?.id],
@@ -360,10 +356,6 @@ export default function BusinessDashboard() {
     setComplianceError('');
 
     if (!file) return;
-    if (!cloudinaryConfig.cloudName || !cloudinaryConfig.uploadPreset) {
-      setComplianceError('Cloudinary is not configured. Please contact support.');
-      return;
-    }
 
     const MAX_MB = 10;
     const maxBytes = MAX_MB * 1024 * 1024;
@@ -382,24 +374,13 @@ export default function BusinessDashboard() {
 
     setUploading((prev) => ({ ...prev, [docType]: true }));
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('upload_preset', cloudinaryConfig.uploadPreset);
-      form.append('public_id', `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-'));
-      form.append('filename_override', file.name);
-      form.append('resource_type', isPdf ? 'raw' : 'image');
-
-      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
-        method: 'POST',
-        body: form,
+      const uploadData = await uploadToCloudinary(file, {
+        resourceType: isPdf ? 'raw' : 'image',
+        publicId: `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-'),
+        filenameOverride: file.name,
       });
 
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) {
-        throw new Error(uploadData?.error?.message || 'Cloudinary upload failed');
-      }
-
-      const fileUrl = uploadData.secure_url;
+      const fileUrl = uploadData.file_url;
       if (!fileUrl) throw new Error('Cloudinary returned no secure_url');
 
       await apiPost('/api/compliance-documents', {

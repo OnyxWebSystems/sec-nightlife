@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiGet, apiPatch, apiPost } from '@/api/client';
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import {
   JOB_TYPES,
   COMPENSATION_TYPES,
@@ -222,23 +223,12 @@ export default function JobDetails() {
       toast.error('Upload a PDF up to 5MB');
       return;
     }
-    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-    if (!cloudName || !uploadPreset) {
-      toast.error('Cloudinary env is missing');
-      return;
-    }
     setUploading(true);
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('upload_preset', uploadPreset);
-      form.append('resource_type', 'raw');
-      form.append('folder', 'sec-nightlife/cvs');
-      // If 401 persists, verify Cloudinary upload preset is Unsigned + Public in dashboard.
-      const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`, { method: 'POST', body: form });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error?.message || 'Upload failed');
+      const data = await uploadToCloudinary(file, {
+        resourceType: 'raw',
+        folder: 'sec-nightlife/cvs',
+      });
       if (!data?.secure_url) throw new Error('Upload succeeded but secure_url is missing');
       setCvUrl(data.secure_url);
       setCvFileName(file.name);

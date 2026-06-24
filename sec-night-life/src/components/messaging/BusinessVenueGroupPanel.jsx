@@ -9,6 +9,7 @@ import { Loader2, Plus, Users, Trash2, LogOut, Shield, Search } from 'lucide-rea
 import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
@@ -63,28 +64,12 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
     return () => window.clearTimeout(t);
   }, [memberSearchQ]);
 
-  const cloudinaryConfig = {
-    cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
-    uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
-  };
-
   async function uploadGroupAvatar(file) {
     if (!selectedGroupId || !groupsBase) return;
-    if (!cloudinaryConfig.cloudName || !cloudinaryConfig.uploadPreset) {
-      toast.error('Image upload is not configured');
-      return;
-    }
     setAvatarUploading(true);
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('upload_preset', cloudinaryConfig.uploadPreset);
-      const uploadRes = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`,
-        { method: 'POST', body: form },
-      );
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) throw new Error(uploadData?.error?.message || 'Upload failed');
+      const uploadData = await uploadToCloudinary(file, { resourceType: 'image' });
+      if (!uploadData.secure_url) throw new Error('Upload failed');
       await apiPatch(`${groupsBase}/${selectedGroupId}`, { avatarUrl: uploadData.secure_url });
       toast.success('Group photo updated');
       queryClient.invalidateQueries({ queryKey: ['venue-message-groups', venueId, staffContextToken] });

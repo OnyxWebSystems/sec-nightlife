@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -288,24 +289,11 @@ async function uploadPromotionImageFile(file) {
     toast.error('Image must be 5MB or smaller');
     return null;
   }
-  const cloud = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-  const preset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-  if (!cloud || !preset) {
-    toast.error('Cloudinary is not configured');
-    return null;
-  }
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('upload_preset', preset);
-  formData.append('resource_type', 'image');
-  formData.append('folder', 'sec-nightlife/promotions');
-  const response = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/image/upload`, {
-    method: 'POST',
-    body: formData,
+  const result = await uploadToCloudinary(file, {
+    resourceType: 'image',
+    folder: 'sec-nightlife/promotions',
   });
-  const json = await response.json();
-  if (!response.ok) throw new Error(json?.error?.message || 'Upload failed');
-  return { imageUrl: json.secure_url, imagePublicId: json.public_id };
+  return { imageUrl: result.secure_url, imagePublicId: result.public_id };
 }
 
 function formatApiError(e, fallback) {

@@ -3,7 +3,8 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
-import { apiGet, apiPatch, apiPost, uploadFile } from '@/api/client';
+import { apiGet, apiPatch, apiPost } from '@/api/client';
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { 
   Building,
   Upload,
@@ -196,7 +197,7 @@ function uploadFieldLabel(field) {
 }
 
 /** @returns {Promise<string|null>} uploaded file URL on success */
-async function uploadVenueFile(field, file, cloudinaryConfig, setters) {
+async function uploadVenueFile(field, file, setters) {
   const { setUploadProgress, setFormData, setError } = setters;
   setUploadProgress((prev) => ({ ...prev, [field]: 'uploading' }));
   setError('');
@@ -206,22 +207,12 @@ async function uploadVenueFile(field, file, cloudinaryConfig, setters) {
       throw new Error(`File is too large. Maximum size is ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB.`);
     }
     const resourceType = assertAllowedUpload(field, file);
-    let url = null;
-    if (cloudinaryConfig.cloudName && cloudinaryConfig.uploadPreset) {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('upload_preset', cloudinaryConfig.uploadPreset);
-      form.append('public_id', `${Date.now()}-venue`.replace(/[^a-zA-Z0-9/_-]/g, '-'));
-      form.append('resource_type', resourceType);
-      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, { method: 'POST', body: form });
-      const uploadData = await uploadRes.json();
-      if (uploadRes.ok && uploadData?.secure_url) url = uploadData.secure_url;
-    }
-    if (!url) {
-      const data = await uploadFile(file);
-      url = data?.file_url;
-      if (!url) throw new Error('Upload returned no URL.');
-    }
+    const data = await uploadToCloudinary(file, {
+      resourceType,
+      publicId: `${Date.now()}-venue`.replace(/[^a-zA-Z0-9/_-]/g, '-'),
+    });
+    const url = data?.file_url;
+    if (!url) throw new Error('Upload returned no URL.');
     setFormData((prev) => ({ ...prev, [field]: url }));
     setUploadProgress((prev) => ({ ...prev, [field]: 'done' }));
     toast.success(`${uploadFieldLabel(field)} uploaded successfully.`);
@@ -277,10 +268,6 @@ export default function VenueOnboarding() {
   const [menuDraftItems, setMenuDraftItems] = useState([]);
   const [ensuringVenueForMenu, setEnsuringVenueForMenu] = useState(false);
   const [brandingPreviewKey, setBrandingPreviewKey] = useState(0);
-  const cloudinaryConfig = {
-    cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || '',
-    uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
-  };
 
   const persistBrandingField = useCallback(
     async (field, url) => {
@@ -313,7 +300,7 @@ export default function VenueOnboarding() {
 
   const logoCrop = useImageCropUpload({
     onCropped: async (file) => {
-      const url = await uploadVenueFile('logo_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
+      const url = await uploadVenueFile('logo_url', file, { setUploadProgress, setFormData, setError });
       if (url) {
         setBrandingPreviewKey((k) => k + 1);
         await persistBrandingField('logo_url', url);
@@ -322,7 +309,7 @@ export default function VenueOnboarding() {
   });
   const coverCrop = useImageCropUpload({
     onCropped: async (file) => {
-      const url = await uploadVenueFile('cover_image_url', file, cloudinaryConfig, { setUploadProgress, setFormData, setError });
+      const url = await uploadVenueFile('cover_image_url', file, { setUploadProgress, setFormData, setError });
       if (url) {
         setBrandingPreviewKey((k) => k + 1);
         await persistBrandingField('cover_image_url', url);
@@ -515,47 +502,13 @@ export default function VenueOnboarding() {
 
       const resourceType = assertAllowedUpload(field, file);
 
-      let cloudinaryError = null;
-      let url = null;
-
-      if (cloudinaryConfig.cloudName && cloudinaryConfig.uploadPreset) {
-        try {
-          const form = new FormData();
-          form.append('file', file);
-          form.append('upload_preset', cloudinaryConfig.uploadPreset);
-          form.append(
-            'public_id',
-            `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-')
-          );
-          form.append('filename_override', file.name);
-          form.append('resource_type', resourceType);
-
-          const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/upload`, {
-            method: 'POST',
-            body: form,
-          });
-          const uploadData = await uploadRes.json();
-
-          if (uploadRes.ok && uploadData?.secure_url) {
-            url = uploadData.secure_url;
-          } else {
-            cloudinaryError = new Error(uploadData?.error?.message || 'Cloudinary upload failed.');
-          }
-        } catch (err) {
-          cloudinaryError = err instanceof Error ? err : new Error(String(err));
-        }
-      }
-
-      if (!url) {
-        try {
-          const data = await uploadFile(file);
-          url = data?.file_url;
-          if (!url) throw new Error('Upload returned no URL.');
-        } catch (serverErr) {
-          if (cloudinaryError) throw cloudinaryError;
-          throw serverErr instanceof Error ? serverErr : new Error(String(serverErr));
-        }
-      }
+      const data = await uploadToCloudinary(file, {
+        resourceType,
+        publicId: `${Date.now()}-${file.name.replace(/\.[^.]+$/, '')}`.replace(/[^a-zA-Z0-9/_-]/g, '-'),
+        filenameOverride: file.name,
+      });
+      const url = data?.file_url;
+      if (!url) throw new Error('Upload returned no URL.');
 
       setFormData(prev => ({ ...prev, [field]: url }));
       setUploadProgress(prev => ({ ...prev, [field]: 'done' }));

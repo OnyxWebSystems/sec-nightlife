@@ -30,6 +30,22 @@ if (process.env.CLOUDINARY_CLOUD_NAME) {
   });
 }
 
+router.get('/config', authenticateToken, async (req, res, next) => {
+  try {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || null;
+    const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET || null;
+    if (!cloudName) {
+      return res.status(404).json({ error: 'Cloudinary is not configured' });
+    }
+    res.json({
+      cloud_name: cloudName,
+      upload_preset: uploadPreset,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/signature', authenticateToken, async (req, res, next) => {
   try {
     if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
