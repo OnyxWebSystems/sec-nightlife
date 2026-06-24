@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
+import { COVER_CROP_DIALOG_PROPS } from '@/lib/coverImageAspect';
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -939,7 +940,7 @@ export default function VenueOnboarding() {
                 <div className="flex-[2]">
                   <Label className="text-gray-400 text-sm">Cover Image</Label>
                   <label className="cursor-pointer mt-2 block">
-                    <div className="h-24 rounded-xl bg-[#141416] border border-[#262629] flex items-center justify-center overflow-hidden">
+                    <div className="w-full aspect-video rounded-xl bg-[#141416] border border-[#262629] flex items-center justify-center overflow-hidden">
                       {formData.cover_image_url ? (
                         <img key={`cover-${brandingPreviewKey}-${formData.cover_image_url}`} src={formData.cover_image_url} alt="" className="w-full h-full object-cover" />
                       ) : (
@@ -1397,9 +1398,7 @@ export default function VenueOnboarding() {
         open={coverCrop.cropOpen}
         onOpenChange={coverCrop.onCropOpenChange}
         imageSrc={coverCrop.cropSrc}
-        aspect={4 / 3}
-        maxCropHeight="min(70vh, 480px)"
-        contentClassName="max-w-lg"
+        {...COVER_CROP_DIALOG_PROPS}
         title="Crop cover image"
         onCropped={coverCrop.handleCropped}
         outputFileName="venue-cover.jpg"

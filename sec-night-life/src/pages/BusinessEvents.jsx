@@ -27,12 +27,7 @@ import { useActiveVenue } from '@/context/ActiveVenueContext';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { menuApiBase } from '@/lib/staffVenueApi';
 
-const EVENT_COVER_CROP_ASPECT = 16 / 9;
-const EVENT_COVER_CROP_DIALOG_PROPS = {
-  aspect: EVENT_COVER_CROP_ASPECT,
-  maxCropHeight: 'min(85vh, 560px)',
-  contentClassName: 'max-w-3xl',
-};
+import { COVER_CROP_DIALOG_PROPS as EVENT_COVER_CROP_DIALOG_PROPS } from '@/lib/coverImageAspect';
 
 function isoToDatetimeLocal(iso) {
   if (!iso) return '';

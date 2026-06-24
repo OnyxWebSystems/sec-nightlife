@@ -316,7 +316,7 @@ export default function VenueProfile() {
         venueName={venue.name}
       />
 
-      <div className="relative h-72">
+      <div className="relative w-full aspect-video">
         {venue.cover_image_url ? (
           <img src={venue.cover_image_url} alt={venue.name} className="w-full h-full object-cover" />
         ) : (
