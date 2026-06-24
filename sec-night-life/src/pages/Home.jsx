@@ -225,6 +225,16 @@ export default function Home() {
   const [selectedVenueType, setSelectedVenueType] = useState('all');
   const [sessionId] = useState(() => getOrCreateSessionId());
   const pullCooldownRef = useRef(0);
+  const [sessionWaitTimedOut, setSessionWaitTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (!isLoadingAuth || !hasStoredAuthTokens()) {
+      setSessionWaitTimedOut(false);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setSessionWaitTimedOut(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [isLoadingAuth]);
 
   const { data: staffAssignments = [] } = useQuery({
     queryKey: ['staff-venues'],
@@ -527,7 +537,7 @@ export default function Home() {
 
   const pendingSession = isLoadingAuth && hasStoredAuthTokens();
 
-  if (!user && pendingSession) {
+  if (!user && pendingSession && !sessionWaitTimedOut) {
     return <SecLoadingScreen />;
   }
 

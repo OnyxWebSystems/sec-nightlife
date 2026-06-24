@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import * as authService from '@/services/authService';
+import { clearTokens } from '@/api/client';
 
 const AuthContext = createContext();
 
@@ -97,11 +98,18 @@ export const AuthProvider = ({ children }) => {
       return;
     }
     if (!token && refreshToken) {
-      const refreshed = await authService.ensureSession();
+      let refreshed = false;
+      try {
+        refreshed = await withTimeout(authService.ensureSession(), 10000, 'Session refresh');
+      } catch {
+        refreshed = false;
+      }
       if (!refreshed) {
+        clearTokens();
         setUser(null);
         setUserProfile(null);
         setIsAuthenticated(false);
+        clearCachedSessionUser();
         setIsLoadingAuth(false);
         return;
       }
@@ -110,7 +118,7 @@ export const AuthProvider = ({ children }) => {
       setAuthError(null);
       const { user: currentUser, userProfile: profile } = await withTimeout(
         authService.getAuthSession(),
-        15000,
+        8000,
         'Session check',
       );
       setUser({

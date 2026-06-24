@@ -5,3 +5,9 @@ export function removeBootSplash() {
   el.classList.add('sec-boot-splash--out');
   window.setTimeout(() => el.remove(), 420);
 }
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    window.setTimeout(removeBootSplash, 5000);
+  });
+}

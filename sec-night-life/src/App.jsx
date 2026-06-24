@@ -1,9 +1,10 @@
-import React, { Suspense } from 'react'
+import React, { Suspense, useEffect } from 'react'
 import RoutePageFallback from '@/components/RoutePageFallback'
 import { Toaster } from "@/components/ui/sonner"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
+import { removeBootSplash } from '@/lib/removeBootSplash'
 import { pagesConfig } from './pages.config'
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
@@ -65,9 +66,9 @@ const AuthenticatedApp = () => {
   const location = useLocation();
   const isPublicPage = isPublicAppPath(location.pathname);
 
-  // Show loading spinner while checking app public settings or auth
+  // Show loading only briefly on protected routes — never block public Home.
   if (!isPublicPage && (isLoadingPublicSettings || isLoadingAuth)) {
-    return <SecLoadingScreen />;
+    return <SecLoadingScreen message="Signing you in…" />;
   }
 
   // Handle authentication errors (public pages like TicketVerify must stay reachable without login)
@@ -162,6 +163,9 @@ const AuthenticatedApp = () => {
 
 
 function App() {
+  useEffect(() => {
+    removeBootSplash();
+  }, []);
 
   return (
     <AuthProvider>

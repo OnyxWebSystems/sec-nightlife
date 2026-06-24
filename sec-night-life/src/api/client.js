@@ -50,15 +50,20 @@ async function doRefreshAccessToken(opts = {}) {
   if (!refreshToken) return false;
 
   let res;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 10000);
   try {
     res = await fetch(`${API_BASE}/api/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ refreshToken }),
+      signal: controller.signal,
     });
   } catch {
     return false;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 
   const text = await res.text();
