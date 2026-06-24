@@ -178,6 +178,7 @@ export default function Profile() {
   const displayProfile = isOwnProfile ? userProfile : viewedProfile;
 
   const authUserId = displayProfile?.user_id || user?.id || null;
+  const historyUserId = isOwnProfile ? (user?.id || authUserId) : authUserId;
 
   const { data: profilePromotions } = useQuery({
     queryKey: ['profile-promotions', authUserId],
@@ -831,7 +832,7 @@ export default function Profile() {
                   </div>
                 )}
 
-                <TableHistorySection userId={authUserId} isOwn limit={8} />
+                <TableHistorySection userId={historyUserId} isOwn limit={8} />
               </TabsContent>
 
               <TabsContent value="tickets" className="mt-4">

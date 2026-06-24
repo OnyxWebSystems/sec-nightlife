@@ -4,9 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiDelete } from '@/api/client';
 import { createPageUrl } from '@/utils';
 import { format, parseISO } from 'date-fns';
-import { Users, Trash2, TrendingUp, Ticket } from 'lucide-react';
+import { Users, Trash2, TrendingUp, Ticket, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 
 function historyHref(row) {
   if (row.venueTableId) return createPageUrl(`TableDetails?id=${row.venueTableId}&source=venue`);
@@ -49,7 +50,7 @@ function displayTitle(row) {
 export default function TableHistorySection({ userId, isOwn = false, limit = 8 }) {
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['table-history', userId],
     queryFn: () => apiGet(`/api/users/${userId}/table-history?limit=${limit}`),
     enabled: !!userId,
@@ -66,6 +67,8 @@ export default function TableHistorySection({ userId, isOwn = false, limit = 8 }
     onSuccess: () => {
       toast.success('Removed from event history');
       queryClient.invalidateQueries({ queryKey: ['table-history', userId] });
+      queryClient.invalidateQueries({ queryKey: ['my-tickets', userId] });
+      queryClient.invalidateQueries({ queryKey: ['profile-social'] });
     },
     onError: (e) => toast.error(e?.data?.error || e?.message || 'Could not remove'),
   });
@@ -75,6 +78,31 @@ export default function TableHistorySection({ userId, isOwn = false, limit = 8 }
 
   if (isLoading) {
     return <div className="text-center py-6 text-gray-500 text-sm">Loading event history...</div>;
+  }
+
+  if (isError) {
+    return (
+      <div>
+        <h3 className="font-semibold mb-3 flex items-center gap-2">
+          <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
+          Event History
+        </h3>
+        <div className="text-center py-8">
+          <p className="text-gray-500 text-sm mb-3">Could not load event history.</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isFetching}
+            onClick={() => refetch()}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (

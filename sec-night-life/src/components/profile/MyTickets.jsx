@@ -112,6 +112,8 @@ export default function MyTickets({ userId }) {
     onSuccess: () => {
       toast.success('Removed from history');
       queryClient.invalidateQueries({ queryKey: ['my-tickets', userId] });
+      queryClient.invalidateQueries({ queryKey: ['table-history', userId] });
+      queryClient.invalidateQueries({ queryKey: ['profile-social'] });
     },
     onError: (e) => toast.error(e?.message || 'Could not delete'),
   });

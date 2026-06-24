@@ -2,7 +2,7 @@ import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 
 /**
- * Record or refresh a table participation row (fire-and-forget).
+ * Record or refresh a table participation row (awaitable).
  * @param {object} opts
  * @param {string} opts.userId
  * @param {'HOST'|'JOINED'} opts.role
@@ -14,7 +14,7 @@ import { logger } from './logger.js';
  * @param {string} [opts.venueTableId]
  * @param {Date} [opts.occurredAt]
  */
-export function recordTableHistory(opts) {
+export async function recordTableHistoryAwait(opts) {
   const {
     userId,
     role,
@@ -29,52 +29,54 @@ export function recordTableHistory(opts) {
 
   if (!userId || !tableName || !role) return;
 
-  (async () => {
-    try {
-      const where = {
-        userId,
-        role,
-        hiddenAt: null,
-        ...(tableId ? { tableId } : {}),
-        ...(hostedTableId ? { hostedTableId } : {}),
-        ...(venueTableId ? { venueTableId } : {}),
-      };
+  const where = {
+    userId,
+    role,
+    hiddenAt: null,
+    ...(tableId ? { tableId } : {}),
+    ...(hostedTableId ? { hostedTableId } : {}),
+    ...(venueTableId ? { venueTableId } : {}),
+  };
 
-      const existing = await prisma.userTableHistory.findFirst({
-        where,
-        orderBy: { occurredAt: 'desc' },
-      });
+  const existing = await prisma.userTableHistory.findFirst({
+    where,
+    orderBy: { occurredAt: 'desc' },
+  });
 
-      if (existing) {
-        await prisma.userTableHistory.update({
-          where: { id: existing.id },
-          data: {
-            tableName,
-            eventTitle,
-            eventId,
-            occurredAt,
-          },
-        });
-        return;
-      }
+  if (existing) {
+    await prisma.userTableHistory.update({
+      where: { id: existing.id },
+      data: {
+        tableName,
+        eventTitle,
+        eventId,
+        occurredAt,
+      },
+    });
+    return;
+  }
 
-      await prisma.userTableHistory.create({
-        data: {
-          userId,
-          role,
-          tableName,
-          eventTitle,
-          eventId,
-          tableId,
-          hostedTableId,
-          venueTableId,
-          occurredAt,
-        },
-      });
-    } catch (e) {
-      logger?.warn?.('table history record failed', { err: e?.message, userId, role });
-    }
-  })();
+  await prisma.userTableHistory.create({
+    data: {
+      userId,
+      role,
+      tableName,
+      eventTitle,
+      eventId,
+      tableId,
+      hostedTableId,
+      venueTableId,
+      occurredAt,
+    },
+  });
+}
+
+/** Fire-and-forget wrapper for runtime payment/join flows. */
+export function recordTableHistory(opts) {
+  if (!opts.userId || !opts.tableName || !opts.role) return;
+  recordTableHistoryAwait(opts).catch((e) => {
+    logger?.warn?.('table history record failed', { err: e?.message, userId: opts.userId, role: opts.role });
+  });
 }
 
 export function mapTableHistoryRow(row) {
@@ -191,6 +193,34 @@ function synthRow(role, data) {
   };
 }
 
+async function fetchLegacyJoinRows(userId) {
+  try {
+    return await prisma.$queryRaw`
+      SELECT DISTINCT t.id, t.name, t.event_id AS "eventId", t.created_at AS "createdAt", e.title AS "eventTitle"
+      FROM tables t
+      INNER JOIN events e ON e.id = t.event_id
+      WHERE t.deleted_at IS NULL
+        AND t.host_user_id::text != ${userId}
+        AND e.deleted_at IS NULL
+        AND e.status = 'published'
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(
+            CASE
+              WHEN jsonb_typeof(t.members::jsonb) = 'array' THEN t.members::jsonb
+              ELSE '[]'::jsonb
+            END
+          ) AS elem
+          WHERE elem #>> '{}' = ${userId}
+             OR elem->>'user_id' = ${userId}
+             OR elem->>'userId' = ${userId}
+        )
+    `;
+  } catch (e) {
+    logger?.warn?.('legacy table join history failed', { err: e?.message, userId });
+    return [];
+  }
+}
+
 /**
  * Build table history items from live DB participation (fills gaps in user_table_history).
  * @param {string} userId
@@ -236,7 +266,7 @@ export async function gatherLiveTableParticipation(userId) {
     prisma.venueTableMember.findMany({
       where: {
         userId,
-        status: 'CONFIRMED',
+        status: { in: ['CONFIRMED', 'LEFT'] },
         venueTable: { NOT: { hostUserId: userId } },
       },
       select: {
@@ -247,26 +277,7 @@ export async function gatherLiveTableParticipation(userId) {
         },
       },
     }),
-    prisma.$queryRaw`
-      SELECT DISTINCT t.id, t.name, t.event_id AS "eventId", t.created_at AS "createdAt", e.title AS "eventTitle"
-      FROM tables t
-      INNER JOIN events e ON e.id = t.event_id
-      WHERE t.deleted_at IS NULL
-        AND t.host_user_id != ${userId}::uuid
-        AND e.deleted_at IS NULL
-        AND e.status = 'published'
-        AND EXISTS (
-          SELECT 1 FROM jsonb_array_elements(
-            CASE
-              WHEN jsonb_typeof(t.members::jsonb) = 'array' THEN t.members::jsonb
-              ELSE '[]'::jsonb
-            END
-          ) AS elem
-          WHERE elem #>> '{}' = ${userId}
-             OR elem->>'user_id' = ${userId}
-             OR elem->>'userId' = ${userId}
-        )
-    `,
+    fetchLegacyJoinRows(userId),
   ]);
 
   const items = [];
@@ -344,10 +355,27 @@ export async function gatherLiveTableParticipation(userId) {
  * @param {number} limit
  */
 export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys, limit = 20) {
-  const [live, ticketRows] = await Promise.all([
+  const [liveResult, ticketResult] = await Promise.allSettled([
     gatherLiveTableParticipation(userId),
     gatherTicketEventHistory(userId),
   ]);
+
+  const live = liveResult.status === 'fulfilled' ? liveResult.value : [];
+  const ticketRows = ticketResult.status === 'fulfilled' ? ticketResult.value : [];
+
+  if (liveResult.status === 'rejected') {
+    logger?.warn?.('gatherLiveTableParticipation failed', {
+      err: liveResult.reason?.message,
+      userId,
+    });
+  }
+  if (ticketResult.status === 'rejected') {
+    logger?.warn?.('gatherTicketEventHistory failed', {
+      err: ticketResult.reason?.message,
+      userId,
+    });
+  }
+
   const byKey = new Map();
   const coveredEventIds = new Set();
 
@@ -390,4 +418,41 @@ export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys
     if (row.id) return mapTableHistoryRow(row);
     return { ...mapTableHistoryRow(row), id: `synth-${participationKey(row.role, row)}` };
   });
+}
+
+const STATS_MERGE_LIMIT = 500;
+
+/**
+ * Distinct hosted/joined table counts aligned with Activity event history sources.
+ * @param {string} userId
+ */
+export async function countParticipationStats(userId) {
+  const [persistedRows, hiddenRows] = await Promise.all([
+    prisma.userTableHistory.findMany({
+      where: { userId, hiddenAt: null },
+    }),
+    prisma.userTableHistory.findMany({
+      where: { userId, hiddenAt: { not: null } },
+      select: { role: true, tableId: true, hostedTableId: true, venueTableId: true },
+    }),
+  ]);
+
+  const hiddenKeys = new Set(hiddenRows.map((r) => participationKey(r.role, r)));
+  const items = await mergeTableHistoryForUser(userId, persistedRows, hiddenKeys, STATS_MERGE_LIMIT);
+
+  const hostKeys = new Set();
+  const joinedKeys = new Set();
+
+  for (const item of items) {
+    if (item.role === 'host') {
+      hostKeys.add(participationKey('HOST', item));
+    } else if (item.role === 'joined') {
+      joinedKeys.add(participationKey('JOINED', item));
+    }
+  }
+
+  return {
+    tablesHosted: hostKeys.size,
+    tablesJoined: joinedKeys.size,
+  };
 }

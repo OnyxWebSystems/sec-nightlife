@@ -10,10 +10,9 @@ import { auditFromReq } from '../lib/audit.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { orderedParticipants } from '../lib/conversationHelpers.js';
 import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
-import { mergeTableHistoryForUser, participationKey } from '../lib/tableHistory.js';
+import { mergeTableHistoryForUser, participationKey, countParticipationStats } from '../lib/tableHistory.js';
 import { idDocumentUrlChanged } from '../lib/idDocumentUrl.js';
 import { notifyAdmins } from '../lib/adminNotify.js';
-import { logger } from '../lib/logger.js';
 
 const router = Router();
 const PROFILE_GENDER_VALUES = ['male', 'female', 'other'];
@@ -422,83 +421,21 @@ router.get('/stats/social/:targetUserId([0-9a-f-]{36})', authenticateToken, asyn
   try {
     const targetUserId = req.params.targetUserId;
 
-    const friendCount = await prisma.friendship.count({
-      where: {
-        status: 'ACCEPTED',
-        OR: [{ requesterId: targetUserId }, { receiverId: targetUserId }],
-      },
-    });
-
-    let legacyTableJoinsRow = [{ count: 0 }];
-    try {
-      legacyTableJoinsRow = await prisma.$queryRaw`
-        SELECT COUNT(DISTINCT t.id)::int AS count
-        FROM tables t
-        INNER JOIN events e ON e.id = t.event_id
-        WHERE t.deleted_at IS NULL
-          AND t.host_user_id != ${targetUserId}::uuid
-          AND e.deleted_at IS NULL
-          AND e.status = 'published'
-          AND EXISTS (
-            SELECT 1 FROM jsonb_array_elements(
-              CASE
-                WHEN jsonb_typeof(t.members::jsonb) = 'array' THEN t.members::jsonb
-                ELSE '[]'::jsonb
-              END
-            ) AS elem
-            WHERE elem #>> '{}' = ${targetUserId}
-               OR elem->>'user_id' = ${targetUserId}
-               OR elem->>'userId' = ${targetUserId}
-          )
-      `;
-    } catch (legacyErr) {
-      logger?.warn?.('legacy table join count failed', { err: legacyErr?.message, targetUserId });
-    }
-
-    const [
-      legacyTablesHosted,
-      hostedTablesHosted,
-      venueTablesHosted,
-      hostedTableJoins,
-      venueTableJoins,
-    ] = await Promise.all([
-      prisma.table.count({
+    const [friendCount, participation] = await Promise.all([
+      prisma.friendship.count({
         where: {
-          hostUserId: targetUserId,
-          deletedAt: null,
-          event: { deletedAt: null, status: 'published' },
+          status: 'ACCEPTED',
+          OR: [{ requesterId: targetUserId }, { receiverId: targetUserId }],
         },
       }),
-      prisma.hostedTable.count({
-        where: {
-          hostUserId: targetUserId,
-          status: { not: 'DRAFT' },
-        },
-      }),
-      prisma.venueTable.count({
-        where: { hostUserId: targetUserId },
-      }),
-      prisma.hostedTableMember.count({
-        where: {
-          userId: targetUserId,
-          status: 'GOING',
-          hostedTable: { NOT: { hostUserId: targetUserId } },
-        },
-      }),
-      prisma.venueTableMember.count({
-        where: {
-          userId: targetUserId,
-          status: 'CONFIRMED',
-          venueTable: { NOT: { hostUserId: targetUserId } },
-        },
-      }),
+      countParticipationStats(targetUserId),
     ]);
 
-    const tablesHosted = legacyTablesHosted + hostedTablesHosted + venueTablesHosted;
-    const legacyJoined = Number(legacyTableJoinsRow?.[0]?.count ?? 0);
-    const tablesJoined = legacyJoined + hostedTableJoins + venueTableJoins;
-
-    res.json({ friendCount, tablesHosted, tablesJoined });
+    res.json({
+      friendCount,
+      tablesHosted: participation.tablesHosted,
+      tablesJoined: participation.tablesJoined,
+    });
   } catch (err) {
     next(err);
   }
