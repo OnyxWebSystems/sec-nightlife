@@ -12,6 +12,7 @@ import { PreferencesProvider } from '@/context/PreferencesContext';
 import { ActiveVenueProvider } from '@/context/ActiveVenueContext';
 import { StaffVenueProvider } from '@/context/StaffVenueContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import SecLoadingScreen from '@/components/ui/SecLoadingScreen';
 import RequireBusinessAccount from '@/components/RequireBusinessAccount';
 import RequireOnboardingComplete from '@/components/RequireOnboardingComplete';
 const { Pages, Layout, mainPage } = pagesConfig;
@@ -66,11 +67,7 @@ const AuthenticatedApp = () => {
 
   // Show loading spinner while checking app public settings or auth
   if (!isPublicPage && (isLoadingPublicSettings || isLoadingAuth)) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
-      </div>
-    );
+    return <SecLoadingScreen />;
   }
 
   // Handle authentication errors (public pages like TicketVerify must stay reachable without login)

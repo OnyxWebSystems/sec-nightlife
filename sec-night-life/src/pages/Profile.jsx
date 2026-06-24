@@ -37,6 +37,7 @@ import InterestsEditor from '@/components/profile/InterestsEditor';
 import TableHistorySection from '@/components/profile/TableHistorySection';
 import UserSecWallet from '@/components/wallet/UserSecWallet';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import SecLoadingScreen from '@/components/ui/SecLoadingScreen';
 import RoleAccessPanel from '@/components/profile/RoleAccessPanel';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 function PromoterPromotionsPanel({ current = [], past = [], stats, isOwn = false, onDismiss }) {
@@ -411,14 +412,7 @@ export default function Profile() {
     (isOwnProfile && user?.identity_verified);
 
   if (!user || !displayProfile) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div className="sec-spinner" style={{ margin: '0 auto 16px', width: 40, height: 40 }} />
-          <p style={{ color: 'var(--sec-text-muted)' }}>Loading profile...</p>
-        </div>
-      </div>
-    );
+    return <SecLoadingScreen />;
   }
 
   return (

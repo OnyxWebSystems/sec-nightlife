@@ -4,6 +4,7 @@
  */
 import { lazy } from 'react';
 import __Layout from './Layout.jsx';
+import Home from './pages/Home.jsx';
 import { isStaleChunkLoadError, scheduleChunkReloadOnce } from './lib/chunkLoadRecovery';
 
 const modules = import.meta.glob('./pages/*.jsx');
@@ -34,6 +35,7 @@ export const PAGES = Object.fromEntries(
     const m = path.match(/\.\/pages\/(.+)\.jsx$/);
     const name = m ? m[1] : null;
     if (!name) return null;
+    if (name === 'Home') return [name, Home];
     return [name, lazyPage(loader)];
   }).filter(Boolean)
 );

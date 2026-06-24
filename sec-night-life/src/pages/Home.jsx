@@ -17,6 +17,7 @@ import StaffAccessBanner from '@/components/home/StaffAccessBanner';
 import AdminAccessBanner from '@/components/home/AdminAccessBanner';
 import PlatformAnnouncementBanner from '@/components/home/PlatformAnnouncementBanner';
 import SecLogo from '@/components/ui/SecLogo';
+import SecLoadingScreen from '@/components/ui/SecLoadingScreen';
 import { getEventImage } from '@/lib/placeholders';
 import { toast } from 'sonner';
 import { launchPaystackInline } from '@/lib/paystackInline';
@@ -524,15 +525,10 @@ export default function Home() {
   const featuredCards =
     featuredEventDetails?.length > 0 ? featuredEventDetails : featuredEvents;
 
-  if (isLoadingAuth && hasStoredAuthTokens()) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
-        <div
-          className="h-9 w-9 rounded-full border-2 border-white/20 border-t-white animate-spin"
-          aria-label="Loading"
-        />
-      </div>
-    );
+  const pendingSession = isLoadingAuth && hasStoredAuthTokens();
+
+  if (!user && pendingSession) {
+    return <SecLoadingScreen />;
   }
 
   if (!user) {

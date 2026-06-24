@@ -25,11 +25,65 @@ function withTimeout(promise, ms, label = 'Request') {
   ]);
 }
 
+const SESSION_USER_CACHE_KEY = 'sec_session_user';
+
+function readCachedSessionUser() {
+  if (!hasStoredAuthTokens()) return null;
+  try {
+    const raw = sessionStorage.getItem(SESSION_USER_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedSessionUser(user, profile) {
+  if (!user?.id) return;
+  try {
+    sessionStorage.setItem(SESSION_USER_CACHE_KEY, JSON.stringify({
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      role: user.role,
+      verified: user.verified,
+      verification_status: user.verification_status,
+      identity_verified: user.identity_verified,
+      can_admin_dashboard: user.can_admin_dashboard,
+      profile,
+    }));
+  } catch {}
+}
+
+function clearCachedSessionUser() {
+  try {
+    sessionStorage.removeItem(SESSION_USER_CACHE_KEY);
+  } catch {}
+}
+
+function hydrateFromCache() {
+  const cached = readCachedSessionUser();
+  if (!cached) return { user: null, profile: null };
+  return {
+    user: {
+      id: cached.id,
+      email: cached.email,
+      full_name: cached.full_name,
+      role: cached.role,
+      verified: cached.verified,
+      verification_status: cached.verification_status,
+      identity_verified: cached.identity_verified,
+      can_admin_dashboard: cached.can_admin_dashboard,
+    },
+    profile: cached.profile ?? null,
+  };
+}
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const cached = hydrateFromCache();
+  const [user, setUser] = useState(cached.user);
+  const [userProfile, setUserProfile] = useState(cached.profile);
+  const [isAuthenticated, setIsAuthenticated] = useState(!!cached.user);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(() => hasStoredAuthTokens());
   const [authError, setAuthError] = useState(null);
 
   const checkAuth = async () => {
@@ -71,10 +125,12 @@ export const AuthProvider = ({ children }) => {
       });
       setIsAuthenticated(true);
       setUserProfile(profile);
+      writeCachedSessionUser(currentUser, profile);
     } catch (err) {
       setUser(null);
       setUserProfile(null);
       setIsAuthenticated(false);
+      clearCachedSessionUser();
       if (err?.status === 401 || err?.status === 403) {
         setAuthError({ type: 'auth_required', message: 'Please sign in' });
       } else {
@@ -93,6 +149,7 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     setUserProfile(null);
     setIsAuthenticated(false);
+    clearCachedSessionUser();
     authService.logout(shouldRedirect);
   };
 
