@@ -115,7 +115,7 @@ export default function HostDashboard() {
     const preEventId = searchParams.get('event');
     if (c === 'party') {
       toast.message('House parties are no longer available', {
-        description: 'Browse SEC events or list a private meet-up table instead.',
+        description: 'Browse SEC events or host at your own venue instead.',
       });
       navigate(createPageUrl('Events'), { replace: true });
       return;
@@ -611,7 +611,7 @@ export default function HostDashboard() {
   const hostedTableCreateFields = (
     <div className="space-y-4 text-sm">
       <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
-        List a private meet-up at any venue. To book tables at official SEC events, use Book a table on the event page — venues control those listings.
+        Host a table at your own venue — any location. To book tables at official SEC events, use Book a table on the event page — venues control those listings.
       </p>
       <label className="block text-sm font-medium">
         Venue name
@@ -699,7 +699,7 @@ export default function HostDashboard() {
           }
         />
       </label>
-      <p className="text-xs text-[var(--sec-text-muted)]">Private meet-ups allow at most 20 spots.</p>
+      <p className="text-xs text-[var(--sec-text-muted)]">Your own venue tables allow at most 20 spots.</p>
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -799,7 +799,7 @@ export default function HostDashboard() {
             className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--sec-border)] bg-[var(--sec-bg-base)]"
             style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
           >
-            <h3 className="font-semibold text-base">Private meet-up table</h3>
+            <h3 className="font-semibold text-base">Your own venue</h3>
             <button
               type="button"
               className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-sm"
@@ -847,7 +847,7 @@ export default function HostDashboard() {
             >
               <div className="shrink-0 flex justify-between items-center p-4 border-b border-[var(--sec-border)]">
                 <h3 id="create-hosted-table-title" className="font-semibold">
-                  Private meet-up table
+                  Your own venue
                 </h3>
                 <button
                   type="button"
@@ -873,13 +873,13 @@ export default function HostDashboard() {
   return (
     <div className="max-w-[1100px] mx-auto pb-6 lg:pb-10 lg:px-4 lg:py-6">
       {isMobile ? (
-        <PageBackHeader title="Host Dashboard" subtitle="Private meet-up tables" pageName="HostDashboard" />
+        <PageBackHeader title="Host Dashboard" subtitle="Your own venue tables" pageName="HostDashboard" />
       ) : (
         <div className="flex items-center gap-2 mb-6 px-4 pt-6">
           <SecLogo size={30} />
           <div>
             <h1 className="text-xl font-bold">Host</h1>
-            <p className="text-sm opacity-70">Private meet-up tables</p>
+            <p className="text-sm opacity-70">Your own venue tables</p>
           </div>
         </div>
       )}
@@ -896,7 +896,7 @@ export default function HostDashboard() {
             <div className="min-w-0">
               <h2 className="font-semibold text-lg">My tables</h2>
               <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
-                Live and upcoming tables stay here. After a SEC event ends, or 24 hours after a private meet-up starts,
+                Live and upcoming tables stay here. After a SEC event ends, or 24 hours after your own venue table starts,
                 the table moves to Past tables.
               </p>
             </div>
@@ -939,7 +939,7 @@ export default function HostDashboard() {
                 {pastTables.map((t) => renderHostedTableCard(t, { isPast: true }))}
                 {pastTables.length === 0 && !loadT && (
                   <p className="text-sm text-[var(--sec-text-muted)] text-center py-10 col-span-full">
-                    No past tables yet. Finished SEC event tables and private meet-ups (after 24 hours) appear here.
+                    No past tables yet. Finished SEC event tables and your own venue tables (after 24 hours) appear here.
                   </p>
                 )}
               </div>

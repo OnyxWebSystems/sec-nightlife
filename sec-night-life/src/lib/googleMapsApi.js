@@ -1,4 +1,4 @@
-import { Loader } from '@googlemaps/js-api-loader';
+import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 
 let loadPromise = null;
 let authFailureInitialized = false;
@@ -48,26 +48,20 @@ export function loadGoogleMapsApi() {
     };
   }
 
-  const loader = new Loader({
-    apiKey,
-    version: 'weekly',
-    libraries: ['places'],
+  setOptions({
+    key: apiKey,
+    v: 'weekly',
   });
 
-  loadPromise = loader
-    .load()
-    .then(async () => {
-      // Ensures Places is actually available, not just script-loaded.
-      if (window.google?.maps?.importLibrary) {
-        await window.google.maps.importLibrary('places');
-      }
-      return window.google;
-    })
+  loadPromise = Promise.all([
+    importLibrary('maps'),
+    importLibrary('places'),
+  ])
+    .then(() => window.google)
     .catch((err) => {
-      // Allow retry on transient failures without hard refresh.
       loadPromise = null;
       throw withHelpfulMessage(err);
     });
+
   return loadPromise;
 }
-

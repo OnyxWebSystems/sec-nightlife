@@ -433,6 +433,13 @@ export default function Home() {
   const promotionsFeedLoading = bootstrapLoading;
 
   const feedRows = useMemo(() => (feedPages?.pages || []).flatMap((p) => p.items || []), [feedPages]);
+  const feedScope = feedPages?.pages?.[0]?.feedScope;
+  const feedScopeHint =
+    feedScope === 'local'
+      ? 'Venues and events near you — order changes each session.'
+      : locPrefs?.useLocation
+        ? 'Showing venues and events across SEC — few venues near you. Order changes each session.'
+        : 'Order changes based on your area and session.';
 
   const { data: events = [] } = useQuery({
     queryKey: ['featured-events'],
@@ -917,7 +924,7 @@ export default function Home() {
 
           {feedRows.length > 0 && (
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 10 }}>
-              Order changes based on your area and session. Pull to refresh by leaving Home and coming back.
+              {feedScopeHint} Pull to refresh by leaving Home and coming back.
             </p>
           )}
         </section>

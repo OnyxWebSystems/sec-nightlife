@@ -78,10 +78,16 @@ export function recordTableHistory(opts) {
 }
 
 export function mapTableHistoryRow(row) {
+  const role =
+    row.role === 'HOST' || row.role === 'host'
+      ? 'host'
+      : row.role === 'ATTENDED' || row.role === 'attended'
+        ? 'attended'
+        : 'joined';
   return {
     id: row.id,
     userId: row.userId,
-    role: row.role === 'HOST' ? 'host' : 'joined',
+    role,
     tableName: row.tableName,
     eventTitle: row.eventTitle,
     eventId: row.eventId,
@@ -89,6 +95,7 @@ export function mapTableHistoryRow(row) {
     hostedTableId: row.hostedTableId,
     venueTableId: row.venueTableId,
     occurredAt: row.occurredAt,
+    ticketId: row.ticketId ?? null,
   };
 }
 
@@ -96,6 +103,77 @@ export function mapTableHistoryRow(row) {
 export function participationKey(role, ids = {}) {
   const r = role === 'HOST' || role === 'host' ? 'HOST' : 'JOINED';
   return `${r}:${ids.tableId || ''}:${ids.hostedTableId || ''}:${ids.venueTableId || ''}`;
+}
+
+function ticketRoleFromKind(kind) {
+  if (kind === 'EVENT_TICKET') return 'ATTENDED';
+  if (kind === 'TABLE_HOST_FEE') return 'HOST';
+  return 'JOINED';
+}
+
+function ticketHistoryKey(ticket) {
+  if (ticket.kind === 'EVENT_TICKET' && ticket.eventId) {
+    return `ATTENDED:${ticket.eventId}`;
+  }
+  const role = ticketRoleFromKind(ticket.kind);
+  return participationKey(role, {
+    tableId: ticket.tableId,
+    hostedTableId: ticket.hostedTableId,
+    venueTableId: ticket.venueTableId,
+  });
+}
+
+function ticketToHistoryRow(ticket, userId) {
+  const role = ticketRoleFromKind(ticket.kind);
+  const isEventTicket = ticket.kind === 'EVENT_TICKET';
+  return {
+    id: `ticket-${ticket.id}`,
+    userId,
+    role,
+    tableName: isEventTicket ? null : ticket.title,
+    eventTitle: isEventTicket ? ticket.title : (ticket.subtitle || ticket.title),
+    eventId: ticket.eventId,
+    tableId: ticket.tableId,
+    hostedTableId: ticket.hostedTableId,
+    venueTableId: ticket.venueTableId,
+    occurredAt: ticket.eventStartsAt || ticket.createdAt,
+    ticketId: ticket.id,
+  };
+}
+
+/**
+ * Build event history items from issued tickets (QR-backed participation).
+ * @param {string} userId
+ */
+export async function gatherTicketEventHistory(userId) {
+  const tickets = await prisma.ticket.findMany({
+    where: {
+      userId,
+      hiddenFromHistoryAt: null,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      kind: true,
+      title: true,
+      subtitle: true,
+      eventId: true,
+      tableId: true,
+      hostedTableId: true,
+      venueTableId: true,
+      createdAt: true,
+      eventStartsAt: true,
+    },
+  });
+
+  const byKey = new Map();
+  for (const ticket of tickets) {
+    const key = ticketHistoryKey(ticket);
+    if (!byKey.has(key)) {
+      byKey.set(key, ticketToHistoryRow(ticket, userId));
+    }
+  }
+  return [...byKey.values()];
 }
 
 function synthRow(role, data) {
@@ -266,26 +344,50 @@ export async function gatherLiveTableParticipation(userId) {
  * @param {number} limit
  */
 export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys, limit = 20) {
-  const live = await gatherLiveTableParticipation(userId);
+  const [live, ticketRows] = await Promise.all([
+    gatherLiveTableParticipation(userId),
+    gatherTicketEventHistory(userId),
+  ]);
   const byKey = new Map();
+  const coveredEventIds = new Set();
+
+  const rememberEvent = (row) => {
+    if (row.eventId) coveredEventIds.add(row.eventId);
+  };
 
   for (const row of persistedRows) {
     const key = participationKey(row.role, row);
     if (hiddenKeys.has(key)) continue;
     byKey.set(key, row);
+    rememberEvent(row);
   }
 
   for (const row of live) {
     const key = participationKey(row.role, row);
     if (hiddenKeys.has(key) || byKey.has(key)) continue;
     byKey.set(key, row);
+    rememberEvent(row);
+  }
+
+  for (const row of ticketRows) {
+    if (row.role === 'ATTENDED' && row.eventId && coveredEventIds.has(row.eventId)) {
+      continue;
+    }
+    const key =
+      row.role === 'ATTENDED' && row.eventId
+        ? `ATTENDED:${row.eventId}`
+        : participationKey(row.role, row);
+    if (hiddenKeys.has(key) || byKey.has(key)) continue;
+    byKey.set(key, row);
+    rememberEvent(row);
   }
 
   const merged = [...byKey.values()].sort(
     (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
   );
 
-  return merged.slice(0, limit).map((row) =>
-    row.id ? mapTableHistoryRow(row) : { ...mapTableHistoryRow(row), id: `synth-${participationKey(row.role, row)}` }
-  );
+  return merged.slice(0, limit).map((row) => {
+    if (row.id) return mapTableHistoryRow(row);
+    return { ...mapTableHistoryRow(row), id: `synth-${participationKey(row.role, row)}` };
+  });
 }

@@ -708,7 +708,6 @@ export default function BusinessDashboard() {
             );
           })}
         </div>
-        {statsPeriod === 'month' ? (
         <div
           className="scrollbar-hide"
           style={{
@@ -716,12 +715,13 @@ export default function BusinessDashboard() {
             gap: 8,
             overflowX: 'auto',
             paddingBottom: 4,
+            marginTop: 8,
             WebkitOverflowScrolling: 'touch',
           }}
         >
           {monthlyBuckets.length > 0
             ? monthlyBuckets.map((m) => {
-              const active = m.month === selectedMonth;
+              const active = statsPeriod === 'month' && m.month === selectedMonth;
               return (
                 <button
                   key={m.month}
@@ -748,7 +748,7 @@ export default function BusinessDashboard() {
             })
             : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((label, i) => {
               const month = i + 1;
-              const active = month === selectedMonth;
+              const active = statsPeriod === 'month' && month === selectedMonth;
               return (
                 <button
                   key={label}
@@ -774,7 +774,6 @@ export default function BusinessDashboard() {
               );
             })}
         </div>
-        ) : null}
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: 24 }}>
         {showEventsStats ? (

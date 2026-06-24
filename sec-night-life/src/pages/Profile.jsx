@@ -224,12 +224,13 @@ export default function Profile() {
     )
     : (profilePromotions?.current?.length > 0 || profilePromotions?.past?.length > 0);
 
-  const statsUserId = isOwnProfile ? (user?.id || authUserId) : authUserId;
+  const statsUserId = isOwnProfile ? user?.id : (viewedProfile?.user_id || null);
 
   const { data: socialStats, isLoading: socialStatsLoading, isError: socialStatsError } = useQuery({
     queryKey: ['profile-social', statsUserId],
     queryFn: () => apiGet(`/api/users/stats/social/${statsUserId}`),
     enabled: !!statsUserId,
+    retry: 2,
   });
 
   const { data: friendsPreview = [] } = useQuery({
@@ -381,16 +382,17 @@ export default function Profile() {
     },
   });
 
-  const statDisplay = (value) => {
+  const statDisplay = (value, fallback = 0) => {
     if (socialStatsLoading) return '—';
-    if (socialStatsError) return '—';
+    if (socialStatsError) return fallback;
     return value;
   };
 
   const hostedCount = statDisplay(socialStats?.tablesHosted ?? 0);
   const tablesJoinedCount = statDisplay(socialStats?.tablesJoined ?? 0);
   const friendsCount = statDisplay(
-    socialStats?.friendCount ?? (socialStatsLoading || socialStatsError ? undefined : (displayProfile?.friends?.length || 0))
+    socialStats?.friendCount ?? friendsPreview.length,
+    friendsPreview.length
   );
   const genderLabel =
     displayProfile?.gender === 'male'

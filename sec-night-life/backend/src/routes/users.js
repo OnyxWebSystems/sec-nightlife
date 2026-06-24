@@ -13,6 +13,7 @@ import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.
 import { mergeTableHistoryForUser, participationKey } from '../lib/tableHistory.js';
 import { idDocumentUrlChanged } from '../lib/idDocumentUrl.js';
 import { notifyAdmins } from '../lib/adminNotify.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
 const PROFILE_GENDER_VALUES = ['male', 'female', 'other'];
@@ -428,13 +429,38 @@ router.get('/stats/social/:targetUserId([0-9a-f-]{36})', authenticateToken, asyn
       },
     });
 
+    let legacyTableJoinsRow = [{ count: 0 }];
+    try {
+      legacyTableJoinsRow = await prisma.$queryRaw`
+        SELECT COUNT(DISTINCT t.id)::int AS count
+        FROM tables t
+        INNER JOIN events e ON e.id = t.event_id
+        WHERE t.deleted_at IS NULL
+          AND t.host_user_id != ${targetUserId}::uuid
+          AND e.deleted_at IS NULL
+          AND e.status = 'published'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements(
+              CASE
+                WHEN jsonb_typeof(t.members::jsonb) = 'array' THEN t.members::jsonb
+                ELSE '[]'::jsonb
+              END
+            ) AS elem
+            WHERE elem #>> '{}' = ${targetUserId}
+               OR elem->>'user_id' = ${targetUserId}
+               OR elem->>'userId' = ${targetUserId}
+          )
+      `;
+    } catch (legacyErr) {
+      logger?.warn?.('legacy table join count failed', { err: legacyErr?.message, targetUserId });
+    }
+
     const [
       legacyTablesHosted,
       hostedTablesHosted,
       venueTablesHosted,
       hostedTableJoins,
       venueTableJoins,
-      legacyTableJoinsRow,
     ] = await Promise.all([
       prisma.table.count({
         where: {
@@ -466,26 +492,6 @@ router.get('/stats/social/:targetUserId([0-9a-f-]{36})', authenticateToken, asyn
           venueTable: { NOT: { hostUserId: targetUserId } },
         },
       }),
-      prisma.$queryRaw`
-        SELECT COUNT(DISTINCT t.id)::int AS count
-        FROM tables t
-        INNER JOIN events e ON e.id = t.event_id
-        WHERE t.deleted_at IS NULL
-          AND t.host_user_id != ${targetUserId}::uuid
-          AND e.deleted_at IS NULL
-          AND e.status = 'published'
-          AND EXISTS (
-            SELECT 1 FROM jsonb_array_elements(
-              CASE
-                WHEN jsonb_typeof(t.members::jsonb) = 'array' THEN t.members::jsonb
-                ELSE '[]'::jsonb
-              END
-            ) AS elem
-            WHERE elem #>> '{}' = ${targetUserId}
-               OR elem->>'user_id' = ${targetUserId}
-               OR elem->>'userId' = ${targetUserId}
-          )
-      `,
     ]);
 
     const tablesHosted = legacyTablesHosted + hostedTablesHosted + venueTablesHosted;

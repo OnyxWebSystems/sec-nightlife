@@ -151,16 +151,23 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
       ? venueRows.filter((v) => inGeoRange(v.latitude, v.longitude))
       : venueRows;
 
-    const allProm = filteredPromotions.map(promotionItemFromRow);
+    const geoVenueCount = filteredVenues.length;
+    const useGeoScope = Boolean(geo && geoVenueCount > 3);
+    const feedPromotions = useGeoScope ? filteredPromotions : promotionRows;
+    const feedEvents = useGeoScope ? filteredEvents : eventRows;
+    const feedVenues = useGeoScope ? filteredVenues : venueRows;
+    const scopeSeed = useGeoScope ? 'geo' : city || 'all';
+
+    const allProm = feedPromotions.map(promotionItemFromRow);
     const boosted = allProm.filter((x) => x.data.boosted);
     const organic = allProm.filter((x) => !x.data.boosted);
     const promItems = [
-      ...shuffleCopy(boosted, `${sessionId}|promB|${city || 'all'}`),
-      ...shuffleCopy(organic, `${sessionId}|promO|${city || 'all'}`),
+      ...shuffleCopy(boosted, `${sessionId}|promB|${scopeSeed}`),
+      ...shuffleCopy(organic, `${sessionId}|promO|${scopeSeed}`),
     ];
 
     const eventItems = shuffleCopy(
-      filteredEvents.map((e) => ({
+      feedEvents.map((e) => ({
         kind: 'event',
         data: {
           id: e.id,
@@ -171,11 +178,11 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
           is_featured: e.isFeatured,
         },
       })),
-      `${sessionId}|evt|${city || 'all'}`,
+      `${sessionId}|evt|${scopeSeed}`,
     );
 
     const venueItems = shuffleCopy(
-      filteredVenues.map((v) => ({
+      feedVenues.map((v) => ({
         kind: 'venue',
         data: {
           id: v.id,
@@ -192,7 +199,7 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
           followed: followedSet.has(v.id),
         },
       })),
-      `${sessionId}|venue|${city || 'all'}`,
+      `${sessionId}|venue|${scopeSeed}`,
     );
 
     venueItems.sort((a, b) => Number(b.data.followed) - Number(a.data.followed));
@@ -219,7 +226,12 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const slice = merged.slice(cursor, cursor + limit);
     const nextCursor = cursor + slice.length < merged.length ? String(cursor + slice.length) : null;
 
-    res.json({ items: slice, nextCursor, total: merged.length });
+    res.json({
+      items: slice,
+      nextCursor,
+      total: merged.length,
+      feedScope: useGeoScope ? 'local' : geo ? 'nationwide' : city ? 'city' : 'nationwide',
+    });
   } catch (err) {
     next(err);
   }
