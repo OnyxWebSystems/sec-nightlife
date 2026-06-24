@@ -147,6 +147,8 @@ export const AuthProvider = ({ children }) => {
     authService.redirectToLogin(window.location.href);
   };
 
+  const isRestoringSession = hasStoredAuthTokens() && !user && isLoadingAuth;
+
   return (
     <AuthContext.Provider
       value={{
@@ -154,6 +156,7 @@ export const AuthProvider = ({ children }) => {
         userProfile,
         isAuthenticated,
         isLoadingAuth,
+        isRestoringSession,
         isLoadingPublicSettings: isLoadingAuth,
         authError,
         appPublicSettings: null,

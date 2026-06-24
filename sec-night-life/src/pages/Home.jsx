@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
-import { useAuth } from '@/lib/AuthContext';
+import { useAuth, hasStoredAuthTokens } from '@/lib/AuthContext';
+import { prefetchPage } from '@/pages.config';
 import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { format, isToday, isTomorrow, isValid, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -213,10 +214,35 @@ const PromoWithImpression = React.memo(function PromoWithImpression({ promotion,
   );
 });
 
+function HomeSessionSkeleton() {
+  return (
+    <div className="min-h-screen" style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
+      <header
+        className="sticky top-0 z-40 border-b border-[var(--sec-border)] min-h-[60px]"
+        style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}
+      >
+        <div className="max-w-[1120px] mx-auto w-full px-4 sm:px-5 py-4">
+          <div className="h-4 w-40 rounded bg-[var(--sec-bg-elevated)] animate-pulse" />
+          <div className="h-3 w-28 rounded bg-[var(--sec-bg-elevated)] animate-pulse mt-2" />
+        </div>
+      </header>
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '24px 20px' }}>
+        {[1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="sec-card mb-4 animate-pulse"
+            style={{ height: 120, backgroundColor: 'var(--sec-bg-card)' }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, userProfile, isLoadingAuth, logout } = useAuth();
+  const { user, userProfile, logout, checkAppState } = useAuth();
   const { location: locPrefs, geoCoords } = usePreferences();
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -224,6 +250,18 @@ export default function Home() {
   const [selectedVenueType, setSelectedVenueType] = useState('all');
   const [sessionId] = useState(() => getOrCreateSessionId());
   const pullCooldownRef = useRef(0);
+
+  useEffect(() => {
+    if (!user && !hasStoredAuthTokens()) {
+      void prefetchPage('Onboarding');
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user && hasStoredAuthTokens()) {
+      void checkAppState();
+    }
+  }, [user, checkAppState]);
 
   const { data: staffAssignments = [] } = useQuery({
     queryKey: ['staff-venues'],
@@ -365,7 +403,7 @@ export default function Home() {
       return apiGet(`/api/home/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
     },
     getNextPageParam: (lastPage) => (lastPage?.nextCursor != null ? parseInt(lastPage.nextCursor, 10) : undefined),
-    enabled: !isLoadingAuth && !!user?.id,
+    enabled: !!user?.id,
     staleTime: 60_000,
   });
 
@@ -423,7 +461,7 @@ export default function Home() {
   const { data: homeBootstrap, isLoading: bootstrapLoading } = useQuery({
     queryKey: ['home-bootstrap', sessionId, bootstrapScopeKey],
     queryFn: fetchHomeBootstrap,
-    enabled: !isLoadingAuth && !!user?.id,
+    enabled: !!user?.id,
     staleTime: 60_000,
   });
 
@@ -445,7 +483,7 @@ export default function Home() {
     queryKey: ['featured-events'],
     queryFn: () => dataService.Event.filter({ status: 'published' }, '-date', 10),
     staleTime: listStale,
-    enabled: !isLoadingAuth && !!user?.id,
+    enabled: !!user?.id,
   });
 
   const tableOfferings = useMemo(() => {
@@ -465,7 +503,7 @@ export default function Home() {
       return apiGet(`/api/venues?${params.toString()}`);
     },
     staleTime: listStale,
-    enabled: !isLoadingAuth && !!user?.id,
+    enabled: !!user?.id,
   });
 
   const cities = [...new Set(venues.map(v => v.city).filter(Boolean))];
@@ -519,10 +557,14 @@ export default function Home() {
     queryKey: ['featured-events-details', featuredEventIds],
     queryFn: () => apiGet(`/api/events/featured-details?ids=${encodeURIComponent(featuredEventIds)}`),
     staleTime: listStale,
-    enabled: !isLoadingAuth && !!user?.id && featuredEventIds.length > 0,
+    enabled: !!user?.id && featuredEventIds.length > 0,
   });
   const featuredCards =
     featuredEventDetails?.length > 0 ? featuredEventDetails : featuredEvents;
+
+  if (!user && hasStoredAuthTokens()) {
+    return <HomeSessionSkeleton />;
+  }
 
   if (!user) {
     return (
@@ -543,6 +585,8 @@ export default function Home() {
             Discover events, book and join tables, and connect with the nightlife community.
           </p>
           <button
+            onMouseEnter={() => prefetchPage('Onboarding')}
+            onPointerDown={() => prefetchPage('Onboarding')}
             onClick={() => navigate(createPageUrl('Onboarding'))}
             className="sec-btn sec-btn-primary sec-btn-full"
             style={{ fontSize: 15 }}

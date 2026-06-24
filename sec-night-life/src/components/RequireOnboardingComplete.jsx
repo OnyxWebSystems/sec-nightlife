@@ -13,13 +13,13 @@ export default function RequireOnboardingComplete({ children }) {
       navigateToLogin();
       return;
     }
-    if (userProfile && userProfile.onboarding_complete === false) {
+    if (userProfile != null && userProfile.onboarding_complete === false) {
       navigate(createPageUrl('ProfileSetup'), { replace: true });
     }
   }, [isLoadingAuth, isAuthenticated, user, userProfile, navigate, navigateToLogin]);
 
   if (isLoadingAuth && !user) return null;
   if (!isAuthenticated || !user) return null;
-  if (userProfile && userProfile.onboarding_complete === false) return null;
+  if (userProfile != null && userProfile.onboarding_complete === false) return null;
   return children;
 }

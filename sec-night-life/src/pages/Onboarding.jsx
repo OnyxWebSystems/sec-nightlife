@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
+import { useAuth, hasStoredAuthTokens } from '@/lib/AuthContext';
 import { User, Building2, ChevronRight } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 
@@ -9,8 +10,33 @@ const ROLE_INTENT_KEY = 'sec-role-intent';
 
 export default function Onboarding() {
   const navigate = useNavigate();
+  const { user, userProfile, isLoadingAuth } = useAuth();
+
+  useEffect(() => {
+    if (!user) return;
+    if (userProfile?.onboarding_complete === false) {
+      const dest =
+        user.role === 'VENUE' || user.role === 'BUSINESS'
+          ? createPageUrl('VenueOnboarding')
+          : createPageUrl('ProfileSetup');
+      navigate(dest, { replace: true });
+      return;
+    }
+    navigate(createPageUrl('Home'), { replace: true });
+  }, [user, userProfile, navigate]);
 
   const chooseRole = (role) => {
+    if (user) {
+      if (userProfile?.onboarding_complete === false) {
+        const dest =
+          role === 'VENUE' ? createPageUrl('VenueOnboarding') : createPageUrl('ProfileSetup');
+        navigate(dest, { replace: true });
+        return;
+      }
+      navigate(createPageUrl('Home'), { replace: true });
+      return;
+    }
+
     try {
       localStorage.setItem(ROLE_INTENT_KEY, role);
     } catch {
@@ -24,6 +50,10 @@ export default function Onboarding() {
 
     authService.redirectToLogin(createPageUrl('ProfileSetup'));
   };
+
+  if (hasStoredAuthTokens() && !user && isLoadingAuth) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen p-4 flex flex-col" style={{ backgroundColor: 'var(--sec-bg-base)' }}>

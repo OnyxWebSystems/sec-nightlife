@@ -33,7 +33,8 @@ export async function persistSessionCache() {
 
 async function cacheSessionAfterTokens(apiUser) {
   if (apiUser?.id) {
-    writeSessionCache(apiUser, apiUser.user_profile ?? null);
+    const profile = apiUser.user_profile ?? null;
+    writeSessionCache(apiUser, profile);
     return;
   }
   try {

@@ -1,7 +1,15 @@
 import React from 'react';
-import SecLoadingScreen from '@/components/ui/SecLoadingScreen';
 
-/** Inline route loading — keeps Layout visible while lazy chunks load. */
+/** Lightweight inline spinner while lazy route chunks load — not a full SEC splash. */
 export default function RoutePageFallback() {
-  return <SecLoadingScreen fullScreen={false} compact />;
+  return (
+    <div
+      className="flex items-center justify-center"
+      style={{ minHeight: '42vh', padding: '24px 16px' }}
+      role="status"
+      aria-label="Loading page"
+    >
+      <div className="sec-spinner" aria-hidden />
+    </div>
+  );
 }

@@ -20,6 +20,7 @@ export function readSessionCache() {
 
 export function writeSessionCache(user, profile) {
   if (!user?.id) return;
+  const normalizedProfile = profile ?? user.user_profile ?? null;
   try {
     localStorage.setItem(
       SESSION_USER_CACHE_KEY,
@@ -32,7 +33,8 @@ export function writeSessionCache(user, profile) {
         verification_status: user.verification_status,
         identity_verified: user.identity_verified,
         can_admin_dashboard: user.can_admin_dashboard,
-        profile: profile ?? null,
+        profile: normalizedProfile,
+        onboarding_complete: normalizedProfile?.onboarding_complete ?? null,
       }),
     );
   } catch {}
