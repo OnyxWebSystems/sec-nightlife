@@ -42,6 +42,8 @@ function mapTicketRow(t) {
     event_starts_at: t.eventStartsAt,
     expires_at: expiresAt,
     admitted_at: t.admittedAt,
+    refunded_at: t.refundedAt,
+    refund_status: t.refundedAt ? 'APPROVED' : null,
   };
 }
 
@@ -92,10 +94,11 @@ router.get('/my', authenticateToken, async (req, res, next) => {
     const filtered = mapped.filter(({ raw }) => {
       const exp = ticketExpiresAtFromRow(raw);
       const expired = exp <= now;
-      // Active = any ticket still valid (including upcoming events).
-      const isActive = !expired;
+      const refunded = Boolean(raw.refundedAt);
+      // Active = any ticket still valid (including upcoming events), not refunded.
+      const isActive = !expired && !refunded;
       if (normalizedBucket === 'active') return isActive;
-      if (normalizedBucket === 'inactive') return expired;
+      if (normalizedBucket === 'inactive') return expired || refunded;
       return true;
     });
 

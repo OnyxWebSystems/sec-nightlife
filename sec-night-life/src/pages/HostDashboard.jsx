@@ -329,7 +329,12 @@ export default function HostDashboard() {
         });
       }
     } catch (e) {
-      toast.error(e?.message || 'Could not start checkout');
+      const code = e?.data?.code || e?.response?.data?.code;
+      if (code === 'TABLE_HOST_FEE_RETIRED') {
+        toast.error('This listing checkout is retired. Host from the event or day booking page instead.');
+        return;
+      }
+      toast.error(e?.message || e?.data?.error || 'Could not start checkout');
     }
   };
 

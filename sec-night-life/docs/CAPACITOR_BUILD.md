@@ -88,7 +88,7 @@ Replace splash assets in:
 - `android/app/src/main/res/` (drawable folders)
 - `ios/App/App/Assets.xcassets/Splash.imageset/`
 
-Use SEC mark from `marketing-kit/brand/logos/sec-mark.svg` at 2732×2732 for iOS splash.
+Use SEC mark from `launch-resources/brand/logos/sec-mark.svg` at 2732×2732 for iOS splash.
 
 ---
 

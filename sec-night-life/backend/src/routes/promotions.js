@@ -10,6 +10,7 @@ import {
   isPromotionPublishPayment,
   resolvePromotionIdFromMetadata,
 } from '../lib/promotionPublishAfterPayment.js';
+import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
 
 const router = Router();
 const PROMOTION_TYPES = ['VENUE_PROMOTION', 'EVENT_PROMOTION', 'SPECIAL_OFFER', 'ANNOUNCEMENT'];
@@ -702,12 +703,15 @@ router.post('/:promotionId/checkout', authenticateToken, async (req, res, next) 
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        email: owner?.email || 'user@secnightlife.app',
-        amount: amountInCents,
-        reference,
-        metadata: { user_id: req.userId, ...metadata },
-      }),
+      body: JSON.stringify(
+        buildPaystackInitializeBody({
+          email: owner?.email || 'user@secnightlife.app',
+          amountInCents,
+          reference,
+          metadata,
+          userId: req.userId,
+        }),
+      ),
     });
     const json = await response.json();
     if (!response.ok || !json?.status) {
@@ -774,12 +778,15 @@ router.post('/:promotionId/boost', authenticateToken, async (req, res, next) => 
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        email: owner?.email || 'user@secnightlife.app',
-        amount: amountInCents,
-        reference,
-        metadata: { user_id: req.userId, ...metadata },
-      }),
+      body: JSON.stringify(
+        buildPaystackInitializeBody({
+          email: owner?.email || 'user@secnightlife.app',
+          amountInCents,
+          reference,
+          metadata,
+          userId: req.userId,
+        }),
+      ),
     });
     const json = await response.json();
     if (!response.ok || !json?.status) {

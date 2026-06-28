@@ -35,14 +35,15 @@ Point uptime monitors at `/api/health/ready`.
 
 ## Payments (before paid launch)
 
-- [ ] Live Paystack keys on backend + frontend
+- [ ] Live Paystack keys on backend + frontend — see [`launch-resources/paystack/LIVE_KEYS_CHECKLIST.md`](../../launch-resources/paystack/LIVE_KEYS_CHECKLIST.md)
+- [ ] Paystack activation demo sent — see [`launch-resources/paystack/EMAIL_TO_PAYSTACK.md`](../../launch-resources/paystack/EMAIL_TO_PAYSTACK.md)
 - [ ] Webhook URL configured in Paystack dashboard
 - [ ] End-to-end test: ticket purchase → QR in Profile
 
 ## App stores (native)
 
 - [ ] Apple Developer + Google Play accounts
-- [ ] Store screenshots, privacy policy URL, app description
+- [ ] Store screenshots, privacy policy URL, app description — see [`launch-resources/README.md`](../../launch-resources/README.md)
 - [ ] Firebase APNs key (iOS) — see `FIREBASE_PUSH_SETUP.md`
 - [ ] FCM send service (backend) — tokens stored; delivery wiring is post-launch if not yet implemented
 

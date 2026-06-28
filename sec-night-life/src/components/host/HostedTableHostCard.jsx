@@ -150,10 +150,15 @@ export default function HostedTableHostCard({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {!isPast && t.status === 'DRAFT' && (
+          {!isPast && t.status === 'DRAFT' && t.tableType === 'EXTERNAL_VENUE' && (
             <button type="button" className="sec-btn sec-btn-primary text-xs py-2 px-3 rounded-xl" onClick={() => onPayListing?.(t.id)}>
               Pay listing & go live
             </button>
+          )}
+          {!isPast && t.status === 'DRAFT' && t.tableType === 'IN_APP_EVENT' && (
+            <p className="text-xs text-[var(--sec-text-muted)] w-full">
+              Book a venue table from the event or day booking page to host — this draft listing checkout is no longer available.
+            </p>
           )}
           {t.groupChat?.id && (
             <Link
@@ -237,7 +242,7 @@ export default function HostedTableHostCard({
           ) : null}
         </div>
 
-        {!isPast && t.status === 'DRAFT' && (
+        {!isPast && t.status === 'DRAFT' && t.tableType === 'EXTERNAL_VENUE' && (
           <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
             Not visible until listing payment succeeds. Then your group chat opens and you can invite guests.
           </p>

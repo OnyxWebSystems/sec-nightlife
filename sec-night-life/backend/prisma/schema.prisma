@@ -289,6 +289,26 @@ enum VenueTableMemberStatus {
   DECLINED
   CONFIRMED
   LEFT
+  REFUNDED
+}
+
+enum RefundRequestStatus {
+  PENDING
+  REJECTED
+  APPROVED
+  PAID_BY_VENUE
+}
+
+enum RefundType {
+  TICKET
+  TABLE_HOST
+  TABLE_JOIN
+}
+
+enum PaymentRefundStatus {
+  NONE
+  PENDING
+  APPROVED
 }
 
 enum VenueTableMemberRole {
@@ -403,6 +423,8 @@ model User {
   promoterVenueMessagesSent   PromoterVenueMessage[]     @relation("PromoterVenueMessageSender")
   weekendRemindersSent        WeekendReminderSent[]
   pushDeviceTokens            PushDeviceToken[]
+  refundRequests              RefundRequest[]            @relation("RefundRequestUser")
+  refundRequestsApproved      RefundRequest[]            @relation("RefundRequestApprovedBy")
 
   @@unique([email, role])
   @@index([email])
@@ -570,6 +592,7 @@ model Venue {
   promoterVenueThreads PromoterVenueThread[]
   legacyNotifications Notification[]
   inAppNotifications  InAppNotification[] @relation("VenueInAppNotifications")
+  refundRequests      RefundRequest[]
 
   @@index([ownerUserId])
   @@index([city])
@@ -1224,20 +1247,26 @@ model Transaction {
 
 // Canonical Payment record — all Paystack payments stored here
 model Payment {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  email     String
-  amount    Float
-  reference String   @unique // Paystack reference
-  status    String // pending | success | failed
-  type      String // event | table | promotion | ticket | other
-  metadata  Json?
-  createdAt DateTime @default(now()) @map("created_at")
+  id              String              @id @default(uuid())
+  userId          String              @map("user_id")
+  email           String
+  amount          Float
+  reference       String              @unique // Paystack reference
+  status          String // pending | success | failed
+  type            String // event | table | promotion | ticket | other
+  metadata        Json?
+  refundStatus    PaymentRefundStatus @default(NONE) @map("refund_status")
+  refundedAt      DateTime?           @map("refunded_at")
+  refundRequestId String?             @unique @map("refund_request_id")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  refundRequest RefundRequest? @relation(fields: [refundRequestId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([reference])
   @@index([status])
   @@index([type])
+  @@index([refundStatus])
   @@map("payments")
 }
 
@@ -1269,6 +1298,8 @@ model Ticket {
   admittedAt          DateTime? @map("admitted_at")
   admittedByUserId    String?   @map("admitted_by_user_id")
   promoterUserId      String?   @map("promoter_user_id")
+  refundedAt          DateTime? @map("refunded_at")
+  refundRequestId     String?   @map("refund_request_id")
 
   user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   admittedBy User? @relation("TicketAdmittedBy", fields: [admittedByUserId], references: [id], onDelete: SetNull)
@@ -1278,7 +1309,45 @@ model Ticket {
   @@index([visibleUntil])
   @@index([eventStartsAt])
   @@index([admittedAt])
+  @@index([refundedAt])
   @@map("tickets")
+}
+
+model RefundRequest {
+  id                 String              @id @default(cuid())
+  userId             String              @map("user_id")
+  venueId            String              @map("venue_id")
+  paymentReference   String              @map("payment_reference")
+  refundType         RefundType          @map("refund_type")
+  status             RefundRequestStatus @default(PENDING)
+  userReason         String              @map("user_reason") @db.Text
+  userWalletCode     String              @map("user_wallet_code")
+  rejectTemplateKeys Json?               @map("reject_template_keys")
+  rejectParams       Json?               @map("reject_params")
+  grossAmountZar     Float               @map("gross_amount_zar")
+  venueRefundDueZar  Float               @map("venue_refund_due_zar")
+  platformFeeKeptZar Float               @map("platform_fee_kept_zar")
+  ticketIds          Json?               @map("ticket_ids")
+  venueTableMemberId String?             @map("venue_table_member_id")
+  venueTableId       String?             @map("venue_table_id")
+  eventId            String?             @map("event_id")
+  approvedAt         DateTime?           @map("approved_at")
+  rejectedAt         DateTime?           @map("rejected_at")
+  approvedByUserId   String?             @map("approved_by_user_id")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  user       User     @relation("RefundRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  venue      Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  approvedBy User?    @relation("RefundRequestApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  payment    Payment?
+
+  @@index([userId])
+  @@index([venueId])
+  @@index([paymentReference])
+  @@index([status])
+  @@index([venueId, status])
+  @@map("refund_requests")
 }
 
 model PayoutLedger {

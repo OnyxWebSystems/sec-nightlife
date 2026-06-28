@@ -14,6 +14,7 @@ export const BUSINESS_PAGE_PERMISSIONS = {
   CreateJob: 'jobs',
   BusinessMessages: 'messages',
   BusinessVenueTables: 'bookings',
+  BusinessRefundRequests: 'bookings',
   VenueProfile: 'venue_page',
   VenueOnboarding: 'venue_page',
   FeedbackInsights: 'analytics',

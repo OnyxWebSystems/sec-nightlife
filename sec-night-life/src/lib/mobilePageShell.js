@@ -43,6 +43,7 @@ export const MOBILE_OWN_BACK_HEADER = new Set([
   'BusinessEvents',
   'BusinessJobs',
   'BusinessBookings',
+  'BusinessRefundRequests',
   'BusinessMenu',
   'BusinessPromotions',
   'BusinessVenueTables',

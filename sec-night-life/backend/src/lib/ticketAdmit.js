@@ -98,6 +98,14 @@ export async function assertAdmitPermission(tx, staffUserId, staffRole, ticket, 
  */
 export async function evaluateTicketEntryValidity(tx, ticket) {
   const now = new Date();
+  if (ticket.refundedAt) {
+    return {
+      ok: false,
+      status: 403,
+      reason: 'Refunded — this QR is no longer valid for entry.',
+      refunded: true,
+    };
+  }
   if (ticketExpiresAtFromRow(ticket) <= now) {
     return { ok: false, status: 410, reason: 'Ticket expired', expired: true };
   }

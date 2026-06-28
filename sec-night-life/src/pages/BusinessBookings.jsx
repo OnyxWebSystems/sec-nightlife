@@ -774,13 +774,17 @@ export default function BusinessBookings() {
                         <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                           {order.tierName} · {order.quantity} ticket{order.quantity === 1 ? '' : 's'} · @{order.purchaser?.username || 'guest'}
                           {order.fulfillmentPending ? ' · Preparing tickets' : ''}
+                          {order.refundStatus === 'APPROVED' ? ' · Refunded' : ''}
+                          {order.refundStatus === 'PENDING' ? ' · Refund pending' : ''}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-accent)' }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: order.refundStatus === 'APPROVED' ? 'var(--sec-text-muted)' : 'var(--sec-accent)' }}>
                           R{ticketPaidZar(order).toFixed(0)}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>Paid</div>
+                        <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>
+                          {order.refundStatus === 'APPROVED' ? 'Refunded' : 'Paid'}
+                        </div>
                       </div>
                       <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
                     </div>

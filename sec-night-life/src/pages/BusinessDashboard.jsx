@@ -14,6 +14,7 @@ import {
   Star, Users, ArrowRight, Building2, Plus,
   ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload, UtensilsCrossed, Armchair, Wallet,
   Settings,
+  RotateCcw,
 } from 'lucide-react';
 import VenueSecWallet from '@/components/wallet/VenueSecWallet';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
@@ -26,6 +27,7 @@ import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 const QUICK_ACTIONS = [
   { icon: Plus, label: 'Create Event', page: 'BusinessEvents', perm: 'events' },
   { icon: BookOpen, label: 'Manage Bookings', page: 'BusinessBookings', perm: 'bookings' },
+  { icon: RotateCcw, label: 'Refund requests', page: 'BusinessRefundRequests', perm: 'bookings' },
   { icon: Armchair, label: 'Tables & day bookings', page: 'BusinessVenueTables', perm: 'bookings' },
   { icon: BarChart3, label: 'View Analytics', page: 'VenueAnalytics', perm: 'analytics' },
   { icon: Megaphone, label: 'Promotions', page: 'BusinessPromotions', perm: 'promotions' },
@@ -82,7 +84,7 @@ function StatCard({ icon: Icon, label, value, sub }) {
   );
 }
 
-function QuickAction({ icon: Icon, label, page }) {
+function QuickAction({ icon: Icon, label, page, badge }) {
   return (
     <Link
       to={createPageUrl(page)}
@@ -91,6 +93,7 @@ function QuickAction({ icon: Icon, label, page }) {
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '14px 16px', textDecoration: 'none',
         color: 'var(--sec-text-primary)', transition: 'border-color 0.15s',
+        position: 'relative',
       }}
     >
       <div style={{
@@ -101,6 +104,9 @@ function QuickAction({ icon: Icon, label, page }) {
         <Icon size={16} style={{ color: 'var(--sec-accent)' }} />
       </div>
       <span style={{ fontSize: 14, fontWeight: 500 }}>{label}</span>
+      {badge > 0 ? (
+        <span className="sec-badge sec-badge-gold" style={{ marginLeft: 4 }}>{badge}</span>
+      ) : null}
       <ChevronRight size={16} style={{ marginLeft: 'auto', color: 'var(--sec-text-muted)' }} />
     </Link>
   );
@@ -191,6 +197,15 @@ export default function BusinessDashboard() {
       && (!isStaffOnly || can('bookings') || can('events') || can('analytics')),
     staleTime: 2 * 60_000,
   });
+
+  const { data: refundQueueRaw } = useQuery({
+    queryKey: ['biz-refund-requests', scopeKey, 'PENDING'],
+    queryFn: () => apiGet(`/api/refunds/venue?status=PENDING&${venueScope.venueQuery}`),
+    enabled: hasVenueScope && !!venueScope.venueQuery && (!isStaffOnly || can('bookings')),
+    staleTime: 60_000,
+  });
+
+  const pendingRefundCount = refundQueueRaw?.pendingCount ?? 0;
 
   const { data: jobsRaw } = useQuery({
     queryKey: ['biz-jobs', scopeKey],
@@ -794,7 +809,13 @@ export default function BusinessDashboard() {
         <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Quick Actions</h3>
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {visibleQuickActions.map((action) => (
-            <QuickAction key={action.page} icon={action.icon} label={action.label} page={action.page} />
+            <QuickAction
+              key={action.page}
+              icon={action.icon}
+              label={action.label}
+              page={action.page}
+              badge={action.page === 'BusinessRefundRequests' ? pendingRefundCount : 0}
+            />
           ))}
         </div>
       </div>

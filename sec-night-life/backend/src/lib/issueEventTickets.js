@@ -58,16 +58,24 @@ async function syncTierSoldFromTickets(db, eventId, ticketTier) {
   const tierRow = tiers.find((t) => t.name === ticketTier);
   if (!tierRow) return;
   const actualCount = await db.ticket.count({
-    where: { eventId, kind: 'EVENT_TICKET', subtitle: ticketTier, hiddenFromHistoryAt: null },
+    where: {
+      eventId,
+      kind: 'EVENT_TICKET',
+      subtitle: ticketTier,
+      hiddenFromHistoryAt: null,
+      refundedAt: null,
+    },
   });
   const currentSold = Number(tierRow.sold) || 0;
-  if (actualCount > currentSold) {
+  if (actualCount !== currentSold) {
     const updatedTiers = tiers.map((t) =>
       t.name === ticketTier ? { ...t, sold: actualCount } : t,
     );
     await db.event.update({ where: { id: eventId }, data: { ticketTiers: updatedTiers } });
   }
 }
+
+export { syncTierSoldFromTickets as restoreTicketTierInventoryFromTickets };
 
 /**
  * Idempotently issue EVENT_TICKET rows after a successful ticket payment.

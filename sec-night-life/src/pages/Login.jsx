@@ -29,8 +29,10 @@ function readStoredConsumerIntent() {
 
 export default function Login() {
   const [searchParams] = useSearchParams();
-  const returnUrl = searchParams.get('returnUrl') || createPageUrl('Home');
   const roleParam = searchParams.get('role');
+  const defaultReturnUrl =
+    roleParam === 'VENUE' ? createPageUrl('BusinessDashboard') : createPageUrl('Home');
+  const returnUrl = searchParams.get('returnUrl') || defaultReturnUrl;
 
   const isStaffRole = roleParam && STAFF_ROLES.includes(roleParam);
   const [email, setEmail] = useState('');
@@ -83,6 +85,15 @@ export default function Login() {
       await authService.persistSessionCache();
     } catch {
       // Tokens are set; AuthContext will hydrate on the next page.
+    }
+    try {
+      if (consumerIntent === 'VENUE') {
+        localStorage.setItem('sec_active_mode', 'business');
+      } else if (consumerIntent === 'PARTY_GOER') {
+        localStorage.setItem('sec_active_mode', 'partygoer');
+      }
+    } catch {
+      // ignore storage errors
     }
     const path =
       returnUrl && returnUrl.startsWith('/')

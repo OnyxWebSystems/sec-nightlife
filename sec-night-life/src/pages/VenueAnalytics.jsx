@@ -205,6 +205,8 @@ export default function VenueAnalytics() {
       hostedTablePaymentZar: Number(analytics?.hostedTablePaymentZar || 0),
       venueTablePaymentZar: Number(analytics?.venueTablePaymentZar || 0),
       otherPaymentZar: Number(analytics?.otherPaymentZar || 0),
+      refundedVenueShareZar: Number(analytics?.refundedVenueShareZar || 0),
+      refundedGrossZar: Number(analytics?.refundedGrossZar || 0),
       eventTypeCounts,
       peakHour: peakHour ? `${peakHour[0]}:00` : 'N/A',
       avgRevenuePerEvent,
@@ -491,6 +493,15 @@ export default function VenueAnalytics() {
                   <p className="text-2xl font-bold text-white mt-1">R{metrics.otherPaymentZar.toLocaleString()}</p>
                 </CardContent>
               </Card>
+              {metrics.refundedVenueShareZar > 0 ? (
+                <Card className="glass-card border-[#262629]">
+                  <CardContent className="pt-6">
+                    <p className="text-gray-500 text-sm">Refunded (venue share)</p>
+                    <p className="text-2xl font-bold text-amber-400 mt-1">R{metrics.refundedVenueShareZar.toLocaleString()}</p>
+                    <p className="text-xs text-gray-500 mt-1">Excluded from revenue totals above</p>
+                  </CardContent>
+                </Card>
+              ) : null}
             </div>
 
             {/* Sales Trend — days match header selector; amounts match gross vs net mode */}

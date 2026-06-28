@@ -28,7 +28,7 @@ import {
   recordEventVenueTableBooking,
   recordGuestEventVenueTableBookingIfNeeded,
 } from '../lib/eventVenueBooking.js';
-import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfterPayment.js';
+import { ensureHostedTableFromVenueHostPayment, resolveVenueIdForHostedTable } from '../lib/venueTableHostAfterPayment.js';
 import {
   visibleUntilAfterEventDate,
   visibleUntilAfterParty,
@@ -479,7 +479,11 @@ async function applyReferenceSideEffects(reference, paystackData) {
           });
         });
         const { secAmount, recipientAmount: venueAmount } = splitSecPlatform(menuZar);
-        const venueId = mem.hostedTable?.event?.venueId;
+        const venueId =
+          mem.hostedTable?.event?.venueId ||
+          metadata.venue_id ||
+          metadata.venueId ||
+          (mem.hostedTable ? await resolveVenueIdForHostedTable(prisma, mem.hostedTable) : null);
         if (venueId) {
           const venueCode = await resolveRecipientCodeForVenue(venueId);
           await recordPayoutAndMaybeTransfer({
@@ -845,6 +849,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
   }
 
   if (metadata.type === 'TABLE_HOST_FEE' && userId) {
+    // LEGACY: no new TABLE_HOST_FEE checkouts — kept for historical Paystack webhooks only.
     const hostedTableId = metadata.hosted_table_id || metadata.hostedTableId;
     if (hostedTableId) {
       const hosted = await prisma.hostedTable.findFirst({
@@ -1964,6 +1969,13 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
     let meta = { ...(d.metadata || {}) };
     const type = meta.type || (d.venue_id && meta.promotion_id ? 'promotion' : d.event_id ? 'event' : 'table') || 'other';
 
+    if (type === 'TABLE_HOST_FEE') {
+      return res.status(410).json({
+        error: 'This checkout type is retired. Host venue tables from the event or day booking page.',
+        code: 'TABLE_HOST_FEE_RETIRED',
+      });
+    }
+
     if (type === 'ticket') {
       const computed = await computeTicketCheckout(prisma, {
         eventId: meta.event_id,
@@ -1979,7 +1991,7 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
         });
       }
       meta = buildTicketPaymentMetadata(meta, computed);
-    } else if (['table', 'VENUE_TABLE_JOIN', 'TABLE_CHECKOUT', 'HOSTED_TABLE_JOIN', 'TABLE_HOST_FEE'].includes(type)) {
+    } else if (['table', 'VENUE_TABLE_JOIN', 'TABLE_CHECKOUT', 'HOSTED_TABLE_JOIN'].includes(type)) {
       const expected = expectedTotalFromMetadata(meta);
       if (expected > 0 && Math.abs(Number(d.amount) - expected) >= 0.02) {
         return res.status(400).json({
@@ -2066,6 +2078,12 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
     const reference = crypto.randomBytes(16).toString('hex');
     let meta = { ...(d.metadata || {}) };
     const type = meta.type || (meta.promotion_id ? 'promotion' : d.event_id ? 'event' : 'table') || 'other';
+    if (type === 'TABLE_HOST_FEE') {
+      return res.status(410).json({
+        error: 'This checkout type is retired. Host venue tables from the event or day booking page.',
+        code: 'TABLE_HOST_FEE_RETIRED',
+      });
+    }
     if (type === 'ticket') {
       const computed = await computeTicketCheckout(prisma, {
         eventId: meta.event_id,
@@ -2081,7 +2099,7 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         });
       }
       meta = buildTicketPaymentMetadata(meta, computed);
-    } else if (['table', 'VENUE_TABLE_JOIN', 'TABLE_CHECKOUT', 'HOSTED_TABLE_JOIN', 'TABLE_HOST_FEE'].includes(type)) {
+    } else if (['table', 'VENUE_TABLE_JOIN', 'TABLE_CHECKOUT', 'HOSTED_TABLE_JOIN'].includes(type)) {
       const expected = expectedTotalFromMetadata(meta);
       if (expected > 0 && Math.abs(Number(d.amount) - expected) >= 0.02) {
         return res.status(400).json({

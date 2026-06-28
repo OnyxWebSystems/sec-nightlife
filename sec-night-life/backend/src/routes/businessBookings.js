@@ -20,6 +20,12 @@ import {
 import { eventEndsAtFromEvent } from '../lib/ticketHelpers.js';
 import { repairGuestEventVenueTableBookingsForEvents } from '../lib/eventVenueBooking.js';
 import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
+import {
+  isRefundedPaymentRef,
+  loadRefundedPaymentRefs,
+  loadRefundedMetricsForPeriod,
+} from '../lib/refunds.js';
+import { releaseVenueTableSlot, computeCanReleaseTable } from '../lib/venueTableSlotRelease.js';
 
 const router = Router();
 
@@ -126,7 +132,7 @@ function groupEventTableBookingsByTable(mapped) {
 }
 
 /** Include paid venue-table guests missing from EventVenueTableBooking (e.g. direct event slot joins). */
-async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds, existingMapped }) {
+async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds, existingMapped, refundedRefs = null }) {
   if (!eventIds.length || !venueIds.length) return existingMapped;
 
   const existingKeys = new Set(
@@ -143,7 +149,7 @@ async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds
     where: {
       memberRole: 'GUEST',
       paystackReference: { not: null },
-      status: { in: ['CONFIRMED', 'LEFT'] },
+      status: { in: ['CONFIRMED', 'LEFT', 'REFUNDED'] },
       venueTable: {
         eventId: { in: eventIds },
         venueId: { in: venueIds },
@@ -214,14 +220,20 @@ async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds
     existingKeys.add(key);
     if (m.paystackReference) existingRefs.add(m.paystackReference);
 
+    const isRefunded =
+      m.status === 'REFUNDED' ||
+      (refundedRefs && isRefundedPaymentRef(m.paystackReference, refundedRefs));
+    const paidAmount = isRefunded ? 0 : Number(m.amountPaid || 0);
+
     supplemental.push({
       id: `vtm-${m.id}`,
       role,
       paystackReference: m.paystackReference,
-      amountTotal: m.amountPaid,
+      refundStatus: isRefunded ? 'APPROVED' : null,
+      amountTotal: paidAmount,
       entranceZar: null,
-      componentZar: m.amountPaid,
-      lineTotalZar: Number(m.amountPaid || 0),
+      componentZar: paidAmount,
+      lineTotalZar: paidAmount,
       createdAt: m.paidAt || m.createdAt,
       venue: vt.venue,
       event: vt.event,
@@ -407,13 +419,7 @@ async function resolveMenuLinesForVenue(selectedMenuItems, venueId) {
 }
 
 function computeCanRelease(table, hostedTable) {
-  if (!table) return false;
-  if (table.currentOccupancy > 0) return true;
-  if (table.status !== 'AVAILABLE') return true;
-  if (table.hostUserId) return true;
-  if (table.hostedTableId) return true;
-  if (hostedTable && hostedTable.status !== 'CLOSED') return true;
-  return false;
+  return computeCanReleaseTable(table, hostedTable);
 }
 
 function mapVenueTableManagementItem(t, hosted, goingCount = null) {
@@ -625,6 +631,8 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
 
     await repairGuestEventVenueTableBookingsForEvents(eventIds);
 
+    const refundedRefs = await loadRefundedPaymentRefs(venueIds);
+
     let configuredTableSlots = 0;
     for (const ev of eventsInScope) {
       const c = normalizeHostingConfig(ev.hostingConfig);
@@ -737,6 +745,7 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       eventIds,
       venueIds,
       existingMapped: mapped,
+      refundedRefs,
     });
 
     const rawForStats = [
@@ -815,6 +824,9 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     await repairTicketPaymentsForVenues([venueId]);
 
+    const refundedRefs = await loadRefundedPaymentRefs([venueId]);
+    const refundedMetrics = await loadRefundedMetricsForPeriod([venueId], cutoff);
+
     const events = await prisma.event.findMany({
       where: { venueId, deletedAt: null, ...(eventId ? { id: eventId } : {}) },
       select: { id: true, date: true },
@@ -890,6 +902,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     for (const row of ledgerRows) {
       const meta = resolveLedgerPaymentMeta(row.paymentReference);
       if (!matchesEventFilterMeta(meta)) continue;
+      if (isRefundedPaymentRef(row.paymentReference, refundedRefs)) continue;
       const gross = Number(row.grossAmount) || 0;
       const net = Number(row.recipientAmount) || 0;
       grossTotal += gross;
@@ -929,6 +942,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       if (!paymentMatchesVenueScope(meta, venueId, eventIdSet)) continue;
       if (!paymentMatchesEventFilter(meta, eventId)) continue;
       if (p.reference && matchedPaymentRefs.has(p.reference)) continue;
+      if (isRefundedPaymentRef(p.reference, refundedRefs)) continue;
       const amt = Number(p.amount) || 0;
       grossTotal += amt;
       netTotal += netAmountFromPayment(meta, amt);
@@ -942,7 +956,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         matchedPaymentRefs.add(basePaymentReference(p.reference));
       }
 
-      if (isTicketPaymentMeta(meta, p.type)) {
+      if (isTicketPaymentMeta(meta, p.type) && !isRefundedPaymentRef(p.reference, refundedRefs)) {
         ticketSalesFromPayments += ticketQuantityFromMeta(meta);
       }
     }
@@ -964,6 +978,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       if (ref && (matchedPaymentRefs.has(String(ref)) || (baseRef && matchedPaymentRefs.has(baseRef)))) {
         continue;
       }
+      if (isRefundedPaymentRef(ref, refundedRefs)) continue;
       const txMeta = flattenPaymentMetadata(t.metadata);
       if (!paymentMatchesVenueScope(txMeta, venueId, eventIdSet)) continue;
       if (!paymentMatchesEventFilter(txMeta, eventId)) continue;
@@ -974,7 +989,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + amt;
       if (txMeta && Object.keys(txMeta).length) {
         classifyVenuePaymentRevenue(txMeta.type, null, amt, revenueCounters, txMeta);
-        if (isTicketPaymentMeta(txMeta, null)) {
+        if (isTicketPaymentMeta(txMeta, null) && !isRefundedPaymentRef(ref, refundedRefs)) {
           ticketSalesFromPayments += ticketQuantityFromMeta(txMeta);
         }
       } else {
@@ -997,6 +1012,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
               eventId: { in: eventIds },
               createdAt: { gte: cutoff },
               hiddenFromHistoryAt: null,
+              refundedAt: null,
             },
           });
 
@@ -1021,6 +1037,8 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       hostedTablePaymentZar: Number(hostedTablePaymentZar.toFixed(2)),
       venueTablePaymentZar: Number(venueTablePaymentZar.toFixed(2)),
       otherPaymentZar: Number(otherPaymentZar.toFixed(2)),
+      refundedGrossZar: Number(refundedMetrics.refundedGrossZar.toFixed(2)),
+      refundedVenueShareZar: Number(refundedMetrics.refundedVenueShareZar.toFixed(2)),
       eventsInPeriod,
       upcomingEventsCount,
       revenueByDay: revenueByDaySorted,
@@ -1465,7 +1483,7 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
     const members = await prisma.venueTableMember.findMany({
       where: {
         paystackReference: { not: null },
-        status: { in: ['CONFIRMED', 'LEFT'] },
+        status: { in: ['CONFIRMED', 'LEFT', 'REFUNDED'] },
         venueTable: { venueId: { in: venueIds }, eventId: null },
       },
       include: {
@@ -1492,16 +1510,22 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
       for (const ht of hostedRows) hostedById.set(ht.id, ht);
     }
 
+    const refundedRefs = await loadRefundedPaymentRefs(venueIds);
+
     res.json({
       items: members.map((m) => {
         const sessionNumber = inferMemberSessionNumber(m, m.venueTable);
         const hostedTable = m.venueTable.hostedTableId
           ? hostedById.get(m.venueTable.hostedTableId) || null
           : null;
+        const isRefunded =
+          m.status === 'REFUNDED' ||
+          (m.paystackReference && isRefundedPaymentRef(m.paystackReference, refundedRefs));
         return {
           id: m.id,
           status: m.status,
-          amountPaid: m.amountPaid,
+          refundStatus: isRefunded ? 'APPROVED' : null,
+          amountPaid: isRefunded ? 0 : m.amountPaid,
           settlementMode: m.settlementMode,
           selectedMenuItems: m.selectedMenuItems,
           userSpecs: m.userSpecs,
@@ -1882,6 +1906,8 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
 
     await repairTicketPaymentsForVenues(scopedVenueIds);
 
+    const refundedRefs = await loadRefundedPaymentRefs(scopedVenueIds);
+
     const eventIdFilter =
       typeof req.query.event_id === 'string' && req.query.event_id.trim()
         ? req.query.event_id.trim()
@@ -1945,6 +1971,7 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         ? {
             kind: 'EVENT_TICKET',
             hiddenFromHistoryAt: null,
+            refundedAt: null,
             eventId: { in: eventIds },
           }
         : null;
@@ -2123,13 +2150,79 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
       (a, b) => new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime(),
     );
 
+    for (const item of items) {
+      if (isRefundedPaymentRef(item.paystackReference, refundedRefs)) {
+        item.refundStatus = 'APPROVED';
+        item.grossPaidZar = 0;
+        item.venueShareZar = 0;
+        item.platformFeeZar = 0;
+        item.amountPaidZar = 0;
+      }
+    }
+
+    const refundedOrders = await prisma.refundRequest.findMany({
+      where: {
+        venueId: { in: scopedVenueIds },
+        refundType: 'TICKET',
+        status: { in: ['APPROVED', 'PAID_BY_VENUE', 'PENDING', 'REJECTED'] },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+            userProfile: { select: { username: true, avatarUrl: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    const itemRefs = new Set(items.map((i) => i.paystackReference));
+    for (const rr of refundedOrders) {
+      if (itemRefs.has(rr.paymentReference)) continue;
+      if (eventIdFilter && rr.eventId && rr.eventId !== eventIdFilter) continue;
+      const ev = rr.eventId ? eventById.get(rr.eventId) : null;
+      items.push({
+        id: rr.paymentReference,
+        paystackReference: rr.paymentReference,
+        refundStatus: rr.status === 'PENDING' ? 'PENDING' : rr.status === 'REJECTED' ? 'REJECTED' : 'APPROVED',
+        event: ev
+          ? { id: ev.id, title: ev.title, date: ev.date, startTime: ev.startTime, city: ev.city }
+          : { id: rr.eventId, title: 'Event', date: null, startTime: null, city: null },
+        tierName: 'Ticket',
+        purchaser: {
+          id: rr.user.id,
+          username: rr.user.userProfile?.username || rr.user.username,
+          fullName: rr.user.fullName,
+          avatarUrl: rr.user.userProfile?.avatarUrl || null,
+        },
+        tickets: [],
+        quantity: Array.isArray(rr.ticketIds) ? rr.ticketIds.length : 1,
+        admittedCount: 0,
+        grossPaidZar: rr.status === 'APPROVED' || rr.status === 'PAID_BY_VENUE' ? 0 : rr.grossAmountZar,
+        venueShareZar: rr.status === 'APPROVED' || rr.status === 'PAID_BY_VENUE' ? 0 : rr.venueRefundDueZar,
+        platformFeeZar: rr.platformFeeKeptZar,
+        amountPaidZar: rr.status === 'APPROVED' || rr.status === 'PAID_BY_VENUE' ? 0 : rr.grossAmountZar,
+        purchasedAt: rr.createdAt,
+        menuAddons: [],
+        fulfillmentPending: false,
+      });
+    }
+
+    items.sort((a, b) => new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime());
+
+    const activeItems = items.filter((i) => i.refundStatus !== 'APPROVED' && i.refundStatus !== 'REJECTED');
+
     const summary = {
-      orderCount: items.length,
-      ticketCount: ticketCount || items.reduce((s, i) => s + Number(i.quantity || 0), 0),
+      orderCount: activeItems.length,
+      ticketCount: ticketCount || activeItems.reduce((s, i) => s + Number(i.quantity || 0), 0),
       admittedCount,
-      totalRevenueZar: items.reduce((s, i) => s + Number(i.grossPaidZar || 0), 0),
-      totalGrossZar: items.reduce((s, i) => s + Number(i.grossPaidZar || 0), 0),
-      totalVenueShareZar: items.reduce((s, i) => s + Number(i.venueShareZar || 0), 0),
+      totalRevenueZar: activeItems.reduce((s, i) => s + Number(i.grossPaidZar || 0), 0),
+      totalGrossZar: activeItems.reduce((s, i) => s + Number(i.grossPaidZar || 0), 0),
+      totalVenueShareZar: activeItems.reduce((s, i) => s + Number(i.venueShareZar || 0), 0),
     };
 
     res.json({ items, eventSummaries, summary, eventScope });
@@ -2171,42 +2264,15 @@ router.post('/venue-tables/:tableId/release', authenticateToken, async (req, res
 
     const nextSessionNumber = (Number(table.tableSessionNumber) || 1) + 1;
 
-    await prisma.$transaction(async (tx) => {
-      if (table.hostedTableId) {
-        await tx.hostedTableMember.updateMany({
-          where: {
-            hostedTableId: table.hostedTableId,
-            status: { in: ['GOING', 'PENDING', 'WAITLISTED'] },
-          },
-          data: { status: 'CANCELLED' },
-        });
-        await tx.hostedTable.update({
-          where: { id: table.hostedTableId },
-          data: { status: 'CLOSED' },
-        });
-      }
-      await tx.venueTableMember.updateMany({
-        where: {
-          venueTableId: table.id,
-          status: { in: ['CONFIRMED', 'APPROVED', 'PENDING_PAYMENT', 'PENDING_VENUE_REVIEW'] },
-        },
-        data: { status: 'LEFT' },
-      });
-      await tx.venueTable.update({
-        where: { id: table.id },
-        data: {
-          currentOccupancy: 0,
-          status: 'AVAILABLE',
-          amountContributed: 0,
-          hostUserId: null,
-          hostedTableId: null,
-          isActive: true,
-          tableSessionNumber: nextSessionNumber,
-        },
-      });
-    });
+    const releaseResult = await prisma.$transaction(async (tx) =>
+      releaseVenueTableSlot(tx, table.id, { bumpSession: true }),
+    );
 
-    res.json({ released: true, tableId: table.id, sessionNumber: nextSessionNumber });
+    res.json({
+      released: true,
+      tableId: table.id,
+      sessionNumber: releaseResult.sessionNumber ?? nextSessionNumber,
+    });
   } catch (e) {
     next(e);
   }

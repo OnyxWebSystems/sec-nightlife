@@ -4,7 +4,6 @@
  * SECURITY: Email verification required for all write actions.
  */
 import { Router } from 'express';
-import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
@@ -19,9 +18,7 @@ import { recordTableHistory } from '../lib/tableHistory.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
-import { getEventEntranceZar } from '../lib/hostedTableSecFees.js';
 import { normalizeGuestGenderPreference, genderMatchesPreference } from '../lib/genderPreference.js';
-import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
 
 const router = Router();
 
@@ -106,36 +103,6 @@ function extractUserIdsFromPending(pendingRequests) {
     })
     .filter(Boolean);
   return [...new Set(ids)];
-}
-
-async function initializePaystackPayment({ userId, amountZar, metadata }) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-  const key = process.env.PAYSTACK_SECRET_KEY;
-  if (!key) throw new Error('Paystack is not configured');
-  const reference = crypto.randomBytes(16).toString('hex');
-  const email = user?.email || 'user@secnightlife.app';
-  await prisma.payment.create({
-    data: { userId, email, amount: amountZar, reference, status: 'pending', type: 'other', metadata: { user_id: userId, ...metadata } },
-  });
-  await prisma.transaction.create({
-    data: { userId, amount: amountZar, currency: 'ZAR', type: 'paystack', status: 'pending', stripeId: reference, metadata: { provider: 'paystack', reference, ...metadata } },
-  });
-  const res = await fetch('https://api.paystack.co/transaction/initialize', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(
-      buildPaystackInitializeBody({
-        email,
-        amountInCents: Math.round(amountZar * 100),
-        reference,
-        userId,
-        metadata,
-      }),
-    ),
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok || !data?.status) throw new Error(data?.message || 'Could not initialize payment');
-  return { reference, authorization_url: data.data.authorization_url, access_code: data.data.access_code };
 }
 
 router.get('/', optionalAuth, async (req, res, next) => {
@@ -278,33 +245,10 @@ router.post('/', authenticateToken, requireVerified, requireIdentityVerified, as
 
     const hostFee = Number(hosting?.[category]?.host_table_fee_zar || 0);
     if (hostFee > 0) {
-      const entranceZar = getEventEntranceZar(event);
-      const totalHostPay = hostFee + entranceZar;
-      const pay = await initializePaystackPayment({
-        userId: req.userId,
-        amountZar: totalHostPay,
-        metadata: {
-          type: 'TABLE_HOST_FEE',
-          event_id: event.id,
-          venue_id: event.venueId,
-          entrance_zar: entranceZar,
-          host_fee_zar: hostFee,
-          amount_total_zar: totalHostPay,
-          table_create: {
-            event_id: data.event_id,
-            venue_id: data.venue_id,
-            name: data.name,
-            table_category: category,
-            max_guests: data.max_guests,
-            min_spend: data.min_spend ?? null,
-            joining_fee: data.joining_fee ?? null,
-            is_public: data.is_public !== undefined ? data.is_public : true,
-            guest_gender_preference: normalizeGuestGenderPreference(data.guest_gender_preference),
-          },
-          user_id: req.userId,
-        },
+      return res.status(410).json({
+        error: 'Table hosting at venue events is booked from the event page. This legacy checkout is no longer available.',
+        code: 'TABLE_HOST_FEE_RETIRED',
       });
-      return res.status(202).json({ pending_payment: true, amount: hostFee, ...pay });
     }
 
     const table = await prisma.table.create({

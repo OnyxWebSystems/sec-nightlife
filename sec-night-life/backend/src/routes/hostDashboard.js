@@ -41,7 +41,12 @@ import {
 import { refreshHostedTableTickets } from '../lib/ticketHelpers.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
 import { canJoinTablesAsGuest, staffHasVenuePermission } from '../lib/access.js';
-import { parseGuestCountFromSpecs, resolveLinkedVenueTableForHostedTable } from '../lib/venueTableHostAfterPayment.js';
+import {
+  parseGuestCountFromSpecs,
+  resolveLinkedVenueTableForHostedTable,
+  resolveVenueContextForHostedTable,
+  resolveVenueIdForHostedTable,
+} from '../lib/venueTableHostAfterPayment.js';
 import { recordEventVenueTableBooking } from '../lib/eventVenueBooking.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import { buildHostedTableJoinTicketSummary } from '../lib/ticketMemberSummary.js';
@@ -428,8 +433,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     });
     if (!t) return res.status(404).json({ error: 'Not found' });
     const uid = req.userId;
-    const venueOwnerUserId = t.event?.venue?.ownerUserId || null;
-    const venueId = t.event?.venueId || t.event?.venue?.id || null;
+    const { venueId, venueOwnerUserId } = await resolveVenueContextForHostedTable(prisma, t);
     const isVenueOwner = Boolean(uid && venueOwnerUserId && uid === venueOwnerUserId);
     const hasBookingsStaff =
       venueId && uid ? await staffHasVenuePermission(uid, venueId, 'bookings') : false;
@@ -620,12 +624,13 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
       },
     });
     if (!ht) return res.status(404).json({ error: 'Table not found' });
-    if (!ht.event?.venueId) return res.status(400).json({ error: 'Menu orders require a venue event.' });
+    const menuVenueId = await resolveVenueIdForHostedTable(prisma, ht);
+    if (!menuVenueId) return res.status(400).json({ error: 'Menu orders require a venue-linked table.' });
     const mem = ht.members.find((m) => m.userId === req.userId);
     if (!mem || mem.status !== 'GOING') {
       return res.status(403).json({ error: 'You must be an active member of this table before adding menu items.' });
     }
-    const menuResolved = await resolveVenueMenuSelections(parsed.data.selectedMenuItems, ht.event.venueId);
+    const menuResolved = await resolveVenueMenuSelections(parsed.data.selectedMenuItems, menuVenueId);
     if (menuResolved.totalZar <= 0) {
       return res.status(400).json({ error: 'Select at least one menu item.' });
     }
@@ -636,8 +641,8 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
         type: 'HOSTED_TABLE_MENU',
         hosted_table_id: ht.id,
         hosted_table_member_id: mem.id,
-        event_id: ht.event.id,
-        venue_id: ht.event.venueId,
+        event_id: ht.event?.id || null,
+        venue_id: menuVenueId,
         menu_zar: menuResolved.totalZar,
         amount_total_zar: menuResolved.totalZar,
         selected_menu_items: menuResolved.items,
@@ -1305,237 +1310,6 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
     if (d.tableType === 'EXTERNAL_VENUE' && d.guestQuantity > 20) {
       return res.status(400).json({ error: 'External meet-up tables allow at most 20 guests.' });
     }
-    if (d.tableType === 'IN_APP_EVENT') {
-      if (!d.eventId) return res.status(400).json({ error: 'eventId required for in-app event' });
-      const ev = await prisma.event.findFirst({
-        where: { id: d.eventId, deletedAt: null },
-        include: { venue: true },
-      });
-      if (!ev) return res.status(404).json({ error: 'Event not found' });
-      const startStr = ev.startTime != null ? String(ev.startTime).trim() : '';
-      if (!startStr) {
-        return res.status(400).json({
-          error:
-            'This event has no start time yet. Ask the venue to set an event start time before you can host a table.',
-        });
-      }
-      if (!isInAppEventInFuture(ev)) {
-        return res.status(400).json({
-          error: 'This event has already started or is not in the future. Check the event date and start time.',
-        });
-      }
-      const timeCheck = assertTableTimeNotBeforeEventStart(d.eventTime, ev.startTime);
-      if (!timeCheck.ok) return res.status(400).json({ error: timeCheck.error });
-      const venueName = ev.venue?.name || d.venueName || 'Venue';
-      const venueAddress = formatVenueAddressFromVenue(ev.venue) ?? d.venueAddress?.trim() ?? ev.city ?? null;
-      const hostingCategory = d.hostingCategory === 'VIP' ? 'VIP' : 'GENERAL';
-      const hosting = normalizeHostingConfig(ev.hostingConfig);
-      const catKey = hostingCategory === 'VIP' ? 'vip' : 'general';
-      const tiers = Array.isArray(hosting[catKey]?.tiers) ? hosting[catKey].tiers : [];
-      if (tiers.length === 0) {
-        return res.status(400).json({
-          error:
-            'This event has no table pricing tiers for the selected category. Ask the venue to add hosting tiers in event setup.',
-        });
-      }
-      let tierMeta;
-      try {
-        tierMeta = resolveHostingTierCaps(ev.hostingConfig, hostingCategory, d.hostingTierIndex);
-      } catch (err) {
-        const msg = err?.message || 'Invalid hosting tier for this event';
-        return res.status(400).json({ error: msg });
-      }
-      if (d.guestQuantity > tierMeta.maxGuests) {
-        return res.status(400).json({ error: `Guest quantity exceeds tier cap (${tierMeta.maxGuests}).` });
-      }
-      const maxForCategory =
-        hosting[catKey]?.max_tables != null && Number.isFinite(Number(hosting[catKey]?.max_tables))
-          ? Number(hosting[catKey].max_tables)
-          : null;
-      if (maxForCategory != null && maxForCategory > 0) {
-        const categoryUsed = await prisma.hostedTable.count({
-          where: {
-            eventId: d.eventId,
-            tableType: 'IN_APP_EVENT',
-            hostingCategory,
-            status: { in: ['ACTIVE', 'FULL'] },
-          },
-        });
-        if (categoryUsed >= maxForCategory) {
-          return res.status(400).json({
-            error:
-              hostingCategory === 'VIP'
-                ? 'This event has reached the maximum number of VIP hosted tables set by the venue.'
-                : 'This event has reached the maximum number of General hosted tables set by the venue.',
-            code: 'EVENT_TABLES_FULL',
-          });
-        }
-      }
-      if (tierMeta.tierIndex != null && tierMeta.tierTableSlots != null) {
-        const tierUsed = await prisma.hostedTable.count({
-          where: {
-            eventId: d.eventId,
-            tableType: 'IN_APP_EVENT',
-            hostingCategory,
-            hostingTierIndex: tierMeta.tierIndex,
-            status: { in: ['ACTIVE', 'FULL'] },
-          },
-        });
-        if (tierUsed >= tierMeta.tierTableSlots) {
-          return res.status(400).json({
-            error: `This tier is full for hosted tables (${tierMeta.tierTableSlots} allocated). Choose another tier or ask the venue to increase tier table allocation.`,
-            code: 'EVENT_TIER_TABLES_FULL',
-          });
-        }
-      }
-      const hostFee = getHostTableFeeZar(ev.hostingConfig, hostingCategory);
-      const entranceZar = getEventEntranceZar(ev);
-      const minSpendZar =
-        tierMeta.minSpend != null && Number.isFinite(Number(tierMeta.minSpend)) ? Math.max(0, Number(tierMeta.minSpend)) : 0;
-      const tierRow =
-        tierMeta.tierIndex != null && Array.isArray(tiers) ? tiers[tierMeta.tierIndex] : null;
-      const tierName = tierRow?.tier_name ? String(tierRow.tier_name) : null;
-      const tierIncluded = ev.venueId
-        ? await resolveTierIncludedItems(ev.hostingConfig, hostingCategory, tierMeta.tierIndex, ev.venueId)
-        : [];
-      const tierIncludedSnapshot = {
-        tier_name: tierName,
-        items: tierIncluded,
-      };
-      let menuResolved = { items: [], totalZar: 0 };
-      if (d.selectedMenuItems?.length && ev.venueId) {
-        menuResolved = await resolveVenueMenuSelections(d.selectedMenuItems, ev.venueId);
-      }
-      const includedTotal = includedItemsTotalZar(tierIncluded);
-      const cartTotal = Number((menuResolved.totalZar + includedTotal).toFixed(2));
-      const settlementMode = d.settlementMode === 'PREPAY_LUMP' ? 'PREPAY_LUMP' : 'PREPAY_MENU';
-      if (settlementMode === 'PREPAY_MENU' && minSpendZar > 0 && cartTotal + 0.01 < minSpendZar) {
-        return res.status(400).json({
-          error: `Your menu selection must reach at least R${minSpendZar} (currently R${cartTotal.toFixed(0)}).`,
-        });
-      }
-      const menuCartZar = menuResolved.totalZar;
-      const spendZar =
-        minSpendZar > 0
-          ? settlementMode === 'PREPAY_LUMP'
-            ? minSpendZar
-            : Math.max(minSpendZar, menuCartZar)
-          : menuCartZar;
-      const totalHostPay = entranceZar + hostFee + spendZar;
-
-      const needsListingPayment = totalHostPay > 0;
-      const t = await prisma.$transaction(async (tx) =>
-        tx.hostedTable.create({
-          data: {
-            hostUserId: req.userId,
-            tableType: 'IN_APP_EVENT',
-            tableName: d.tableName,
-            tableDescription: d.tableDescription ?? null,
-            eventType: d.eventType,
-            eventId: d.eventId,
-            venueName,
-            venueAddress,
-            eventDate: ev.date,
-            eventTime: d.eventTime,
-            hasJoiningFee: d.hasJoiningFee,
-            joiningFee: d.hasJoiningFee ? d.joiningFee : null,
-            guestGenderPreference: normalizeGuestGenderPreference(d.guestGenderPreference),
-            photo: d.photo ?? null,
-            photoPublicId: d.photoPublicId ?? null,
-            drinkPreferences: d.drinkPreferences ?? null,
-            desiredCompany: d.desiredCompany ?? null,
-            guestQuantity: d.guestQuantity,
-            spotsRemaining: needsListingPayment ? d.guestQuantity : d.guestQuantity - 1,
-            hostingCategory,
-            hostingTierIndex: tierMeta.tierIndex,
-            tierMaxGuests: tierMeta.maxGuests,
-            tierMinSpend: tierMeta.minSpend,
-            menuSpendTotal: cartTotal,
-            tierIncludedItems: tierIncludedSnapshot,
-            isPublic: d.isPublic,
-            status: needsListingPayment ? 'DRAFT' : 'ACTIVE',
-            ...(needsListingPayment
-              ? {}
-              : {
-                  members: {
-                    create: [
-                      {
-                        userId: req.userId,
-                        status: 'GOING',
-                        selectedMenuItems: menuResolved.items.length ? menuResolved.items : undefined,
-                        menuSpendPaid: menuCartZar,
-                      },
-                    ],
-                  },
-                  groupChat: {
-                    create: {
-                      name: d.tableName,
-                      members: { create: [{ userId: req.userId }] },
-                    },
-                  },
-                }),
-          },
-          include: { members: true, groupChat: true },
-        }),
-      );
-      if (!needsListingPayment) {
-        await logFriendActivity({
-          userId: req.userId,
-          activityType: 'HOSTED_TABLE',
-          referenceId: t.id,
-          referenceType: 'HOSTED_TABLE',
-          description: 'hosted a table',
-        });
-        recordTableHistory({
-          userId: req.userId,
-          role: 'HOST',
-          hostedTableId: t.id,
-          eventId: ev.id,
-          tableName: t.tableName,
-          eventTitle: ev.title,
-        });
-      }
-      if (needsListingPayment) {
-        const pay = await initializePaystackPayment({
-          userId: req.userId,
-          amountZar: totalHostPay,
-          metadata: {
-            type: 'TABLE_HOST_FEE',
-            hosted_table_id: t.id,
-            event_id: ev.id,
-            venue_id: ev.venueId,
-            entrance_zar: entranceZar,
-            host_fee_zar: hostFee,
-            menu_zar: menuCartZar,
-            min_spend_zar: minSpendZar,
-            amount_total_zar: totalHostPay,
-            ...promoterMetaFromBody(req.body),
-            selected_menu_items: menuResolved.items,
-            tier_included_items: tierIncludedSnapshot,
-            hosting_tier_name: tierName,
-            hosting_category: hostingCategory,
-            table_create: {
-              event_id: ev.id,
-              venue_id: ev.venueId,
-              name: d.tableName,
-              table_category: hostingCategory === 'VIP' ? 'vip' : 'general',
-              max_guests: d.guestQuantity,
-              min_spend: minSpendZar,
-              joining_fee: d.hasJoiningFee ? d.joiningFee : null,
-              is_public: d.isPublic,
-              guest_gender_preference: normalizeGuestGenderPreference(d.guestGenderPreference),
-            },
-            user_id: req.userId,
-          },
-        });
-        return res.status(201).json({ ...t, status: 'PENDING_PAYMENT', payment: pay, eventLocation: buildEventLocationPayload(ev) });
-      }
-
-      return res.status(201).json({
-        ...t,
-        eventLocation: buildEventLocationPayload(ev),
-      });
-    }
     if (!d.venueName) return res.status(400).json({ error: 'venueName required for external venue' });
     if (!isExternalMeetupInFuture(d.eventDate, d.eventTime)) {
       return res.status(400).json({ error: 'Meet-up date and time must be in the future.' });
@@ -1645,47 +1419,11 @@ router.post('/tables/:tableId/retry-listing-payment', authenticateToken, require
       return res.status(400).json({ error: 'This table is not waiting for a listing payment.' });
     }
     if (t.tableType === 'IN_APP_EVENT') {
-      if (t.hostFeePaystackRef) return res.status(400).json({ error: 'Listing payment already recorded for this table.' });
-      if (!t.eventId) return res.status(400).json({ error: 'Invalid table' });
-      const ev = await prisma.event.findFirst({
-        where: { id: t.eventId, deletedAt: null },
-        include: { venue: true },
+      return res.status(410).json({
+        error:
+          'This listing checkout is no longer available. Host venue tables from the event or day booking page instead.',
+        code: 'TABLE_HOST_FEE_RETIRED',
       });
-      if (!ev) return res.status(400).json({ error: 'Event not found' });
-      const hostingCategory = t.hostingCategory === 'VIP' ? 'VIP' : 'GENERAL';
-      const hostFee = getHostTableFeeZar(ev.hostingConfig, hostingCategory);
-      const entranceZar = getEventEntranceZar(ev);
-      const minSpendZar =
-        t.tierMinSpend != null && Number.isFinite(Number(t.tierMinSpend)) ? Math.max(0, Number(t.tierMinSpend)) : 0;
-      const total = entranceZar + hostFee + minSpendZar;
-      if (total <= 0) return res.status(400).json({ error: 'Nothing to pay for this listing.' });
-      const pay = await initializePaystackPayment({
-        userId: req.userId,
-        amountZar: total,
-        metadata: {
-          type: 'TABLE_HOST_FEE',
-          hosted_table_id: t.id,
-          event_id: ev.id,
-          venue_id: ev.venueId,
-          entrance_zar: entranceZar,
-          host_fee_zar: hostFee,
-          min_spend_zar: minSpendZar,
-          amount_total_zar: total,
-          table_create: {
-            event_id: ev.id,
-            venue_id: ev.venueId,
-            name: t.tableName,
-            table_category: hostingCategory === 'VIP' ? 'vip' : 'general',
-            max_guests: t.guestQuantity,
-            min_spend: minSpendZar,
-            joining_fee: t.hasJoiningFee ? t.joiningFee : null,
-            is_public: t.isPublic,
-            guest_gender_preference: t.guestGenderPreference,
-          },
-          user_id: req.userId,
-        },
-      });
-      return res.json({ ...pay, listingStatus: 'PENDING_PAYMENT' });
     }
     if (t.tableType === 'EXTERNAL_VENUE') {
       if (t.externalListingPaystackRef) {

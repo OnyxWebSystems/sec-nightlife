@@ -242,3 +242,32 @@ export async function resolveLinkedVenueTableForHostedTable(db, hostedTableId) {
     },
   });
 }
+
+/**
+ * Resolve venue for a hosted table: event venue first, else linked day-booking venue slot.
+ * @param {import('@prisma/client').PrismaClient | object} db
+ * @param {{ id?: string, eventId?: string|null, event?: { venueId?: string|null, venue?: { id?: string, ownerUserId?: string|null }|null }|null }} hostedTable
+ */
+export async function resolveVenueContextForHostedTable(db, hostedTable) {
+  let venueId = hostedTable?.event?.venueId || hostedTable?.event?.venue?.id || null;
+  let venueOwnerUserId = hostedTable?.event?.venue?.ownerUserId || null;
+  let linkedVenueTable = null;
+  if (!venueId && hostedTable?.id) {
+    linkedVenueTable = await resolveLinkedVenueTableForHostedTable(db, hostedTable.id);
+    venueId = linkedVenueTable?.venueId || null;
+  }
+  if (venueId && !venueOwnerUserId) {
+    const venue = await db.venue.findFirst({
+      where: { id: venueId, deletedAt: null },
+      select: { ownerUserId: true },
+    });
+    venueOwnerUserId = venue?.ownerUserId || null;
+  }
+  return { venueId, venueOwnerUserId, linkedVenueTable };
+}
+
+/** @param {import('@prisma/client').PrismaClient | object} db */
+export async function resolveVenueIdForHostedTable(db, hostedTable) {
+  const { venueId } = await resolveVenueContextForHostedTable(db, hostedTable);
+  return venueId;
+}

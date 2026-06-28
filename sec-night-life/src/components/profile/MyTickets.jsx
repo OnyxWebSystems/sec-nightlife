@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { apiGet, apiDelete } from '@/api/client';
 import { Card, CardContent } from "@/components/ui/card";
-import { Ticket, Calendar, Trash2 } from 'lucide-react';
+import { Ticket, Calendar, Trash2, RotateCcw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Button } from "@/components/ui/button";
 import { Link } from 'react-router-dom';
@@ -14,6 +14,7 @@ import {
   loadMyTicketsSnapshot,
   saveMyTicketsSnapshot,
 } from '@/lib/ticketOfflineCache';
+import RefundRequestDialog from '@/components/refunds/RefundRequestDialog';
 
 function TicketQrBlock({ verifyUrl, eventCode }) {
   const [dataUrl, setDataUrl] = useState(null);
@@ -80,6 +81,9 @@ function ticketDetailHref(ticket) {
 export default function MyTickets({ userId }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState('active');
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundRef, setRefundRef] = useState(null);
+  const [refundLabel, setRefundLabel] = useState('');
   const ticketsCache = useMemo(() => (userId ? loadMyTicketsSnapshot(userId) : null), [userId]);
 
   const activeQ = useQuery({
@@ -169,7 +173,8 @@ export default function MyTickets({ userId }) {
       ? format(parseISO(expiresRaw), 'MMM dd, yyyy HH:mm')
       : '—';
     const isInactiveTab = tab === 'inactive';
-    const phase = ticketPhase(ticket);
+    const isRefunded = Boolean(ticket.refund_status || ticket.refunded_at);
+    const phase = isRefunded ? 'refunded' : ticketPhase(ticket);
     const verifyUrl =
       ticket.verify_url ||
       getTicketVerifyUrl(ticket.qr_token, {
@@ -189,6 +194,9 @@ export default function MyTickets({ userId }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <h3 className="font-semibold text-white leading-snug">{ticket.title}</h3>
+                  {isRefunded && (
+                    <span className="sec-badge sec-badge-muted text-[10px] mt-1 inline-block">Refunded</span>
+                  )}
                   {ticket.holder_display_name && (
                     <p className="text-xs text-gray-500 mt-0.5 truncate">{ticket.holder_display_name}</p>
                   )}
@@ -214,7 +222,9 @@ export default function MyTickets({ userId }) {
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Calendar className="w-3.5 h-3.5 shrink-0" />
                 <span>
-                  {phase === 'upcoming'
+                  {phase === 'refunded'
+                    ? 'Refunded — QR no longer valid'
+                    : phase === 'upcoming'
                     ? `Starts ${ticket.event_starts_at ? format(parseISO(ticket.event_starts_at), 'MMM dd, yyyy HH:mm') : '—'}`
                     : phase === 'expired'
                       ? `Expired ${expiresLabel}`
@@ -225,6 +235,21 @@ export default function MyTickets({ userId }) {
                 <Button variant="outline" size="sm" className="border-[#262629] h-8" asChild>
                   <Link to={ticketDetailHref(ticket)}>View details</Link>
                 </Button>
+                {!isInactiveTab && !isRefunded && ticket.paystack_reference && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-[#262629] h-8"
+                    onClick={() => {
+                      setRefundRef(ticket.paystack_reference);
+                      setRefundLabel(ticket.title);
+                      setRefundOpen(true);
+                    }}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                    Request refund
+                  </Button>
+                )}
                 {isInactiveTab && phase === 'expired' && (
                   <Button
                     variant="outline"
@@ -293,8 +318,24 @@ export default function MyTickets({ userId }) {
       </div>
 
       <p className="text-xs text-gray-500 px-1">
-        Active shows all valid tickets, including upcoming events. Expired tickets are under Inactive.
+        Active shows all valid tickets, including upcoming events. Refunded and expired tickets are under Inactive.
       </p>
+
+      {tab === 'active' && activeTickets.length > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-[#262629]"
+          onClick={() => {
+            setRefundRef(null);
+            setRefundLabel('');
+            setRefundOpen(true);
+          }}
+        >
+          <RotateCcw className="w-3.5 h-3.5 mr-1" />
+          Request refund for a payment
+        </Button>
+      )}
 
       {(activeFromCache || inactiveFromCache) && (
         <p className="text-xs text-amber-200/90 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2">
@@ -337,6 +378,14 @@ export default function MyTickets({ userId }) {
           )}
         </div>
       )}
+
+      <RefundRequestDialog
+        open={refundOpen}
+        onOpenChange={setRefundOpen}
+        paymentReference={refundRef}
+        label={refundLabel}
+        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['my-tickets', userId] })}
+      />
     </div>
   );
 }

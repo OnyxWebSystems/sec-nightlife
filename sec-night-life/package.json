@@ -15,10 +15,12 @@
     "cap:android": "cap open android",
     "cap:ios": "cap open ios",
     "icons:generate": "node scripts/generate-pwa-icons.mjs",
-    "marketing:capture": "node ../marketing-kit/scripts/capture-marketing-manual.mjs",
-    "marketing:capture:party": "node ../marketing-kit/scripts/capture-marketing-manual.mjs --party-only --skip-public",
-    "marketing:capture:party-rest": "node ../marketing-kit/scripts/capture-marketing-manual.mjs --party-only --skip-public --only-screenshots=06-explore.png,07-event-details.png,08-tables.png,09-map.png,10-profile.png,11-friends.png,12-leaderboard.png,13-host-dashboard.png,14-messages.png,15-profile-tickets-qr.png --only-recordings=browse-event.webm,host-and-messages.webm,social-features.webm",
-    "marketing:capture:finish": "node ../marketing-kit/scripts/capture-marketing-manual.mjs --party-only --skip-public --only-screenshots=15-profile-tickets-qr.png --only-recordings=host-and-messages.webm"
+    "launch:capture": "node ../launch-resources/scripts/capture-launch-assets.mjs",
+    "launch:capture:business": "node ../launch-resources/scripts/capture-launch-assets.mjs --business-only",
+    "launch:capture:party": "node ../launch-resources/scripts/capture-launch-assets.mjs --party-only",
+    "launch:export-legal": "node ../launch-resources/scripts/export-legal-pages.mjs",
+    "launch:paystack-demo": "node ../launch-resources/scripts/capture-paystack-demo.mjs",
+    "launch:generate-assets": "node ../launch-resources/scripts/generate-store-assets.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
