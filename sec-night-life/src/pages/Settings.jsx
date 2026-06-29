@@ -53,7 +53,7 @@ export default function Settings() {
 
   const loadData = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      const currentUser = await authService.loadUserOrLogin();
       setUser(currentUser);
 
       let profiles = [];
@@ -72,7 +72,7 @@ export default function Settings() {
       }
       setVenues(userVenues);
     } catch {
-      authService.redirectToLogin();
+      // loadUserOrLogin redirects when no session remains
     }
   };
 

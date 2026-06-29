@@ -14,7 +14,7 @@ export default function RequireBusinessAccount({ children }) {
     let cancelled = false;
     (async () => {
       try {
-        const user = await authService.getCurrentUser();
+        const { user } = await authService.requireAuthOrLogin(window.location.href);
         let hasBusiness = user?.role === 'VENUE';
         try {
           const roles = await apiGet('/api/user-roles/me');
@@ -40,7 +40,9 @@ export default function RequireBusinessAccount({ children }) {
         }
         setAllowed(true);
       } catch {
-        if (!cancelled) authService.redirectToLogin();
+        if (!cancelled) {
+          // requireAuthOrLogin redirects when no session remains
+        }
       } finally {
         if (!cancelled) setChecking(false);
       }

@@ -49,10 +49,10 @@ export default function CreateJob() {
   useEffect(() => {
     (async () => {
       try {
-        const u = await authService.getCurrentUser();
+        const u = await authService.loadUserOrLogin(createPageUrl('CreateJob'));
         setUser(u);
       } catch {
-        authService.redirectToLogin(createPageUrl('CreateJob'));
+        // loadUserOrLogin redirects when no session remains
       }
     })();
   }, []);

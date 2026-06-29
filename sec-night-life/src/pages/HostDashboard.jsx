@@ -104,10 +104,13 @@ export default function HostDashboard() {
   });
 
   useEffect(() => {
-    authService.getCurrentUser().then(async (u) => {
-      setUser(u);
-      await dataService.User.filter({ created_by: u.email });
-    }).catch(() => authService.redirectToLogin());
+    authService
+      .requireAuthOrLogin(window.location.href)
+      .then(async ({ user: u }) => {
+        setUser(u);
+        await dataService.User.filter({ created_by: u.email });
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {

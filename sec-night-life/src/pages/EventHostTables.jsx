@@ -55,11 +55,8 @@ export default function EventHostTables() {
   const executeJoin = async (tableId, menuPayload = []) => {
     try {
       setIsJoining(true);
-      const u = await authService.getCurrentUser();
-      if (!u) {
-        authService.redirectToLogin();
-        return;
-      }
+      const u = await authService.loadUserOrLogin();
+      if (!u) return;
       const body = menuPayload.length ? { selectedMenuItems: menuPayload } : {};
       const res = await apiPost(`/api/host/tables/${tableId}/join`, body);
       if (res?.pending || res?.pending_approval) {
@@ -101,14 +98,15 @@ export default function EventHostTables() {
 
   const openJoinWizard = async (table) => {
     try {
-      const u = await authService.getCurrentUser();
-      if (!u) {
-        authService.redirectToLogin();
-        return;
-      }
+      const u = await authService.loadUserOrLogin();
+      if (!u) return;
       setJoinTarget(table);
     } catch {
-      authService.redirectToLogin();
+      try {
+        await authService.loadUserOrLogin();
+      } catch {
+        // loadUserOrLogin redirects when no session remains
+      }
     }
   };
 

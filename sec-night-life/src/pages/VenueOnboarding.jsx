@@ -31,6 +31,8 @@ import { useQuery } from '@tanstack/react-query';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import GoogleMapDisplay from '@/components/GoogleMapDisplay';
 import SecLogo from '@/components/ui/SecLogo';
+import OnboardingStepIndicator from '@/components/onboarding/OnboardingStepIndicator';
+import { markOnboardingComplete } from '@/lib/sessionCache';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
 import PageBackHeader from '@/components/layout/PageBackHeader';
@@ -409,7 +411,7 @@ export default function VenueOnboarding() {
 
   const checkAuth = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      const { user: currentUser } = await authService.requireAuthOrLogin(createPageUrl('VenueOnboarding'));
       setUser(currentUser);
       const uid = currentUser?.id;
       if (!uid) {
@@ -479,8 +481,8 @@ export default function VenueOnboarding() {
         }
         toast.info('Continue where you left off — your draft was restored.');
       }
-    } catch (e) {
-      authService.redirectToLogin(createPageUrl('VenueOnboarding'));
+    } catch {
+      // requireAuthOrLogin redirects when no session remains
     } finally {
       setBootstrapped(true);
     }
@@ -646,6 +648,11 @@ export default function VenueOnboarding() {
       await syncPaymentStatus(paymentCompleted);
 
       clearVenueOnboardingDraft(user?.id);
+
+      if (user?.id) {
+        markOnboardingComplete(user.id);
+        await authService.persistSessionCache().catch(() => {});
+      }
 
       if (formData.payout_account_name && formData.payout_account_number && formData.payout_bank_code) {
         await apiPost('/api/payments/payout-recipient', {
@@ -818,29 +825,8 @@ export default function VenueOnboarding() {
       </div>
       ) : null}
 
-      {/* Progress Steps — SEC theme: black + silver, no gradients */}
-      <div className="flex items-center justify-center gap-1 sm:gap-2 mb-8 px-2">
-        {visibleSteps.map((s, index) => (
-          <React.Fragment key={s.number}>
-            <div
-              className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-full"
-              style={{
-                backgroundColor: step >= s.number ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
-                border: `1px solid ${step >= s.number ? 'var(--sec-accent-border)' : 'var(--sec-border)'}`,
-              }}
-            >
-              <s.icon className="w-3.5 sm:w-4 h-3.5 sm:h-4" style={{ color: step >= s.number ? 'var(--sec-accent)' : 'var(--sec-text-muted)' }} />
-              <span className="text-xs sm:text-sm font-medium" style={{ color: step >= s.number ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)' }}>{s.title}</span>
-            </div>
-            {index < visibleSteps.length - 1 && (
-              <div
-                className="w-4 sm:w-8 h-0.5"
-                style={{ backgroundColor: step > s.number ? 'var(--sec-accent)' : 'var(--sec-border)' }}
-              />
-            )}
-          </React.Fragment>
-        ))}
-      </div>
+      {/* Progress Steps */}
+      <OnboardingStepIndicator steps={visibleSteps} currentStep={step} completedThrough={step} />
 
       {/* Form Content */}
       <div className="flex-1 max-w-md mx-auto w-full overflow-y-auto">

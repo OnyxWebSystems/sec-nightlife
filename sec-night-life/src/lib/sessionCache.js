@@ -2,6 +2,26 @@
 const SESSION_USER_CACHE_KEY = 'sec_session_user';
 const LEGACY_SESSION_CACHE_KEY = 'sec_session_user';
 
+function onboardingDoneKey(userId) {
+  return `sec_onboarding_done:${userId}`;
+}
+
+export function markOnboardingComplete(userId) {
+  if (!userId) return;
+  try {
+    localStorage.setItem(onboardingDoneKey(userId), '1');
+  } catch {}
+}
+
+export function isOnboardingMarkedComplete(userId) {
+  if (!userId) return false;
+  try {
+    return localStorage.getItem(onboardingDoneKey(userId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function readSessionCache() {
   try {
     const raw = localStorage.getItem(SESSION_USER_CACHE_KEY);
@@ -21,6 +41,26 @@ export function readSessionCache() {
 export function writeSessionCache(user, profile) {
   if (!user?.id) return;
   const normalizedProfile = profile ?? user.user_profile ?? null;
+  const incomingComplete = normalizedProfile?.onboarding_complete;
+  const existing = readSessionCache();
+  const wasComplete =
+    existing?.id === user.id &&
+    (existing?.onboarding_complete === true ||
+      existing?.profile?.onboarding_complete === true ||
+      isOnboardingMarkedComplete(user.id));
+  const onboardingComplete =
+    incomingComplete === true || wasComplete ? true : incomingComplete ?? null;
+
+  if (onboardingComplete === true) {
+    markOnboardingComplete(user.id);
+  }
+
+  const profileToStore = normalizedProfile
+    ? { ...normalizedProfile, onboarding_complete: onboardingComplete ?? normalizedProfile.onboarding_complete }
+    : wasComplete
+      ? { onboarding_complete: true }
+      : null;
+
   try {
     localStorage.setItem(
       SESSION_USER_CACHE_KEY,
@@ -33,8 +73,8 @@ export function writeSessionCache(user, profile) {
         verification_status: user.verification_status,
         identity_verified: user.identity_verified,
         can_admin_dashboard: user.can_admin_dashboard,
-        profile: normalizedProfile,
-        onboarding_complete: normalizedProfile?.onboarding_complete ?? null,
+        profile: profileToStore,
+        onboarding_complete: onboardingComplete,
       }),
     );
   } catch {}
@@ -49,6 +89,18 @@ export function clearSessionCache() {
 
 export function userFromSessionCache(cached) {
   if (!cached?.id) return { user: null, profile: null };
+  const profile = cached.profile ?? null;
+  const onboardingComplete =
+    cached.onboarding_complete === true ||
+    profile?.onboarding_complete === true ||
+    isOnboardingMarkedComplete(cached.id);
+  const normalizedProfile =
+    profile || onboardingComplete
+      ? {
+          ...(profile || {}),
+          onboarding_complete: onboardingComplete ? true : profile?.onboarding_complete ?? false,
+        }
+      : null;
   return {
     user: {
       id: cached.id,
@@ -60,6 +112,6 @@ export function userFromSessionCache(cached) {
       identity_verified: cached.identity_verified,
       can_admin_dashboard: cached.can_admin_dashboard,
     },
-    profile: cached.profile ?? null,
+    profile: normalizedProfile,
   };
 }

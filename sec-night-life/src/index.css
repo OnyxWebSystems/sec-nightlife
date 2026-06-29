@@ -43,6 +43,8 @@
   html {
     color-scheme: dark;
     overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   body {
     overflow-x: clip;
@@ -60,6 +62,8 @@
     input,
     textarea,
     select,
+    button[role="combobox"],
+    [data-radix-select-trigger],
     .sec-input,
     .sec-input-rect {
       font-size: 16px !important;

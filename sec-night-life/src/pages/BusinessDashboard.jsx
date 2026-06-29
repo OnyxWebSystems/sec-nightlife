@@ -121,10 +121,10 @@ export default function BusinessDashboard() {
   useEffect(() => {
     (async () => {
       try {
-        const u = await authService.getCurrentUser();
+        const { user: u } = await authService.requireAuthOrLogin(window.location.href);
         setUser(u);
       } catch {
-        authService.redirectToLogin();
+        // requireAuthOrLogin redirects when no session remains
       }
     })();
   }, []);

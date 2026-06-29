@@ -57,14 +57,14 @@ export default function ManageTable() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      const currentUser = await authService.loadUserOrLogin();
       setUser(currentUser);
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
       if (profiles.length > 0) {
         setUserProfile(profiles[0]);
       }
-    } catch (e) {
-      authService.redirectToLogin();
+    } catch {
+      // loadUserOrLogin redirects when no session remains
     }
   };
 

@@ -103,7 +103,11 @@ export default function EditProfile() {
         setAgeDeclarationAccepted(true);
       }
     } catch {
-      authService.redirectToLogin();
+      try {
+        await authService.loadUserOrLogin();
+      } catch {
+        // loadUserOrLogin redirects when no session remains
+      }
     } finally {
       setIsLoading(false);
     }

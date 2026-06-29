@@ -49,10 +49,10 @@ export default function MyJobApplications() {
   useEffect(() => {
     (async () => {
       try {
-        await authService.getCurrentUser();
+        await authService.loadUserOrLogin(createPageUrl('MyJobApplications'));
         setAuthed(true);
       } catch {
-        authService.redirectToLogin(createPageUrl('MyJobApplications'));
+        // loadUserOrLogin redirects when no session remains
       }
     })();
   }, []);

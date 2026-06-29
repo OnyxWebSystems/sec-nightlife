@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
+import { markOnboardingComplete } from '@/lib/sessionCache';
 import { apiPatch } from '@/api/client';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
@@ -49,11 +50,8 @@ export default function PaymentSuccess() {
           setMessage('Missing payment reference.');
           return;
         }
-        const u = await authService.getCurrentUser();
-        if (!u) {
-          authService.redirectToLogin(window.location.pathname + window.location.search);
-          return;
-        }
+        const u = await authService.loadUserOrLogin(window.location.pathname + window.location.search);
+        if (!u) return;
 
         const savedContextRaw = localStorage.getItem(VENUE_PAYMENT_CONTEXT_KEY);
         const savedContext = savedContextRaw ? JSON.parse(savedContextRaw) : null;
@@ -72,6 +70,7 @@ export default function PaymentSuccess() {
             payment_setup_complete: true,
             onboarding_complete: true,
           });
+          if (u?.id) markOnboardingComplete(u.id);
           localStorage.removeItem(VENUE_PAYMENT_CONTEXT_KEY);
           setNextPath(savedContext.nextPath);
           setStatus('paid');

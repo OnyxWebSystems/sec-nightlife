@@ -32,10 +32,10 @@ export default function BusinessMenu() {
   useEffect(() => {
     (async () => {
       try {
-        const u = await authService.getCurrentUser();
+        const u = await authService.loadUserOrLogin();
         setUser(u);
       } catch {
-        authService.redirectToLogin();
+        // loadUserOrLogin redirects when no session remains
       }
     })();
   }, []);

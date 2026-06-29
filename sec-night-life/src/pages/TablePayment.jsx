@@ -39,12 +39,12 @@ export default function TablePayment() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      const currentUser = await authService.loadUserOrLogin(window.location.href);
       setUser(currentUser);
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
       if (profiles.length > 0) setUserProfile(profiles[0]);
-    } catch (e) {
-      authService.redirectToLogin(window.location.href);
+    } catch {
+      // loadUserOrLogin redirects when no session remains
     }
   };
 

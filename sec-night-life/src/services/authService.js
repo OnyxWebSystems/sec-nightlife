@@ -50,8 +50,14 @@ export async function ensureSession() {
   return refreshAccessToken();
 }
 
-export function redirectToLogin(returnUrl) {
-  clearTokens();
+export class AuthRequiredError extends Error {
+  constructor(message = 'Authentication required') {
+    super(message);
+    this.name = 'AuthRequiredError';
+  }
+}
+
+function buildLoginUrl(returnUrl) {
   const base = window.location.origin;
   const loginPath = '/Login';
   let pathOnly = null;
@@ -72,7 +78,54 @@ export function redirectToLogin(returnUrl) {
     const intent = localStorage.getItem('sec-role-intent');
     if (intent) target += (target.includes('?') ? '&' : '?') + 'role=' + encodeURIComponent(intent);
   } catch {}
-  window.location.href = target;
+  return target;
+}
+
+/** Navigate to login without clearing stored tokens (preserves refresh token for auto-login). */
+export function redirectToLogin(returnUrl, { clearSession = false } = {}) {
+  if (clearSession) {
+    clearTokens();
+    clearSessionCache();
+  }
+  window.location.href = buildLoginUrl(returnUrl);
+}
+
+/** Require a valid session; redirect to login only when no refresh token remains. */
+export async function requireAuthOrLogin(returnUrl) {
+  const hasRefresh =
+    localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
+  if (!hasRefresh) {
+    redirectToLogin(returnUrl);
+    throw new AuthRequiredError();
+  }
+  const ok = await ensureSession();
+  if (!ok) {
+    const stillHasRefresh =
+      localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
+    if (!stillHasRefresh) {
+      redirectToLogin(returnUrl);
+      throw new AuthRequiredError();
+    }
+  }
+  try {
+    return await getAuthSession();
+  } catch (err) {
+    if (err?.status === 401 || err?.status === 403) {
+      const stillHasRefresh =
+        localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
+      if (!stillHasRefresh) {
+        redirectToLogin(returnUrl);
+        throw new AuthRequiredError();
+      }
+    }
+    throw err;
+  }
+}
+
+/** Load current user; redirect to login only if refresh token is gone. */
+export async function loadUserOrLogin(returnUrl) {
+  const { user } = await requireAuthOrLogin(returnUrl ?? window.location.href);
+  return user;
 }
 
 export function logout(shouldRedirect) {

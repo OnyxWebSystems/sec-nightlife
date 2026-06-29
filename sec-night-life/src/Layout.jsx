@@ -305,7 +305,10 @@ export default function Layout({ children, currentPageName }) {
     (currentPageName === 'Home' && !user);
   if (hideNav) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
+      <div
+        className="min-h-screen pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+        style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}
+      >
         {children}
       </div>
     );

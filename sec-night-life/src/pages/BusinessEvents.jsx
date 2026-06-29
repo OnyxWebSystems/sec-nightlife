@@ -153,8 +153,8 @@ export default function BusinessEvents() {
   });
   useEffect(() => {
     (async () => {
-      try { setUser(await authService.getCurrentUser()); }
-      catch { authService.redirectToLogin(); }
+      try { setUser(await authService.loadUserOrLogin()); }
+      catch { /* loadUserOrLogin redirects when no session remains */ }
     })();
   }, []);
 

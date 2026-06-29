@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
 import * as authService from '@/services/authService';
 import { getRefreshToken } from '@/api/client';
 import {
@@ -7,6 +7,7 @@ import {
   clearSessionCache,
   userFromSessionCache,
 } from '@/lib/sessionCache';
+import { setSessionResumeCallback, startSessionResume } from '@/lib/sessionResume';
 
 const AuthContext = createContext();
 
@@ -70,7 +71,7 @@ export const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState(null);
   const checkInFlight = useRef(false);
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     if (checkInFlight.current) return;
     checkInFlight.current = true;
 
@@ -125,7 +126,7 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingAuth(false);
       checkInFlight.current = false;
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (hasTokens) {
@@ -133,7 +134,14 @@ export const AuthProvider = ({ children }) => {
     } else {
       setIsLoadingAuth(false);
     }
-  }, []);
+  }, [checkAuth, hasTokens]);
+
+  useEffect(() => {
+    setSessionResumeCallback(() => {
+      void checkAuth();
+    });
+    return startSessionResume();
+  }, [checkAuth]);
 
   const logout = (shouldRedirect = true) => {
     setUser(null);
@@ -144,7 +152,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const navigateToLogin = () => {
-    authService.redirectToLogin(window.location.href);
+    authService.redirectToLogin(window.location.href, { clearSession: false });
   };
 
   const isRestoringSession = hasStoredAuthTokens() && !user && isLoadingAuth;

@@ -1171,9 +1171,9 @@ export default function BusinessPromotions() {
   useEffect(() => {
     (async () => {
       try {
-        setUser(await authService.getCurrentUser());
+        setUser(await authService.loadUserOrLogin());
       } catch {
-        authService.redirectToLogin();
+        // loadUserOrLogin redirects when no session remains
       }
     })();
   }, []);

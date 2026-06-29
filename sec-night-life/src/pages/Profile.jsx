@@ -134,7 +134,7 @@ export default function Profile() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      const currentUser = await authService.loadUserOrLogin(createPageUrl('Profile'));
       setUser(currentUser);
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
       if (profiles.length > 0) {
@@ -143,7 +143,7 @@ export default function Profile() {
         navigate(createPageUrl('ProfileSetup'));
       }
     } catch {
-      authService.redirectToLogin(createPageUrl('Profile'));
+      // loadUserOrLogin redirects when no session remains
     }
   };
 

@@ -876,9 +876,15 @@ router.post('/refresh', async (req, res, next) => {
       return res.status(403).json({ error: 'Account suspended. Contact support.' });
     }
 
-    // SECURITY: Rotate — delete old token, issue new pair
+    // SECURITY: Rotate refresh token and extend sliding expiry (no session prune on refresh)
     await prisma.refreshToken.delete({ where: { id: matched.id } });
-    const { accessToken, refreshToken: newRefreshToken } = await issueTokens(user);
+    const refreshExpiry = new Date(Date.now() + parseExpiryToMs(JWT_REFRESH_EXPIRY));
+    const newRefreshToken = await createRefreshTokenRow(user.id, refreshExpiry);
+    const accessToken = jwt.sign(
+      { userId: user.id, role: user.role },
+      JWT_ACCESS_SECRET,
+      { expiresIn: JWT_ACCESS_EXPIRY }
+    );
 
     const vSt = await readVerificationStatusCompat(user.id);
     const canAdminDashboard = await canAccessAdminDashboard(user);

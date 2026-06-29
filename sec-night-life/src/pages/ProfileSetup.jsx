@@ -28,6 +28,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { motion, AnimatePresence } from 'framer-motion';
 import SecLogo from '@/components/ui/SecLogo';
 import AvatarCropDialog from '@/components/profile/AvatarCropDialog';
+import OnboardingStepIndicator from '@/components/onboarding/OnboardingStepIndicator';
+import { markOnboardingComplete } from '@/lib/sessionCache';
 
 const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
@@ -85,7 +87,7 @@ export default function ProfileSetup() {
 
   const checkAuth = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      const { user: currentUser } = await authService.requireAuthOrLogin(createPageUrl('ProfileSetup'));
       setUser(currentUser);
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
       if (profiles.length > 0) {
@@ -105,8 +107,8 @@ export default function ProfileSetup() {
           setAgeDeclarationAccepted(true);
         }
       }
-    } catch (e) {
-      authService.redirectToLogin(createPageUrl('ProfileSetup'));
+    } catch {
+      // requireAuthOrLogin redirects when no session remains
     } finally {
       setLoading(false);
     }
@@ -216,6 +218,10 @@ export default function ProfileSetup() {
         await dataService.User.update(userProfile.id, payload);
       } else {
         await dataService.User.create({ ...payload, onboarding_complete: true });
+      }
+      if (markComplete && user?.id) {
+        markOnboardingComplete(user.id);
+        await authService.persistSessionCache().catch(() => {});
       }
       navigate(createPageUrl(isEditMode ? 'Profile' : 'Home'));
     } catch (err) {
@@ -344,7 +350,7 @@ export default function ProfileSetup() {
     border: '1px solid var(--sec-border)',
     borderRadius: 'var(--radius-md)',
     color: 'var(--sec-text-primary)',
-    fontSize: 14,
+    fontSize: 16,
   };
 
   if (loading) {
@@ -369,37 +375,8 @@ export default function ProfileSetup() {
         </div>
       </div>
 
-      {/* Progress steps — active: silver accent, inactive: dark gray — no gradient */}
-      <div className="flex items-center justify-center gap-1 sm:gap-2 mb-8 px-4">
-        {steps.map((s, index) => (
-          <React.Fragment key={s.number}>
-            <div
-              className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-full"
-              style={{
-                backgroundColor: step === s.number ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
-                border: `1px solid ${step === s.number ? 'var(--sec-accent-border)' : 'var(--sec-border)'}`,
-              }}
-            >
-              <s.icon
-                className="w-3.5 sm:w-4 h-3.5 sm:h-4"
-                style={{ color: step === s.number ? 'var(--sec-accent)' : 'var(--sec-text-muted)' }}
-              />
-              <span
-                className="text-xs sm:text-sm font-medium"
-                style={{ color: step === s.number ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)' }}
-              >
-                {s.title}
-              </span>
-            </div>
-            {index < steps.length - 1 && (
-              <div
-                className="w-4 sm:w-8 h-0.5"
-                style={{ backgroundColor: step > s.number ? 'var(--sec-accent)' : 'var(--sec-border)' }}
-              />
-            )}
-          </React.Fragment>
-        ))}
-      </div>
+      {/* Progress steps */}
+      <OnboardingStepIndicator steps={steps} currentStep={step} />
 
       {/* Form content */}
       <div className="flex-1 max-w-md mx-auto w-full overflow-y-auto px-4 pb-6">

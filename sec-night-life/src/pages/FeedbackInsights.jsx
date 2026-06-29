@@ -23,10 +23,10 @@ export default function FeedbackInsights() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      const currentUser = await authService.loadUserOrLogin();
       setUser(currentUser);
-    } catch (e) {
-      authService.redirectToLogin();
+    } catch {
+      // loadUserOrLogin redirects when no session remains
     }
   };
 

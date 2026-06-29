@@ -33,7 +33,10 @@ export default function Messages() {
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    authService.getCurrentUser().then(setUser).catch(() => authService.redirectToLogin());
+    authService
+      .requireAuthOrLogin(window.location.href)
+      .then(({ user: u }) => setUser(u))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
