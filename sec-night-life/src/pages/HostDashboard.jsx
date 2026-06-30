@@ -78,6 +78,7 @@ export default function HostDashboard() {
   });
   const [rulesPhotoPreview, setRulesPhotoPreview] = useState('');
   const [savingRules, setSavingRules] = useState(false);
+  const [approvingUserId, setApprovingUserId] = useState(null);
 
   const createTablePhotoCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -192,6 +193,18 @@ export default function HostDashboard() {
     () => splitHostDashboardTables(tables),
     [tables],
   );
+
+  useEffect(() => {
+    const requestsTableId = searchParams.get('requests');
+    if (!requestsTableId) return;
+    setTab('tables');
+    setPendingTableId(requestsTableId);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('requests');
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     if (searchParams.get('manage') !== '1' || !upcomingTables.length) return;
@@ -560,21 +573,29 @@ export default function HostDashboard() {
                         <>
                           <button
                             type="button"
-                            className="text-xs px-2 py-1.5 rounded-lg bg-[var(--sec-success-muted)] text-black"
+                            className="text-xs px-2 py-1.5 rounded-lg bg-[var(--sec-success-muted)] text-black disabled:opacity-50"
+                            disabled={approvingUserId === pr.userId}
                             onClick={async () => {
+                              setApprovingUserId(pr.userId);
                               try {
-                                await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
+                                const r = await apiPatch(`/api/host/tables/${t.id}/join-requests/${pr.userId}`, {
                                   action: 'approve',
                                 });
-                                toast.success('Approved');
+                                if (r?.awaitingGuestPayment) {
+                                  toast.success('Approved — guest notified to complete payment');
+                                } else {
+                                  toast.success('Approved');
+                                }
                                 queryClient.invalidateQueries({ queryKey: ['host-tables'] });
                                 refetchPending();
                               } catch (e) {
-                                toast.error(e?.message || 'Could not approve');
+                                toast.error(e?.data?.error || e?.message || 'Could not approve');
+                              } finally {
+                                setApprovingUserId(null);
                               }
                             }}
                           >
-                            Approve
+                            {approvingUserId === pr.userId ? '…' : 'Approve'}
                           </button>
                           <button
                             type="button"
@@ -588,7 +609,7 @@ export default function HostDashboard() {
                                 queryClient.invalidateQueries({ queryKey: ['host-tables'] });
                                 refetchPending();
                               } catch (e) {
-                                toast.error(e?.message || 'Could not decline');
+                                toast.error(e?.data?.error || e?.message || 'Could not decline');
                               }
                             }}
                           >

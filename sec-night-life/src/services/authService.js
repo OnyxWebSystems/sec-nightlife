@@ -43,8 +43,18 @@ async function cacheSessionAfterTokens(apiUser) {
 }
 
 export async function ensureSession() {
-  const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
-  if (token) return true;
+  const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+  if (accessToken) {
+    try {
+      const payload = JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      const expMs = Number(payload.exp) * 1000;
+      if (Number.isFinite(expMs) && expMs > Date.now() + 30_000) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
+  }
   const refreshToken = localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
   if (!refreshToken) return false;
   return refreshAccessToken();

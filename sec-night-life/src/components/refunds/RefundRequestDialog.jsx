@@ -98,8 +98,9 @@ export default function RefundRequestDialog({ open, onOpenChange, paymentReferen
         <form onSubmit={handleSubmit} className="space-y-4">
           <p className="text-sm text-[var(--sec-text-muted)]">
             Refunds are handled by the venue, not SEC. If approved, the venue pays you{' '}
-            <strong>85%</strong> of the original amount to your Sec Wallet off-app. SEC retains a{' '}
-            <strong>15%</strong> platform fee. Your QR/ticket access will be revoked.
+            <strong>85%</strong> of the refundable amount to your Sec Wallet off-app (SEC keeps 15%).
+            Joining fees are not refundable. Menu-only refunds apply when you paid for venue items.
+            Your QR/ticket access for refunded items will be revoked.
           </p>
 
           {!paymentReference && (

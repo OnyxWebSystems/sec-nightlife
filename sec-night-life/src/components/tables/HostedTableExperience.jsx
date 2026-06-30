@@ -84,6 +84,7 @@ export default function HostedTableExperience({
   userProfile,
   onBack,
   autoOpenJoin = false,
+  autoOpenCheckout = false,
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -99,7 +100,11 @@ export default function HostedTableExperience({
   const joinZ = Number(checkout.joining_fee_zar ?? 0);
   const totalOnline = Number(checkout.total_pay_online_zar ?? entranceZ + joinZ);
   const stats = hostedTable.stats || {};
-  const isPendingMember = hostedTable.my_membership?.status === 'PENDING';
+  const membershipReview = hostedTable.my_membership?.reviewStatus;
+  const isPendingApproval = membershipReview === 'pending';
+  const isAwaitingPayment = membershipReview === 'awaiting_payment';
+  const isPendingMember = isPendingApproval || isAwaitingPayment;
+  const requiresApproval = hostedTable.is_public === false || hostedTable.isPublic === false;
   const spotsRemaining = Number(
     hostedTable.spots_remaining ??
       stats.spots_remaining ??
@@ -115,10 +120,50 @@ export default function HostedTableExperience({
   const goingMembers = (hostedTable.members || []).filter((m) => m.status === 'GOING');
   const mapQuery = hostedTable.resolvedAddress || hostedTable.venueAddress || hostedTable.venueName || '';
 
+  const completeJoinPayment = async () => {
+    const actorId = userProfile?.id || user?.id;
+    if (!actorId) {
+      authServiceRedirect();
+      return;
+    }
+    try {
+      setIsProcessingPayment(true);
+      const r = await apiPost(`/api/host/tables/${tableId}/join/checkout`, {});
+      if (r?.pendingPayment && r?.reference && r?.access_code) {
+        const amount = Number(r.amount_zar ?? r.amount ?? totalOnline ?? 0);
+        launchPaystackInline({
+          email: user?.email,
+          amount,
+          reference: r.reference,
+          accessCode: r.access_code,
+          authorizationUrl: r.authorization_url,
+          onSuccess: async (payload) => {
+            await completePaystackCheckout({ reference: r.reference, payload, queryClient });
+            invalidateTableQueries();
+            setJoinWizardOpen(false);
+            toast.success('Payment complete — you joined the table.');
+          },
+        });
+        return;
+      }
+      toast.error('Could not start payment');
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Could not start payment');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
   useEffect(() => {
-    if (!autoOpenJoin || isHost || isGoingMember) return;
+    if (!autoOpenJoin || isHost || isGoingMember || isAwaitingPayment) return;
     setJoinWizardOpen(true);
-  }, [autoOpenJoin, isHost, isGoingMember]);
+  }, [autoOpenJoin, isHost, isGoingMember, isAwaitingPayment]);
+
+  useEffect(() => {
+    if (!autoOpenCheckout || isHost || isGoingMember || !isAwaitingPayment) return;
+    void completeJoinPayment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenCheckout, isHost, isGoingMember, isAwaitingPayment]);
 
   const invalidateTableQueries = () => {
     queryClient.invalidateQueries({ queryKey: ['hosted-table-detail', tableId] });
@@ -531,7 +576,19 @@ export default function HostedTableExperience({
                 </Button>
               </div>
             </div>
-          ) : isPendingMember ? (
+          ) : isAwaitingPayment ? (
+            <Button
+              className="w-full h-12 sec-btn-accent font-semibold"
+              disabled={isProcessingPayment}
+              onClick={completeJoinPayment}
+            >
+              {isProcessingPayment
+                ? 'Processing…'
+                : totalOnline > 0
+                  ? `Complete payment · R${totalOnline.toFixed(0)}`
+                  : 'Complete payment'}
+            </Button>
+          ) : isPendingApproval ? (
             <Button className="w-full h-12 font-semibold" variant="outline" disabled>
               Request pending — awaiting host approval
             </Button>
@@ -545,7 +602,11 @@ export default function HostedTableExperience({
               disabled={isProcessingPayment}
               onClick={openJoinWizard}
             >
-              {totalOnline > 0 ? `Join · R${totalOnline.toFixed(0)}` : 'Join table'}
+              {requiresApproval
+                ? 'Request to join'
+                : totalOnline > 0
+                  ? `Join · R${totalOnline.toFixed(0)}`
+                  : 'Join table'}
             </Button>
           )}
       </footer>
@@ -554,11 +615,12 @@ export default function HostedTableExperience({
         open={joinWizardOpen}
         onOpenChange={setJoinWizardOpen}
         tableName={hostedTable.tableName || 'this table'}
-        venueMenu={venueMenu}
+        venueMenu={requiresApproval ? [] : venueMenu}
         entranceZar={entranceZ}
         joinZar={joinZ}
         totalOnline={totalOnline}
         isProcessing={isProcessingPayment}
+        requiresApproval={requiresApproval}
         onConfirm={(menuPayload) => executeJoin(menuPayload)}
       />
 

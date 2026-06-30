@@ -536,6 +536,7 @@ export default function TableDetails() {
             user={user}
             userProfile={userProfile}
             autoOpenJoin={autoJoin === '1' || autoJoin === 'true'}
+            autoOpenCheckout={checkoutParam === '1'}
             onBack={() => navigate(-1)}
           />
         );
@@ -959,6 +960,7 @@ export default function TableDetails() {
         user={user}
         userProfile={userProfile}
         autoOpenJoin={autoJoin === '1' || autoJoin === 'true'}
+        autoOpenCheckout={checkoutParam === '1'}
         onBack={() => navigate(-1)}
       />
     );

@@ -21,6 +21,7 @@ export default function HostedTableJoinWizard({
   joinZar = 0,
   totalOnline = 0,
   isProcessing = false,
+  requiresApproval = false,
   onConfirm,
 }) {
   const [step, setStep] = useState('choice');
@@ -28,9 +29,14 @@ export default function HostedTableJoinWizard({
 
   useEffect(() => {
     if (!open) return;
+    if (requiresApproval) {
+      setStep('request');
+      setMenuSelected({});
+      return;
+    }
     setStep(venueMenu.length ? 'choice' : 'checkout');
     setMenuSelected({});
-  }, [open, venueMenu.length]);
+  }, [open, venueMenu.length, requiresApproval]);
 
   const handleConfirm = () => {
     const payload = menuSelectionToPayload(venueMenu, menuSelected).map((p) => ({
@@ -48,16 +54,39 @@ export default function HostedTableJoinWizard({
       <DialogContent className="bg-[var(--sec-bg-card)] border border-[var(--sec-border)] max-w-md w-[calc(100vw-2rem)] sm:w-full">
         <DialogHeader>
           <DialogTitle style={{ color: 'var(--sec-text-primary)' }}>
+            {step === 'request' && 'Request to join'}
             {step === 'choice' && 'Join this table'}
             {step === 'menu' && 'Choose menu items'}
             {step === 'checkout' && 'Review & join'}
           </DialogTitle>
           <DialogDescription>
+            {step === 'request' &&
+              `This is a private table. The host must approve your request before you can pay or add menu items.`}
             {step === 'choice' && `Would you like to add items from the venue menu before joining ${tableName}?`}
             {step === 'menu' && 'Optional — selected items appear on your table pass.'}
             {step === 'checkout' && 'Confirm before joining.'}
           </DialogDescription>
         </DialogHeader>
+
+        {step === 'request' && (
+          <div className="space-y-3 pt-2">
+            {(entranceZar > 0 || joinZar > 0) && (
+              <p className="text-sm text-[var(--sec-text-muted)]">
+                {joinZar > 0 && `Joining fee R${joinZar.toFixed(0)}`}
+                {entranceZar > 0 && joinZar > 0 ? ' + ' : ''}
+                {entranceZar > 0 && `entrance R${entranceZar.toFixed(0)}`}
+                {' '}will be due after the host approves your request.
+              </p>
+            )}
+            <Button
+              className="w-full h-12 sec-btn-accent font-semibold"
+              disabled={isProcessing}
+              onClick={() => onConfirm?.([])}
+            >
+              {isProcessing ? 'Sending…' : 'Send join request'}
+            </Button>
+          </div>
+        )}
 
         {step === 'choice' && (
           <div className="flex flex-col gap-3 pt-2">

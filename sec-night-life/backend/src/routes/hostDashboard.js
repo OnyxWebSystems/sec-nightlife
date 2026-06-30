@@ -591,10 +591,21 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       my_membership: myMembership
         ? {
             status: myMembership.status,
+            hostReviewedAt: myMembership.hostReviewedAt,
+            reviewStatus:
+              myMembership.status === 'GOING'
+                ? 'going'
+                : myMembership.status === 'PENDING' && myMembership.hostReviewedAt
+                  ? 'awaiting_payment'
+                  : myMembership.status === 'PENDING'
+                    ? 'pending'
+                    : null,
             selectedMenuItems: myMembership.selectedMenuItems,
             menuSpendPaid: myMembership.menuSpendPaid,
+            joinFeePaid: myMembership.joinFeePaid,
           }
         : null,
+      is_public: t.isPublic,
       is_host: Boolean(uid && uid === t.hostUserId),
       is_venue_owner: isVenueOwner,
       checkout: {
@@ -629,6 +640,12 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
     const mem = ht.members.find((m) => m.userId === req.userId);
     if (!mem || mem.status !== 'GOING') {
       return res.status(403).json({ error: 'You must be an active member of this table before adding menu items.' });
+    }
+    if (ht.hasJoiningFee && Number(ht.joiningFee || 0) > 0) {
+      const joinPaid = Number(mem.joinFeePaid || 0) > 0 || Boolean(mem.paystackReference);
+      if (!joinPaid) {
+        return res.status(403).json({ error: 'Complete your join payment before adding menu items.' });
+      }
     }
     const menuResolved = await resolveVenueMenuSelections(parsed.data.selectedMenuItems, menuVenueId);
     if (menuResolved.totalZar <= 0) {
@@ -1662,22 +1679,23 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
         where: { id: member.id },
         data: { hostReviewedAt: new Date() },
       });
-      const pay = await initializePaystackPayment({
-        userId: targetUserId,
-        amountZar: entranceZarApprove + joinZarApprove,
-        metadata: {
-          type: 'HOSTED_TABLE_JOIN',
-          hosted_table_id: table.id,
-          hosted_table_member_id: member.id,
-          event_id: approveEvent?.id || null,
-          venue_id: approveVenueId,
-          entrance_zar: entranceZarApprove,
-          join_zar: joinZarApprove,
-          amount_total_zar: entranceZarApprove + joinZarApprove,
-          user_id: targetUserId,
-        },
+      const guestUser = await prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { email: true },
       });
-      return res.json({ approved: true, pendingPayment: true, ...pay });
+      await notifyUserAlert({
+        userId: targetUserId,
+        email: guestUser?.email,
+        type: 'table_update',
+        inAppType: 'JOIN_REQUEST_ACCEPTED',
+        title: 'Request approved — complete payment',
+        body: `Your join request for "${table.tableName}" was approved. Complete payment to join the table.`,
+        actionUrl: `/TableDetails?id=${table.id}&source=hosted&checkout=1`,
+        referenceId: table.id,
+        referenceType: 'HOSTED_TABLE',
+        emailSubject: `Join request approved — ${table.tableName}`,
+      });
+      return res.json({ approved: true, awaitingGuestPayment: true });
     }
 
     await prisma.$transaction(async (tx) => {
@@ -1862,6 +1880,64 @@ router.delete('/tables/:tableId', authenticateToken, async (req, res, next) => {
   }
 });
 
+router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified, async (req, res, next) => {
+  try {
+    if (!assertHostEligibleRole(req, res)) return;
+    const tableId = req.params.tableId;
+    const t = await prisma.hostedTable.findFirst({ where: { id: tableId } });
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (t.hostUserId === req.userId) return res.status(403).json({ error: 'Cannot pay to join your own table' });
+    if (t.status !== 'ACTIVE') return res.status(400).json({ error: 'Table not available' });
+
+    const member = await prisma.hostedTableMember.findUnique({
+      where: { hostedTableId_userId: { hostedTableId: tableId, userId: req.userId } },
+    });
+    if (!member || member.status !== 'PENDING' || !member.hostReviewedAt) {
+      return res.status(400).json({ error: 'No approved join request awaiting payment' });
+    }
+
+    const joinEvent = t.eventId
+      ? await prisma.event.findFirst({
+          where: { id: t.eventId, deletedAt: null },
+          select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+        })
+      : null;
+    const joinLinkedVt = !joinEvent ? await resolveLinkedVenueTableForHostedTable(prisma, t.id) : null;
+    const joinVenueId = joinEvent?.venueId || joinLinkedVt?.venueId || null;
+    const entranceZar = getEventEntranceZar(joinEvent);
+    const joinZar = t.hasJoiningFee && Number(t.joiningFee || 0) > 0 ? Number(t.joiningFee) : 0;
+    const payZar = entranceZar + joinZar;
+    if (payZar <= 0) {
+      return res.status(400).json({ error: 'No payment required for this join' });
+    }
+
+    const pay = await initializePaystackPayment({
+      userId: req.userId,
+      amountZar: payZar,
+      metadata: {
+        type: 'HOSTED_TABLE_JOIN',
+        hosted_table_id: t.id,
+        hosted_table_member_id: member.id,
+        event_id: joinEvent?.id || null,
+        venue_id: joinVenueId,
+        entrance_zar: entranceZar,
+        join_zar: joinZar,
+        menu_zar: 0,
+        amount_total_zar: payZar,
+        user_id: req.userId,
+        ...promoterMetaFromBody(req.body),
+      },
+    });
+    await prisma.hostedTableMember.update({
+      where: { id: member.id },
+      data: { paystackReference: pay.reference },
+    });
+    res.json({ pendingPayment: true, amount_zar: payZar, ...pay });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (req, res, next) => {
   try {
     if (!assertHostEligibleRole(req, res)) return;
@@ -1904,7 +1980,8 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           hostReviewedAt: null,
           paystackReference: null,
           joinFeePaid: null,
-          selectedMenuItems: menuResolved.items.length ? menuResolved.items : undefined,
+          selectedMenuItems:
+            t.isPublic && menuResolved.items.length ? menuResolved.items : undefined,
         },
       });
       resurrectedFromCancelled = true;
@@ -1931,7 +2008,6 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
             hostedTableId: t.id,
             userId: req.userId,
             status: 'PENDING',
-            selectedMenuItems: menuResolved.items.length ? menuResolved.items : undefined,
           },
         });
       }
@@ -1948,10 +2024,10 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
         userId: t.hostUserId,
         email: hostUser?.email,
         type: 'table_request',
-        inAppType: 'TABLE_JOINED',
+        inAppType: 'TABLE_JOIN_REQUEST',
         title: 'Join request',
         body: `@${uname} requested to join your table "${t.tableName}".`,
-        actionUrl: '/HostDashboard?tab=tables&manage=1',
+        actionUrl: `/HostDashboard?tab=tables&requests=${t.id}`,
         referenceId: t.id,
         referenceType: 'HOSTED_TABLE',
         emailSubject: `New join request — ${t.tableName}`,

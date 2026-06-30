@@ -109,6 +109,20 @@ export default function MyTickets({ userId }) {
     enabled: !!userId,
   });
 
+  const { data: eligibleRefunds } = useQuery({
+    queryKey: ['refund-eligible-payments'],
+    queryFn: () => apiGet('/api/refunds/eligible-payments'),
+    enabled: !!userId,
+  });
+
+  const refundableRefs = useMemo(() => {
+    const set = new Set();
+    for (const item of eligibleRefunds?.items || []) {
+      if (item.reference) set.add(item.reference);
+    }
+    return set;
+  }, [eligibleRefunds?.items]);
+
   useEffect(() => {
     if (!userId) return;
     const prev = loadMyTicketsSnapshot(userId) || { active: [], inactive: [], expired: [] };
@@ -246,7 +260,7 @@ export default function MyTickets({ userId }) {
                 <Button variant="outline" size="sm" className="border-[#262629] h-8" asChild>
                   <Link to={ticketDetailHref(ticket)}>View details</Link>
                 </Button>
-                {!isInactiveTab && !isRefunded && ticket.paystack_reference && (
+                {!isInactiveTab && !isRefunded && ticket.paystack_reference && refundableRefs.has(ticket.paystack_reference) && (
                   <Button
                     variant="outline"
                     size="sm"

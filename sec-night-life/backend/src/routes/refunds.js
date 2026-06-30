@@ -53,7 +53,11 @@ router.post('/request', authenticateToken, async (req, res, next) => {
       return res.status(eligibility.status || 400).json({ error: eligibility.error });
     }
 
-    const amounts = computeRefundAmounts(Number(payment.amount) || 0);
+    const grossZar =
+      eligibility.grossAmountZar != null
+        ? Number(eligibility.grossAmountZar)
+        : Number(payment.amount) || 0;
+    const amounts = computeRefundAmounts(grossZar);
 
     const refundRequest = await prisma.$transaction(async (tx) => {
       const row = await tx.refundRequest.create({
@@ -153,7 +157,9 @@ router.get('/eligible-payments', authenticateToken, async (req, res, next) => {
         userWalletCode: 'SKIP',
       });
       if (check.ok || check.error === 'Invalid Sec Wallet ID — use your wallet code from Profile') {
-        const amounts = computeRefundAmounts(Number(p.amount) || 0);
+        const grossZar =
+          check.grossAmountZar != null ? Number(check.grossAmountZar) : Number(p.amount) || 0;
+        const amounts = computeRefundAmounts(grossZar);
         const meta = p.metadata && typeof p.metadata === 'object' ? p.metadata : {};
         items.push({
           reference: basePaymentReference(p.reference),
@@ -165,7 +171,11 @@ router.get('/eligible-payments', authenticateToken, async (req, res, next) => {
           refundType: check.refundType || null,
           venueRefundDueZar: amounts.venueRefundDueZar,
           platformFeeKeptZar: amounts.platformFeeKeptZar,
-          label: meta.event_title || meta.eventTitle || meta.ticket_tier_name || 'Booking payment',
+          refundableGrossZar: grossZar,
+          label:
+            check.refundType === 'HOSTED_TABLE_MENU' && check.partialMenuOnly
+              ? 'Menu items only (join fee not refundable)'
+              : meta.event_title || meta.eventTitle || meta.ticket_tier_name || 'Booking payment',
         });
       }
     }

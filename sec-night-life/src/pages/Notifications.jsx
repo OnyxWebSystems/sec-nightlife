@@ -230,7 +230,14 @@ export default function Notifications() {
       if (n.referenceType === 'HOSTED_TABLE_GROUP_CHAT') {
         return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}&gk=HOSTED_TABLE`;
       }
+      if (n.referenceType === 'HOSTED_TABLE') {
+        return buildPageUrl('TableDetails', { id: n.referenceId, source: 'hosted', checkout: '1' });
+      }
       return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}`;
+    }
+
+    if (t === 'TABLE_JOIN_REQUEST' && n.referenceId) {
+      return `${createPageUrl('HostDashboard')}?tab=tables&requests=${encodeURIComponent(n.referenceId)}`;
     }
 
     if (t === 'IDENTITY_VERIFICATION_REMINDER') {
@@ -283,6 +290,9 @@ export default function Notifications() {
 
     if (t === 'TABLE_JOINED' || t === 'EVENT_JOINED') {
       if (n.referenceType === 'HOSTED_TABLE' && n.referenceId) {
+        if (n.title === 'Join request' || (n.body && String(n.body).includes('requested to join'))) {
+          return `${createPageUrl('HostDashboard')}?tab=tables&requests=${encodeURIComponent(n.referenceId)}`;
+        }
         return buildPageUrl('TableDetails', { id: n.referenceId, source: 'hosted' });
       }
       if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {

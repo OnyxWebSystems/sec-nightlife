@@ -4,6 +4,9 @@
  */
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
+const REFRESH_LOCK_KEY = 'sec_refresh_lock';
+const REFRESH_CHANNEL = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('sec-auth-refresh') : null;
+
 function getToken() {
   try {
     return localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
@@ -43,11 +46,63 @@ function getHeaders(includeAuth = true) {
   return headers;
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function readRefreshLock() {
+  try {
+    const raw = localStorage.getItem(REFRESH_LOCK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.until || parsed.until < Date.now()) {
+      localStorage.removeItem(REFRESH_LOCK_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function setRefreshLock(ms = 8000) {
+  try {
+    localStorage.setItem(REFRESH_LOCK_KEY, JSON.stringify({ until: Date.now() + ms }));
+  } catch {}
+}
+
+function clearRefreshLock() {
+  try {
+    localStorage.removeItem(REFRESH_LOCK_KEY);
+  } catch {}
+}
+
+async function waitForPeerRefresh(maxMs = 6000) {
+  const started = Date.now();
+  while (Date.now() - started < maxMs) {
+    const lock = readRefreshLock();
+    if (!lock) return Boolean(getToken());
+    await sleep(200);
+  }
+  return Boolean(getToken());
+}
+
 let refreshInFlight = null;
 
 async function doRefreshAccessToken(opts = {}) {
+  const attempt = opts._attempt ?? 0;
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
+
+  const peerLock = readRefreshLock();
+  if (peerLock && !opts._ownsLock) {
+    return waitForPeerRefresh();
+  }
+
+  if (!opts._ownsLock) {
+    setRefreshLock();
+    opts = { ...opts, _ownsLock: true };
+  }
 
   let res;
   const controller = new AbortController();
@@ -61,6 +116,7 @@ async function doRefreshAccessToken(opts = {}) {
       signal: controller.signal,
     });
   } catch {
+    clearRefreshLock();
     return false;
   } finally {
     window.clearTimeout(timeoutId);
@@ -74,14 +130,24 @@ async function doRefreshAccessToken(opts = {}) {
 
   if (!res.ok || !data?.accessToken) {
     if (res.status === 401 || res.status === 403) {
-      if (!opts._storageRetry) {
-        await new Promise((r) => setTimeout(r, 350));
+      if (attempt < 3) {
+        await sleep(350 * (attempt + 1));
         const latest = getRefreshToken();
-        if (latest && latest !== refreshToken) {
-          return doRefreshAccessToken({ ...opts, _storageRetry: true });
+        if (latest) {
+          return doRefreshAccessToken({ ...opts, _attempt: attempt + 1, refreshToken: latest });
         }
       }
+      if (!opts._storageRetry) {
+        await sleep(400);
+        const latest = getRefreshToken();
+        if (latest && latest !== refreshToken) {
+          return doRefreshAccessToken({ ...opts, _storageRetry: true, _attempt: 0 });
+        }
+      }
+      clearRefreshLock();
       clearTokens();
+    } else {
+      clearRefreshLock();
     }
     return false;
   }
@@ -90,8 +156,12 @@ async function doRefreshAccessToken(opts = {}) {
   storage.setItem('access_token', data.accessToken);
   if (data.refreshToken) storage.setItem('refresh_token', data.refreshToken);
   try {
+    sessionStorage.removeItem('access_token');
+    sessionStorage.removeItem('refresh_token');
     localStorage.setItem('sec_tokens_updated', String(Date.now()));
+    REFRESH_CHANNEL?.postMessage({ type: 'tokens_updated' });
   } catch {}
+  clearRefreshLock();
   return true;
 }
 
@@ -101,6 +171,14 @@ export async function refreshAccessToken() {
     refreshInFlight = null;
   });
   return refreshInFlight;
+}
+
+if (REFRESH_CHANNEL) {
+  REFRESH_CHANNEL.onmessage = (event) => {
+    if (event?.data?.type === 'tokens_updated') {
+      // Another tab rotated tokens — localStorage already has the new values.
+    }
+  };
 }
 
 export async function api(method, path, body = null, opts = {}) {
@@ -170,6 +248,12 @@ export function setTokens(accessToken, refreshToken, persist = true) {
   const storage = persist ? localStorage : sessionStorage;
   storage.setItem('access_token', accessToken);
   if (refreshToken) storage.setItem('refresh_token', refreshToken);
+  if (persist) {
+    try {
+      sessionStorage.removeItem('access_token');
+      sessionStorage.removeItem('refresh_token');
+    } catch {}
+  }
 }
 
 export function clearTokens() {

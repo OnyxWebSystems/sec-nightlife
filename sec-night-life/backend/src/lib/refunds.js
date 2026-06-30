@@ -6,7 +6,7 @@ import {
   isHostedTableVenuePayment,
   isTicketPaymentMeta,
 } from './paymentMetadata.js';
-import { releaseVenueTableSlot } from './venueTableSlotRelease.js';
+import { releaseVenueTableSlot, releaseVenueTableSlotForHostRefund } from './venueTableSlotRelease.js';
 import {
   normalizeTicketTiers,
   ticketReferencesForPayment,
@@ -19,7 +19,6 @@ const ELIGIBLE_META_TYPES = new Set(['TABLE_CHECKOUT', 'VENUE_TABLE_JOIN', 'tick
 const EXCLUDED_META_TYPES = new Set([
   'TABLE_HOST_FEE',
   'HOSTED_TABLE_EXTERNAL_LISTING',
-  'HOSTED_TABLE_MENU',
   'HOSTED_TABLE_JOIN',
   'TABLE_BOOST',
   'HOUSE_PARTY_ENTRANCE',
@@ -113,12 +112,85 @@ export async function loadRefundedMetricsForPeriod(venueIds, since) {
 }
 
 function resolveRefundType(meta, paymentType, memberRole) {
+  const mtype = String(meta.type || paymentType || '');
+  if (mtype === 'HOSTED_TABLE_MENU') return 'HOSTED_TABLE_MENU';
   if (isTicketPaymentMeta(meta, paymentType)) return 'TICKET';
   const role = memberRole || meta.member_role || meta.memberRole;
   if (role === 'HOST' || meta.booking_mode === 'host' || meta.booking_mode === 'custom_host') {
     return 'TABLE_HOST';
   }
   return 'TABLE_JOIN';
+}
+
+function subtractMenuItems(existingItems, removeItems) {
+  const existing = Array.isArray(existingItems) ? existingItems : [];
+  const remove = Array.isArray(removeItems) ? removeItems : [];
+  if (!remove.length) return existing;
+  const result = existing.map((row) => ({ ...row }));
+  for (const rem of remove) {
+    const id = rem.menuItemId || rem.menu_item_id;
+    const qty = Number(rem.quantity) || 0;
+    if (!id || qty <= 0) continue;
+    const idx = result.findIndex((r) => (r.menuItemId || r.menu_item_id) === id);
+    if (idx < 0) continue;
+    const nextQty = Math.max(0, (Number(result[idx].quantity) || 0) - qty);
+    if (nextQty <= 0) result.splice(idx, 1);
+    else result[idx] = { ...result[idx], quantity: nextQty };
+  }
+  return result;
+}
+
+async function applyHostedMenuRefundEffects(tx, {
+  req,
+  baseRef,
+  now,
+  meta,
+  memberId,
+  hostedTableId,
+}) {
+  const menuItems = Array.isArray(meta.selected_menu_items)
+    ? meta.selected_menu_items
+    : Array.isArray(meta.selectedMenuItems)
+      ? meta.selectedMenuItems
+      : [];
+  const menuGross = Number(meta.menu_zar ?? req.grossAmountZar ?? 0);
+
+  if (memberId && hostedTableId) {
+    const member = await tx.hostedTableMember.findUnique({ where: { id: memberId } });
+    if (member) {
+      const nextItems = menuItems.length
+        ? subtractMenuItems(member.selectedMenuItems, menuItems)
+        : [];
+      const nextMenuPaid = Math.max(0, Number(member.menuSpendPaid || 0) - menuGross);
+      await tx.hostedTableMember.update({
+        where: { id: member.id },
+        data: {
+          selectedMenuItems: nextItems.length ? nextItems : null,
+          menuSpendPaid: nextMenuPaid,
+        },
+      });
+      if (menuGross > 0) {
+        await tx.hostedTable.update({
+          where: { id: hostedTableId },
+          data: { menuSpendTotal: { decrement: menuGross } },
+        });
+      }
+    }
+  }
+
+  await tx.ticket.updateMany({
+    where: {
+      userId: req.userId,
+      ...(hostedTableId ? { hostedTableId } : {}),
+      refundedAt: null,
+      title: { contains: 'menu order', mode: 'insensitive' },
+      OR: [
+        { paystackReference: baseRef },
+        { paystackReference: { startsWith: `${baseRef}-` } },
+      ],
+    },
+    data: { refundedAt: now, refundRequestId: req.id },
+  });
 }
 
 export async function validateRefundEligibility({ payment, userId, userWalletCode }) {
@@ -135,17 +207,95 @@ export async function validateRefundEligibility({ payment, userId, userWalletCod
   const meta = flattenPaymentMetadata(payment.metadata);
   const mtype = String(meta.type || payment.type || '');
 
+  if (mtype === 'HOSTED_TABLE_JOIN') {
+    const menuZar = Number(meta.menu_zar || 0);
+    if (menuZar <= 0) {
+      return {
+        ok: false,
+        error: 'Joining fee and entrance fees are not eligible for refund',
+        status: 400,
+      };
+    }
+    const venueId = meta.venue_id ?? meta.venueId;
+    if (!venueId) return { ok: false, error: 'Could not determine venue for this payment', status: 400 };
+    const baseRef = basePaymentReference(payment.reference);
+    const walletCodeInput = String(userWalletCode || '').trim().toUpperCase();
+    if (walletCodeInput !== 'SKIP') {
+      const wallet = await prisma.secWallet.findFirst({
+        where: { walletCode: walletCodeInput, ownerType: 'USER', userId },
+      });
+      if (!wallet) {
+        return { ok: false, error: 'Invalid Sec Wallet ID — use your wallet code from Profile', status: 400 };
+      }
+    }
+    const pending = await prisma.refundRequest.findFirst({
+      where: { userId, paymentReference: baseRef, status: 'PENDING' },
+    });
+    if (pending) return { ok: false, error: 'You already have a pending refund request for this payment', status: 409 };
+    return {
+      ok: true,
+      venueId: String(venueId),
+      baseRef,
+      refundType: 'HOSTED_TABLE_MENU',
+      grossAmountZar: menuZar,
+      meta,
+      venueTableMember: null,
+      venueTableId: meta.venue_table_id ?? meta.venueTableId ?? null,
+      hostedTableMemberId: meta.hosted_table_member_id ?? meta.hostedTableMemberId ?? null,
+      hostedTableId: meta.hosted_table_id ?? meta.hostedTableId ?? null,
+      eventId: meta.event_id ?? meta.eventId ?? null,
+      ticketIds: [],
+      walletCode: walletCodeInput !== 'SKIP' ? walletCodeInput : null,
+      partialMenuOnly: true,
+    };
+  }
+
+  if (mtype === 'HOSTED_TABLE_MENU') {
+    const venueId = meta.venue_id ?? meta.venueId;
+    if (!venueId) return { ok: false, error: 'Could not determine venue for this payment', status: 400 };
+    const baseRef = basePaymentReference(payment.reference);
+    const walletCodeInput = String(userWalletCode || '').trim().toUpperCase();
+    if (walletCodeInput !== 'SKIP') {
+      const wallet = await prisma.secWallet.findFirst({
+        where: { walletCode: walletCodeInput, ownerType: 'USER', userId },
+      });
+      if (!wallet) {
+        return { ok: false, error: 'Invalid Sec Wallet ID — use your wallet code from Profile', status: 400 };
+      }
+    }
+    const pending = await prisma.refundRequest.findFirst({
+      where: { userId, paymentReference: baseRef, status: 'PENDING' },
+    });
+    if (pending) return { ok: false, error: 'You already have a pending refund request for this payment', status: 409 };
+    return {
+      ok: true,
+      venueId: String(venueId),
+      baseRef,
+      refundType: 'HOSTED_TABLE_MENU',
+      grossAmountZar: Number(payment.amount) || Number(meta.menu_zar || 0),
+      meta,
+      venueTableMember: null,
+      venueTableId: meta.venue_table_id ?? meta.venueTableId ?? null,
+      hostedTableMemberId: meta.hosted_table_member_id ?? meta.hostedTableMemberId ?? null,
+      hostedTableId: meta.hosted_table_id ?? meta.hostedTableId ?? null,
+      eventId: meta.event_id ?? meta.eventId ?? null,
+      ticketIds: [],
+      walletCode: walletCodeInput !== 'SKIP' ? walletCodeInput : null,
+    };
+  }
+
   if (EXCLUDED_META_TYPES.has(mtype)) {
     return { ok: false, error: 'This payment type is not eligible for refund', status: 400 };
   }
-  if (isHostedTableVenuePayment(meta) && mtype !== 'TABLE_CHECKOUT' && mtype !== 'VENUE_TABLE_JOIN') {
+  if (isHostedTableVenuePayment(meta) && mtype !== 'TABLE_CHECKOUT' && mtype !== 'VENUE_TABLE_JOIN' && mtype !== 'HOSTED_TABLE_MENU') {
     return { ok: false, error: 'This payment type is not eligible for refund', status: 400 };
   }
   if (
     !ELIGIBLE_META_TYPES.has(mtype) &&
     !isTicketPaymentMeta(meta, payment.type) &&
     mtype !== 'TABLE_CHECKOUT' &&
-    mtype !== 'VENUE_TABLE_JOIN'
+    mtype !== 'VENUE_TABLE_JOIN' &&
+    mtype !== 'HOSTED_TABLE_MENU'
   ) {
     return { ok: false, error: 'This payment type is not eligible for refund', status: 400 };
   }
@@ -371,20 +521,20 @@ export async function applyRefundApproval(tx, refundRequest) {
   }
 
   if (req.refundType === 'TABLE_HOST' && req.venueTableId) {
-    const otherGuests = await tx.venueTableMember.count({
-      where: {
-        venueTableId: req.venueTableId,
-        status: 'CONFIRMED',
-        memberRole: 'GUEST',
-        ...(req.venueTableMemberId ? { id: { not: req.venueTableMemberId } } : {}),
-      },
+    const venueTable = await tx.venueTable.findUnique({
+      where: { id: req.venueTableId },
+      select: { id: true, hostedTableId: true },
     });
-    if (otherGuests > 0) {
-      throw Object.assign(new Error('Cannot approve host refund while other paid guests remain on this table'), {
-        statusCode: 409,
-        code: 'HOST_REFUND_GUESTS_REMAIN',
-      });
-    }
+    const hostedGuests =
+      venueTable?.hostedTableId
+        ? await tx.hostedTableMember.count({
+            where: {
+              hostedTableId: venueTable.hostedTableId,
+              status: 'GOING',
+              userId: { not: req.userId },
+            },
+          })
+        : 0;
 
     if (req.venueTableMemberId) {
       await tx.venueTableMember.update({
@@ -406,7 +556,25 @@ export async function applyRefundApproval(tx, refundRequest) {
       data: { refundedAt: now, refundRequestId: req.id },
     });
 
-    await releaseVenueTableSlot(tx, req.venueTableId);
+    if (hostedGuests > 0 && venueTable?.hostedTableId) {
+      await releaseVenueTableSlotForHostRefund(tx, req.venueTableId, { hostUserId: req.userId });
+    } else {
+      await releaseVenueTableSlot(tx, req.venueTableId);
+    }
+  }
+
+  if (req.refundType === 'HOSTED_TABLE_MENU') {
+    const payMeta = payment ? flattenPaymentMetadata(payment.metadata) : {};
+    const hostedTableId = payMeta.hosted_table_id ?? payMeta.hostedTableId ?? null;
+    const memberId = payMeta.hosted_table_member_id ?? payMeta.hostedTableMemberId ?? null;
+    await applyHostedMenuRefundEffects(tx, {
+      req,
+      baseRef,
+      now,
+      meta: payMeta,
+      memberId,
+      hostedTableId,
+    });
   }
 
   if (req.refundType === 'TABLE_JOIN' && req.venueTableMemberId) {
@@ -469,7 +637,11 @@ export async function notifyRefundApproved({ refundRequest, userId, userEmail, v
     sendEmail({
       to: userEmail,
       subject: 'Refund approved — SEC Nightlife',
-      html: `<p>Your refund was approved. The venue will pay R${amount} to your Sec Wallet off-app. Your ticket/QR access has been revoked.</p>`,
+      html: `<p>Your refund was approved. The venue will pay R${amount} to your Sec Wallet off-app.${
+        refundRequest.refundType === 'HOSTED_TABLE_MENU'
+          ? ' Refunded menu items are removed from your table; your join pass stays valid when only menu was refunded.'
+          : ' Your ticket/QR access for this purchase has been revoked.'
+      }</p>`,
     }).catch((e) => logger.warn('refund approved email failed', { err: e?.message }));
   }
 }
