@@ -63,11 +63,19 @@ export async function notifyUserAlert({
     referenceType,
   });
   if (email) {
+    const appBase = process.env.APP_URL || 'https://sec-nightlife.vercel.app';
+    const link = actionUrl
+      ? `${appBase.replace(/\/$/, '')}${actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`}`
+      : null;
     sendEmail({
       to: email,
       subject: emailSubject || title,
-      text: body,
-      html: emailHtml || undefined,
+      text: link ? `${body}\n\nOpen in SEC: ${link}` : body,
+      html:
+        emailHtml ||
+        (link
+          ? `<p>${body}</p><p><a href="${link}" style="color:#3DBA6B;font-weight:600;">View table in SEC</a></p>`
+          : `<p>${body}</p>`),
     }).catch(() => {});
   }
 }

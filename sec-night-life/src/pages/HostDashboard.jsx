@@ -573,7 +573,8 @@ export default function HostDashboard() {
                         <>
                           <button
                             type="button"
-                            className="text-xs px-2 py-1.5 rounded-lg bg-[var(--sec-success-muted)] text-black disabled:opacity-50"
+                            className="text-xs px-2 py-1.5 rounded-lg font-semibold text-white disabled:opacity-50"
+                            style={{ backgroundColor: 'var(--sec-success)' }}
                             disabled={approvingUserId === pr.userId}
                             onClick={async () => {
                               setApprovingUserId(pr.userId);

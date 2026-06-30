@@ -145,7 +145,10 @@ async function doRefreshAccessToken(opts = {}) {
         }
       }
       clearRefreshLock();
-      clearTokens();
+      const stillCurrent = getRefreshToken() === refreshToken;
+      if (stillCurrent) {
+        clearTokens();
+      }
     } else {
       clearRefreshLock();
     }
@@ -173,6 +176,18 @@ export async function refreshAccessToken() {
   return refreshInFlight;
 }
 
+function accessTokenExpiresWithinMs(withinMs) {
+  const token = getToken();
+  if (!token) return false;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    const expMs = Number(payload.exp) * 1000;
+    return Number.isFinite(expMs) && expMs <= Date.now() + withinMs;
+  } catch {
+    return false;
+  }
+}
+
 if (REFRESH_CHANNEL) {
   REFRESH_CHANNEL.onmessage = (event) => {
     if (event?.data?.type === 'tokens_updated') {
@@ -184,6 +199,9 @@ if (REFRESH_CHANNEL) {
 export async function api(method, path, body = null, opts = {}) {
   const p = path.startsWith('/') ? path : '/' + path;
   const url = path.startsWith('http') ? path : `${API_BASE}${p}`;
+  if (opts.skipAuth !== true && p !== '/api/auth/refresh' && getRefreshToken() && accessTokenExpiresWithinMs(10 * 60 * 1000)) {
+    await refreshAccessToken();
+  }
   const options = {
     method,
     headers: getHeaders(opts.skipAuth !== true),

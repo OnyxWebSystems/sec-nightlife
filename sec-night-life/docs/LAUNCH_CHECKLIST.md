@@ -8,7 +8,7 @@ Use before public launch. Check off each item in Vercel / Neon / external dashbo
 - [ ] `DATABASE_URL` (Neon pooler) + `DIRECT_DATABASE_URL` on backend Vercel
 - [ ] `CRON_SECRET` set on backend — **required** (cron jobs fail without it)
 - [ ] `SKIP_EMAIL_VERIFICATION` and `ALLOW_UNVERIFIED_LOGIN` **unset** on production backend
-- [ ] `JWT_ACCESS_EXPIRY=15m`, `JWT_REFRESH_EXPIRY=365d`
+- [ ] `JWT_ACCESS_EXPIRY` optional (code default 24h, min 1h); `JWT_REFRESH_EXPIRY` optional (code default 120d, min 4 months)
 - [ ] `CORS_ORIGIN` + `APP_URL` = `https://secnightlife.com` (or your domain)
 - [ ] `RESEND_API_KEY` + verified `EMAIL_FROM` domain
 - [ ] Frontend `VITE_API_URL`, `VITE_PUBLIC_APP_URL`, Cloudinary, Google Maps keys

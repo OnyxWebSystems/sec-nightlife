@@ -48,7 +48,7 @@ export async function ensureSession() {
     try {
       const payload = JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
       const expMs = Number(payload.exp) * 1000;
-      if (Number.isFinite(expMs) && expMs > Date.now() + 30_000) {
+      if (Number.isFinite(expMs) && expMs > Date.now() + 10 * 60_000) {
         return true;
       }
     } catch {

@@ -227,6 +227,17 @@ export default function Notifications() {
       return `${createPageUrl('Messages')}?dm=${n.referenceId}`;
     }
     if ((t === 'GROUP_MESSAGE' || t === 'JOIN_REQUEST_ACCEPTED') && n.referenceId) {
+      if (t === 'JOIN_REQUEST_ACCEPTED') {
+        const tableId = extractTableIdFromNotification(n, actionUrl) || n.referenceId;
+        if (tableId && !String(tableId).includes('/')) {
+          const needsCheckout = actionUrl?.includes('checkout=1');
+          return buildPageUrl('TableDetails', {
+            id: tableId,
+            source: 'hosted',
+            ...(needsCheckout ? { checkout: '1' } : {}),
+          });
+        }
+      }
       if (n.referenceType === 'HOSTED_TABLE_GROUP_CHAT') {
         return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}&gk=HOSTED_TABLE`;
       }
@@ -506,7 +517,14 @@ export default function Notifications() {
             <div>
               <h1 className="text-2xl font-bold">Notifications</h1>
               {unreadCount > 0 && (
-                <p className="text-sm text-gray-500">{unreadCount} unread</p>
+                <p className="text-sm font-semibold flex items-center gap-2 mt-0.5" style={{ color: 'var(--sec-success)' }}>
+                  <span
+                    className="inline-block w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: 'var(--sec-success)' }}
+                    aria-hidden
+                  />
+                  {unreadCount} unread
+                </p>
               )}
               {businessMode && venueScope.venueName ? (
                 <p className="text-xs text-gray-500 mt-1">{venueScope.venueName}</p>
@@ -579,8 +597,8 @@ export default function Notifications() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, x: -100 }}
                 transition={{ delay: index * 0.03 }}
-                className={`mb-2 p-4 glass-card rounded-xl cursor-pointer ${!notification.is_read ? 'border-l-2' : ''}`}
-                style={!notification.is_read ? { borderLeftColor: 'var(--sec-accent)' } : {}}
+                className={`mb-2 p-4 glass-card rounded-xl cursor-pointer relative ${!notification.is_read ? 'border-l-2' : ''}`}
+                style={!notification.is_read ? { borderLeftColor: 'var(--sec-success)' } : {}}
               >
                 <div className="flex items-start gap-3">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass}`}>
@@ -590,7 +608,14 @@ export default function Notifications() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between">
                       <div>
-                        <h3 className={`font-medium ${!notification.is_read ? 'text-white' : 'text-gray-400'}`}>
+                        <h3 className={`font-medium flex items-center gap-2 ${!notification.is_read ? 'text-white' : 'text-gray-400'}`}>
+                          {!notification.is_read ? (
+                            <span
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{ backgroundColor: 'var(--sec-success)' }}
+                              aria-label="Unread"
+                            />
+                          ) : null}
                           {notification.title}
                         </h3>
                         <p className="text-sm text-gray-500 mt-0.5">{notification.message}</p>

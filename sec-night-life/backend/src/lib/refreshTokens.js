@@ -76,7 +76,7 @@ export async function revokeRefreshToken(rawToken) {
 }
 
 /** Keep the most recent N sessions per user; drop older refresh rows. */
-export async function pruneUserRefreshTokens(userId, keep = 10) {
+export async function pruneUserRefreshTokens(userId, keep = 25) {
   const tokens = await prisma.refreshToken.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },

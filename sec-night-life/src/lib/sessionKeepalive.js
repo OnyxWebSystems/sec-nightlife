@@ -1,10 +1,10 @@
 /**
  * Keeps users signed in by refreshing access tokens before they expire.
- * Refresh tokens last months (JWT_REFRESH_EXPIRY); access tokens are short-lived.
+ * Refresh tokens last at least 4 months; access tokens are at least 1 hour.
  */
 import { getRefreshToken, refreshAccessToken } from '@/api/client';
 
-const REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes (access token default 15m)
+const REFRESH_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes — well under 1h minimum access lifetime
 const TOKENS_UPDATED_KEY = 'sec_tokens_updated';
 
 function notifyTokensUpdated() {

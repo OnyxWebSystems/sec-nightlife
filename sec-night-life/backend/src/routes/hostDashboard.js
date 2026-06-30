@@ -1714,7 +1714,7 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
         },
       });
     });
-    const gcId = await addUserToHostedTableGroupChat(table.id, targetUserId);
+    await addUserToHostedTableGroupChat(table.id, targetUserId);
     const guestUser = await prisma.user.findUnique({
       where: { id: targetUserId },
       select: { email: true },
@@ -1725,10 +1725,10 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
       type: 'table_update',
       inAppType: 'JOIN_REQUEST_ACCEPTED',
       title: 'Request approved',
-      body: `Your join request for "${table.tableName}" was approved — open the table chat to coordinate.`,
-      actionUrl: gcId ? '/Messages' : `/TableDetails?id=${table.id}&source=hosted`,
-      referenceId: gcId || table.id,
-      referenceType: gcId ? 'HOSTED_TABLE_GROUP_CHAT' : 'HOSTED_TABLE',
+      body: `Your join request for "${table.tableName}" was approved — open the table to view details and chat.`,
+      actionUrl: `/TableDetails?id=${table.id}&source=hosted`,
+      referenceId: table.id,
+      referenceType: 'HOSTED_TABLE',
       emailSubject: `Join request approved — ${table.tableName}`,
     });
     res.json({ approved: true });

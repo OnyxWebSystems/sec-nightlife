@@ -13,8 +13,8 @@ Redeploy after changes. Cron jobs require `CRON_SECRET` to match Vercel Cron aut
 | `DATABASE_URL` | `postgresql://...@...neon.tech/...` | Neon dashboard | Prisma, all DB access |
 | `JWT_ACCESS_SECRET` | 64+ char random hex | Generate new for prod | `routes/auth.js` |
 | `JWT_REFRESH_SECRET` | Different 64+ char random | Generate new for prod | `routes/auth.js` |
-| `JWT_ACCESS_EXPIRY` | `15m` | Set manually | Short-lived access tokens |
-| `JWT_REFRESH_EXPIRY` | `365d` | Set manually | Long-lived sessions (stay signed in) |
+| `JWT_ACCESS_EXPIRY` | *(optional)* `24h` | Omit to use code default (min **1 hour**, even if env says `15m`) | Access token lifetime |
+| `JWT_REFRESH_EXPIRY` | *(optional)* `120d` | Omit to use code default (**min 4 months**); sliding expiry extends on each refresh | Stay signed in |
 
 ---
 

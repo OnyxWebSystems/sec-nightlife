@@ -24,19 +24,37 @@ const SALT_ROUNDS = 12;
 // STEP 1: Read secrets — validateEnv() already ensured these are set and non-placeholder
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
-const JWT_ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '15m';
-const JWT_REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '365d';
 
-function accessTokenExpiresInSeconds() {
-  return Math.max(60, Math.floor(parseExpiryToMs(JWT_ACCESS_EXPIRY) / 1000));
-}
+/** Minimum stay-signed-in window (refresh token sliding expiry). */
+const MIN_REFRESH_MS = 120 * 24 * 60 * 60 * 1000; // 4 months
+/** Minimum access token lifetime — overrides short values like 15m from deployment env. */
+const MIN_ACCESS_MS = 60 * 60 * 1000; // 1 hour
 
 function parseExpiryToMs(expiry) {
   const match = /^(\d+)([smhd])$/.exec(String(expiry || '').trim());
-  if (!match) return 90 * 24 * 60 * 60 * 1000;
+  if (!match) return MIN_REFRESH_MS;
   const n = parseInt(match[1], 10);
   const multipliers = { s: 1000, m: 60 * 1000, h: 3600 * 1000, d: 86400 * 1000 };
   return n * (multipliers[match[2]] || multipliers.d);
+}
+
+function resolveRefreshExpiryMs() {
+  const configured = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRY || '120d');
+  return Math.max(MIN_REFRESH_MS, configured);
+}
+
+function resolveAccessExpirySeconds() {
+  const configured = parseExpiryToMs(process.env.JWT_ACCESS_EXPIRY || '24h');
+  const ms = Math.max(MIN_ACCESS_MS, configured);
+  return Math.max(60, Math.floor(ms / 1000));
+}
+
+function accessTokenExpiresInSeconds() {
+  return resolveAccessExpirySeconds();
+}
+
+function refreshExpiryDate() {
+  return new Date(Date.now() + resolveRefreshExpiryMs());
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -60,9 +78,9 @@ async function issueTokens(user) {
   const accessToken = jwt.sign(
     { userId: user.id, role: user.role },
     JWT_ACCESS_SECRET,
-    { expiresIn: JWT_ACCESS_EXPIRY }
+    { expiresIn: resolveAccessExpirySeconds() }
   );
-  const refreshExpiry = new Date(Date.now() + parseExpiryToMs(JWT_REFRESH_EXPIRY));
+  const refreshExpiry = refreshExpiryDate();
   await pruneUserRefreshTokens(user.id);
   const rawRefresh = await createRefreshTokenRow(user.id, refreshExpiry);
   return { accessToken, refreshToken: rawRefresh };
@@ -878,12 +896,12 @@ router.post('/refresh', async (req, res, next) => {
 
     // SECURITY: Rotate refresh token and extend sliding expiry (no session prune on refresh)
     await prisma.refreshToken.delete({ where: { id: matched.id } });
-    const refreshExpiry = new Date(Date.now() + parseExpiryToMs(JWT_REFRESH_EXPIRY));
+    const refreshExpiry = refreshExpiryDate();
     const newRefreshToken = await createRefreshTokenRow(user.id, refreshExpiry);
     const accessToken = jwt.sign(
       { userId: user.id, role: user.role },
       JWT_ACCESS_SECRET,
-      { expiresIn: JWT_ACCESS_EXPIRY }
+      { expiresIn: resolveAccessExpirySeconds() }
     );
 
     const vSt = await readVerificationStatusCompat(user.id);
