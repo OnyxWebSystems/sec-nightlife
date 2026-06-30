@@ -1451,7 +1451,7 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
           },
         },
         groupChat: { select: { id: true, name: true } },
-        _count: { select: { members: true } },
+        _count: { select: { members: { where: { status: 'GOING' } } } },
       },
     });
     const ids = tables.map((t) => t.id);
@@ -1470,6 +1470,7 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
     });
     const out = tables.map((t) => ({
       ...t,
+      memberCount: t._count?.members ?? 0,
       isPast: !shouldShowHostedTableOnHostDashboard(t, t.event),
       eventLocation: t.tableType === 'IN_APP_EVENT' && t.event ? buildEventLocationPayload(t.event) : null,
       pendingJoinCount: pendingByTable[t.id] ?? 0,

@@ -129,9 +129,12 @@ export default function HostedTableHostCard({
         ) : null}
 
         <div className="flex flex-wrap gap-2 text-sm">
-          <span className="px-2.5 py-1 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]">
-            Members {t._count?.members ?? 0}
-          </span>
+          <Link
+            to={createPageUrl(`TableDetails?id=${t.id}&source=hosted`)}
+            className="px-2.5 py-1 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] hover:border-[var(--sec-accent-border)] transition-colors"
+          >
+            Members {t.memberCount ?? t._count?.members ?? 0}
+          </Link>
           <span className="px-2.5 py-1 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]">
             Spots left {t.spotsRemaining}
           </span>
