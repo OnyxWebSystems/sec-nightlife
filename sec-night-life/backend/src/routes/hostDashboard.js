@@ -1884,6 +1884,14 @@ router.delete('/tables/:tableId', authenticateToken, async (req, res, next) => {
 router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified, async (req, res, next) => {
   try {
     if (!assertHostEligibleRole(req, res)) return;
+    const checkoutBodySchema = z.object({
+      selectedMenuItems: z
+        .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) }))
+        .optional(),
+    });
+    const checkoutBody = checkoutBodySchema.safeParse(req.body || {});
+    const selectedMenuInput = checkoutBody.success ? checkoutBody.data.selectedMenuItems : undefined;
+
     const tableId = req.params.tableId;
     const t = await prisma.hostedTable.findFirst({ where: { id: tableId } });
     if (!t) return res.status(404).json({ error: 'Not found' });
@@ -1907,9 +1915,23 @@ router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified
     const joinVenueId = joinEvent?.venueId || joinLinkedVt?.venueId || null;
     const entranceZar = getEventEntranceZar(joinEvent);
     const joinZar = t.hasJoiningFee && Number(t.joiningFee || 0) > 0 ? Number(t.joiningFee) : 0;
-    const payZar = entranceZar + joinZar;
+
+    let menuResolved = { items: [], totalZar: 0 };
+    if (selectedMenuInput?.length && joinVenueId) {
+      menuResolved = await resolveVenueMenuSelections(selectedMenuInput, joinVenueId);
+    }
+
+    const menuZar = Number(menuResolved.totalZar || 0);
+    const payZar = entranceZar + joinZar + menuZar;
     if (payZar <= 0) {
       return res.status(400).json({ error: 'No payment required for this join' });
+    }
+
+    if (menuResolved.items.length) {
+      await prisma.hostedTableMember.update({
+        where: { id: member.id },
+        data: { selectedMenuItems: menuResolved.items },
+      });
     }
 
     const pay = await initializePaystackPayment({
@@ -1923,9 +1945,10 @@ router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified
         venue_id: joinVenueId,
         entrance_zar: entranceZar,
         join_zar: joinZar,
-        menu_zar: 0,
+        menu_zar: menuZar,
         amount_total_zar: payZar,
         user_id: req.userId,
+        selected_menu_items: menuResolved.items.length ? menuResolved.items : undefined,
         ...promoterMetaFromBody(req.body),
       },
     });

@@ -22,6 +22,7 @@ export default function HostedTableJoinWizard({
   totalOnline = 0,
   isProcessing = false,
   requiresApproval = false,
+  awaitingPayment = false,
   onConfirm,
 }) {
   const [step, setStep] = useState('choice');
@@ -29,14 +30,14 @@ export default function HostedTableJoinWizard({
 
   useEffect(() => {
     if (!open) return;
-    if (requiresApproval) {
+    if (requiresApproval && !awaitingPayment) {
       setStep('request');
       setMenuSelected({});
       return;
     }
     setStep(venueMenu.length ? 'choice' : 'checkout');
     setMenuSelected({});
-  }, [open, venueMenu.length, requiresApproval]);
+  }, [open, venueMenu.length, requiresApproval, awaitingPayment]);
 
   const handleConfirm = () => {
     const payload = menuSelectionToPayload(venueMenu, menuSelected).map((p) => ({
@@ -55,16 +56,20 @@ export default function HostedTableJoinWizard({
         <DialogHeader>
           <DialogTitle style={{ color: 'var(--sec-text-primary)' }}>
             {step === 'request' && 'Request to join'}
-            {step === 'choice' && 'Join this table'}
+            {step === 'choice' && (awaitingPayment ? 'Complete your join' : 'Join this table')}
             {step === 'menu' && 'Choose menu items'}
-            {step === 'checkout' && 'Review & join'}
+            {step === 'checkout' && (awaitingPayment ? 'Review & pay' : 'Review & join')}
           </DialogTitle>
           <DialogDescription>
             {step === 'request' &&
               `This is a private table. The host must approve your request before you can pay or add menu items.`}
-            {step === 'choice' && `Would you like to add items from the venue menu before joining ${tableName}?`}
+            {step === 'choice' &&
+              (awaitingPayment
+                ? `Your request was approved. Add items from the venue menu before paying to join ${tableName}.`
+                : `Would you like to add items from the venue menu before joining ${tableName}?`)}
             {step === 'menu' && 'Optional — selected items appear on your table pass.'}
-            {step === 'checkout' && 'Confirm before joining.'}
+            {step === 'checkout' &&
+              (awaitingPayment ? 'Confirm payment to join the table.' : 'Confirm before joining.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -153,7 +158,15 @@ export default function HostedTableJoinWizard({
               disabled={isProcessing}
               onClick={handleConfirm}
             >
-              {isProcessing ? 'Processing…' : payTotal > 0 ? 'Pay and join' : 'Join table'}
+              {isProcessing
+                ? 'Processing…'
+                : payTotal > 0
+                  ? awaitingPayment
+                    ? 'Pay to join'
+                    : 'Pay and join'
+                  : awaitingPayment
+                    ? 'Confirm join'
+                    : 'Join table'}
             </Button>
           </div>
         )}

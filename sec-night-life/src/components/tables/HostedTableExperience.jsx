@@ -120,7 +120,7 @@ export default function HostedTableExperience({
   const goingMembers = (hostedTable.members || []).filter((m) => m.status === 'GOING');
   const mapQuery = hostedTable.resolvedAddress || hostedTable.venueAddress || hostedTable.venueName || '';
 
-  const completeJoinPayment = async () => {
+  const completeJoinPayment = async (menuPayload = []) => {
     const actorId = userProfile?.id || user?.id;
     if (!actorId) {
       authServiceRedirect();
@@ -128,7 +128,9 @@ export default function HostedTableExperience({
     }
     try {
       setIsProcessingPayment(true);
-      const r = await apiPost(`/api/host/tables/${tableId}/join/checkout`, {});
+      const r = await apiPost(`/api/host/tables/${tableId}/join/checkout`, {
+        ...(menuPayload.length ? { selectedMenuItems: menuPayload } : {}),
+      });
       if (r?.pendingPayment && r?.reference && r?.access_code) {
         const amount = Number(r.amount_zar ?? r.amount ?? totalOnline ?? 0);
         launchPaystackInline({
@@ -161,8 +163,7 @@ export default function HostedTableExperience({
 
   useEffect(() => {
     if (!autoOpenCheckout || isHost || isGoingMember || !isAwaitingPayment) return;
-    void completeJoinPayment();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setJoinWizardOpen(true);
   }, [autoOpenCheckout, isHost, isGoingMember, isAwaitingPayment]);
 
   const invalidateTableQueries = () => {
@@ -272,13 +273,14 @@ export default function HostedTableExperience({
     }
   };
 
-  const openJoinWizard = () => {
+  const openPaymentWizard = () => {
     if (!user?.id && !userProfile?.id) {
       authServiceRedirect();
       return;
     }
     setJoinWizardOpen(true);
   };
+  const openJoinWizard = openPaymentWizard;
 
   const cardStyle = {
     padding: 16,
@@ -580,7 +582,7 @@ export default function HostedTableExperience({
             <Button
               className="w-full h-12 sec-btn-accent font-semibold"
               disabled={isProcessingPayment}
-              onClick={completeJoinPayment}
+              onClick={openPaymentWizard}
             >
               {isProcessingPayment
                 ? 'Processing…'
@@ -615,13 +617,16 @@ export default function HostedTableExperience({
         open={joinWizardOpen}
         onOpenChange={setJoinWizardOpen}
         tableName={hostedTable.tableName || 'this table'}
-        venueMenu={requiresApproval ? [] : venueMenu}
+        venueMenu={isAwaitingPayment || !requiresApproval ? venueMenu : []}
         entranceZar={entranceZ}
         joinZar={joinZ}
         totalOnline={totalOnline}
         isProcessing={isProcessingPayment}
-        requiresApproval={requiresApproval}
-        onConfirm={(menuPayload) => executeJoin(menuPayload)}
+        requiresApproval={requiresApproval && !isAwaitingPayment}
+        awaitingPayment={isAwaitingPayment}
+        onConfirm={(menuPayload) =>
+          isAwaitingPayment ? completeJoinPayment(menuPayload) : executeJoin(menuPayload)
+        }
       />
 
       <Dialog open={leaveConfirmOpen} onOpenChange={setLeaveConfirmOpen}>
