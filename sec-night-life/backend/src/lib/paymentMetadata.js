@@ -25,6 +25,22 @@ export function isTicketPaymentMeta(meta, paymentType = null) {
   return Boolean(eventId && tier);
 }
 
+/** Day-booking host checkout (venue slot, no event). */
+export function isDayBookingHostPayment(meta) {
+  if (!isObjectRecord(meta)) return false;
+  const eventId = meta.event_id ?? meta.eventId;
+  if (eventId) return false;
+  const bookingMode = meta.booking_mode || meta.bookingMode;
+  const memberRole = meta.member_role || meta.memberRole;
+  const isHost =
+    bookingMode === 'host' ||
+    bookingMode === 'custom_host' ||
+    memberRole === 'HOST';
+  if (!isHost) return false;
+  const t = String(meta.type || '');
+  return t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN' || t === 'table';
+}
+
 /** Host / custom-table checkout via venue inventory (creates a hosted table). */
 export function isHostedTableVenuePayment(meta) {
   if (!isObjectRecord(meta)) return false;
@@ -40,7 +56,9 @@ export function classifyVenuePaymentRevenue(mtype, pType, amount, counters, meta
   const amt = Number(amount) || 0;
   const meta = isObjectRecord(metadata) ? metadata : {};
 
-  if (
+  if (isDayBookingHostPayment(meta)) {
+    counters.dayBookingHostPaymentZar = (counters.dayBookingHostPaymentZar || 0) + amt;
+  } else if (
     t === 'TABLE_HOST_FEE' ||
     t === 'HOSTED_TABLE_EXTERNAL_LISTING' ||
     t === 'HOSTED_TABLE_MENU' ||

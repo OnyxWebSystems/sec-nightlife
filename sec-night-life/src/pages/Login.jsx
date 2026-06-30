@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
+import { getRefreshToken } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -29,6 +30,7 @@ function readStoredConsumerIntent() {
 
 export default function Login() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const roleParam = searchParams.get('role');
   const defaultReturnUrl =
     roleParam === 'VENUE' ? createPageUrl('BusinessDashboard') : createPageUrl('Home');
@@ -55,6 +57,25 @@ export default function Login() {
       } catch {}
     }
   }, [roleParam]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!getRefreshToken()) return undefined;
+    (async () => {
+      try {
+        const ok = await authService.ensureSession();
+        if (!ok || cancelled) return;
+        const { user } = await authService.getAuthSession();
+        if (!user || cancelled) return;
+        navigate(returnUrl, { replace: true });
+      } catch {
+        // stay on login form
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, returnUrl]);
 
   useEffect(() => {
     if (step !== 'otp' || resendCooldown <= 0) return undefined;

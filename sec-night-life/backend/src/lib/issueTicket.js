@@ -3,10 +3,10 @@ import { sendEmail } from './email.js';
 import { createInAppNotification } from './inAppNotifications.js';
 import {
   generateQrToken,
-  visibleUntilFromEventStartsAt,
   holderDisplayNameFromUser,
   hideSupersededHostedTableGuestTickets,
   hideSupersededVenueTableGuestTickets,
+  resolveTicketVisibleUntil,
 } from './ticketHelpers.js';
 import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { buildTicketVerifyUrlWithHints, ticketVerifyPublicOrigin } from './ticketVerifyUrl.js';
@@ -115,11 +115,13 @@ export async function issueTicketAndNotify(db, params) {
         : new Date(eventEndsAtParam)
       : null;
 
-  const effectiveVisibleUntil = eventEndsAt
-    ? eventEndsAt
-    : eventStartsAt
-      ? visibleUntilFromEventStartsAt(eventStartsAt)
-      : visibleUntil;
+  const effectiveVisibleUntil = resolveTicketVisibleUntil({
+    venueTableId,
+    eventId,
+    visibleUntil,
+    eventStartsAt,
+    eventEndsAt,
+  });
 
   const qrToken = generateQrToken();
 

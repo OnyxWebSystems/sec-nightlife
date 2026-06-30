@@ -824,6 +824,8 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     await repairTicketPaymentsForVenues([venueId]);
 
+    const cutoff = new Date(Date.now() - days * 86400000);
+
     const refundedRefs = await loadRefundedPaymentRefs([venueId]);
     const refundedMetrics = await loadRefundedMetricsForPeriod([venueId], cutoff);
 
@@ -834,7 +836,6 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const eventIds = events.map((e) => e.id);
     if (eventId && eventIds.length === 0) return res.status(400).json({ error: 'Event not found for this venue' });
 
-    const cutoff = new Date(Date.now() - days * 86400000);
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const eventsInPeriod = events.filter((e) => e.date && new Date(e.date) >= cutoff).length;
@@ -893,6 +894,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const revenueCounters = {
       ticketPaymentZar: 0,
       hostedTablePaymentZar: 0,
+      dayBookingHostPaymentZar: 0,
       venueTablePaymentZar: 0,
       otherPaymentZar: 0,
     };
@@ -921,6 +923,92 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         revenueCounters,
         meta,
       );
+    }
+
+    const platformLedgerRows = await prisma.payoutLedger.findMany({
+      where: {
+        recipientType: 'PLATFORM',
+        createdAt: { gte: cutoff },
+      },
+      select: {
+        paymentReference: true,
+        grossAmount: true,
+        recipientAmount: true,
+        createdAt: true,
+      },
+      take: 5000,
+    });
+
+    for (const row of platformLedgerRows) {
+      if (!row.paymentReference || matchedPaymentRefs.has(row.paymentReference)) continue;
+      const meta = resolveLedgerPaymentMeta(row.paymentReference);
+      const metaVenueId = meta.venue_id ?? meta.venueId;
+      if (metaVenueId == null || String(metaVenueId) !== String(venueId)) continue;
+      if (!matchesEventFilterMeta(meta)) continue;
+      if (isRefundedPaymentRef(row.paymentReference, refundedRefs)) continue;
+      const gross = Number(row.grossAmount) || 0;
+      const net = Number(row.recipientAmount) || 0;
+      grossTotal += gross;
+      netTotal += net;
+      matchedPaymentRefs.add(row.paymentReference);
+      matchedPaymentRefs.add(basePaymentReference(row.paymentReference));
+      const dayKey = row.createdAt.toISOString().slice(0, 10);
+      revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + gross;
+      classifyVenuePaymentRevenue(
+        meta?.type,
+        resolveLedgerPaymentType(row.paymentReference),
+        gross,
+        revenueCounters,
+        meta,
+      );
+    }
+
+    const splitLogs = await prisma.splitPaymentLog.findMany({
+      where: {
+        createdAt: { gte: cutoff },
+        venueTable: { venueId },
+      },
+      select: {
+        reference: true,
+        totalAmount: true,
+        venueAmount: true,
+        createdAt: true,
+      },
+      take: 15000,
+    });
+
+    const splitRefsToLoad = [
+      ...new Set(
+        splitLogs
+          .map((s) => s.reference)
+          .filter((ref) => ref && !paymentMetaByRef.has(ref) && !matchedPaymentRefs.has(ref)),
+      ),
+    ];
+    if (splitRefsToLoad.length > 0) {
+      const splitPayments = await prisma.payment.findMany({
+        where: { reference: { in: splitRefsToLoad } },
+        select: { reference: true, metadata: true, type: true },
+      });
+      for (const p of splitPayments) {
+        paymentMetaByRef.set(p.reference, flattenPaymentMetadata(p.metadata));
+        paymentTypeByRef.set(p.reference, p.type);
+      }
+    }
+
+    for (const log of splitLogs) {
+      if (!log.reference || matchedPaymentRefs.has(log.reference)) continue;
+      const meta = resolveLedgerPaymentMeta(log.reference);
+      if (!matchesEventFilterMeta(meta)) continue;
+      if (isRefundedPaymentRef(log.reference, refundedRefs)) continue;
+      const gross = Number(log.totalAmount) || 0;
+      const net = Number(log.venueAmount) || 0;
+      grossTotal += gross;
+      netTotal += net;
+      matchedPaymentRefs.add(log.reference);
+      matchedPaymentRefs.add(basePaymentReference(log.reference));
+      const dayKey = log.createdAt.toISOString().slice(0, 10);
+      revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + gross;
+      classifyVenuePaymentRevenue(meta?.type, resolveLedgerPaymentType(log.reference), gross, revenueCounters, meta);
     }
 
     const eventIdSet = new Set(eventIds.map(String));
@@ -1001,7 +1089,8 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       }
     }
 
-    const { ticketPaymentZar, hostedTablePaymentZar, venueTablePaymentZar, otherPaymentZar } = revenueCounters;
+    const { ticketPaymentZar, hostedTablePaymentZar, dayBookingHostPaymentZar, venueTablePaymentZar, otherPaymentZar } =
+      revenueCounters;
 
     const ticketSalesCountFromRows =
       eventIds.length === 0
@@ -1035,6 +1124,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       ticketSalesCount,
       ticketPaymentZar: Number(ticketPaymentZar.toFixed(2)),
       hostedTablePaymentZar: Number(hostedTablePaymentZar.toFixed(2)),
+      dayBookingHostPaymentZar: Number((dayBookingHostPaymentZar || 0).toFixed(2)),
       venueTablePaymentZar: Number(venueTablePaymentZar.toFixed(2)),
       otherPaymentZar: Number(otherPaymentZar.toFixed(2)),
       refundedGrossZar: Number(refundedMetrics.refundedGrossZar.toFixed(2)),

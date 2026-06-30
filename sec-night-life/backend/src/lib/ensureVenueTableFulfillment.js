@@ -11,8 +11,8 @@ import {
   eventStartsAtFromEvent,
   eventEndsAtFromEvent,
   dayStartsAtFromVenueTable,
-  dayEndsAtFromVenueTable,
   holderDisplayNameFromUser,
+  venueTableTicketTitle,
 } from './ticketHelpers.js';
 import { splitSecPlatform, recordPayoutAndMaybeTransfer, resolveRecipientCodeForVenue } from './paystackPayout.js';
 import { logger } from './logger.js';
@@ -220,9 +220,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
     const eventStartsAt = refreshedVt.event
       ? eventStartsAtFromEvent(refreshedVt.event)
       : dayStartsAtFromVenueTable(refreshedVt);
-    const eventEndsAt = refreshedVt.event
-      ? eventEndsAtFromEvent(refreshedVt.event)
-      : dayEndsAtFromVenueTable(refreshedVt);
+    const eventEndsAt = refreshedVt.event ? eventEndsAtFromEvent(refreshedVt.event) : null;
     const settlementMode = metadata.settlement_mode || metadata.settlementMode || member.settlementMode;
     const minSpendZar = isHostMode
       ? Number(refreshedVt.hostMinimumSpend ?? refreshedVt.minimumSpend ?? 0)
@@ -246,9 +244,11 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       email: vu?.email || email,
       paystackReference: reference,
       kind: 'VENUE_TABLE_JOIN',
-      title: refreshedVt.event?.title
-        ? `${refreshedVt.tableName} — ${refreshedVt.event.title}`
-        : refreshedVt.tableName,
+      title: venueTableTicketTitle(
+        refreshedVt.tableName,
+        refreshedVt.event?.title,
+        isHostMode,
+      ),
       subtitle: refreshedVt.venue?.name || null,
       visibleUntil: visFallback,
       venueTableId: refreshedVt.id,

@@ -203,6 +203,7 @@ export default function VenueAnalytics() {
       upcomingEvents: Number(analytics?.upcomingEventsCount ?? 0),
       ticketPaymentZar: Number(analytics?.ticketPaymentZar || 0),
       hostedTablePaymentZar: Number(analytics?.hostedTablePaymentZar || 0),
+      dayBookingHostPaymentZar: Number(analytics?.dayBookingHostPaymentZar || 0),
       venueTablePaymentZar: Number(analytics?.venueTablePaymentZar || 0),
       otherPaymentZar: Number(analytics?.otherPaymentZar || 0),
       refundedVenueShareZar: Number(analytics?.refundedVenueShareZar || 0),
@@ -468,7 +469,7 @@ export default function VenueAnalytics() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
               <Card className="glass-card border-[#262629]">
                 <CardContent className="pt-6">
                   <p className="text-gray-500 text-sm">Ticket revenue</p>
@@ -477,13 +478,25 @@ export default function VenueAnalytics() {
               </Card>
               <Card className="glass-card border-[#262629]">
                 <CardContent className="pt-6">
-                  <p className="text-gray-500 text-sm">Hosted tables</p>
+                  <p className="text-gray-500 text-sm" title="External listings and event-linked host fees">
+                    Hosted table fees
+                  </p>
                   <p className="text-2xl font-bold text-white mt-1">R{metrics.hostedTablePaymentZar.toLocaleString()}</p>
                 </CardContent>
               </Card>
               <Card className="glass-card border-[#262629]">
                 <CardContent className="pt-6">
-                  <p className="text-gray-500 text-sm">Venue tables</p>
+                  <p className="text-gray-500 text-sm" title="Day-booking slot host checkouts at your venue">
+                    Day-booking hosts
+                  </p>
+                  <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingHostPaymentZar.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="glass-card border-[#262629]">
+                <CardContent className="pt-6">
+                  <p className="text-gray-500 text-sm" title="Guest table join payments">
+                    Table joins (guests)
+                  </p>
                   <p className="text-2xl font-bold text-white mt-1">R{metrics.venueTablePaymentZar.toLocaleString()}</p>
                 </CardContent>
               </Card>
@@ -641,11 +654,22 @@ export default function VenueAnalytics() {
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[#141416]">
-                    <p className="text-sm text-gray-400 mb-1">Venue table payments (period)</p>
+                    <p className="text-sm text-gray-400 mb-1">Table join payments (guests)</p>
                     <p className="text-xl font-bold text-white">
                       R{Math.round(metrics.venueTablePaymentZar).toLocaleString()}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">Direct venue slot checkouts in the last {dateRange} days</p>
+                    <p className="text-xs text-gray-500 mt-1">Guest checkouts in the last {dateRange} days</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#141416]">
+                    <p className="text-sm text-gray-400 mb-1">Day-booking host payments</p>
+                    <p className="text-xl font-bold text-white">
+                      R{Math.round(metrics.dayBookingHostPaymentZar).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {revenueScope === 'per_event'
+                        ? 'Switch to all-venue scope to include day bookings (no event linked)'
+                        : 'Host fees for day-booking slots at your venue'}
+                    </p>
                   </div>
                 </CardContent>
               </Card>

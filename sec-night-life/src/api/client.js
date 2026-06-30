@@ -74,8 +74,8 @@ async function doRefreshAccessToken(opts = {}) {
 
   if (!res.ok || !data?.accessToken) {
     if (res.status === 401 || res.status === 403) {
-      // Another tab may have rotated the refresh token — retry once with latest storage value.
       if (!opts._storageRetry) {
+        await new Promise((r) => setTimeout(r, 350));
         const latest = getRefreshToken();
         if (latest && latest !== refreshToken) {
           return doRefreshAccessToken({ ...opts, _storageRetry: true });

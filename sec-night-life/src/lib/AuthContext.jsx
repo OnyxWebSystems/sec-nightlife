@@ -109,6 +109,26 @@ export const AuthProvider = ({ children }) => {
       writeSessionCache(currentUser, profile);
     } catch (err) {
       const refreshStillValid = Boolean(getRefreshToken());
+      if (refreshStillValid) {
+        try {
+          await withTimeout(authService.ensureSession(), 20000, 'Session refresh retry');
+          const { user: retryUser, userProfile: retryProfile } = await withTimeout(
+            authService.getAuthSession(),
+            20000,
+            'Session check retry',
+          );
+          const nextUser = mapUser(retryUser);
+          setUser(nextUser);
+          setIsAuthenticated(true);
+          setUserProfile(retryProfile);
+          writeSessionCache(retryUser, retryProfile);
+          setAuthError(null);
+          return;
+        } catch {
+          // fall through to cached session handling
+        }
+      }
+
       const hadCachedUser = restoreCachedSession(setUser, setUserProfile, setIsAuthenticated);
 
       if ((err?.status === 401 || err?.status === 403) && !refreshStillValid && !hadCachedUser) {

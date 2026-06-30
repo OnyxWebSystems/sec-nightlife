@@ -40,6 +40,7 @@ export default function HostDashboard() {
   const [tab, setTab] = useState('tables');
   const [tablesSubTab, setTablesSubTab] = useState('upcoming');
   const [showTableModal, setShowTableModal] = useState(false);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [tableForm, setTableForm] = useState({
     tableType: 'EXTERNAL_VENUE',
     tableName: '',
@@ -149,7 +150,25 @@ export default function HostDashboard() {
     if (!inviteOpenTableId) setInviteSearch('');
   }, [inviteOpenTableId]);
 
-  useBodyScrollLock(showTableModal && !isMobile);
+  useBodyScrollLock(showTableModal);
+
+  useEffect(() => {
+    if (!showTableModal || !isMobile || typeof window === 'undefined') return undefined;
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    const sync = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardInset(inset > 40 ? Math.round(inset) : 0);
+    };
+    sync();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+      setKeyboardInset(0);
+    };
+  }, [showTableModal, isMobile]);
 
   function closeTableModal() {
     setShowTableModal(false);
@@ -821,13 +840,15 @@ export default function HostDashboard() {
           <div
             data-scroll-lock-scrollable
             className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4"
-            style={{ WebkitOverflowScrolling: 'touch' }}
+            style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
           >
             {hostedTableCreateFields}
           </div>
           <footer
             className="shrink-0 border-t border-[var(--sec-border)] bg-[var(--sec-bg-base)] px-4 pt-3"
-            style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
+            style={{
+              paddingBottom: `max(16px, calc(env(safe-area-inset-bottom) + ${keyboardInset}px))`,
+            }}
           >
             {createTableSubmitButton}
           </footer>

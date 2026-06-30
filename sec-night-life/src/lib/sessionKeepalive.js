@@ -32,7 +32,7 @@ export function startSessionKeepalive() {
   document.addEventListener('visibilitychange', onVisible);
 
   const onStorage = (e) => {
-    if (e.key === TOKENS_UPDATED_KEY) {
+    if (e.key === TOKENS_UPDATED_KEY || e.key === 'refresh_token' || e.key === 'access_token') {
       // Another tab rotated tokens — localStorage already has the new values.
     }
   };

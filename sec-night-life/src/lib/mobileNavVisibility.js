@@ -14,6 +14,10 @@ function isInMessageThread(pageName, searchParams) {
   return false;
 }
 
+function isHostCreateTableOverlay(pageName, searchParams) {
+  return pageName === 'HostDashboard' && searchParams?.get('create') === 'table';
+}
+
 /**
  * @param {{ pageName: string, searchParams?: URLSearchParams | null }} opts
  * @returns {{ hideBottomNav: boolean }}
@@ -24,6 +28,9 @@ export function getMobileNavState({ pageName, searchParams }) {
     return { hideBottomNav: true };
   }
   if (isInMessageThread(pageName, searchParams)) {
+    return { hideBottomNav: true };
+  }
+  if (isHostCreateTableOverlay(pageName, searchParams)) {
     return { hideBottomNav: true };
   }
   return { hideBottomNav: false };

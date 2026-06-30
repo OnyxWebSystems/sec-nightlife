@@ -41,6 +41,7 @@ import {
   dayStartsAtFromVenueTable,
   dayEndsAtFromVenueTable,
   holderDisplayNameFromUser,
+  venueTableTicketTitle,
   formatSpecsFromTable,
   formatSpecsFromVenueTable,
   formatSpecsFromHostedTable,
@@ -784,7 +785,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         ? visibleUntilForVenueTableMember(vt, vt.event)
         : visibleUntilForDayVenueTable(vt);
       const eventStartsAt = vt.event ? eventStartsAtFromEvent(vt.event) : dayStartsAtFromVenueTable(vt);
-      const eventEndsAt = vt.event ? eventEndsAtFromEvent(vt.event) : dayEndsAtFromVenueTable(vt);
+      const eventEndsAt = vt.event ? eventEndsAtFromEvent(vt.event) : null;
       const bookingMode = metadata.booking_mode || metadata.bookingMode;
       const settlementMode = metadata.settlement_mode || metadata.settlementMode || member?.settlementMode;
       const isHostMode = bookingMode === 'host' || bookingMode === 'custom_host' || member?.memberRole === 'HOST';
@@ -810,7 +811,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         email: vu?.email || email,
         paystackReference: reference,
         kind: 'VENUE_TABLE_JOIN',
-        title: vt.event?.title ? `${vt.tableName} — ${vt.event.title}` : vt.tableName,
+        title: venueTableTicketTitle(vt.tableName, vt.event?.title, isHostMode),
         subtitle: vt.venue?.name || null,
         visibleUntil: visFallback,
         venueTableId: vt.id,

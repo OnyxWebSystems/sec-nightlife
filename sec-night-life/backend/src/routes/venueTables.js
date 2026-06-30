@@ -20,8 +20,8 @@ import {
   eventStartsAtFromEvent,
   eventEndsAtFromEvent,
   dayStartsAtFromVenueTable,
-  dayEndsAtFromVenueTable,
   holderDisplayNameFromUser,
+  venueTableTicketTitle,
 } from '../lib/ticketHelpers.js';
 import { buildVenueTableMemberTicketSummary } from '../lib/ticketMemberSummary.js';
 import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
@@ -997,7 +997,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
         ? visibleUntilForVenueTableMember(table, table.event)
         : visibleUntilForDayVenueTable(table);
       const eventStartsAt = table.event ? eventStartsAtFromEvent(table.event) : dayStartsAtFromVenueTable(table);
-      const eventEndsAt = table.event ? eventEndsAtFromEvent(table.event) : dayEndsAtFromVenueTable(table);
+      const eventEndsAt = table.event ? eventEndsAtFromEvent(table.event) : null;
       const minSpendZar = isHost
         ? Number(table.hostMinimumSpend ?? table.minimumSpend ?? 0)
         : Number(table.minimumSpend ?? 0);
@@ -1019,7 +1019,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
         email: payer?.email,
         paystackReference: freeRef,
         kind: 'VENUE_TABLE_JOIN',
-        title: table.event?.title ? `${table.tableName} — ${table.event.title}` : table.tableName,
+        title: venueTableTicketTitle(table.tableName, table.event?.title, isHost),
         subtitle: table.venue?.name || null,
         visibleUntil: visFallback,
         venueTableId: table.id,

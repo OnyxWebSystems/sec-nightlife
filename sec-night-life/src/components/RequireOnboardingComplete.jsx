@@ -6,10 +6,10 @@ import { isOnboardingMarkedComplete } from '@/lib/sessionCache';
 
 export default function RequireOnboardingComplete({ children }) {
   const navigate = useNavigate();
-  const { user, userProfile, isLoadingAuth, isAuthenticated, navigateToLogin } = useAuth();
+  const { user, userProfile, isLoadingAuth, isAuthenticated, navigateToLogin, isRestoringSession } = useAuth();
 
   useEffect(() => {
-    if (isLoadingAuth) return;
+    if (isLoadingAuth || isRestoringSession) return;
     if (!isAuthenticated || !user) {
       navigateToLogin();
       return;
@@ -18,9 +18,9 @@ export default function RequireOnboardingComplete({ children }) {
     if (userProfile != null && userProfile.onboarding_complete === false) {
       navigate(createPageUrl('ProfileSetup'), { replace: true });
     }
-  }, [isLoadingAuth, isAuthenticated, user, userProfile, navigate, navigateToLogin]);
+  }, [isLoadingAuth, isRestoringSession, isAuthenticated, user, userProfile, navigate, navigateToLogin]);
 
-  if (isLoadingAuth) return null;
+  if (isLoadingAuth || isRestoringSession) return null;
   if (!isAuthenticated || !user) return null;
   if (isOnboardingMarkedComplete(user.id)) return children;
   if (userProfile != null && userProfile.onboarding_complete === false) return null;

@@ -7,6 +7,50 @@ import {
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 
+/**
+ * Resolve ticket visible_until for storage. Day venue tables (no event) must keep the
+ * caller's buffered visibleUntil — not raw service end from eventEndsAt.
+ */
+export function resolveTicketVisibleUntil({
+  venueTableId = null,
+  eventId = null,
+  visibleUntil = null,
+  eventStartsAt = null,
+  eventEndsAt = null,
+}) {
+  const vis =
+    visibleUntil != null
+      ? visibleUntil instanceof Date
+        ? visibleUntil
+        : new Date(visibleUntil)
+      : null;
+  const validVis = vis && !Number.isNaN(vis.getTime()) ? vis : null;
+
+  if (venueTableId && !eventId) {
+    if (validVis) return validVis;
+    if (eventEndsAt && !Number.isNaN(eventEndsAt.getTime())) {
+      return new Date(eventEndsAt.getTime() + MS_DAY);
+    }
+    if (eventStartsAt && !Number.isNaN(eventStartsAt.getTime())) {
+      return visibleUntilFromEventStartsAt(eventStartsAt);
+    }
+    return new Date(Date.now() + MS_DAY);
+  }
+
+  if (eventEndsAt && !Number.isNaN(eventEndsAt.getTime())) return eventEndsAt;
+  if (eventStartsAt && !Number.isNaN(eventStartsAt.getTime())) {
+    return visibleUntilFromEventStartsAt(eventStartsAt);
+  }
+  return validVis;
+}
+
+/** Title for venue-table checkout tickets (host vs guest). */
+export function venueTableTicketTitle(tableName, eventTitle, isHost) {
+  if (isHost) return `${tableName} — Host pass`;
+  if (eventTitle) return `${tableName} — ${eventTitle}`;
+  return tableName;
+}
+
 export function generateQrToken() {
   return crypto.randomBytes(24).toString('hex');
 }

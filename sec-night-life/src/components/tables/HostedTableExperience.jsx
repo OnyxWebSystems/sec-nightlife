@@ -16,6 +16,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { MOBILE_NAV_BOTTOM_OFFSET, mobileFooterPadding } from '@/lib/layoutConstants';
 
 function profileHref(userId) {
   if (!userId) return null;
@@ -98,9 +99,19 @@ export default function HostedTableExperience({
   const joinZ = Number(checkout.joining_fee_zar ?? 0);
   const totalOnline = Number(checkout.total_pay_online_zar ?? entranceZ + joinZ);
   const stats = hostedTable.stats || {};
+  const isPendingMember = hostedTable.my_membership?.status === 'PENDING';
+  const spotsRemaining = Number(
+    hostedTable.spots_remaining ??
+      stats.spots_remaining ??
+      hostedTable.spotsRemaining ??
+      0,
+  );
+  const tableStatus = hostedTable.status || 'ACTIVE';
   const isGoingMember = hostedTable.my_membership?.status === 'GOING';
   const isHost = hostedTable.is_host;
   const isVenueOwner = hostedTable.is_venue_owner;
+  const tableJoinable =
+    tableStatus === 'ACTIVE' && spotsRemaining > 0 && !isPendingMember;
   const venueMenu = hostedTable.venue_menu || [];
   const goingMembers = (hostedTable.members || []).filter((m) => m.status === 'GOING');
   const mapQuery = hostedTable.resolvedAddress || hostedTable.venueAddress || hostedTable.venueName || '';
@@ -234,7 +245,7 @@ export default function HostedTableExperience({
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 120 }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: mobileFooterPadding(180) }}>
       <header
         style={{
           position: 'sticky',
@@ -453,11 +464,13 @@ export default function HostedTableExperience({
 
       {!isVenueOwner && (
         <footer
+          className="sec-bottom-bar"
           style={{
             position: 'fixed',
-            bottom: 0,
+            bottom: MOBILE_NAV_BOTTOM_OFFSET,
             left: 0,
             right: 0,
+            zIndex: 40,
             padding: '12px 20px 24px',
             background: 'linear-gradient(180deg, transparent, var(--sec-bg-base) 30%)',
             borderTop: '1px solid var(--sec-border)',
@@ -520,6 +533,14 @@ export default function HostedTableExperience({
                 </Button>
               </div>
             </div>
+          ) : isPendingMember ? (
+            <Button className="w-full h-12 font-semibold" variant="outline" disabled>
+              Request pending — awaiting host approval
+            </Button>
+          ) : !tableJoinable ? (
+            <Button className="w-full h-12 font-semibold" variant="outline" disabled>
+              {tableStatus !== 'ACTIVE' ? 'Table not available' : 'Table is full'}
+            </Button>
           ) : (
             <Button
               className="w-full h-12 sec-btn-accent font-semibold"
