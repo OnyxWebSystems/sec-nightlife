@@ -271,13 +271,19 @@ export default function HostedTableHostCard({
                     maxLength={60}
                   />
                 </div>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
                   <input
                     type="checkbox"
+                    className="mt-1"
                     checked={rulesForm.isPublic}
                     onChange={(e) => setRulesForm((f) => ({ ...f, isPublic: e.target.checked }))}
                   />
-                  Public table (anyone can join without approval)
+                  <span>
+                    <span className="font-medium">Public table (anyone can join without approval)</span>
+                    <span className="block text-xs text-[var(--sec-text-muted)] mt-0.5">
+                      When off, the table stays on Home but guests must request approval to join.
+                    </span>
+                  </span>
                 </label>
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input

@@ -146,30 +146,6 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
     spotsRemaining: { gt: 0 },
     eventDate: { gte: today },
   };
-  if (userId) {
-    const [memberRows, hostRows] = await Promise.all([
-      prisma.hostedTableMember.findMany({
-        where: { userId },
-        select: { hostedTableId: true },
-      }),
-      prisma.hostedTable.findMany({
-        where: { hostUserId: userId },
-        select: { id: true },
-      }),
-    ]);
-    const accessibleIds = [
-      ...new Set([
-        ...memberRows.map((m) => m.hostedTableId),
-        ...hostRows.map((h) => h.id),
-      ]),
-    ];
-    hostedWhere.OR = [
-      { isPublic: true },
-      ...(accessibleIds.length ? [{ id: { in: accessibleIds } }] : []),
-    ];
-  } else {
-    hostedWhere.isPublic = true;
-  }
 
   const hostedRows = await prisma.hostedTable.findMany({
     where: hostedWhere,

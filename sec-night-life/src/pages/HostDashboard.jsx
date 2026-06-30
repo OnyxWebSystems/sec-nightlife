@@ -768,9 +768,9 @@ export default function HostDashboard() {
             onChange={(e) => setTableForm((f) => ({ ...f, isPublic: e.target.checked }))}
           />
           <span>
-            <span className="font-medium">Show in public table list</span>
+            <span className="font-medium">Public table (anyone can join without approval)</span>
             <span className="block text-xs text-[var(--sec-text-muted)] mt-0.5">
-              Turn off for a private table: only people you invite can join, and others must request approval to join.
+              Turn off for a private table: your table stays visible on Home, but guests must request approval before joining (invited guests can still join directly).
             </span>
           </span>
         </label>

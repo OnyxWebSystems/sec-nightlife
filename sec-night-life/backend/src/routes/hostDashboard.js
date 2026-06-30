@@ -676,18 +676,6 @@ router.get('/tables/host-at-event', optionalAuth, async (req, res, next) => {
       eventDate: { gte: today },
       ...(eventId ? { eventId } : {}),
     };
-    if (req.userId !== hostUserId) {
-      if (req.userId) {
-        const accessible = await prisma.hostedTableMember.findMany({
-          where: { userId: req.userId },
-          select: { hostedTableId: true },
-        });
-        const ids = accessible.map((m) => m.hostedTableId);
-        where.OR = [{ isPublic: true }, ...(ids.length ? [{ id: { in: ids } }] : [])];
-      } else {
-        where.isPublic = true;
-      }
-    }
     const rows = await prisma.hostedTable.findMany({
       where,
       include: {
@@ -784,30 +772,6 @@ router.get('/tables/available', optionalAuth, async (req, res, next) => {
       spotsRemaining: { gt: 0 },
       eventDate: { gte: today },
     };
-    if (req.userId) {
-      const [memberRows, hostRows] = await Promise.all([
-        prisma.hostedTableMember.findMany({
-          where: { userId: req.userId },
-          select: { hostedTableId: true },
-        }),
-        prisma.hostedTable.findMany({
-          where: { hostUserId: req.userId },
-          select: { id: true },
-        }),
-      ]);
-      const accessibleIds = [
-        ...new Set([
-          ...memberRows.map((m) => m.hostedTableId),
-          ...hostRows.map((h) => h.id),
-        ]),
-      ];
-      where.OR = [
-        { isPublic: true },
-        ...(accessibleIds.length ? [{ id: { in: accessibleIds } }] : []),
-      ];
-    } else {
-      where.isPublic = true;
-    }
     const rows = await prisma.hostedTable.findMany({
       where,
       include: {
