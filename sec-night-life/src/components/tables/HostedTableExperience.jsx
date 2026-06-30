@@ -109,7 +109,6 @@ export default function HostedTableExperience({
   const tableStatus = hostedTable.status || 'ACTIVE';
   const isGoingMember = hostedTable.my_membership?.status === 'GOING';
   const isHost = hostedTable.is_host;
-  const isVenueOwner = hostedTable.is_venue_owner;
   const tableJoinable =
     tableStatus === 'ACTIVE' && spotsRemaining > 0 && !isPendingMember;
   const venueMenu = hostedTable.venue_menu || [];
@@ -462,20 +461,19 @@ export default function HostedTableExperience({
         </div>
       )}
 
-      {!isVenueOwner && (
-        <footer
-          className="sec-bottom-bar"
-          style={{
-            position: 'fixed',
-            bottom: MOBILE_NAV_BOTTOM_OFFSET,
-            left: 0,
-            right: 0,
-            zIndex: 40,
-            padding: '12px 20px 24px',
-            background: 'linear-gradient(180deg, transparent, var(--sec-bg-base) 30%)',
-            borderTop: '1px solid var(--sec-border)',
-          }}
-        >
+      <footer
+        className="sec-bottom-bar"
+        style={{
+          position: 'fixed',
+          bottom: MOBILE_NAV_BOTTOM_OFFSET,
+          left: 0,
+          right: 0,
+          zIndex: 51,
+          padding: '12px 20px 24px',
+          background: 'linear-gradient(180deg, transparent, var(--sec-bg-base) 30%)',
+          borderTop: '1px solid var(--sec-border)',
+        }}
+      >
           {isHost ? (
             <div style={{ display: 'flex', gap: 10 }}>
               <Button
@@ -550,8 +548,7 @@ export default function HostedTableExperience({
               {totalOnline > 0 ? `Join · R${totalOnline.toFixed(0)}` : 'Join table'}
             </Button>
           )}
-        </footer>
-      )}
+      </footer>
 
       <HostedTableJoinWizard
         open={joinWizardOpen}
