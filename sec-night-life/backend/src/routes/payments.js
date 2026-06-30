@@ -1267,16 +1267,19 @@ async function applyReferenceSideEffects(reference, paystackData) {
       const joinZar = Number(metadata.join_zar ?? member?.hostedTable?.joiningFee ?? 0) || 0;
       const menuZar = Number(metadata.menu_zar || metadata.menu_total_zar || 0) || 0;
       const expected = entranceZar + joinZar + menuZar;
+      const alreadyFulfilled =
+        member.status === 'GOING' && member.paystackReference === reference;
       if (
         member &&
-        member.paystackReference !== reference &&
+        !alreadyFulfilled &&
         expected > 0 &&
         Math.abs(Number(amount) - expected) < 0.01
       ) {
           await prisma.$transaction(async (tx) => {
             const htRow = await tx.hostedTable.findUnique({ where: { id: String(htid) } });
             const mem = await tx.hostedTableMember.findUnique({ where: { id: member.id } });
-            if (!htRow || !mem || mem.paystackReference === reference || htRow.spotsRemaining <= 0) return;
+            if (!htRow || !mem || htRow.spotsRemaining <= 0) return;
+            if (mem.status === 'GOING' && mem.paystackReference === reference) return;
             await tx.hostedTableMember.update({
               where: { id: member.id },
               data: {
@@ -1662,12 +1665,64 @@ async function applyReferenceSideEffects(reference, paystackData) {
   }
 }
 
+async function ensureHostedTableJoinFulfillmentForPayment(reference, paystackData = null) {
+  const pay = await prisma.payment.findUnique({
+    where: { reference },
+    select: { userId: true, amount: true, metadata: true, status: true },
+  });
+  if (!pay) return { repaired: false, reason: 'payment_not_found' };
+
+  const paid = pay.status === 'success' || paystackData?.status === 'success';
+  if (!paid) return { repaired: false, reason: 'not_paid' };
+
+  const metadata = flattenPaymentMetadata(pay.metadata);
+  if (metadata.type !== 'HOSTED_TABLE_JOIN') return { repaired: false, reason: 'wrong_type' };
+
+  const memberId = metadata.hosted_table_member_id || metadata.hostedTableMemberId;
+  if (!memberId) return { repaired: false, reason: 'missing_member' };
+
+  const member = await prisma.hostedTableMember.findUnique({ where: { id: String(memberId) } });
+  if (!member) return { repaired: false, reason: 'member_not_found' };
+
+  const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+  if (member.status === 'GOING' && ticket) return { repaired: false, reason: 'already_fulfilled' };
+
+  const needsRepair =
+    (member.status === 'PENDING' && member.hostReviewedAt) ||
+    (member.status === 'GOING' && !ticket);
+  if (!needsRepair) return { repaired: false, reason: 'no_repair_needed' };
+
+  const priorMeta = flattenPaymentMetadata(pay.metadata);
+  await prisma.payment.updateMany({
+    where: { reference },
+    data: {
+      metadata: {
+        ...priorMeta,
+        side_effects_applied: false,
+        side_effects_processing: false,
+      },
+    },
+  });
+
+  const amountKobo = paystackData?.amount ?? Math.round(Number(pay.amount || 0) * 100);
+  await applyReferenceSideEffects(reference, {
+    status: 'success',
+    amount: amountKobo,
+    metadata: pay.metadata,
+  });
+
+  return { repaired: true };
+}
+
 async function runPaymentRepairPaths(reference, paystackData) {
   await ensureEventTicketsForPayment(reference, paystackData).catch((e) => {
     console.warn('ensureEventTicketsForPayment repair failed', e?.message);
   });
   await ensureVenueTableFulfillmentForPayment(reference, paystackData).catch((e) => {
     console.warn('ensureVenueTableFulfillmentForPayment repair failed', e?.message);
+  });
+  await ensureHostedTableJoinFulfillmentForPayment(reference, paystackData).catch((e) => {
+    console.warn('ensureHostedTableJoinFulfillmentForPayment repair failed', e?.message);
   });
   await finalizePaymentIfFulfilled(reference, paystackData);
 }
@@ -1699,6 +1754,13 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
   }
 
   if (type === 'TABLE_HOST_FEE' || type === 'HOSTED_TABLE_JOIN') {
+    if (type === 'HOSTED_TABLE_JOIN') {
+      const memberId = paidMeta.hosted_table_member_id || paidMeta.hostedTableMemberId;
+      if (memberId) {
+        const member = await prisma.hostedTableMember.findUnique({ where: { id: String(memberId) } });
+        if (member?.status !== 'GOING') return false;
+      }
+    }
     const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
     return Boolean(ticket);
   }
@@ -1728,6 +1790,17 @@ async function buildPaymentVerifyResponse(reference, paystackStatus) {
       if (memberId) {
         const member = await prisma.venueTableMember.findUnique({ where: { id: String(memberId) } });
         if (member?.status === 'CONFIRMED') {
+          const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+          fulfillmentApplied = true;
+          fulfillmentPending = !ticket;
+        }
+      }
+    }
+    if (type === 'HOSTED_TABLE_JOIN') {
+      const memberId = paidMeta.hosted_table_member_id || paidMeta.hostedTableMemberId;
+      if (memberId) {
+        const member = await prisma.hostedTableMember.findUnique({ where: { id: String(memberId) } });
+        if (member?.status === 'GOING') {
           const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
           fulfillmentApplied = true;
           fulfillmentPending = !ticket;

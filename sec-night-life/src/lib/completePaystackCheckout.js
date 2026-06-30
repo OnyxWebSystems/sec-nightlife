@@ -10,6 +10,7 @@ export function invalidatePostPaymentQueries(queryClient, { eventId } = {}) {
   queryClient.invalidateQueries({ queryKey: ['venue-analytics'] });
   queryClient.invalidateQueries({ queryKey: ['biz-ticket-bookings'] });
   queryClient.invalidateQueries({ queryKey: ['venue-table'] });
+  queryClient.invalidateQueries({ queryKey: ['hosted-table-detail'] });
   queryClient.invalidateQueries({ queryKey: ['event-table-tiers'] });
   queryClient.invalidateQueries({ queryKey: ['venue-events'] });
   queryClient.invalidateQueries({ queryKey: ['notifications'] });
@@ -57,6 +58,8 @@ export async function completePaystackCheckout({
         paymentType === 'VENUE_TABLE_JOIN'
       ) {
         toast.success('Payment confirmed — check Host Dashboard and Profile → Tickets');
+      } else if (paymentType === 'HOSTED_TABLE_JOIN') {
+        toast.success('Payment confirmed — your table QR is in Profile → Tickets');
       } else {
         toast.success('Payment confirmed');
       }

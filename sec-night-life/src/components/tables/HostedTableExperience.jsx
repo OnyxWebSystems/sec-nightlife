@@ -91,6 +91,7 @@ export default function HostedTableExperience({
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [joinWizardOpen, setJoinWizardOpen] = useState(false);
+  const [joinPaid, setJoinPaid] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [hostedMenuSelected, setHostedMenuSelected] = useState({});
@@ -113,6 +114,7 @@ export default function HostedTableExperience({
   );
   const tableStatus = hostedTable.status || 'ACTIVE';
   const isGoingMember = hostedTable.my_membership?.status === 'GOING';
+  const hasCompletedJoinPayment = isGoingMember || joinPaid;
   const isHost = hostedTable.is_host;
   const tableJoinable =
     tableStatus === 'ACTIVE' && spotsRemaining > 0 && !isPendingMember;
@@ -140,10 +142,13 @@ export default function HostedTableExperience({
           accessCode: r.access_code,
           authorizationUrl: r.authorization_url,
           onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: r.reference, payload, queryClient });
+            const result = await completePaystackCheckout({ reference: r.reference, payload, queryClient });
             invalidateTableQueries();
             setJoinWizardOpen(false);
-            toast.success('Payment complete — you joined the table.');
+            if (result?.fulfilled) {
+              setJoinPaid(true);
+              toast.success('Payment complete — you joined the table. View your QR in Profile → Tickets.');
+            }
           },
         });
         return;
@@ -206,9 +211,10 @@ export default function HostedTableExperience({
           accessCode: r.access_code,
           authorizationUrl: r.authorization_url,
           onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: r.reference, payload, queryClient });
+            const result = await completePaystackCheckout({ reference: r.reference, payload, queryClient });
             invalidateTableQueries();
             setJoinWizardOpen(false);
+            if (result?.fulfilled) setJoinPaid(true);
           },
         });
         return;
@@ -538,14 +544,14 @@ export default function HostedTableExperience({
                 Host Dashboard
               </Button>
             </div>
-          ) : isGoingMember ? (
+          ) : hasCompletedJoinPayment ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', gap: 10 }}>
                 <Button
                   variant="outline"
-                  className="flex-1 border-[var(--sec-accent-border)]"
+                  className="flex-1 border-[var(--sec-success)] text-[var(--sec-success)]"
                   disabled
-                  style={{ opacity: 0.7 }}
+                  style={{ opacity: 1 }}
                 >
                   <Check size={16} className="mr-2" />
                   Paid
