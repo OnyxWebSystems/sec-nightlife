@@ -56,7 +56,7 @@ export default function PaymentSuccess() {
         const savedContextRaw = localStorage.getItem(VENUE_PAYMENT_CONTEXT_KEY);
         const savedContext = savedContextRaw ? JSON.parse(savedContextRaw) : null;
 
-        const r = await verifyPaystackReferenceWithRetry(ref, { retries: 8, baseDelayMs: 1200 });
+        const r = await verifyPaystackReferenceWithRetry(ref, { retries: 4, baseDelayMs: 500 });
         const fulfilled =
           r?.fulfillment?.applied === true ||
           (r?.status === 'paid' && r?.fulfillment?.applied !== false);

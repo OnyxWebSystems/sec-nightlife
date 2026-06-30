@@ -807,7 +807,7 @@ export default function VenueOnboarding() {
   }
 
   return (
-    <div className="min-h-screen p-4 flex flex-col" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+    <div className="min-h-screen p-4 flex flex-col max-w-full overflow-x-hidden" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
       {isStaffEdit ? (
         <PageBackHeader
           title="Edit venue setup"
@@ -820,7 +820,7 @@ export default function VenueOnboarding() {
       <div className="flex items-center justify-center pt-8 pb-6 max-w-md mx-auto w-full">
         <div className="flex items-center gap-3">
           <SecLogo size={40} variant="full" />
-          <span className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--sec-text-primary)' }}>Sec for Business</span>
+          <span className="text-xl sm:text-2xl font-bold truncate min-w-0" style={{ color: 'var(--sec-text-primary)' }}>Sec for Business</span>
         </div>
       </div>
       ) : null}
@@ -1261,7 +1261,7 @@ export default function VenueOnboarding() {
           </div>
 
           {/* Navigation */}
-      <div className="max-w-md mx-auto w-full pt-6">
+      <div className="max-w-md mx-auto w-full pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <div className="flex gap-3">
           <Button
             onClick={() => {

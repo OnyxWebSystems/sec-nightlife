@@ -56,7 +56,7 @@ export default function Onboarding() {
   }
 
   return (
-    <div className="min-h-screen p-4 flex flex-col pt-[max(1rem,env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+    <div className="min-h-screen p-4 flex flex-col" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
       <div className="flex items-center justify-center pt-10 pb-8 max-w-md mx-auto w-full">
         <div className="flex items-center gap-3">
           <SecLogo size={32} variant="full" />

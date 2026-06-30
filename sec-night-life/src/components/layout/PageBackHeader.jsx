@@ -53,7 +53,7 @@ export default function PageBackHeader({
 
   return (
     <header
-      className="sticky top-0 z-40 border-b backdrop-blur-md"
+      className="sticky top-0 z-40 border-b backdrop-blur-md pt-[env(safe-area-inset-top)]"
       style={{
         backgroundColor: 'rgba(10, 10, 11, 0.92)',
         borderColor: 'var(--sec-border)',

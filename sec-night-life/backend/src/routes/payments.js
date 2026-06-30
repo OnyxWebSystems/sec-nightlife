@@ -1717,7 +1717,24 @@ async function buildPaymentVerifyResponse(reference, paystackStatus) {
     select: { metadata: true, type: true },
   });
   const paidMeta = flattenPaymentMetadata(paidRow?.metadata);
-  const fulfillmentApplied = await isPaymentFulfillmentComplete(reference, paidMeta);
+  let fulfillmentApplied = await isPaymentFulfillmentComplete(reference, paidMeta);
+  let fulfillmentPending = false;
+
+  if (!fulfillmentApplied && paystackStatus === 'success') {
+    const type = paidMeta.type || '';
+    if (type === 'TABLE_CHECKOUT' || type === 'VENUE_TABLE_JOIN') {
+      const memberId = paidMeta.venueTableMemberId || paidMeta.venue_table_member_id;
+      if (memberId) {
+        const member = await prisma.venueTableMember.findUnique({ where: { id: String(memberId) } });
+        if (member?.status === 'CONFIRMED') {
+          const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+          fulfillmentApplied = true;
+          fulfillmentPending = !ticket;
+        }
+      }
+    }
+  }
+
   const responseStatus = fulfillmentApplied ? 'paid' : 'processing';
 
   return {
@@ -1725,6 +1742,7 @@ async function buildPaymentVerifyResponse(reference, paystackStatus) {
     paystack_status: paystackStatus,
     fulfillment: {
       applied: fulfillmentApplied,
+      pending: fulfillmentPending,
       error: paidMeta.side_effects_error || null,
     },
     payment_type: paidMeta.type || paidRow?.type || null,

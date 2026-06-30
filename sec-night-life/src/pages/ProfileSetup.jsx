@@ -364,7 +364,7 @@ export default function ProfileSetup() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
+    <div className="min-h-screen flex flex-col max-w-full overflow-x-hidden" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
       {/* Header — SecLogo + Sec */}
       <div className="flex items-center justify-center pt-8 pb-6 max-w-md mx-auto w-full px-4">
         <div className="flex items-center gap-3">
@@ -379,7 +379,7 @@ export default function ProfileSetup() {
       <OnboardingStepIndicator steps={steps} currentStep={step} />
 
       {/* Form content */}
-      <div className="flex-1 max-w-md mx-auto w-full overflow-y-auto px-4 pb-6">
+      <div className="flex-1 max-w-md mx-auto w-full overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <AnimatePresence mode="wait">
           {step === 1 && (
             <motion.div

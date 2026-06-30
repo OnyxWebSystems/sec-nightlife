@@ -127,7 +127,7 @@ export default function TableJoinOnboarding() {
     border: '1px solid var(--sec-border)',
     borderRadius: 'var(--radius-md)',
     color: 'var(--sec-text-primary)',
-    fontSize: 14,
+    fontSize: 16,
   };
 
   const labelStyle = {
@@ -268,7 +268,7 @@ export default function TableJoinOnboarding() {
                 border: '1px solid var(--sec-border)',
                 borderRadius: 'var(--radius-md)',
                 color: 'var(--sec-text-primary)',
-                fontSize: 14, padding: '12px 14px', resize: 'none',
+                fontSize: 16, padding: '12px 14px', resize: 'none',
               }}
             />
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>Tell the host why you'd like to join (optional)</p>
@@ -463,7 +463,9 @@ export default function TableJoinOnboarding() {
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         borderBottom: '1px solid var(--sec-border)',
-        padding: '0 20px', height: 60,
+        padding: '0 20px',
+        paddingTop: 'env(safe-area-inset-top)',
+        minHeight: 60,
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
         {/* Back */}

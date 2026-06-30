@@ -13,6 +13,18 @@ import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfte
 import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
 import { canJoinTablesAsGuest } from '../lib/access.js';
+import { issueTicketAndNotify } from '../lib/issueTicket.js';
+import {
+  visibleUntilForVenueTableMember,
+  visibleUntilForDayVenueTable,
+  eventStartsAtFromEvent,
+  eventEndsAtFromEvent,
+  dayStartsAtFromVenueTable,
+  dayEndsAtFromVenueTable,
+  holderDisplayNameFromUser,
+} from '../lib/ticketHelpers.js';
+import { buildVenueTableMemberTicketSummary } from '../lib/ticketMemberSummary.js';
+import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
 
 const router = Router();
 
@@ -973,11 +985,52 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
           });
         }
       });
+      const payer = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+      });
+      const confirmedMember = await prisma.venueTableMember.findUnique({
+        where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+      });
+      const freeRef = `free_join_${table.id}_${req.userId}`;
+      const visFallback = table.event?.date
+        ? visibleUntilForVenueTableMember(table, table.event)
+        : visibleUntilForDayVenueTable(table);
+      const eventStartsAt = table.event ? eventStartsAtFromEvent(table.event) : dayStartsAtFromVenueTable(table);
+      const eventEndsAt = table.event ? eventEndsAtFromEvent(table.event) : dayEndsAtFromVenueTable(table);
+      const minSpendZar = isHost
+        ? Number(table.hostMinimumSpend ?? table.minimumSpend ?? 0)
+        : Number(table.minimumSpend ?? 0);
+      let menuResolved = null;
+      if (menuSelections.length && table.venueId) {
+        menuResolved = await resolveVenueMenuSelections(menuSelections, table.venueId);
+      }
+      const tableSpecsSummary = await buildVenueTableMemberTicketSummary(prisma, {
+        member: confirmedMember,
+        table,
+        venue: table.venue,
+        bookingMode,
+        settlementMode,
+        minSpendZar,
+        menuItemsResolved: menuResolved,
+      });
+      await issueTicketAndNotify(prisma, {
+        userId: req.userId,
+        email: payer?.email,
+        paystackReference: freeRef,
+        kind: 'VENUE_TABLE_JOIN',
+        title: table.event?.title ? `${table.tableName} — ${table.event.title}` : table.tableName,
+        subtitle: table.venue?.name || null,
+        visibleUntil: visFallback,
+        venueTableId: table.id,
+        eventId: table.eventId || null,
+        quantity: 1,
+        holderDisplayName: holderDisplayNameFromUser(payer),
+        tableSpecsSummary,
+        eventStartsAt,
+        eventEndsAt,
+      });
       if (isHost) {
-        const payer = await prisma.user.findUnique({
-          where: { id: req.userId },
-          select: { email: true },
-        });
         await notifyPaymentSuccess({
           userId: req.userId,
           email: payer?.email,

@@ -18,11 +18,20 @@ import RefundRequestDialog from '@/components/refunds/RefundRequestDialog';
 
 function TicketQrBlock({ verifyUrl, eventCode }) {
   const [dataUrl, setDataUrl] = useState(null);
+  const [size, setSize] = useState(144);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(min-width: 640px)');
+    const sync = () => setSize(mq.matches ? 176 : 144);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     const ecLevel = verifyUrl.length > 200 ? 'H' : 'M';
     QRCode.toDataURL(verifyUrl, {
-      width: 176,
+      width: size,
       margin: 1,
       errorCorrectionLevel: ecLevel,
       color: { dark: '#0a0a0b', light: '#ffffff' },
@@ -36,20 +45,22 @@ function TicketQrBlock({ verifyUrl, eventCode }) {
     return () => {
       cancelled = true;
     };
-  }, [verifyUrl]);
+  }, [verifyUrl, size]);
+
+  const dimClass = size <= 144 ? 'w-36 h-36' : 'w-44 h-44';
 
   if (!dataUrl) {
-    return <div className="w-44 h-44 rounded-md bg-white/10 animate-pulse shrink-0" />;
+    return <div className={`${dimClass} rounded-md bg-white/10 animate-pulse shrink-0`} />;
   }
 
   return (
-    <div className="flex flex-col items-end gap-1 shrink-0">
+    <div className="flex flex-col items-center sm:items-end gap-1 shrink-0">
       {eventCode ? (
-        <p className="text-xs font-bold font-mono tracking-widest text-[var(--sec-accent)] text-right">
+        <p className="text-xs font-bold font-mono tracking-widest text-[var(--sec-accent)] text-center sm:text-right">
           {eventCode}
         </p>
       ) : null}
-      <div className="relative w-44 h-44 shrink-0">
+      <div className={`relative ${dimClass} shrink-0`}>
         <img src={dataUrl} alt="" className="w-full h-full rounded-md bg-white p-1 object-contain" />
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-5">
           <img
@@ -189,11 +200,11 @@ export default function MyTickets({ userId }) {
     return (
       <Card className="glass-card border-[#262629] hover:border-[var(--sec-accent)]/30 transition-all">
         <CardContent className="p-4">
-          <div className="flex gap-4">
-            <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1 min-w-0 space-y-2 order-2 sm:order-1">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h3 className="font-semibold text-white leading-snug">{ticket.title}</h3>
+                  <h3 className="font-semibold text-white leading-snug break-words">{ticket.title}</h3>
                   {isRefunded && (
                     <span className="sec-badge sec-badge-muted text-[10px] mt-1 inline-block">Refunded</span>
                   )}
@@ -204,7 +215,7 @@ export default function MyTickets({ userId }) {
                 <img
                   src="/sec-logo.png"
                   alt=""
-                  className="h-8 w-8 object-contain opacity-90 shrink-0"
+                  className="h-8 w-8 object-contain opacity-90 shrink-0 hidden sm:block"
                   onError={(e) => {
                     e.currentTarget.src = '/Logo/sec-email-logo-transparent.png';
                   }}
@@ -213,11 +224,11 @@ export default function MyTickets({ userId }) {
               {ticket.subtitle && (
                 <div className="flex items-center gap-2 text-sm text-gray-400">
                   <Ticket className="w-3.5 h-3.5 shrink-0" />
-                  <span>{ticket.subtitle}</span>
+                  <span className="break-words">{ticket.subtitle}</span>
                 </div>
               )}
               {ticket.table_specs_summary && (
-                <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{ticket.table_specs_summary}</p>
+                <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line break-words">{ticket.table_specs_summary}</p>
               )}
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Calendar className="w-3.5 h-3.5 shrink-0" />
@@ -263,19 +274,19 @@ export default function MyTickets({ userId }) {
                   </Button>
                 )}
               </div>
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-gray-500">
                 Issued {ticket.created_at ? format(parseISO(ticket.created_at), 'MMM dd, yyyy') : '—'}
               </p>
             </div>
 
-            <div className="flex flex-col items-end gap-1 shrink-0">
+            <div className="flex flex-col items-center sm:items-end gap-1 shrink-0 order-1 sm:order-2">
               <TicketQrBlock verifyUrl={verifyUrl} eventCode={ticket.event_code} />
               {(ticket.venue_name || doorTimeLabel) && (
-                <p className="text-[10px] text-gray-300 text-right max-w-[11rem] leading-snug font-medium">
+                <p className="text-[10px] text-gray-400 text-center sm:text-right max-w-[11rem] leading-snug font-medium">
                   {[ticket.venue_name, doorTimeLabel].filter(Boolean).join(' · ')}
                 </p>
               )}
-              <span className="text-[10px] text-gray-600 text-right max-w-[11rem] leading-tight">
+              <span className="text-[10px] text-gray-400 text-center sm:text-right max-w-[11rem] leading-tight">
                 Venue and time are in the QR link for quick checks
               </span>
             </div>
@@ -320,6 +331,12 @@ export default function MyTickets({ userId }) {
       <p className="text-xs text-gray-500 px-1">
         Active shows all valid tickets, including upcoming events. Refunded and expired tickets are under Inactive.
       </p>
+
+      {tab === 'active' && !activeLoading && activeTickets.length === 0 && inactiveTickets.length > 0 && (
+        <p className="text-xs text-amber-200/90 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2">
+          You have tickets under Inactive (expired or refunded). Switch to the Inactive tab to view them.
+        </p>
+      )}
 
       {tab === 'active' && activeTickets.length > 0 && (
         <Button

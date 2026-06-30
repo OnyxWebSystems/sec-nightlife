@@ -26,8 +26,8 @@ export async function completePaystackCheckout({
   reference,
   payload,
   queryClient,
-  retries = 8,
-  baseDelayMs = 1200,
+  retries = 4,
+  baseDelayMs = 500,
   showToasts = true,
 }) {
   const ref = payload?.reference || reference;

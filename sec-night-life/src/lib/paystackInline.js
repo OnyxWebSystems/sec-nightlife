@@ -13,7 +13,7 @@ function isPaystackV2Loaded() {
   );
 }
 
-function loadPaystackScript() {
+export async function loadPaystackScript() {
   if (typeof window === 'undefined') return Promise.reject(new Error('Window not available'));
   if (isPaystackV2Loaded()) return Promise.resolve(window.PaystackPop);
 

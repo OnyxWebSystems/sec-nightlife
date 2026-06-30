@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Ticket, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { launchPaystackInline } from '@/lib/paystackInline';
+import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { getStoredPromoterRef } from '@/utils';
 import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
@@ -39,6 +39,10 @@ export default function TicketPurchaseButton({ event }) {
     queryFn: () => apiGet(`/api/business/venues/${venueId}/menu-items/public`),
     enabled: menuEnabled && !!venueId && isOpen,
   });
+
+  useEffect(() => {
+    loadPaystackScript().catch(() => {});
+  }, []);
 
   useEffect(() => {
     setHolderNames((prev) => {
@@ -120,9 +124,9 @@ export default function TicketPurchaseButton({ event }) {
           reference: res.reference,
           accessCode: res.access_code,
           authorizationUrl: res.authorization_url,
-          onSuccess: async (payload) => {
-            const result = await completePaystackCheckout({ reference: res.reference, payload, queryClient });
-            if (result?.fulfilled) setPaymentComplete(true);
+          onSuccess: (payload) => {
+            setPaymentComplete(true);
+            void completePaystackCheckout({ reference: res.reference, payload, queryClient });
           },
           onCancel: () => toast.message('Checkout cancelled'),
         });

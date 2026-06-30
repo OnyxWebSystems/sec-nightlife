@@ -92,12 +92,6 @@ export async function issueTicketAndNotify(db, params) {
   });
   if (existing) return existing;
 
-  if (hostedTableId && kind === 'HOSTED_TABLE_JOIN') {
-    await hideSupersededHostedTableGuestTickets(db, { userId, hostedTableId });
-  } else if (venueTableId && kind === 'VENUE_TABLE_JOIN') {
-    await hideSupersededVenueTableGuestTickets(db, { userId, venueTableId });
-  }
-
   let holderDisplayName = holderParam;
   if (holderDisplayName == null || holderDisplayName === '') {
     const u = await db.user.findUnique({
@@ -150,6 +144,12 @@ export async function issueTicketAndNotify(db, params) {
       promoterUserId: promoterUserId || null,
     },
   });
+
+  if (hostedTableId && kind === 'HOSTED_TABLE_JOIN') {
+    await hideSupersededHostedTableGuestTickets(db, { userId, hostedTableId, excludeTicketId: ticket.id });
+  } else if (venueTableId && kind === 'VENUE_TABLE_JOIN') {
+    await hideSupersededVenueTableGuestTickets(db, { userId, venueTableId, excludeTicketId: ticket.id });
+  }
 
   const door = await buildTicketDoorContext(db, ticket);
   const base = ticketVerifyPublicOrigin();

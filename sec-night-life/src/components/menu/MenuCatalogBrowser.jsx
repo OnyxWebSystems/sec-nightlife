@@ -36,7 +36,7 @@ function MenuMakerCard({ item, onAdd, added }) {
         <UtensilsCrossed className="w-5 h-5 opacity-35" style={{ color: 'var(--sec-text-muted)' }} aria-hidden />
       </div>
       <div className="min-h-0 flex-1">
-        <p className="text-sm font-semibold truncate" style={{ color: 'var(--sec-text-primary)' }}>
+        <p className="text-[16px] font-semibold truncate" style={{ color: 'var(--sec-text-primary)' }}>
           {item.name}
         </p>
         {item.sub_category && (
@@ -274,7 +274,7 @@ export default function MenuCatalogBrowser({
       </div>
 
       {!termsAccepted ? (
-        <p className="text-sm text-center py-6" style={{ color: 'var(--sec-text-muted)' }}>
+        <p className="text-[16px] text-center py-6" style={{ color: 'var(--sec-text-muted)' }}>
           Accept the notice above to use Menu Maker.
         </p>
       ) : (
@@ -286,7 +286,7 @@ export default function MenuCatalogBrowser({
           placeholder="Search common items…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full h-11 pl-10 pr-3 rounded-xl border text-sm"
+          className="w-full h-11 pl-10 pr-3 rounded-xl border text-[16px]"
           style={{ backgroundColor: 'var(--sec-bg-card)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
         />
       </div>
@@ -342,9 +342,9 @@ export default function MenuCatalogBrowser({
       )}
 
       {isLoading ? (
-        <p className="text-sm text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>Loading Menu Maker…</p>
+        <p className="text-[16px] text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>Loading Menu Maker…</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>
+        <p className="text-[16px] text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>
           No items found. Add a custom item below.
         </p>
       ) : groupedDrinks ? (
@@ -383,7 +383,7 @@ export default function MenuCatalogBrowser({
       <div className="border-t pt-4" style={{ borderColor: 'var(--sec-border)' }}>
         <button
           type="button"
-          className="flex items-center gap-2 text-sm font-medium w-full"
+          className="flex items-center gap-2 text-[16px] font-medium w-full"
           style={{ color: 'var(--sec-text-primary)' }}
           onClick={() => setCustomOpen((o) => !o)}
         >
@@ -393,14 +393,14 @@ export default function MenuCatalogBrowser({
         {customOpen && (
           <div className="mt-3 space-y-2 rounded-xl p-3" style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)' }}>
             <input
-              className="w-full h-10 px-3 rounded-lg text-sm border"
+              className="w-full h-10 px-3 rounded-lg text-[16px] border"
               placeholder="Item name"
               value={custom.name}
               onChange={(e) => setCustom((c) => ({ ...c, name: e.target.value }))}
               style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
             />
             <input
-              className="w-full h-10 px-3 rounded-lg text-sm border"
+              className="w-full h-10 px-3 rounded-lg text-[16px] border"
               placeholder="Price (ZAR)"
               type="number"
               value={custom.price}
@@ -408,14 +408,14 @@ export default function MenuCatalogBrowser({
               style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
             />
             <input
-              className="w-full h-10 px-3 rounded-lg text-sm border"
+              className="w-full h-10 px-3 rounded-lg text-[16px] border"
               placeholder={`Category (e.g. ${topCategory}, Cocktails, Starters)`}
               value={custom.category}
               onChange={(e) => setCustom((c) => ({ ...c, category: e.target.value }))}
               style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)', color: 'var(--sec-text-primary)' }}
             />
             <input
-              className="w-full h-10 px-3 rounded-lg text-sm border"
+              className="w-full h-10 px-3 rounded-lg text-[16px] border"
               placeholder="Sub-category (optional, e.g. Premium, Sharing)"
               value={custom.sub_category}
               onChange={(e) => setCustom((c) => ({ ...c, sub_category: e.target.value }))}
@@ -440,7 +440,7 @@ export default function MenuCatalogBrowser({
             <button
               type="button"
               onClick={addCustom}
-              className="w-full h-10 rounded-lg text-sm font-semibold flex items-center justify-center gap-1"
+              className="w-full h-10 rounded-lg text-[16px] font-semibold flex items-center justify-center gap-1"
               style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
               <Plus size={14} /> Add custom item
@@ -480,7 +480,7 @@ export default function MenuCatalogBrowser({
             <input
               type="text"
               maxLength={60}
-              className="w-full h-10 px-3 rounded-xl border mb-2 text-sm"
+              className="w-full h-10 px-3 rounded-xl border mb-2 text-[16px]"
               value={pendingCategory}
               onChange={(e) => setPendingCategory(e.target.value)}
               placeholder="e.g. Drinks, Food, Cocktails"
@@ -492,7 +492,7 @@ export default function MenuCatalogBrowser({
             <input
               type="text"
               maxLength={80}
-              className="w-full h-10 px-3 rounded-xl border mb-3 text-sm"
+              className="w-full h-10 px-3 rounded-xl border mb-3 text-[16px]"
               value={pendingSubCategory}
               onChange={(e) => setPendingSubCategory(e.target.value)}
               placeholder="e.g. Beer, Starters"

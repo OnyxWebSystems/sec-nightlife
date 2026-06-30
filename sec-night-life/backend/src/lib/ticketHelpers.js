@@ -239,7 +239,7 @@ export function formatSpecsFromHostedTable(ht, members) {
 /**
  * Hide older guest passes for the same hosted table so Profile → Tickets shows one current QR.
  */
-export async function hideSupersededHostedTableGuestTickets(db, { userId, hostedTableId }) {
+export async function hideSupersededHostedTableGuestTickets(db, { userId, hostedTableId, excludeTicketId = null }) {
   if (!userId || !hostedTableId) return { hidden: 0 };
   const now = new Date();
   const result = await db.ticket.updateMany({
@@ -248,6 +248,7 @@ export async function hideSupersededHostedTableGuestTickets(db, { userId, hosted
       hostedTableId: String(hostedTableId),
       kind: 'HOSTED_TABLE_JOIN',
       hiddenFromHistoryAt: null,
+      ...(excludeTicketId ? { id: { not: String(excludeTicketId) } } : {}),
     },
     data: { hiddenFromHistoryAt: now },
   });
@@ -257,7 +258,7 @@ export async function hideSupersededHostedTableGuestTickets(db, { userId, hosted
 /**
  * Hide older guest passes for the same venue table (menu top-ups, re-joins).
  */
-export async function hideSupersededVenueTableGuestTickets(db, { userId, venueTableId }) {
+export async function hideSupersededVenueTableGuestTickets(db, { userId, venueTableId, excludeTicketId = null }) {
   if (!userId || !venueTableId) return { hidden: 0 };
   const now = new Date();
   const result = await db.ticket.updateMany({
@@ -266,6 +267,7 @@ export async function hideSupersededVenueTableGuestTickets(db, { userId, venueTa
       venueTableId: String(venueTableId),
       kind: 'VENUE_TABLE_JOIN',
       hiddenFromHistoryAt: null,
+      ...(excludeTicketId ? { id: { not: String(excludeTicketId) } } : {}),
     },
     data: { hiddenFromHistoryAt: now },
   });

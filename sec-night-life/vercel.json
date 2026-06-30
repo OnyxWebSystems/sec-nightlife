@@ -6,8 +6,31 @@
       "destination": "/.well-known/$1"
     },
     {
-      "source": "/(.*)",
+      "source": "/paystack-demo.html",
+      "destination": "/paystack-demo.html"
+    },
+    {
+      "source": "/paystack-demo.mp4",
+      "destination": "/paystack-demo.mp4"
+    },
+    {
+      "source": "/assets/(.*)",
+      "destination": "/assets/$1"
+    },
+    {
+      "source": "/((?!assets/|\\.well-known/|paystack-demo).*)",
       "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
     }
   ],
   "experimentalServices": {

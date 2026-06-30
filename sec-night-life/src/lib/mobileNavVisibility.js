@@ -1,11 +1,17 @@
 import { MOBILE_NAV_HIDDEN_PAGES } from '@/lib/mobilePageShell';
 
-const MESSAGE_PAGES = new Set(['Messages', 'BusinessMessages']);
-const THREAD_PARAMS = ['dm', 'group', 'venueTableThread', 'promoterVenue'];
+const MESSAGE_THREAD_PARAMS = ['dm', 'group', 'venueTableThread', 'promoterVenue'];
+const BUSINESS_THREAD_PARAMS = ['application', 'thread', 'promoterVenue'];
 
-function hasActiveThread(searchParams) {
+function isInMessageThread(pageName, searchParams) {
   if (!searchParams) return false;
-  return THREAD_PARAMS.some((key) => Boolean(searchParams.get(key)));
+  if (pageName === 'Messages') {
+    return MESSAGE_THREAD_PARAMS.some((key) => Boolean(searchParams.get(key)));
+  }
+  if (pageName === 'BusinessMessages') {
+    return BUSINESS_THREAD_PARAMS.some((key) => Boolean(searchParams.get(key)));
+  }
+  return false;
 }
 
 /**
@@ -17,7 +23,7 @@ export function getMobileNavState({ pageName, searchParams }) {
   if (MOBILE_NAV_HIDDEN_PAGES.has(pageName)) {
     return { hideBottomNav: true };
   }
-  if (MESSAGE_PAGES.has(pageName) || hasActiveThread(searchParams)) {
+  if (isInMessageThread(pageName, searchParams)) {
     return { hideBottomNav: true };
   }
   return { hideBottomNav: false };

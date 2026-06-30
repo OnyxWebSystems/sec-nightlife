@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import HostedTableExperience from '@/components/tables/HostedTableExperience';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
-import { launchPaystackInline } from '@/lib/paystackInline';
+import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import VenueMenuBrowser, { getVenueMenuCartStats } from '@/components/menu/VenueMenuBrowser';
@@ -96,6 +96,12 @@ export default function TableDetails() {
   const [hostedMenuSelected, setHostedMenuSelected] = useState({});
 
   useEffect(() => { loadUser(); }, []);
+
+  useEffect(() => {
+    if (isVenueSource && user?.id) {
+      loadPaystackScript().catch(() => {});
+    }
+  }, [isVenueSource, user?.id]);
 
   const loadUser = async () => {
     try {
@@ -289,6 +295,7 @@ export default function TableDetails() {
       });
       const refreshBookingQueries = () => {
         queryClient.invalidateQueries(['venue-table', tableId]);
+        queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
         queryClient.invalidateQueries(['notifications']);
         queryClient.invalidateQueries(['notifications-unread']);
         if (venueTable?.eventId) {
@@ -314,23 +321,21 @@ export default function TableDetails() {
           reference: pay.reference,
           accessCode: pay.access_code,
           authorizationUrl: pay.authorization_url,
-          onSuccess: async (payload) => {
-            const result = await completePaystackCheckout({
-              reference: pay.reference,
-              payload,
-              queryClient,
-              showToasts: false,
-            });
+          onSuccess: (payload) => {
+            setPaymentComplete(true);
+            if (isHostCheckout) setHostPaySuccess(true);
             refreshBookingQueries();
-            if (result?.fulfilled) {
-              setPaymentComplete(true);
-            }
             if (isHostCheckout) {
-              setHostPaySuccess(true);
               toast.success('Payment successful — you are hosting this table');
             } else {
               toast.success('Payment successful — booking confirmed');
             }
+            void completePaystackCheckout({
+              reference: pay.reference,
+              payload,
+              queryClient,
+              showToasts: true,
+            });
           },
         });
       } else {

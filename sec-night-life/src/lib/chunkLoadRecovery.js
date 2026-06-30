@@ -17,6 +17,8 @@ export function isStaleChunkLoadError(reason) {
     /Loading chunk [\d]+ failed/i.test(msg) ||
     /Loading CSS chunk [\d]+ failed/i.test(msg) ||
     /ChunkLoadError/i.test(msg) ||
+    /valid JavaScript MIME/i.test(msg) ||
+    /text\/html.*MIME/i.test(msg) ||
     reason?.name === 'ChunkLoadError'
   );
 }
