@@ -69,7 +69,7 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
     const tier = tierMap.get(tierKey);
     const occupancy = await buildOccupancyForSlot(vt, bookingDate);
 
-    let canHost = true;
+    let canHost = occupancy.length === 0;
     let joinableSessions = occupancy.filter((o) => o.spotsRemaining > 0);
 
     if (userWindowStart && userWindowEnd) {
@@ -118,12 +118,19 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
         if (s.canHost) totalSpotsRemaining += tier.maxGuestsPerTable;
       }
     } else {
-      tablesOpenForHost = tier.slots.length;
-      tablesOpenForJoin = tier.slots.reduce((sum, s) => sum + (s.occupancy?.length || 0), 0);
-      totalSpotsRemaining = tier.slots.reduce(
-        (sum, s) => sum + (s.hostedTable?.spotsRemaining ?? tier.maxGuestsPerTable),
+      tablesOpenForHost = tier.slots.filter((s) => s.canHost).length;
+      const hostedJoinable = tier.slots.reduce(
+        (sum, s) => sum + (s.joinableSessions?.length || 0),
         0,
       );
+      tablesOpenForJoin = tablesOpenForHost + hostedJoinable;
+      totalSpotsRemaining = tier.slots.reduce((sum, s) => {
+        const joinSpots = (s.joinableSessions || []).reduce(
+          (n, j) => n + (j.hostedTable?.spotsRemaining || 0),
+          0,
+        );
+        return sum + joinSpots + (s.canHost ? tier.maxGuestsPerTable : 0);
+      }, 0);
     }
 
     return {

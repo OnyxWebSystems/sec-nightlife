@@ -7,7 +7,6 @@ import { ChevronLeft, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import EventTableTierCard from '@/components/events/EventTableTierCard';
 import EventTableTierSheet from '@/components/events/EventTableTierSheet';
-import DayBookingWindowPicker, { isWindowValid } from '@/components/tables/DayBookingWindowPicker';
 
 export default function VenueBook() {
   const navigate = useNavigate();
@@ -15,7 +14,6 @@ export default function VenueBook() {
   const venueId = params.get('venueId');
   const [selectedTier, setSelectedTier] = useState(null);
   const [ensuring, setEnsuring] = useState(false);
-  const [bookingWindow, setBookingWindow] = useState(null);
 
   const { data: venue } = useQuery({
     queryKey: ['venue', venueId],
@@ -23,32 +21,22 @@ export default function VenueBook() {
     enabled: !!venueId,
   });
 
-  const { data: tierData, isLoading, isError } = useQuery({
-    queryKey: ['venue-day-table-tiers', venueId, bookingWindow?.startTime, bookingWindow?.endTime],
-    queryFn: () => {
-      const qs = new URLSearchParams();
-      if (bookingWindow?.startTime) qs.set('windowStart', bookingWindow.startTime);
-      if (bookingWindow?.endTime) qs.set('windowEnd', bookingWindow.endTime);
-      const suffix = qs.toString() ? `?${qs.toString()}` : '';
-      return apiGet(`/api/venues/${venueId}/day-table-tiers${suffix}`);
-    },
+  const { data: tierData, isLoading, isError, refetch } = useQuery({
+    queryKey: ['venue-day-table-tiers', venueId],
+    queryFn: () => apiGet(`/api/venues/${venueId}/day-table-tiers`),
     enabled: !!venueId,
   });
 
   const tiers = tierData?.tiers ?? [];
-  const venueWindow = tierData?.venueWindow ?? tiers[0]?.venueWindow ?? null;
+  const venueWindow = tierData?.venueWindow ?? null;
   const customListingId = tierData?.customListingId ?? null;
   const allowsCustomRequests = Boolean(tierData?.allowsCustomRequests);
   const dayBookingsOn = Boolean(venue?.accepts_day_bookings ?? venue?.acceptsDayBookings);
-  const windowReady = isWindowValid(venueWindow, bookingWindow);
 
   const goCustomRequest = async () => {
     if (!venueId) return;
-    const windowQs = bookingWindow?.startTime && bookingWindow?.endTime
-      ? `&windowStart=${encodeURIComponent(bookingWindow.startTime)}&windowEnd=${encodeURIComponent(bookingWindow.endTime)}`
-      : '';
     if (customListingId) {
-      navigate(createPageUrl(`TableDetails?id=${customListingId}&source=venue&request=1${windowQs}`));
+      navigate(createPageUrl(`TableDetails?id=${customListingId}&source=venue&request=1`));
       return;
     }
     setEnsuring(true);
@@ -61,7 +49,7 @@ export default function VenueBook() {
         toast.error('Custom table request is not available for this venue right now.');
         return;
       }
-      navigate(createPageUrl(`TableDetails?id=${listingId}&source=venue&request=1${windowQs}`));
+      navigate(createPageUrl(`TableDetails?id=${listingId}&source=venue&request=1`));
     } catch (e) {
       if (e?.data?.code === 'HTML_INSTEAD_OF_JSON') {
         toast.error(
@@ -85,7 +73,14 @@ export default function VenueBook() {
         <ChevronLeft size={18} /> Back
       </button>
       <h1 className="text-xl font-bold mb-1">Book on Sec</h1>
-      <p className="text-sm text-[var(--sec-text-muted)] mb-6">{venue?.name || 'Venue'} — day bookings</p>
+      <p className="text-sm text-[var(--sec-text-muted)] mb-2">{venue?.name || 'Venue'} — day bookings</p>
+      {venueWindow ? (
+        <p className="text-xs text-[var(--sec-text-muted)] mb-6">
+          Open today {venueWindow.startTime}–{venueWindow.endTime}
+        </p>
+      ) : (
+        <div className="mb-6" />
+      )}
 
       {!dayBookingsOn ? (
         <div className="sec-card p-8 text-center text-sm text-[var(--sec-text-muted)]">
@@ -99,16 +94,6 @@ export default function VenueBook() {
         </div>
       ) : (
         <>
-          {venueWindow ? (
-            <div className="mb-4">
-              <DayBookingWindowPicker
-                venueWindow={venueWindow}
-                value={bookingWindow}
-                onChange={setBookingWindow}
-              />
-            </div>
-          ) : null}
-
           {tiers.length === 0 ? (
             <div className="sec-card p-8 text-center text-sm text-[var(--sec-text-muted)] mb-4">
               No day tables are open for booking today. Check back on another day, or request a custom table below.
@@ -120,14 +105,7 @@ export default function VenueBook() {
                   key={tier.tierKey}
                   tier={tier}
                   venueWindow={venueWindow}
-                  windowReady={windowReady}
-                  onSelect={(t) => {
-                    if (!windowReady) {
-                      toast.error('Select your arrival and leave times first');
-                      return;
-                    }
-                    setSelectedTier(t);
-                  }}
+                  onSelect={setSelectedTier}
                 />
               ))}
             </div>
@@ -153,7 +131,9 @@ export default function VenueBook() {
         onClose={() => setSelectedTier(null)}
         customListingId={customListingId}
         allowsCustomRequests={allowsCustomRequests}
-        bookingWindow={bookingWindow}
+        venueWindow={venueWindow}
+        venueId={venueId}
+        onRefetchTiers={refetch}
       />
     </div>
   );

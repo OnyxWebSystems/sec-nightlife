@@ -1,5 +1,8 @@
 import { prisma } from './prisma.js';
-import { getActiveDaySessions } from './dayBookingWindows.js';
+import {
+  computeLegacyWindowEndsAt,
+  isDaySessionStillActive,
+} from './dayBookingWindows.js';
 
 /**
  * Release a single day-booking host session without clearing other non-overlapping sessions on the same slot.
@@ -101,6 +104,42 @@ export async function releaseDayTableSession(tx, { hostedTableId }, { bumpSessio
         data: patch,
       });
     }
+  } else {
+    const linkedVenueTable = await tx.venueTable.findFirst({
+      where: { hostedTableId: hosted.id },
+      select: {
+        id: true,
+        hostedTableId: true,
+        hostUserId: true,
+        tableSessionNumber: true,
+        currentOccupancy: true,
+      },
+    });
+    if (linkedVenueTable) {
+      const nextSessionNumber = bumpSession
+        ? (Number(linkedVenueTable.tableSessionNumber) || 1) + 1
+        : Number(linkedVenueTable.tableSessionNumber) || 1;
+      await tx.venueTableMember.updateMany({
+        where: {
+          venueTableId: linkedVenueTable.id,
+          memberRole: 'HOST',
+          status: { in: ['CONFIRMED', 'APPROVED', 'PENDING_PAYMENT'] },
+          userId: hosted.hostUserId || undefined,
+        },
+        data: { status: 'LEFT' },
+      });
+      await tx.venueTable.update({
+        where: { id: linkedVenueTable.id },
+        data: {
+          hostedTableId: null,
+          hostUserId: null,
+          currentOccupancy: 0,
+          status: 'AVAILABLE',
+          amountContributed: 0,
+          tableSessionNumber: nextSessionNumber,
+        },
+      });
+    }
   }
 
   return { released: true, hostedTableId: hosted.id };
@@ -110,19 +149,17 @@ export async function releaseDayTableSession(tx, { hostedTableId }, { bumpSessio
 export async function expireDayTableSessions({ now = new Date() } = {}) {
   const expiredWithEnd = await prisma.hostedTable.findMany({
     where: {
-      venueTableId: { not: null },
+      eventId: null,
       status: { in: ['ACTIVE', 'FULL'] },
       windowEndsAt: { lte: now },
     },
     select: { id: true },
   });
 
-  const legacyCandidates = await prisma.hostedTable.findMany({
+  const allDayHosted = await prisma.hostedTable.findMany({
     where: {
-      venueTableId: { not: null },
-      status: { in: ['ACTIVE', 'FULL'] },
-      windowEndsAt: null,
       eventId: null,
+      status: { in: ['ACTIVE', 'FULL'] },
     },
     include: {
       venueTable: {
@@ -137,40 +174,57 @@ export async function expireDayTableSessions({ now = new Date() } = {}) {
     },
   });
 
-  const { computeLegacyWindowEndsAt } = await import('./dayBookingWindows.js');
   const legacyExpired = [];
-  for (const ht of legacyCandidates) {
-    const endsAt = computeLegacyWindowEndsAt(ht, ht.venueTable);
-    if (endsAt && endsAt.getTime() <= now.getTime()) {
+  for (const ht of allDayHosted) {
+    const venueTable =
+      ht.venueTable ||
+      (await prisma.venueTable.findFirst({
+        where: { hostedTableId: ht.id },
+        select: {
+          id: true,
+          serviceSchedule: true,
+          startTime: true,
+          endTime: true,
+          hostingTierKey: true,
+        },
+      }));
+    if (!isDaySessionStillActive(ht, venueTable, now)) {
       legacyExpired.push({ id: ht.id });
     }
   }
 
-  const staleViaVenueTable = await prisma.venueTable.findMany({
+  const staleVenueTables = await prisma.venueTable.findMany({
     where: {
       eventId: null,
       hostingTierKey: { startsWith: 'day:' },
       OR: [{ hostedTableId: { not: null } }, { hostUserId: { not: null } }],
     },
-    include: {
-      dayHostedSessions: {
-        where: { status: { in: ['ACTIVE', 'FULL'] } },
-      },
-    },
+    select: { id: true, hostedTableId: true },
   });
 
-  const orphanIds = [];
-  for (const vt of staleViaVenueTable) {
-    if (vt.hostedTableId && !vt.dayHostedSessions.some((s) => s.id === vt.hostedTableId)) {
-      orphanIds.push(vt.hostedTableId);
+  const staleVenueTableIds = [];
+  for (const vt of staleVenueTables) {
+    if (!vt.hostedTableId) {
+      staleVenueTableIds.push(vt.id);
+      continue;
     }
-    for (const s of vt.dayHostedSessions) {
-      if (!s.windowEndsAt) {
-        const endsAt = computeLegacyWindowEndsAt(s, vt);
-        if (endsAt && endsAt.getTime() <= now.getTime()) {
-          legacyExpired.push({ id: s.id });
-        }
-      }
+    const ht = await prisma.hostedTable.findUnique({
+      where: { id: vt.hostedTableId },
+      include: {
+        venueTable: {
+          select: {
+            id: true,
+            serviceSchedule: true,
+            startTime: true,
+            endTime: true,
+            hostingTierKey: true,
+          },
+        },
+      },
+    });
+    if (!ht || ht.status === 'CLOSED' || !isDaySessionStillActive(ht, ht.venueTable || vt, now)) {
+      staleVenueTableIds.push(vt.id);
+      if (ht?.id) legacyExpired.push({ id: ht.id });
     }
   }
 
@@ -178,17 +232,54 @@ export async function expireDayTableSessions({ now = new Date() } = {}) {
     ...new Set([
       ...expiredWithEnd.map((r) => r.id),
       ...legacyExpired.map((r) => r.id),
-      ...orphanIds,
     ]),
   ];
 
+  const releasedHostedIds = new Set();
   let released = 0;
-  for (const id of allIds) {
-    await prisma.$transaction(async (tx) => {
-      const result = await releaseDayTableSession(tx, { hostedTableId: id });
-      if (result.released) released += 1;
-    });
-  }
 
-  return { released, checked: allIds.length };
+  await prisma.$transaction(
+    async (tx) => {
+      for (const id of allIds) {
+        const result = await releaseDayTableSession(tx, { hostedTableId: id });
+        if (result.released) {
+          released += 1;
+          releasedHostedIds.add(id);
+        }
+      }
+
+      for (const tableId of staleVenueTableIds) {
+        const vt = await tx.venueTable.findUnique({
+          where: { id: tableId },
+          select: { id: true, hostedTableId: true, hostUserId: true, tableSessionNumber: true },
+        });
+        if (!vt) continue;
+        if (vt.hostedTableId && !releasedHostedIds.has(vt.hostedTableId)) {
+          const result = await releaseDayTableSession(tx, { hostedTableId: vt.hostedTableId });
+          if (result.released) {
+            released += 1;
+            releasedHostedIds.add(vt.hostedTableId);
+          }
+          continue;
+        }
+        if (vt.hostUserId || vt.hostedTableId) {
+          await tx.venueTable.update({
+            where: { id: vt.id },
+            data: {
+              hostedTableId: null,
+              hostUserId: null,
+              currentOccupancy: 0,
+              status: 'AVAILABLE',
+              amountContributed: 0,
+              tableSessionNumber: (Number(vt.tableSessionNumber) || 1) + 1,
+            },
+          });
+          released += 1;
+        }
+      }
+    },
+    { timeout: 120000 },
+  );
+
+  return { released, checked: allIds.length + staleVenueTableIds.length };
 }

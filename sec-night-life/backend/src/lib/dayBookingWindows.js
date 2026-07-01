@@ -25,6 +25,48 @@ function formatDateYmd(date) {
   return `${y}-${mo}-${da}`;
 }
 
+/** Start of calendar day in SAST as UTC instant. */
+export function startOfTodaySast(now = new Date()) {
+  const ymd = formatDateYmd(now);
+  return new Date(`${ymd}T00:00:00+02:00`);
+}
+
+export function startOfTomorrowSast(now = new Date()) {
+  const d = startOfTodaySast(now);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d;
+}
+
+export function isHostedTableForToday(ht, refDate = new Date()) {
+  if (!ht?.eventDate) return false;
+  const eventYmd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Johannesburg',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(ht.eventDate instanceof Date ? ht.eventDate : new Date(ht.eventDate));
+  const todayYmd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Johannesburg',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(refDate instanceof Date ? refDate : new Date(refDate));
+  return eventYmd === todayYmd;
+}
+
+/** Whether a day-booking host session should still block inventory / show as occupied. */
+export function isDaySessionStillActive(ht, venueTable, now = new Date()) {
+  if (!ht || !['ACTIVE', 'FULL'].includes(ht.status)) return false;
+  if (ht.windowEndsAt) {
+    const end = ht.windowEndsAt instanceof Date ? ht.windowEndsAt : new Date(ht.windowEndsAt);
+    return !Number.isNaN(end.getTime()) && end.getTime() > now.getTime();
+  }
+  if (!isHostedTableForToday(ht, now)) return false;
+  const endsAt = computeLegacyWindowEndsAt(ht, venueTable);
+  if (endsAt) return endsAt.getTime() > now.getTime();
+  return true;
+}
+
 /** Calendar date + HH:mm in SAST (+02:00), matching cron.js eventStartDateTime. */
 export function parseWindowInstant(date, hhmm) {
   if (!date || !hhmm) return null;
@@ -160,12 +202,11 @@ export function isDayVenueTable(table) {
 
 export async function getActiveDaySessions(venueTableId, bookingDate = new Date()) {
   const now = new Date();
-  const dateOnly = bookingDate instanceof Date ? bookingDate : new Date(bookingDate);
-  return prisma.hostedTable.findMany({
+  const venueTable = await prisma.venueTable.findUnique({ where: { id: venueTableId } });
+  const rows = await prisma.hostedTable.findMany({
     where: {
-      venueTableId,
       status: { in: ['ACTIVE', 'FULL'] },
-      OR: [{ windowEndsAt: { gt: now } }, { windowEndsAt: null }],
+      OR: [{ venueTableId }, ...(venueTable?.hostedTableId ? [{ id: venueTable.hostedTableId }] : [])],
     },
     include: {
       host: {
@@ -182,6 +223,12 @@ export async function getActiveDaySessions(venueTableId, bookingDate = new Date(
       },
     },
     orderBy: { eventTime: 'asc' },
+  });
+  const seen = new Set();
+  return rows.filter((ht) => {
+    if (seen.has(ht.id)) return false;
+    seen.add(ht.id);
+    return isDaySessionStillActive(ht, venueTable, now);
   });
 }
 
