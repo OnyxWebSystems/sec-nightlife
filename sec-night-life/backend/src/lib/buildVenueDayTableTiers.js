@@ -19,7 +19,9 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
   const userWindowStart = options.windowStart || null;
   const userWindowEnd = options.windowEnd || null;
 
-  await expireDayTableSessions({ now: new Date() }).catch(() => {});
+  await expireDayTableSessions({ now: new Date() }).catch((err) => {
+    console.error('[buildVenueDayTableTiers] expireDayTableSessions failed:', err?.message || err);
+  });
 
   const venue = await prisma.venue.findFirst({
     where: { id: venueId, deletedAt: null },

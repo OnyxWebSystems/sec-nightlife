@@ -103,7 +103,7 @@ export default function EventTableTierSheet({
   const activeTier = pickTarget && isWindowValid(venueWindow, bookingWindow) ? windowedTier : tier;
   const slots = activeTier?.slots || tier.slots || [];
 
-  const hostableSlots = slots.filter((s) => s.canHost !== false);
+  const joinableVenueSlots = slots.filter((s) => s.canHost !== false);
   const joinableFromSessions = slots.flatMap((s) =>
     (s.joinableSessions || []).map((j) => ({
       ...j,
@@ -156,7 +156,11 @@ export default function EventTableTierSheet({
       pickTarget.type === 'venue'
         ? slots.find((s) => s.venueTableId === pickTarget.venueTableId)
         : null;
-    const blocked = pickTarget.type === 'venue' && slot && slot.canHost === false;
+    const blocked =
+      pickTarget.type === 'venue' &&
+      pickTarget.mode === 'host' &&
+      slot &&
+      slot.canHost === false;
 
     return (
       <>
@@ -307,13 +311,37 @@ export default function EventTableTierSheet({
           </section>
         ) : null}
 
+        <section style={{ marginBottom: joinableFromSessions.length > 0 ? 20 : 0 }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Users size={14} /> Join without a host
+          </h3>
+
+          {joinableVenueSlots.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: joinableFromSessions.length > 0 ? 16 : 0 }}>
+              {joinableVenueSlots.map((s) => (
+                <SlotRow
+                  key={`join-venue-${s.venueTableId}`}
+                  label={s.tableName}
+                  sub={`${tier.maxGuestsPerTable} guests max · Book your own spot — no host required`}
+                  actionLabel="Join"
+                  onAction={() => setPickTarget({ type: 'venue', venueTableId: s.venueTableId, mode: 'join' })}
+                />
+              ))}
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: joinableFromSessions.length > 0 ? 16 : 0 }}>
+              All tables in this tier are currently hosted. Join a host&apos;s table below or pick another tier.
+            </p>
+          )}
+        </section>
+
+        {joinableFromSessions.length > 0 ? (
         <section style={{ marginBottom: showCustomTable ? 20 : 0 }}>
           <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Users size={14} /> Join a hosted table
           </h3>
 
-          {joinableFromSessions.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
               {joinableFromSessions.map((j) => {
                 const ht = j.hostedTable;
                 const hostName = ht?.host?.username || ht?.host?.fullName || 'Host';
@@ -329,13 +357,9 @@ export default function EventTableTierSheet({
                   />
                 );
               })}
-            </div>
-          ) : (
-            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16 }}>
-              No hosted tables with open spots right now. Host a table above or check back later.
-            </p>
-          )}
+          </div>
         </section>
+        ) : null}
 
         {showCustomTable ? (
           <section

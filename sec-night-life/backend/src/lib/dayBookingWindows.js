@@ -25,9 +25,18 @@ function formatDateYmd(date) {
   return `${y}-${mo}-${da}`;
 }
 
+function formatYmdSast(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Johannesburg',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date instanceof Date ? date : new Date(date));
+}
+
 /** Start of calendar day in SAST as UTC instant. */
 export function startOfTodaySast(now = new Date()) {
-  const ymd = formatDateYmd(now);
+  const ymd = formatYmdSast(now);
   return new Date(`${ymd}T00:00:00+02:00`);
 }
 
@@ -39,32 +48,29 @@ export function startOfTomorrowSast(now = new Date()) {
 
 export function isHostedTableForToday(ht, refDate = new Date()) {
   if (!ht?.eventDate) return false;
-  const eventYmd = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Johannesburg',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(ht.eventDate instanceof Date ? ht.eventDate : new Date(ht.eventDate));
-  const todayYmd = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Johannesburg',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(refDate instanceof Date ? refDate : new Date(refDate));
+  const eventYmd = formatYmdSast(ht.eventDate);
+  const todayYmd = formatYmdSast(refDate);
   return eventYmd === todayYmd;
+}
+
+/** Venue day-booking host session (not tied to an in-app event). */
+export function isDayVenueHostedTable(ht) {
+  if (!ht || ht.eventId) return false;
+  return Boolean(ht.venueTableId);
 }
 
 /** Whether a day-booking host session should still block inventory / show as occupied. */
 export function isDaySessionStillActive(ht, venueTable, now = new Date()) {
   if (!ht || !['ACTIVE', 'FULL'].includes(ht.status)) return false;
+  if (ht.eventId) return false;
+  if (!isHostedTableForToday(ht, now)) return false;
   if (ht.windowEndsAt) {
     const end = ht.windowEndsAt instanceof Date ? ht.windowEndsAt : new Date(ht.windowEndsAt);
     return !Number.isNaN(end.getTime()) && end.getTime() > now.getTime();
   }
-  if (!isHostedTableForToday(ht, now)) return false;
   const endsAt = computeLegacyWindowEndsAt(ht, venueTable);
   if (endsAt) return endsAt.getTime() > now.getTime();
-  return true;
+  return false;
 }
 
 /** Calendar date + HH:mm in SAST (+02:00), matching cron.js eventStartDateTime. */
@@ -205,6 +211,7 @@ export async function getActiveDaySessions(venueTableId, bookingDate = new Date(
   const venueTable = await prisma.venueTable.findUnique({ where: { id: venueTableId } });
   const rows = await prisma.hostedTable.findMany({
     where: {
+      eventId: null,
       status: { in: ['ACTIVE', 'FULL'] },
       OR: [{ venueTableId }, ...(venueTable?.hostedTableId ? [{ id: venueTable.hostedTableId }] : [])],
     },

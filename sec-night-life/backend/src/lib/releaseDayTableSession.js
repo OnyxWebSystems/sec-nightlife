@@ -2,6 +2,7 @@ import { prisma } from './prisma.js';
 import {
   computeLegacyWindowEndsAt,
   isDaySessionStillActive,
+  isHostedTableForToday,
 } from './dayBookingWindows.js';
 
 /**
@@ -176,6 +177,10 @@ export async function expireDayTableSessions({ now = new Date() } = {}) {
 
   const legacyExpired = [];
   for (const ht of allDayHosted) {
+    if (!isHostedTableForToday(ht, now)) {
+      legacyExpired.push({ id: ht.id });
+      continue;
+    }
     const venueTable =
       ht.venueTable ||
       (await prisma.venueTable.findFirst({
