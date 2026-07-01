@@ -1659,19 +1659,26 @@ model HostedTable {
   menuSpendTotal         Float               @default(0) @map("menu_spend_total")
   tierIncludedItems      Json?               @map("tier_included_items")
   hostFeePaystackRef     String?             @unique @map("host_fee_paystack_ref")
+  /// Day-booking inventory slot this session occupies (null for event/external tables).
+  venueTableId           String?             @map("venue_table_id")
+  /// Canonical end instant for day-booking session expiry (SAST-aligned).
+  windowEndsAt           DateTime?           @map("window_ends_at")
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
-  host    User                @relation("HostedTableHost", fields: [hostUserId], references: [id], onDelete: Cascade)
-  event   Event?              @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  members HostedTableMember[]
-  invites TableInvite[]
-  groupChat HostedTableGroupChat?
+  host       User                @relation("HostedTableHost", fields: [hostUserId], references: [id], onDelete: Cascade)
+  event      Event?              @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  venueTable VenueTable?         @relation("HostedTableDaySlot", fields: [venueTableId], references: [id], onDelete: SetNull)
+  members    HostedTableMember[]
+  invites    TableInvite[]
+  groupChat  HostedTableGroupChat?
   eventVenueBookings EventVenueTableBooking[]
 
   @@index([hostUserId])
   @@index([status])
   @@index([eventDate])
+  @@index([venueTableId])
+  @@index([windowEndsAt])
   @@map("hosted_tables")
 }
 
@@ -1805,6 +1812,7 @@ model VenueTable {
   menuItems VenueTableMenuItem[]
   splitLogs SplitPaymentLog[]
   eventVenueTableBookings EventVenueTableBooking[]
+  dayHostedSessions HostedTable[] @relation("HostedTableDaySlot")
 
   @@index([venueId])
   @@index([status])
@@ -1827,6 +1835,9 @@ model VenueTableMember {
   memberRole        VenueTableMemberRole   @default(GUEST) @map("member_role")
   status            VenueTableMemberStatus @default(PENDING_PAYMENT)
   tableSessionNumber Int?                  @map("table_session_number")
+  bookingDate        DateTime?             @map("booking_date") @db.Date
+  windowStartTime    String?               @map("window_start_time")
+  windowEndTime      String?               @map("window_end_time")
   joinedAt          DateTime               @default(now()) @map("joined_at")
   paidAt            DateTime?              @map("paid_at")
 

@@ -30,8 +30,12 @@ export function isExternalMeetupInFuture(eventDate, eventTime, now = new Date())
   return s.getTime() > now.getTime();
 }
 
-/** When this hosted table should drop off the host’s “My tables” list (event end, or legacy start + 24h). */
+/** When this hosted table should drop off the host's "My tables" list (event end, or legacy start + 24h). */
 export function hostDashboardHideAfterUtc(hostedRow, eventRow) {
+  if (hostedRow?.windowEndsAt) {
+    const end = hostedRow.windowEndsAt instanceof Date ? hostedRow.windowEndsAt : new Date(hostedRow.windowEndsAt);
+    if (!Number.isNaN(end.getTime())) return end;
+  }
   if (hostedRow?.tableType === 'IN_APP_EVENT' && eventRow) {
     const end = eventEndsAtFromEvent(eventRow);
     if (end && !Number.isNaN(end.getTime())) return end;

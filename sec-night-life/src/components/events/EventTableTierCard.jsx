@@ -6,7 +6,7 @@ function formatZar(n) {
   return v > 0 ? `R${v.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}` : 'Free';
 }
 
-export default function EventTableTierCard({ tier, onSelect }) {
+export default function EventTableTierCard({ tier, onSelect, venueWindow, windowReady }) {
   if (!tier) return null;
   const isVip = tier.category === 'vip';
 
@@ -147,7 +147,11 @@ export default function EventTableTierCard({ tier, onSelect }) {
       </div>
 
       <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', margin: 0 }}>
-        Tap to host or join a table in this tier
+        {venueWindow && !windowReady
+          ? `Open today ${venueWindow.startTime}–${venueWindow.endTime} · Pick your time to see availability`
+          : windowReady
+            ? `Available for ${tier.tablesOpenForHost} host · ${tier.tablesOpenForJoin} join during your window`
+            : 'Tap to host or join a table in this tier'}
       </p>
     </button>
   );

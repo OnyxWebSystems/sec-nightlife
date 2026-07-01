@@ -111,6 +111,20 @@ router.get('/expire-table-boosts', async (req, res, next) => {
   }
 });
 
+/** Release expired day-booking table sessions and free venue slots. */
+router.get('/expire-day-table-sessions', async (req, res, next) => {
+  try {
+    if (!isCronAuthorized(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { expireDayTableSessions } = await import('../lib/releaseDayTableSession.js');
+    const result = await expireDayTableSessions();
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** T-3h reminders for users who saved venue events as interested (deduped per user+event). */
 router.get('/event-interest-reminders', async (req, res, next) => {
   try {

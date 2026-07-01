@@ -1,6 +1,11 @@
 import { prisma } from './prisma.js';
 import { normalizeHostingConfig } from './hostingConfig.js';
 import { splitPlatformGross } from './platformSplit.js';
+import {
+  canHostInWindow,
+  resolveBookingWindowFromMember,
+  windowEndInstant,
+} from './dayBookingWindows.js';
 
 function parseHostingTierKey(key) {
   if (!key || typeof key !== 'string') return { category: 'GENERAL', tierIndex: 0 };
@@ -88,7 +93,20 @@ async function createHostedTableFromVenueSlot({
     venueName = venueContext.name || venueName;
     venueAddress = venueContext.address || venueContext.city || null;
     if (!venueTable.serviceDate) eventDate = new Date();
+    const windowFromMember = hostMember ? resolveBookingWindowFromMember(hostMember, venueTable) : null;
+    if (windowFromMember?.windowStartTime) eventTime = String(windowFromMember.windowStartTime);
+    if (windowFromMember?.bookingDate) eventDate = windowFromMember.bookingDate;
   }
+
+  const windowFromMember = hostMember ? resolveBookingWindowFromMember(hostMember, venueTable) : null;
+  const windowEndsAt =
+    windowFromMember?.windowStartTime && windowFromMember?.windowEndTime
+      ? windowEndInstant(
+          windowFromMember.bookingDate || eventDate,
+          windowFromMember.windowStartTime,
+          windowFromMember.windowEndTime,
+        )
+      : null;
 
   const hosted = await tx.hostedTable.create({
     data: {
@@ -102,6 +120,8 @@ async function createHostedTableFromVenueSlot({
       venueAddress,
       eventDate,
       eventTime,
+      venueTableId: eventId ? null : venueTable.id,
+      windowEndsAt,
       guestQuantity: guestQty,
       spotsRemaining: Math.max(0, guestQty - 1),
       hostingCategory: category,
@@ -181,13 +201,30 @@ export async function ensureHostedTableFromVenueHostPayment({
   settlementMode,
   hostMember = null,
 }) {
-  if (venueTable?.hostedTableId) return null;
+  const isDay =
+    !venueTable?.eventId &&
+    (String(venueTable?.hostingTierKey || '').startsWith('day:') || venueTable?.isCustomListing);
 
   let member = hostMember;
   if (!member && userId && venueTable.id) {
     member = await tx.venueTableMember.findUnique({
       where: { venueTableId_userId: { venueTableId: venueTable.id, userId: String(userId) } },
     });
+  }
+
+  if (isDay && member) {
+    const windowFromMember = resolveBookingWindowFromMember(member, venueTable);
+    if (windowFromMember.windowStartTime && windowFromMember.windowEndTime) {
+      const hostCheck = await canHostInWindow(
+        venueTable.id,
+        windowFromMember.bookingDate,
+        windowFromMember.windowStartTime,
+        windowFromMember.windowEndTime,
+      );
+      if (!hostCheck.ok) return null;
+    }
+  } else if (venueTable?.hostedTableId) {
+    return null;
   }
 
   if (venueTable.eventId) {
@@ -230,6 +267,24 @@ export async function ensureHostedTableFromVenueHostPayment({
 /** Day-hosted tables link back to a venue table row — used for venue_id + QR expiry. */
 export async function resolveLinkedVenueTableForHostedTable(db, hostedTableId) {
   if (!hostedTableId) return null;
+  const hosted = await db.hostedTable.findUnique({
+    where: { id: String(hostedTableId) },
+    select: { venueTableId: true },
+  });
+  if (hosted?.venueTableId) {
+    return db.venueTable.findFirst({
+      where: { id: hosted.venueTableId },
+      select: {
+        id: true,
+        venueId: true,
+        serviceDate: true,
+        serviceEndDate: true,
+        serviceSchedule: true,
+        startTime: true,
+        endTime: true,
+      },
+    });
+  }
   return db.venueTable.findFirst({
     where: { hostedTableId: String(hostedTableId) },
     select: {
@@ -237,6 +292,7 @@ export async function resolveLinkedVenueTableForHostedTable(db, hostedTableId) {
       venueId: true,
       serviceDate: true,
       serviceEndDate: true,
+      serviceSchedule: true,
       startTime: true,
       endTime: true,
     },

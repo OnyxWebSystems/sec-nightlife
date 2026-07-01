@@ -609,6 +609,13 @@ async function applyReferenceSideEffects(reference, paystackData) {
           paidAt: new Date(),
           paystackReference: reference,
           tableSessionNumber: Number(table.tableSessionNumber) || 1,
+          ...(metadata.window_start || metadata.windowStart
+            ? {
+                windowStartTime: metadata.window_start || metadata.windowStart,
+                windowEndTime: metadata.window_end || metadata.windowEnd,
+                bookingDate: metadata.booking_date ? new Date(metadata.booking_date) : member.bookingDate,
+              }
+            : {}),
         },
       });
       try {
@@ -638,7 +645,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
 
       const bookingMode = metadata.booking_mode || metadata.bookingMode;
       const isHostPayment = bookingMode === 'host' || bookingMode === 'custom_host' || member.memberRole === 'HOST';
-      if (isHostPayment && !table.hostedTableId) {
+      if (isHostPayment) {
         await ensureHostedTableFromVenueHostPayment({
           tx,
           venueTable: table,
@@ -647,6 +654,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           amountTotal: totalPaid,
           selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
           settlementMode: metadata.settlement_mode || member.settlementMode,
+          hostMember: member,
         });
       }
 
@@ -681,10 +689,10 @@ async function applyReferenceSideEffects(reference, paystackData) {
       memberForRepair?.memberRole === 'HOST';
     if (isHostRepair && memberForRepair?.status === 'CONFIRMED') {
       const tableForRepair = await prisma.venueTable.findUnique({ where: { id: String(venueTableId) } });
-      if (tableForRepair && !tableForRepair.hostedTableId) {
+      if (tableForRepair) {
         await prisma.$transaction(async (tx) => {
           const freshTable = await tx.venueTable.findUnique({ where: { id: String(venueTableId) } });
-          if (freshTable && !freshTable.hostedTableId) {
+          if (freshTable) {
             await ensureHostedTableFromVenueHostPayment({
               tx,
               venueTable: freshTable,
@@ -693,6 +701,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
               amountTotal: Number(amount || 0),
               selectedMenuItems: metadata.selectedMenuItems || memberForRepair.selectedMenuItems,
               settlementMode: metadata.settlement_mode || memberForRepair.settlementMode,
+              hostMember: memberForRepair,
             });
           }
         });
@@ -783,7 +792,19 @@ async function applyReferenceSideEffects(reference, paystackData) {
       });
       const visFallback = vt.event?.date
         ? visibleUntilForVenueTableMember(vt, vt.event)
-        : visibleUntilForDayVenueTable(vt);
+        : visibleUntilForDayVenueTable(vt, new Date(), {
+            windowEndsAt:
+              member?.windowEndTime && member?.windowStartTime && member?.bookingDate
+                ? (await import('../lib/dayBookingWindows.js')).windowEndInstant(
+                    member.bookingDate,
+                    member.windowStartTime,
+                    member.windowEndTime,
+                  )
+                : null,
+            windowStartTime: member?.windowStartTime,
+            windowEndTime: member?.windowEndTime,
+            bookingDate: member?.bookingDate,
+          });
       const eventStartsAt = vt.event ? eventStartsAtFromEvent(vt.event) : dayStartsAtFromVenueTable(vt);
       const eventEndsAt = vt.event ? eventEndsAtFromEvent(vt.event) : null;
       const bookingMode = metadata.booking_mode || metadata.bookingMode;
@@ -1384,7 +1405,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
               select: { fullName: true, username: true, userProfile: { select: { username: true } } },
             });
             const vis = linkedVenueTable && !htEvent
-              ? visibleUntilForDayVenueTable(linkedVenueTable)
+              ? visibleUntilForDayVenueTable(linkedVenueTable, new Date(), {
+                  windowEndsAt: htFinal.windowEndsAt,
+                })
               : visibleUntilAfterHostedTable(htFinal);
             const eventStartsAt =
               (htEvent && eventStartsAtFromEvent(htEvent)) ||

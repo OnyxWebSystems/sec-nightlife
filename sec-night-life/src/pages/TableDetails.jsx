@@ -90,6 +90,15 @@ export default function TableDetails() {
   const bookingModeParam = urlParams.get('mode');
   const settlementParam = urlParams.get('settlement');
   const checkoutParam = urlParams.get('checkout');
+  const windowStartParam = urlParams.get('windowStart') || urlParams.get('window_start');
+  const windowEndParam = urlParams.get('windowEnd') || urlParams.get('window_end');
+  const bookingWindow = useMemo(
+    () =>
+      windowStartParam && windowEndParam
+        ? { startTime: windowStartParam, endTime: windowEndParam }
+        : null,
+    [windowStartParam, windowEndParam],
+  );
   const isVenueSource = source === 'venue';
   const isHostCheckout = bookingModeParam === 'host';
   const [selectedMenuItems, setSelectedMenuItems] = useState({});
@@ -195,12 +204,15 @@ export default function TableDetails() {
   );
 
   const { data: venueCheckoutPreview } = useQuery({
-    queryKey: ['venue-checkout-preview', tableId, venueMenuSelectionPayload, venueSettlementMode, venueBookingMode],
+    queryKey: ['venue-checkout-preview', tableId, venueMenuSelectionPayload, venueSettlementMode, venueBookingMode, bookingWindow?.startTime, bookingWindow?.endTime],
     queryFn: () =>
       apiPost(`/api/venue-tables/${tableId}/checkout-preview`, {
         selectedMenuItems: venueMenuSelectionPayload,
         settlementMode: venueSettlementMode,
         bookingMode: venueBookingMode,
+        ...(bookingWindow
+          ? { windowStart: bookingWindow.startTime, windowEnd: bookingWindow.endTime }
+          : {}),
       }),
     enabled: isVenueSource && !!tableId && !!venueTable,
   });
@@ -292,6 +304,9 @@ export default function TableDetails() {
         selectedMenuItems: selected,
         settlementMode: venueSettlementMode,
         bookingMode: venueBookingMode,
+        ...(bookingWindow
+          ? { windowStart: bookingWindow.startTime, windowEnd: bookingWindow.endTime }
+          : {}),
       });
       const refreshBookingQueries = () => {
         queryClient.invalidateQueries(['venue-table', tableId]);
@@ -641,6 +656,11 @@ export default function TableDetails() {
               Request approved — review your order and pay below.
             </p>
           ) : null}
+          {bookingWindow ? (
+            <p style={{ marginTop: 6, fontSize: 12, color: 'var(--sec-text-secondary)' }}>
+              Your booking window: {bookingWindow.startTime}–{bookingWindow.endTime}
+            </p>
+          ) : null}
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
         </div>
@@ -689,6 +709,7 @@ export default function TableDetails() {
             venueMenuItems={venueMenuItems}
             selectedMenuItems={selectedMenuItems}
             submitting={customSubmitting}
+            defaultWindow={bookingWindow}
             onBack={() => setCustomRequestStep('menu')}
             onSubmit={async (specs) => {
               setCustomSubmitting(true);

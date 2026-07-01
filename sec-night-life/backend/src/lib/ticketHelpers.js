@@ -4,6 +4,7 @@ import {
   dayStartsAtFromVenueTableSchedule,
   serviceScheduleFromTable,
 } from './serviceSchedule.js';
+import { windowEndInstant } from './dayBookingWindows.js';
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 
@@ -132,15 +133,23 @@ export function dayStartsAtFromVenueTable(table, refDate = new Date()) {
   return start;
 }
 
-/** Ticket QR expiry for day venue table bookings. */
-export function visibleUntilForDayVenueTable(table, refDate = new Date()) {
+/** Ticket QR expiry for day venue table bookings — ends at booked window end (not +24h). */
+export function visibleUntilForDayVenueTable(table, refDate = new Date(), { windowEndsAt, windowEndTime, bookingDate, windowStartTime } = {}) {
+  if (windowEndsAt) {
+    const d = windowEndsAt instanceof Date ? windowEndsAt : new Date(windowEndsAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (windowStartTime && windowEndTime && bookingDate) {
+    const end = windowEndInstant(bookingDate, windowStartTime, windowEndTime);
+    if (end) return end;
+  }
   const schedule = serviceScheduleFromTable(table);
   if (schedule.length) {
     const endsAt = dayEndsAtFromVenueTableSchedule(table, refDate);
-    if (endsAt) return new Date(endsAt.getTime() + MS_DAY);
+    if (endsAt) return endsAt;
   }
   const endsAt = dayEndsAtFromVenueTable(table, refDate);
-  if (endsAt) return new Date(endsAt.getTime() + MS_DAY);
+  if (endsAt) return endsAt;
   const startsAt = dayStartsAtFromVenueTable(table, refDate);
   if (startsAt) return new Date(startsAt.getTime() + MS_DAY);
   return visibleUntilAfterEventDate(new Date());

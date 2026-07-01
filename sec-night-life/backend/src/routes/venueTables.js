@@ -25,6 +25,13 @@ import {
 } from '../lib/ticketHelpers.js';
 import { buildVenueTableMemberTicketSummary } from '../lib/ticketMemberSummary.js';
 import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
+import {
+  canHostInWindow,
+  getActiveDaySessions,
+  isDayVenueTable,
+  validateDayBookingWindow,
+  windowsOverlap,
+} from '../lib/dayBookingWindows.js';
 
 const router = Router();
 
@@ -532,12 +539,42 @@ function resolveBookingMode(raw, table, specs) {
 async function buildVenueCheckoutForTable(table, venue, menuItems, payload, existing) {
   const specs = existing?.userSpecs || {};
   const bookingMode = resolveBookingMode(payload.bookingMode, table, specs);
-  if (bookingMode === 'host' || bookingMode === 'custom_host') {
+  const isDay = isDayVenueTable(table);
+  let windowCtx = null;
+
+  if (isDay) {
+    const w = validateDayBookingWindow(table, payload, existing);
+    if (!w.ok) return { error: w.error };
+    windowCtx = w;
+    if (bookingMode === 'host' || bookingMode === 'custom_host') {
+      const hostCheck = await canHostInWindow(table.id, w.bookingDate, w.windowStart, w.windowEnd);
+      if (!hostCheck.ok) return { error: hostCheck.error };
+    }
+    if (bookingMode === 'join') {
+      const sessions = await getActiveDaySessions(table.id, w.bookingDate);
+      const overlapping = sessions.filter((ht) => {
+        const startTime = ht.eventTime ? String(ht.eventTime) : null;
+        const endTime = ht.windowEndsAt
+          ? new Intl.DateTimeFormat('en-ZA', {
+              timeZone: 'Africa/Johannesburg',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            }).format(ht.windowEndsAt)
+          : null;
+        return startTime && endTime && windowsOverlap(w.windowStart, w.windowEnd, startTime, endTime);
+      });
+      if (overlapping.length > 0) {
+        return { error: 'This table is hosted during your selected time. Join the host\'s table instead.' };
+      }
+    }
+  } else if (bookingMode === 'host' || bookingMode === 'custom_host') {
     if (table.hostedTableId || table.hostUserId) {
       return { error: 'This table is already hosted. Join the host\'s table instead.' };
     }
   }
-  if (bookingMode === 'join' && table.hostedTableId) {
+
+  if (!isDay && bookingMode === 'join' && table.hostedTableId) {
     return { error: 'This table is hosted. Use the join hosted table flow instead.' };
   }
 
@@ -575,7 +612,7 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
       overrideMinSpend: specs.proposedMinimumSpend,
     },
   );
-  return { checkout, bookingMode, settlementMode, menuSelections: payload.selectedMenuItems || [], menuTotal };
+  return { checkout, bookingMode, settlementMode, menuSelections: payload.selectedMenuItems || [], menuTotal, windowCtx };
 }
 
 router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) => {
@@ -587,6 +624,8 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
           .optional(),
         settlementMode: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
         bookingMode: z.enum(['host', 'join', 'custom_host']).optional(),
+        windowStart: z.string().optional(),
+        windowEnd: z.string().optional(),
       })
       .parse(req.body || {});
     const table = await prisma.venueTable.findUnique({
@@ -660,6 +699,7 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
           notes: z.string().max(2000).optional(),
           preferredDate: z.string().optional(),
           preferredTime: z.string().optional(),
+          preferredEndTime: z.string().optional(),
           minSpendMode: z.enum(['menu', 'manual']).optional(),
           selectedMenuItems: z
             .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(0) }))
@@ -880,6 +920,8 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
           .optional(),
         settlementMode: z.enum(['PREPAY_MENU', 'PREPAY_LUMP', 'PAY_ON_ARRIVAL']).optional(),
         bookingMode: z.enum(['host', 'join', 'custom_host']).optional(),
+        windowStart: z.string().optional(),
+        windowEnd: z.string().optional(),
       })
       .parse(req.body || {});
     const table = await prisma.venueTable.findUnique({
@@ -891,10 +933,15 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
-    if (!['AVAILABLE', 'PARTIALLY_FILLED'].includes(table.status) || !table.isActive) {
+    const isDay = isDayVenueTable(table);
+    if (!isDay) {
+      if (!['AVAILABLE', 'PARTIALLY_FILLED'].includes(table.status) || !table.isActive) {
+        return res.status(400).json({ error: 'Table not available' });
+      }
+      if (table.currentOccupancy >= table.guestCapacity) return res.status(400).json({ error: 'Table is full' });
+    } else if (!table.isActive) {
       return res.status(400).json({ error: 'Table not available' });
     }
-    if (table.currentOccupancy >= table.guestCapacity) return res.status(400).json({ error: 'Table is full' });
     if (table.venue.ownerUserId === req.userId) {
       return res.status(403).json({
         error: 'Venue owners cannot join or pay for tables at their own venue. Use a guest account to test checkout.',
@@ -942,10 +989,17 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
 
     const result = await buildVenueCheckoutForTable(table, table.venue, menuItems, payload, existing);
     if (result.error) return res.status(400).json({ error: result.error });
-    const { checkout, bookingMode, settlementMode, menuSelections, menuTotal } = result;
+    const { checkout, bookingMode, settlementMode, menuSelections, menuTotal, windowCtx } = result;
     if (checkout.error) return res.status(400).json({ error: checkout.error });
 
     const isHost = bookingMode === 'host' || bookingMode === 'custom_host';
+    const memberWindowData = windowCtx
+      ? {
+          bookingDate: windowCtx.bookingDate,
+          windowStartTime: windowCtx.windowStart,
+          windowEndTime: windowCtx.windowEnd,
+        }
+      : {};
 
     if (checkout.total <= 0) {
       await prisma.$transaction(async (tx) => {
@@ -958,12 +1012,14 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
             settlementMode,
             memberRole: isHost ? 'HOST' : 'GUEST',
             status: 'CONFIRMED',
+            ...memberWindowData,
           },
           update: {
             selectedMenuItems: menuSelections.length ? menuSelections : undefined,
             settlementMode,
             memberRole: isHost ? 'HOST' : 'GUEST',
             status: 'CONFIRMED',
+            ...memberWindowData,
           },
         });
         const nextOccupancy = table.currentOccupancy + 1;
@@ -973,7 +1029,10 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
           where: { id: table.id },
           data: { currentOccupancy: { increment: 1 }, status: nextStatus },
         });
-        if (isHost && !table.hostedTableId) {
+        if (isHost) {
+          const freshMember = await tx.venueTableMember.findUnique({
+            where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+          });
           await ensureHostedTableFromVenueHostPayment({
             tx,
             venueTable: table,
@@ -982,6 +1041,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
             amountTotal: 0,
             selectedMenuItems: menuSelections.length ? menuSelections : undefined,
             settlementMode,
+            hostMember: freshMember,
           });
         }
       });
@@ -995,7 +1055,11 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       const freeRef = `free_join_${table.id}_${req.userId}`;
       const visFallback = table.event?.date
         ? visibleUntilForVenueTableMember(table, table.event)
-        : visibleUntilForDayVenueTable(table);
+        : visibleUntilForDayVenueTable(table, new Date(), {
+            windowEndsAt: windowCtx?.windowEndsAt,
+            windowEndTime: windowCtx?.windowEnd,
+            bookingDate: windowCtx?.bookingDate,
+          });
       const eventStartsAt = table.event ? eventStartsAtFromEvent(table.event) : dayStartsAtFromVenueTable(table);
       const eventEndsAt = table.event ? eventEndsAtFromEvent(table.event) : null;
       const minSpendZar = isHost
@@ -1062,12 +1126,14 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
         settlementMode,
         memberRole: isHost ? 'HOST' : 'GUEST',
         status: 'PENDING_PAYMENT',
+        ...memberWindowData,
       },
       update: {
         selectedMenuItems: menuSelections.length ? menuSelections : undefined,
         settlementMode,
         memberRole: isHost ? 'HOST' : 'GUEST',
         status: 'PENDING_PAYMENT',
+        ...memberWindowData,
       },
     });
 
@@ -1087,6 +1153,11 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     metadata.host_table_fee_zar = Number(table.hostTableFeeZar || 0);
     metadata.minimum_spend_zar = Number(table.minimumSpend || 0);
     metadata.menu_zar = menuTotal;
+    if (windowCtx) {
+      metadata.window_start = windowCtx.windowStart;
+      metadata.window_end = windowCtx.windowEnd;
+      metadata.booking_date = windowCtx.bookingDate?.toISOString?.() || String(windowCtx.bookingDate);
+    }
 
     const pay = await initializePaystackPayment({
       userId: req.userId,

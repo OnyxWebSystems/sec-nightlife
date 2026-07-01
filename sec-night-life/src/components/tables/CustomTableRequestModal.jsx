@@ -11,12 +11,14 @@ export function CustomTableRequestForm({
   selectedMenuItems = {},
   onBack,
   compact = false,
+  defaultWindow = null,
 }) {
   const [minSpendMode, setMinSpendMode] = useState('manual');
   const [form, setForm] = useState({
     guestCount: 4,
     preferredDate: '',
-    preferredTime: '',
+    preferredTime: defaultWindow?.startTime || '',
+    preferredEndTime: defaultWindow?.endTime || '',
     proposedMinimumSpend: '',
     notes: '',
   });
@@ -50,6 +52,7 @@ export function CustomTableRequestForm({
             : undefined,
       notes: form.notes,
       preferredTime: form.preferredTime,
+      preferredEndTime: form.preferredEndTime || undefined,
       minSpendMode,
       selectedMenuItems: selectedItems,
     });
@@ -57,6 +60,9 @@ export function CustomTableRequestForm({
 
   const canSubmit =
     !submitting &&
+    form.preferredTime &&
+    form.preferredEndTime &&
+    form.preferredEndTime > form.preferredTime &&
     (minSpendMode === 'manual'
       ? Boolean(form.proposedMinimumSpend)
       : menuTotal > 0);
@@ -174,12 +180,33 @@ export function CustomTableRequestForm({
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
-            Preferred time
+            Preferred start time
           </label>
           <input
             type="time"
             value={form.preferredTime}
             onChange={(e) => setForm((f) => ({ ...f, preferredTime: e.target.value }))}
+            className="w-full"
+            style={{
+              height: 44,
+              padding: '0 14px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--sec-border)',
+              backgroundColor: 'var(--sec-bg-card)',
+              color: 'var(--sec-text-primary)',
+              fontSize: 14,
+            }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-text-secondary)', display: 'block', marginBottom: 8 }}>
+            Preferred end time
+          </label>
+          <input
+            type="time"
+            value={form.preferredEndTime}
+            min={form.preferredTime || undefined}
+            onChange={(e) => setForm((f) => ({ ...f, preferredEndTime: e.target.value }))}
             className="w-full"
             style={{
               height: 44,

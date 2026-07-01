@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Crown, Users, Sparkles } from 'lucide-react';
 import { buildPageUrl } from '@/utils';
 
-function SlotRow({ label, sub, actionLabel, onAction, disabled }) {
+function SlotRow({ label, sub, actionLabel, onAction, disabled, extra }) {
   return (
     <div
       className="sec-card"
@@ -17,9 +17,10 @@ function SlotRow({ label, sub, actionLabel, onAction, disabled }) {
         opacity: disabled ? 0.5 : 1,
       }}
     >
-      <div style={{ minWidth: 0 }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
         <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', margin: 0 }}>{label}</p>
         {sub ? <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: '4px 0 0' }}>{sub}</p> : null}
+        {extra}
       </div>
       <button
         type="button"
@@ -34,6 +35,30 @@ function SlotRow({ label, sub, actionLabel, onAction, disabled }) {
   );
 }
 
+function OccupancyBlocks({ occupancy }) {
+  if (!occupancy?.length) return null;
+  return (
+    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {occupancy.map((o) => (
+        <span
+          key={`${o.startTime}-${o.endTime}-${o.hostedTableId}`}
+          style={{
+            fontSize: 11,
+            color: 'var(--sec-text-muted)',
+            padding: '4px 8px',
+            borderRadius: 6,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid var(--sec-border)',
+          }}
+        >
+          Occupied {o.startTime}–{o.endTime}
+          {o.hostedTable?.host?.username ? ` · ${o.hostedTable.host.username}` : ''}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function EventTableTierSheet({
   tier,
   open,
@@ -41,29 +66,41 @@ export default function EventTableTierSheet({
   customListingId,
   allowsCustomRequests,
   eventId,
+  bookingWindow,
 }) {
   const navigate = useNavigate();
   if (!open || !tier) return null;
 
-  const unhostedSlots = (tier.slots || []).filter((s) => !s.isHosted && s.spotsRemaining > 0);
-  const hostedSlots = (tier.slots || []).filter((s) => s.isHosted && s.hostedTable && s.hostedTable.spotsRemaining > 0);
+  const windowQs =
+    bookingWindow?.startTime && bookingWindow?.endTime
+      ? { windowStart: bookingWindow.startTime, windowEnd: bookingWindow.endTime }
+      : {};
+
+  const hostableSlots = (tier.slots || []).filter((s) => s.canHost !== false);
+  const joinableFromSessions = (tier.slots || []).flatMap((s) =>
+    (s.joinableSessions || []).map((j) => ({
+      ...j,
+      tableName: s.tableName,
+      venueTableId: s.venueTableId,
+    })),
+  );
   const isVip = tier.category === 'vip';
 
   const goVenue = (venueTableId, mode) => {
     if (!venueTableId) return;
     onClose?.();
-    navigate(buildPageUrl('TableDetails', { id: venueTableId, source: 'venue', mode }));
+    navigate(buildPageUrl('TableDetails', { id: venueTableId, source: 'venue', mode, ...windowQs }));
   };
 
   const goCustomRequest = () => {
     if (!customListingId) return;
     onClose?.();
-    navigate(buildPageUrl('TableDetails', { id: customListingId, source: 'venue', request: '1' }));
+    navigate(buildPageUrl('TableDetails', { id: customListingId, source: 'venue', request: '1', ...windowQs }));
   };
 
   const goHosted = (hostedTableId) => {
     onClose?.();
-    navigate(buildPageUrl('TableDetails', { id: hostedTableId, source: 'hosted' }));
+    navigate(buildPageUrl('TableDetails', { id: hostedTableId, source: 'hosted', ...windowQs }));
   };
 
   const showCustomTable = Boolean(
@@ -114,7 +151,10 @@ export default function EventTableTierSheet({
               ) : null}
             </div>
             <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 6 }}>
-              Min spend R{Number(tier.minSpend).toLocaleString()} · {tier.totalSpotsRemaining} spots left in tier
+              {bookingWindow?.startTime && bookingWindow?.endTime
+                ? `Your window ${bookingWindow.startTime}–${bookingWindow.endTime} · `
+                : ''}
+              Min spend R{Number(tier.minSpend).toLocaleString()}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--sec-text-muted)', cursor: 'pointer', padding: 4 }}>
@@ -122,7 +162,7 @@ export default function EventTableTierSheet({
           </button>
         </div>
 
-        {unhostedSlots.length > 0 ? (
+        {hostableSlots.length > 0 ? (
           <section style={{ marginBottom: 20 }}>
             <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Crown size={14} /> Host a table
@@ -134,12 +174,18 @@ export default function EventTableTierSheet({
               meet minimum spend, and set your table rules.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {unhostedSlots.map((s) => (
+              {hostableSlots.map((s) => (
                 <SlotRow
                   key={`host-${s.venueTableId}`}
                   label={s.tableName}
-                  sub={`${s.spotsRemaining} spots left${Number(tier.hostBookingFeeZar) > 0 ? ` · Host fee R${Number(tier.hostBookingFeeZar).toLocaleString()}` : ''}`}
+                  sub={
+                    s.canHost === false
+                      ? 'Already hosted during your selected time'
+                      : `${tier.maxGuestsPerTable} guests max${Number(tier.hostBookingFeeZar) > 0 ? ` · Host fee R${Number(tier.hostBookingFeeZar).toLocaleString()}` : ''}`
+                  }
+                  extra={<OccupancyBlocks occupancy={s.occupancy} />}
                   actionLabel="Host"
+                  disabled={s.canHost === false}
                   onAction={() => goVenue(s.venueTableId, 'host')}
                 />
               ))}
@@ -152,26 +198,22 @@ export default function EventTableTierSheet({
             <Users size={14} /> Join a table
           </h3>
 
-          {hostedSlots.length > 0 ? (
+          {joinableFromSessions.length > 0 ? (
             <>
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 8 }}>Hosted by others</p>
+              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 8 }}>Hosted during your window</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-                {hostedSlots.map((s) => {
-                  const ht = s.hostedTable;
-                  const hostName = ht.host?.username || ht.host?.fullName || 'Host';
-                  const joinLabel = ht.isPublic ? 'Join' : 'Request';
-                  const feeNote = ht.hasJoiningFee && ht.joiningFee ? ` · Join fee R${Number(ht.joiningFee).toLocaleString()}` : '';
-                  const spotsLabel =
-                    ht.isCustomTable && ht.guestCapacity
-                      ? `${ht.spotsRemaining} of ${ht.guestCapacity} guest spots`
-                      : `${ht.spotsRemaining} spots left`;
+                {joinableFromSessions.map((j) => {
+                  const ht = j.hostedTable;
+                  const hostName = ht?.host?.username || ht?.host?.fullName || 'Host';
+                  const joinLabel = ht?.isPublic ? 'Join' : 'Request';
+                  const spotsLabel = `${ht?.spotsRemaining ?? 0} spots left`;
                   return (
                     <SlotRow
-                      key={`hosted-${ht.id}`}
-                      label={ht.tableName}
-                      sub={`Hosted by ${hostName} · ${spotsLabel}${feeNote}`}
+                      key={`hosted-${j.hostedTableId}`}
+                      label={j.tableName || ht?.tableName}
+                      sub={`${j.startTime}–${j.endTime} · Hosted by ${hostName} · ${spotsLabel}`}
                       actionLabel={joinLabel}
-                      onAction={() => goHosted(ht.id)}
+                      onAction={() => goHosted(j.hostedTableId)}
                     />
                   );
                 })}
@@ -179,26 +221,9 @@ export default function EventTableTierSheet({
             </>
           ) : null}
 
-          {unhostedSlots.length > 0 ? (
-            <>
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 8 }}>Venue spots (not hosted yet)</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {unhostedSlots.map((s) => (
-                  <SlotRow
-                    key={`join-${s.venueTableId}`}
-                    label={s.tableName}
-                    sub={`${s.spotsRemaining} spots left${Number(tier.joinBookingFeeZar) > 0 ? ` · Join fee R${Number(tier.joinBookingFeeZar).toLocaleString()}` : ''}`}
-                    actionLabel="Join"
-                    onAction={() => goVenue(s.venueTableId, 'join')}
-                  />
-                ))}
-              </div>
-            </>
-          ) : null}
-
-          {unhostedSlots.length === 0 && hostedSlots.length === 0 ? (
+          {joinableFromSessions.length === 0 && hostableSlots.length === 0 ? (
             <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', textAlign: 'center', padding: '16px 0' }}>
-              No tables available in this tier right now.
+              No tables available for your selected time right now.
             </p>
           ) : null}
         </section>
@@ -217,7 +242,7 @@ export default function EventTableTierSheet({
               <Sparkles size={14} style={{ color: 'var(--sec-accent)' }} /> Custom table
             </h3>
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-              Request a bespoke table for this event — guest count, minimum spend, and menu picks. The venue reviews before checkout.
+              Request a bespoke table — guest count, minimum spend, and menu picks. The venue reviews before checkout.
             </p>
             <button
               type="button"

@@ -268,7 +268,9 @@ router.post('/:id/follow', authenticateToken, async (req, res, next) => {
 /** Grouped day table tiers for VenueBook (host/join flows). */
 router.get('/:id/day-table-tiers', optionalAuth, async (req, res, next) => {
   try {
-    const result = await buildVenueDayTableTiers(req.params.id);
+    const windowStart = req.query.windowStart || req.query.window_start || null;
+    const windowEnd = req.query.windowEnd || req.query.window_end || null;
+    const result = await buildVenueDayTableTiers(req.params.id, { windowStart, windowEnd });
     if (!result) return res.status(404).json({ error: 'Venue not found' });
     res.json(result);
   } catch (err) {

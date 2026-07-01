@@ -1,39 +1,26 @@
 import { prisma } from './prisma.js';
 import { isVenueTableBookableToday } from './serviceSchedule.js';
-
-function buildHostedTablePayload(ht, { goingCount = null, requestedGuestCount = null } = {}) {
-  const going =
-    goingCount != null
-      ? Math.max(0, Number(goingCount) || 0)
-      : Math.max(0, Number(ht.guestQuantity) - Number(ht.spotsRemaining));
-  const capacity =
-    requestedGuestCount != null && requestedGuestCount >= 1
-      ? Math.round(requestedGuestCount)
-      : Math.max(1, Number(ht.guestQuantity) || 1);
-  const spotsRemaining = Math.max(0, capacity - going);
-
-  return {
-    id: ht.id,
-    tableName: ht.tableName,
-    isPublic: ht.isPublic,
-    hasJoiningFee: ht.hasJoiningFee,
-    joiningFee: ht.joiningFee,
-    guestCapacity: capacity,
-    spotsRemaining,
-    isCustomTable: Boolean(requestedGuestCount),
-    host: {
-      id: ht.host?.id,
-      username: ht.host?.userProfile?.username || ht.host?.username,
-      fullName: ht.host?.fullName,
-      avatarUrl: ht.host?.userProfile?.avatarUrl || null,
-    },
-  };
-}
+import {
+  buildHostedTablePayload,
+  buildOccupancyForSlot,
+  canHostInWindow,
+  venueWindowFromTables,
+  windowsOverlap,
+} from './dayBookingWindows.js';
+import { expireDayTableSessions } from './releaseDayTableSession.js';
 
 /**
  * Build grouped table tier payloads for day bookings (VenueBook).
+ * @param {string} venueId
+ * @param {{ windowStart?: string, windowEnd?: string, bookingDate?: Date }} [options]
  */
-export async function buildVenueDayTableTiers(venueId) {
+export async function buildVenueDayTableTiers(venueId, options = {}) {
+  const bookingDate = options.bookingDate || new Date();
+  const userWindowStart = options.windowStart || null;
+  const userWindowEnd = options.windowEnd || null;
+
+  await expireDayTableSessions({ now: new Date() }).catch(() => {});
+
   const venue = await prisma.venue.findFirst({
     where: { id: venueId, deletedAt: null },
     select: { id: true, name: true, acceptsDayBookings: true },
@@ -54,44 +41,12 @@ export async function buildVenueDayTableTiers(venueId) {
     orderBy: { hostingTierKey: 'asc' },
   });
 
-  const hostedTableIds = [
-    ...new Set(venueTables.map((t) => t.hostedTableId).filter(Boolean)),
-  ];
-  const hostedTables = hostedTableIds.length
-    ? await prisma.hostedTable.findMany({
-        where: {
-          id: { in: hostedTableIds },
-          status: { in: ['ACTIVE', 'FULL'] },
-        },
-        include: {
-          host: {
-            select: {
-              id: true,
-              username: true,
-              fullName: true,
-              userProfile: { select: { username: true, avatarUrl: true } },
-            },
-          },
-        },
-      })
-    : [];
-
-  const goingByHostedId = new Map();
-  if (hostedTables.length) {
-    const goingRows = await prisma.hostedTableMember.groupBy({
-      by: ['hostedTableId'],
-      where: { hostedTableId: { in: hostedTables.map((h) => h.id) }, status: 'GOING' },
-      _count: { _all: true },
-    });
-    for (const row of goingRows) {
-      goingByHostedId.set(row.hostedTableId, row._count._all);
-    }
-  }
+  const bookableToday = venueTables.filter((vt) => isVenueTableBookableToday(vt, bookingDate));
+  const venueWindow = venueWindowFromTables(bookableToday, bookingDate);
 
   const tierMap = new Map();
 
-  for (const vt of venueTables) {
-    if (!isVenueTableBookableToday(vt)) continue;
+  for (const vt of bookableToday) {
     const parts = String(vt.hostingTierKey || '').split(':');
     const tierIdx = Number(parts[1]);
     const tierKey = Number.isFinite(tierIdx) ? `day:${tierIdx}` : `day:${vt.tierLabel || vt.id}`;
@@ -112,39 +67,70 @@ export async function buildVenueDayTableTiers(venueId) {
     }
 
     const tier = tierMap.get(tierKey);
-    const spotsRemaining = Math.max(0, vt.guestCapacity - vt.currentOccupancy);
-    const linkedHosted = vt.hostedTableId
-      ? hostedTables.find((h) => h.id === vt.hostedTableId)
-      : null;
-    const isHosted = Boolean(linkedHosted || vt.hostUserId);
+    const occupancy = await buildOccupancyForSlot(vt, bookingDate);
 
-    let hostedTablePayload = null;
-    if (linkedHosted) {
-      hostedTablePayload = buildHostedTablePayload(linkedHosted, {
-        goingCount: goingByHostedId.get(linkedHosted.id) ?? null,
-      });
+    let canHost = true;
+    let joinableSessions = occupancy.filter((o) => o.spotsRemaining > 0);
+
+    if (userWindowStart && userWindowEnd) {
+      const hostCheck = await canHostInWindow(vt.id, bookingDate, userWindowStart, userWindowEnd);
+      canHost = hostCheck.ok;
+      joinableSessions = occupancy.filter(
+        (o) =>
+          o.spotsRemaining > 0 &&
+          windowsOverlap(userWindowStart, userWindowEnd, o.startTime, o.endTime),
+      );
     }
+
+    const primaryJoin = joinableSessions[0]?.hostedTable || null;
+    const isHosted = occupancy.length > 0;
 
     tier.slots.push({
       venueTableId: vt.id,
       tableName: vt.tableName,
-      spotsRemaining: hostedTablePayload?.spotsRemaining ?? spotsRemaining,
+      spotsRemaining: primaryJoin?.spotsRemaining ?? (Number(vt.guestCapacity) || 6),
       isHosted,
-      hostedTable: hostedTablePayload,
+      canHost,
+      hostedTable: primaryJoin,
+      occupancy,
+      joinableSessions: joinableSessions.map((o) => ({
+        hostedTableId: o.hostedTableId,
+        startTime: o.startTime,
+        endTime: o.endTime,
+        hostedTable: o.hostedTable,
+      })),
     });
   }
 
   const tiers = [...tierMap.values()].map((tier) => {
-    const allHostedOpen = tier.slots.filter(
-      (s) => s.isHosted && s.hostedTable && s.hostedTable.spotsRemaining > 0,
-    );
-    const allUnhostedOpen = tier.slots.filter((s) => !s.isHosted && s.spotsRemaining > 0);
-    const totalSpotsRemaining = tier.slots.reduce((sum, s) => sum + s.spotsRemaining, 0);
+    let tablesOpenForHost = 0;
+    let tablesOpenForJoin = 0;
+    let totalSpotsRemaining = 0;
+
+    if (userWindowStart && userWindowEnd) {
+      for (const s of tier.slots) {
+        if (s.canHost) tablesOpenForHost += 1;
+        tablesOpenForJoin += s.joinableSessions?.length || 0;
+        totalSpotsRemaining += s.joinableSessions?.reduce(
+          (sum, j) => sum + (j.hostedTable?.spotsRemaining || 0),
+          0,
+        ) || 0;
+        if (s.canHost) totalSpotsRemaining += tier.maxGuestsPerTable;
+      }
+    } else {
+      tablesOpenForHost = tier.slots.length;
+      tablesOpenForJoin = tier.slots.reduce((sum, s) => sum + (s.occupancy?.length || 0), 0);
+      totalSpotsRemaining = tier.slots.reduce(
+        (sum, s) => sum + (s.hostedTable?.spotsRemaining ?? tier.maxGuestsPerTable),
+        0,
+      );
+    }
+
     return {
       ...tier,
       minSpend: tier.minSpendJoin,
-      tablesOpenForHost: allUnhostedOpen.filter((s) => s.venueTableId).length,
-      tablesOpenForJoin: allUnhostedOpen.length + allHostedOpen.length,
+      tablesOpenForHost,
+      tablesOpenForJoin,
       totalSpotsRemaining,
       allowsCustomRequests: false,
     };
@@ -157,11 +143,12 @@ export async function buildVenueDayTableTiers(venueId) {
       isCustomListing: true,
       isActive: true,
     },
-    select: { id: true },
+    select: { id: true, serviceSchedule: true, startTime: true, endTime: true },
   });
 
   return {
     venue: { id: venue.id, name: venue.name },
+    venueWindow,
     tiers,
     customListingId: customRow?.id ?? null,
     allowsCustomRequests: Boolean(customRow?.id),
