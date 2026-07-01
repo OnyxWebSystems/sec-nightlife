@@ -32,6 +32,7 @@ import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
 import { mobileFooterPadding, MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConstants';
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
 import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
+import DayBookingWindowPicker, { isWindowValid } from '@/components/tables/DayBookingWindowPicker';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -92,17 +93,19 @@ export default function TableDetails() {
   const checkoutParam = urlParams.get('checkout');
   const windowStartParam = urlParams.get('windowStart') || urlParams.get('window_start');
   const windowEndParam = urlParams.get('windowEnd') || urlParams.get('window_end');
-  const bookingWindow = useMemo(
-    () =>
-      windowStartParam && windowEndParam
-        ? { startTime: windowStartParam, endTime: windowEndParam }
-        : null,
-    [windowStartParam, windowEndParam],
-  );
+  const [dayBookingWindow, setDayBookingWindow] = useState(null);
   const isVenueSource = source === 'venue';
   const isHostCheckout = bookingModeParam === 'host';
   const [selectedMenuItems, setSelectedMenuItems] = useState({});
   const [hostedMenuSelected, setHostedMenuSelected] = useState({});
+  const [venueSettlementMode, setVenueSettlementMode] = useState(() =>
+    settlementParam === 'PREPAY_LUMP' ? 'PREPAY_LUMP' : 'PREPAY_MENU',
+  );
+  const [venueCheckoutStep, setVenueCheckoutStep] = useState(() =>
+    settlementParam === 'PREPAY_LUMP' ? 'checkout' : 'menu',
+  );
+  const [customRequestStep, setCustomRequestStep] = useState(null);
+  const [customSubmitting, setCustomSubmitting] = useState(false);
 
   useEffect(() => { loadUser(); }, []);
 
@@ -168,7 +171,8 @@ export default function TableDetails() {
   useEffect(() => {
     if (!isVenueSource || venueLoading || !venueTable) return;
     const isJoinMode = bookingModeParam === 'join' || (!bookingModeParam && venueBookingMode === 'join');
-    if (isJoinMode && venueTable.hostedTableId) {
+    const isDayBooking = Boolean(venueTable.isDayBooking);
+    if (isJoinMode && venueTable.hostedTableId && !isDayBooking) {
       navigate(
         `${createPageUrl('TableDetails')}?id=${encodeURIComponent(venueTable.hostedTableId)}&source=hosted&join=1`,
         { replace: true },
@@ -176,12 +180,37 @@ export default function TableDetails() {
     }
   }, [isVenueSource, venueLoading, venueTable, bookingModeParam, venueBookingMode, navigate]);
 
-  const [venueSettlementMode, setVenueSettlementMode] = useState(() =>
-    settlementParam === 'PREPAY_LUMP' ? 'PREPAY_LUMP' : 'PREPAY_MENU',
-  );
-  const [venueCheckoutStep, setVenueCheckoutStep] = useState(() =>
-    settlementParam === 'PREPAY_LUMP' ? 'checkout' : 'menu',
-  );
+  const venueDayWindow = venueTable?.venueWindow ?? null;
+  const isDayBookingTable = Boolean(venueTable?.isDayBooking && venueDayWindow);
+
+  useEffect(() => {
+    if (!isDayBookingTable) return;
+    const fromUrl =
+      windowStartParam && windowEndParam
+        ? { startTime: windowStartParam, endTime: windowEndParam }
+        : null;
+    const membership = venueTable?.myMembership;
+    const fromMember =
+      membership?.windowStartTime && membership?.windowEndTime
+        ? { startTime: membership.windowStartTime, endTime: membership.windowEndTime }
+        : null;
+    const defaultWindow = venueDayWindow
+      ? { startTime: venueDayWindow.startTime, endTime: venueDayWindow.endTime }
+      : null;
+    setDayBookingWindow(fromUrl || fromMember || defaultWindow);
+  }, [
+    isDayBookingTable,
+    venueTable?.id,
+    venueTable?.myMembership?.windowStartTime,
+    venueTable?.myMembership?.windowEndTime,
+    venueDayWindow?.startTime,
+    venueDayWindow?.endTime,
+    windowStartParam,
+    windowEndParam,
+  ]);
+
+  const bookingWindow = isDayBookingTable ? dayBookingWindow : null;
+  const dayWindowReady = !isDayBookingTable || isWindowValid(venueDayWindow, bookingWindow);
 
   useEffect(() => {
     if (settlementParam === 'PREPAY_LUMP') {
@@ -192,8 +221,6 @@ export default function TableDetails() {
       setVenueCheckoutStep('menu');
     }
   }, [settlementParam]);
-  const [customRequestStep, setCustomRequestStep] = useState(null);
-  const [customSubmitting, setCustomSubmitting] = useState(false);
 
   const venueMenuSelectionPayload = useMemo(
     () =>
@@ -214,7 +241,7 @@ export default function TableDetails() {
           ? { windowStart: bookingWindow.startTime, windowEnd: bookingWindow.endTime }
           : {}),
       }),
-    enabled: isVenueSource && !!tableId && !!venueTable,
+    enabled: isVenueSource && !!tableId && !!venueTable && (!isDayBookingTable || dayWindowReady),
   });
 
   useEffect(() => {
@@ -290,6 +317,10 @@ export default function TableDetails() {
     }
     if (venueCheckoutPreview?.error) {
       toast.error(venueCheckoutPreview.error);
+      return;
+    }
+    if (!dayWindowReady) {
+      toast.error('Choose a valid arrival and leave time');
       return;
     }
     const selected =
@@ -620,7 +651,7 @@ export default function TableDetails() {
       minSpendZar <= 0 ||
       venueSettlementMode === 'PREPAY_LUMP' ||
       chargeableTotal >= minSpendZar;
-    const canPay = minSpendMet && approvalOk && !venueCheckoutPreview?.error;
+    const canPay = minSpendMet && approvalOk && !venueCheckoutPreview?.error && dayWindowReady;
     const inCustomRequestEntry = urlParams.get('request') === '1';
     const showCustomRequest =
       !isHostCheckout &&
@@ -656,14 +687,23 @@ export default function TableDetails() {
               Request approved — review your order and pay below.
             </p>
           ) : null}
-          {bookingWindow ? (
-            <p style={{ marginTop: 6, fontSize: 12, color: 'var(--sec-text-secondary)' }}>
-              Your booking window: {bookingWindow.startTime}–{bookingWindow.endTime}
-            </p>
-          ) : null}
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
         </div>
+        {!tablePurchased && isDayBookingTable ? (
+          <div style={{ marginTop: 16 }}>
+            <DayBookingWindowPicker
+              venueWindow={venueDayWindow}
+              value={dayBookingWindow}
+              onChange={setDayBookingWindow}
+            />
+          </div>
+        ) : null}
+        {tablePurchased && bookingWindow ? (
+          <p style={{ marginTop: 12, fontSize: 12, color: 'var(--sec-text-secondary)' }}>
+            Your booking window: {bookingWindow.startTime}–{bookingWindow.endTime}
+          </p>
+        ) : null}
         {tablePurchased ? (
           <div
             className="sec-card"
@@ -816,6 +856,11 @@ export default function TableDetails() {
             {venueCheckoutPreview.error}
           </p>
         ) : null}
+        {!dayWindowReady && isDayBookingTable && !tablePurchased ? (
+          <p style={{ color: 'var(--sec-warning)', fontSize: 13, marginTop: 12, textAlign: 'center' }}>
+            Choose a valid arrival and leave time within today&apos;s service window.
+          </p>
+        ) : null}
         {!canPay && venueCheckoutStep === 'checkout' && needsVenueApprovalBeforePay && !approvalOk ? (
           <p style={{ color: 'var(--sec-warning)', fontSize: 13, marginTop: 12, textAlign: 'center' }}>
             This custom table requires venue approval before you can pay. Submit a request and wait for approval.
@@ -875,6 +920,10 @@ export default function TableDetails() {
             minSpendZar={minSpendZar}
             minMet={minSpendMet}
             onContinue={() => {
+              if (!dayWindowReady) {
+                toast.error('Choose a valid arrival and leave time');
+                return;
+              }
               if (itemCount === 0 && minSpendZar > 0) {
                 setVenueSettlementMode('PREPAY_LUMP');
               } else {

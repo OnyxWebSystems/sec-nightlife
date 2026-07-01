@@ -30,6 +30,7 @@ import {
   getActiveDaySessions,
   isDayVenueTable,
   validateDayBookingWindow,
+  venueWindowForDate,
   windowsOverlap,
 } from '../lib/dayBookingWindows.js';
 
@@ -670,6 +671,8 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
     const menuItems = await hydrateTableMenu(table);
+    const isDayBooking = isDayVenueTable(table);
+    const venueWindow = isDayBooking ? venueWindowForDate(table, new Date()) : null;
     let myMembership = null;
     if (req.userId) {
       myMembership = await prisma.venueTableMember.findUnique({
@@ -680,6 +683,8 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
       ...table,
       menuItems,
       myMembership,
+      isDayBooking,
+      venueWindow,
       spotsRemaining: Math.max(0, table.guestCapacity - table.currentOccupancy),
       progressPercentage: table.minimumSpend > 0 ? Number(((table.amountContributed / table.minimumSpend) * 100).toFixed(1)) : 0,
       members: table.members.map((m) => ({ id: m.id, userId: m.userId, avatarUrl: m.user.userProfile?.avatarUrl || null, username: m.user.userProfile?.username || m.user.fullName || 'member' })),

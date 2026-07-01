@@ -132,8 +132,6 @@ export default function VenueBook() {
         customListingId={customListingId}
         allowsCustomRequests={allowsCustomRequests}
         venueWindow={venueWindow}
-        venueId={venueId}
-        onRefetchTiers={refetch}
       />
     </div>
   );
