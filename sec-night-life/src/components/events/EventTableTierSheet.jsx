@@ -45,6 +45,8 @@ function hostedJoinOptions(tier) {
             tableName: s.tableName,
             hostedTable: j.hostedTable,
             hostedTableId: j.hostedTableId || j.hostedTable?.id,
+            startTime: j.startTime,
+            endTime: j.endTime,
             sessionLabel:
               j.startTime && j.endTime ? `${j.startTime}–${j.endTime}` : null,
           });
@@ -93,9 +95,14 @@ export default function EventTableTierSheet({
     navigate(buildPageUrl('TableDetails', { id: customListingId, source: 'venue', request: '1' }));
   };
 
-  const goHosted = (hostedTableId) => {
+  const goHosted = (hostedTableId, session) => {
     onClose?.();
-    navigate(buildPageUrl('TableDetails', { id: hostedTableId, source: 'hosted' }));
+    const params = { id: hostedTableId, source: 'hosted' };
+    if (session?.startTime && session?.endTime) {
+      params.windowStart = session.startTime;
+      params.windowEnd = session.endTime;
+    }
+    navigate(buildPageUrl('TableDetails', params));
   };
 
   const showCustomTable = Boolean(
@@ -210,7 +217,12 @@ export default function EventTableTierSheet({
                       label={ht.tableName || s.tableName}
                       sub={`Hosted by ${hostName} · ${spotsLabel}${timeNote}${feeNote}`}
                       actionLabel={joinLabel}
-                      onAction={() => goHosted(s.hostedTableId)}
+                      onAction={() =>
+                        goHosted(s.hostedTableId, {
+                          startTime: s.startTime,
+                          endTime: s.endTime,
+                        })
+                      }
                     />
                   );
                 })}

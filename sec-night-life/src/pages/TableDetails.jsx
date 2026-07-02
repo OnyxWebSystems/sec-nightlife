@@ -32,7 +32,8 @@ import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
 import { mobileFooterPadding, MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConstants';
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
 import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
-import DayBookingWindowPicker, { isWindowValid } from '@/components/tables/DayBookingWindowPicker';
+import DayBookingTimeSlotPicker, { isWindowValid } from '@/components/tables/DayBookingTimeSlotPicker';
+import { buildAvailableGaps, defaultWindowFromGaps } from '@/lib/dayBookingSlotUtils';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -182,6 +183,13 @@ export default function TableDetails() {
 
   const venueDayWindow = venueTable?.venueWindow ?? null;
   const isDayBookingTable = Boolean(venueTable?.isDayBooking && venueDayWindow);
+  const dayOccupancy = venueTable?.dayOccupancy ?? [];
+  const availableGaps = useMemo(
+    () =>
+      venueTable?.availableGaps ??
+      (venueDayWindow ? buildAvailableGaps(venueDayWindow, dayOccupancy) : []),
+    [venueTable?.availableGaps, venueDayWindow, dayOccupancy],
+  );
 
   useEffect(() => {
     if (!isDayBookingTable) return;
@@ -194,10 +202,8 @@ export default function TableDetails() {
       membership?.windowStartTime && membership?.windowEndTime
         ? { startTime: membership.windowStartTime, endTime: membership.windowEndTime }
         : null;
-    const defaultWindow = venueDayWindow
-      ? { startTime: venueDayWindow.startTime, endTime: venueDayWindow.endTime }
-      : null;
-    setDayBookingWindow(fromUrl || fromMember || defaultWindow);
+    const fromGaps = defaultWindowFromGaps(availableGaps, venueDayWindow);
+    setDayBookingWindow(fromUrl || fromMember || fromGaps);
   }, [
     isDayBookingTable,
     venueTable?.id,
@@ -207,10 +213,15 @@ export default function TableDetails() {
     venueDayWindow?.endTime,
     windowStartParam,
     windowEndParam,
+    availableGaps,
   ]);
 
   const bookingWindow = isDayBookingTable ? dayBookingWindow : null;
-  const dayWindowReady = !isDayBookingTable || isWindowValid(venueDayWindow, bookingWindow);
+  const dayWindowReady =
+    !isDayBookingTable ||
+    isWindowValid(venueDayWindow, bookingWindow, dayOccupancy, {
+      mode: isHostCheckout ? 'host' : 'join',
+    });
 
   useEffect(() => {
     if (settlementParam === 'PREPAY_LUMP') {
@@ -690,15 +701,6 @@ export default function TableDetails() {
           <p style={{ marginTop: 8 }}>{venueTable.description || 'No description'}</p>
           <p style={{ marginTop: 8, fontSize: 13 }}>{venueTable.spotsRemaining} spots left</p>
         </div>
-        {!tablePurchased && isDayBookingTable ? (
-          <div style={{ marginTop: 16 }}>
-            <DayBookingWindowPicker
-              venueWindow={venueDayWindow}
-              value={dayBookingWindow}
-              onChange={setDayBookingWindow}
-            />
-          </div>
-        ) : null}
         {tablePurchased && bookingWindow ? (
           <p style={{ marginTop: 12, fontSize: 12, color: 'var(--sec-text-secondary)' }}>
             Your booking window: {bookingWindow.startTime}–{bookingWindow.endTime}
@@ -785,6 +787,21 @@ export default function TableDetails() {
               >
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--sec-accent)' }}>Step 1 of 2 · Choose menu</span>
                 <span style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>Optional — add items for your request</span>
+              </div>
+            ) : null}
+            {!tablePurchased && isDayBookingTable ? (
+              <div style={{ marginTop: inRequestFlow ? 0 : 16, marginBottom: 16 }}>
+                <DayBookingTimeSlotPicker
+                  venueWindow={venueDayWindow}
+                  value={dayBookingWindow}
+                  onChange={setDayBookingWindow}
+                  occupancy={dayOccupancy}
+                  availableGaps={availableGaps}
+                  serviceDay={venueTable?.serviceDay}
+                  latestBookableEnd={venueTable?.latestBookableEnd}
+                  isOvernight={venueTable?.isOvernight}
+                  mode={isHostCheckout ? 'host' : 'join'}
+                />
               </div>
             ) : null}
             <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: inRequestFlow ? 0 : 16, marginBottom: 8 }}>

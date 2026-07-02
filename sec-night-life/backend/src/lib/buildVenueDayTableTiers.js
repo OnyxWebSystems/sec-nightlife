@@ -3,7 +3,9 @@ import { isVenueTableBookableToday } from './serviceSchedule.js';
 import {
   buildHostedTablePayload,
   buildOccupancyForSlot,
+  buildAvailableGaps,
   canHostInWindow,
+  venueWindowForDate,
   venueWindowFromTables,
   windowsOverlap,
 } from './dayBookingWindows.js';
@@ -70,8 +72,10 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
 
     const tier = tierMap.get(tierKey);
     const occupancy = await buildOccupancyForSlot(vt, bookingDate);
+    const slotWindow = venueWindowForDate(vt, bookingDate) || venueWindow;
+    const availableGaps = slotWindow ? buildAvailableGaps(slotWindow, occupancy) : [];
 
-    let canHost = occupancy.length === 0;
+    let canHost = availableGaps.length > 0;
     let joinableSessions = occupancy.filter((o) => o.spotsRemaining > 0);
 
     if (userWindowStart && userWindowEnd) {
@@ -80,7 +84,7 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
       joinableSessions = occupancy.filter(
         (o) =>
           o.spotsRemaining > 0 &&
-          windowsOverlap(userWindowStart, userWindowEnd, o.startTime, o.endTime),
+          windowsOverlap(userWindowStart, userWindowEnd, o.startTime, o.endTime, slotWindow),
       );
     }
 

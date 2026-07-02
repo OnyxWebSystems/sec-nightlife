@@ -7,6 +7,7 @@ import {
 
 const SAST_OFFSET = '+02:00';
 const MIN_WINDOW_MINUTES = 30;
+const END_BUFFER_MINUTES = 60;
 
 function parseClock(value) {
   if (!value || typeof value !== 'string') return null;
@@ -15,6 +16,139 @@ function parseClock(value) {
   const m = parseInt(parts[1], 10);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return { h, m, minutes: h * 60 + m };
+}
+
+function minutesToHHmm(totalMinutes) {
+  const normalized = ((totalMinutes % 1440) + 1440) % 1440;
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+export function isOvernightWindow(startTime, endTime) {
+  const s = parseClock(startTime);
+  const e = parseClock(endTime);
+  if (!s || !e) return false;
+  return e.minutes <= s.minutes;
+}
+
+/** Map HH:mm onto the venue service-day timeline (minutes from midnight, +1440 after midnight when overnight). */
+export function toServiceMinutes(time, venueWindow) {
+  const t = parseClock(time);
+  const vs = parseClock(venueWindow?.startTime);
+  if (!t || !vs) return null;
+  let m = t.minutes;
+  if (isOvernightWindow(venueWindow.startTime, venueWindow.endTime) && m < vs.minutes) {
+    m += 1440;
+  }
+  return m;
+}
+
+export function serviceInterval(startTime, endTime, venueWindow) {
+  const s = toServiceMinutes(startTime, venueWindow);
+  let e = toServiceMinutes(endTime, venueWindow);
+  if (s == null || e == null) return null;
+  if (e <= s) e += 1440;
+  return [s, e];
+}
+
+export function latestBookableEndTime(venueWindow, bufferMinutes = END_BUFFER_MINUTES) {
+  if (!venueWindow?.endTime) return null;
+  const e = parseClock(venueWindow.endTime);
+  if (!e) return null;
+  let mins = e.minutes - bufferMinutes;
+  if (mins < 0) mins += 1440;
+  return minutesToHHmm(mins);
+}
+
+export function windowsOverlapOvernight(startA, endA, startB, endB, venueWindow = null) {
+  if (venueWindow?.startTime && venueWindow?.endTime) {
+    const a = serviceInterval(startA, endA, venueWindow);
+    const b = serviceInterval(startB, endB, venueWindow);
+    if (!a || !b) return false;
+    return a[0] < b[1] && b[0] < a[1];
+  }
+  const a0 = parseClock(startA);
+  const a1 = parseClock(endA);
+  const b0 = parseClock(startB);
+  const b1 = parseClock(endB);
+  if (!a0 || !a1 || !b0 || !b1) return false;
+  let t0a = a0.minutes;
+  let t1a = a1.minutes;
+  let t0b = b0.minutes;
+  let t1b = b1.minutes;
+  if (t1a <= t0a) t1a += 1440;
+  if (t1b <= t0b) t1b += 1440;
+  return t0a < t1b && t0b < t1a;
+}
+
+export function bookingDurationMinutes(startTime, endTime, venueWindow) {
+  const interval = venueWindow
+    ? serviceInterval(startTime, endTime, venueWindow)
+    : (() => {
+        const s = parseClock(startTime);
+        const e = parseClock(endTime);
+        if (!s || !e) return null;
+        let t0 = s.minutes;
+        let t1 = e.minutes;
+        if (t1 <= t0) t1 += 1440;
+        return [t0, t1];
+      })();
+  if (!interval) return null;
+  return interval[1] - interval[0];
+}
+
+/**
+ * Available gaps within the venue service window, excluding booked occupancy and the end buffer.
+ * @param {{ startTime: string, endTime: string }} venueWindow
+ * @param {Array<{ startTime: string, endTime: string }>} occupancy
+ */
+export function buildAvailableGaps(
+  venueWindow,
+  occupancy = [],
+  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES } = {},
+) {
+  if (!venueWindow?.startTime || !venueWindow?.endTime) return [];
+
+  const bookableStart = toServiceMinutes(venueWindow.startTime, venueWindow);
+  const venueEnd = toServiceMinutes(venueWindow.endTime, venueWindow);
+  if (bookableStart == null || venueEnd == null) return [];
+
+  let bookableEnd = venueEnd - endBufferMinutes;
+  if (bookableEnd <= bookableStart) return [];
+
+  const blocks = occupancy
+    .map((o) => serviceInterval(o.startTime, o.endTime, venueWindow))
+    .filter(Boolean)
+    .sort((a, b) => a[0] - b[0]);
+
+  const merged = [];
+  for (const [s, e] of blocks) {
+    const clampedStart = Math.max(s, bookableStart);
+    const clampedEnd = Math.min(e, bookableEnd);
+    if (clampedEnd <= clampedStart) continue;
+    const last = merged[merged.length - 1];
+    if (last && clampedStart <= last[1]) {
+      last[1] = Math.max(last[1], clampedEnd);
+    } else {
+      merged.push([clampedStart, clampedEnd]);
+    }
+  }
+
+  const gaps = [];
+  let cursor = bookableStart;
+  for (const [s, e] of merged) {
+    if (s > cursor) gaps.push([cursor, s]);
+    cursor = Math.max(cursor, e);
+  }
+  if (cursor < bookableEnd) gaps.push([cursor, bookableEnd]);
+
+  return gaps
+    .filter(([s, e]) => e - s >= minMinutes)
+    .map(([s, e]) => ({
+      startTime: minutesToHHmm(s),
+      endTime: minutesToHHmm(e),
+    }));
 }
 
 function formatDateYmd(date) {
@@ -106,13 +240,8 @@ export function venueWindowForDate(table, refDate = new Date()) {
   return null;
 }
 
-export function windowsOverlap(startA, endA, startB, endB) {
-  const a0 = parseClock(startA);
-  const a1 = parseClock(endA);
-  const b0 = parseClock(startB);
-  const b1 = parseClock(endB);
-  if (!a0 || !a1 || !b0 || !b1) return false;
-  return a0.minutes < b1.minutes && b0.minutes < a1.minutes;
+export function windowsOverlap(startA, endA, startB, endB, venueWindow = null) {
+  return windowsOverlapOvernight(startA, endA, startB, endB, venueWindow);
 }
 
 export function isTimeWithinWindow(time, windowStart, windowEnd) {
@@ -131,9 +260,9 @@ export function validateUserWindow(userStart, userEnd, venueWindow) {
   const s = parseClock(userStart);
   const e = parseClock(userEnd);
   if (!s || !e) return { ok: false, error: 'Invalid time format' };
-  if (e.minutes <= s.minutes) return { ok: false, error: 'End time must be after start time' };
-  const duration = e.minutes - s.minutes;
-  if (duration < MIN_WINDOW_MINUTES) {
+
+  const duration = bookingDurationMinutes(userStart, userEnd, venueWindow);
+  if (duration == null || duration < MIN_WINDOW_MINUTES) {
     return { ok: false, error: `Minimum booking duration is ${MIN_WINDOW_MINUTES} minutes` };
   }
   if (!isTimeWithinWindow(userStart, venueWindow.startTime, venueWindow.endTime)) {
@@ -142,6 +271,17 @@ export function validateUserWindow(userStart, userEnd, venueWindow) {
   if (!isTimeWithinWindow(userEnd, venueWindow.startTime, venueWindow.endTime)) {
     return { ok: false, error: 'End time must be within the venue service window' };
   }
+
+  const latestEnd = latestBookableEndTime(venueWindow);
+  const userEndM = toServiceMinutes(userEnd, venueWindow);
+  const latestEndM = toServiceMinutes(latestEnd, venueWindow);
+  if (userEndM != null && latestEndM != null && userEndM > latestEndM) {
+    return {
+      ok: false,
+      error: `Bookings must end at least 1 hour before service ends (by ${latestEnd})`,
+    };
+  }
+
   return { ok: true };
 }
 
@@ -257,7 +397,8 @@ export async function canHostInWindow(venueTableId, bookingDate, userStart, user
   for (const ht of sessions) {
     if (excludeHostedTableId && ht.id === excludeHostedTableId) continue;
     const { startTime, endTime } = sessionWindowFromHosted(ht, venueTable, bookingDate);
-    if (startTime && endTime && windowsOverlap(userStart, userEnd, startTime, endTime)) {
+    const vw = venueTable ? venueWindowForDate(venueTable, bookingDate) : null;
+    if (startTime && endTime && windowsOverlap(userStart, userEnd, startTime, endTime, vw)) {
       return { ok: false, error: 'This table is already hosted during the selected time' };
     }
   }
@@ -351,4 +492,4 @@ export function venueWindowFromTables(venueTables, refDate = new Date()) {
   return null;
 }
 
-export { serviceScheduleFromTable, MIN_WINDOW_MINUTES };
+export { serviceScheduleFromTable, MIN_WINDOW_MINUTES, END_BUFFER_MINUTES };

@@ -1,6 +1,8 @@
 import React from 'react';
 import { Crown } from 'lucide-react';
 
+import { formatWindowLabel, isOvernightWindow } from '@/lib/dayBookingSlotUtils';
+
 function formatZar(n) {
   const v = Number(n) || 0;
   return v > 0 ? `R${v.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}` : 'Free';
@@ -139,16 +141,21 @@ export default function EventTableTierCard({ tier, onSelect, venueWindow }) {
             Tables open
           </span>
           <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>
-            {tier.tablesOpenForHost > 0 ? `${tier.tablesOpenForHost} to host` : ''}
-            {tier.tablesOpenForHost > 0 && tier.tablesOpenForJoin > tier.tablesOpenForHost ? ' · ' : ''}
-            {tier.tablesOpenForJoin > 0 ? `${tier.tablesOpenForJoin} to join` : tier.tablesOpenForHost === 0 ? 'None' : ''}
+            {(() => {
+              const host = tier.tablesOpenForHost || 0;
+              const join = tier.tablesOpenForJoin || 0;
+              if (host > 0 && join > 0) return `${host} to host · ${join} to join`;
+              if (host > 0) return `${host} to host`;
+              if (join > 0) return `${join} to join`;
+              return 'None';
+            })()}
           </span>
         </div>
       </div>
 
       <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', margin: 0 }}>
         {venueWindow
-          ? `Open ${venueWindow.startTime}–${venueWindow.endTime} · Tap to choose a table`
+          ? `Open ${formatWindowLabel(venueWindow.startTime, venueWindow.endTime, isOvernightWindow(venueWindow.startTime, venueWindow.endTime))} · Tap to choose a table`
           : 'Tap to host or join a table in this tier'}
       </p>
     </button>

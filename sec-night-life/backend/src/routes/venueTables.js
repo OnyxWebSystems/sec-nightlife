@@ -26,13 +26,18 @@ import {
 import { buildVenueTableMemberTicketSummary } from '../lib/ticketMemberSummary.js';
 import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
 import {
+  buildAvailableGaps,
+  buildOccupancyForSlot,
   canHostInWindow,
   getActiveDaySessions,
   isDayVenueTable,
+  isOvernightWindow,
+  latestBookableEndTime,
   validateDayBookingWindow,
   venueWindowForDate,
   windowsOverlap,
 } from '../lib/dayBookingWindows.js';
+import { WEEKDAY_FULL, weekdayKeyFromDate } from '../lib/serviceSchedule.js';
 
 const router = Router();
 
@@ -553,6 +558,7 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
     }
     if (bookingMode === 'join') {
       const sessions = await getActiveDaySessions(table.id, w.bookingDate);
+      const vw = venueWindowForDate(table, w.bookingDate);
       const overlapping = sessions.filter((ht) => {
         const startTime = ht.eventTime ? String(ht.eventTime) : null;
         const endTime = ht.windowEndsAt
@@ -563,7 +569,7 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
               hour12: false,
             }).format(ht.windowEndsAt)
           : null;
-        return startTime && endTime && windowsOverlap(w.windowStart, w.windowEnd, startTime, endTime);
+        return startTime && endTime && windowsOverlap(w.windowStart, w.windowEnd, startTime, endTime, vw);
       });
       if (overlapping.length > 0) {
         return { error: 'This table is hosted during your selected time. Join the host\'s table instead.' };
@@ -672,7 +678,26 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
     if (!table) return res.status(404).json({ error: 'Table not found' });
     const menuItems = await hydrateTableMenu(table);
     const isDayBooking = isDayVenueTable(table);
-    const venueWindow = isDayBooking ? venueWindowForDate(table, new Date()) : null;
+    const bookingDate = new Date();
+    const venueWindow = isDayBooking ? venueWindowForDate(table, bookingDate) : null;
+    let dayBookingMeta = {};
+    if (isDayBooking && venueWindow) {
+      const occupancy = await buildOccupancyForSlot(table, bookingDate);
+      const dayKey = weekdayKeyFromDate(bookingDate);
+      dayBookingMeta = {
+        serviceDay: { key: dayKey, label: WEEKDAY_FULL[dayKey] || dayKey },
+        latestBookableEnd: latestBookableEndTime(venueWindow),
+        isOvernight: isOvernightWindow(venueWindow.startTime, venueWindow.endTime),
+        dayOccupancy: occupancy.map((o) => ({
+          startTime: o.startTime,
+          endTime: o.endTime,
+          hostedTableId: o.hostedTableId,
+          spotsRemaining: o.spotsRemaining,
+          hostName: o.hostedTable?.host?.username || o.hostedTable?.host?.fullName || null,
+        })),
+        availableGaps: buildAvailableGaps(venueWindow, occupancy),
+      };
+    }
     let myMembership = null;
     if (req.userId) {
       myMembership = await prisma.venueTableMember.findUnique({
@@ -685,6 +710,7 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
       myMembership,
       isDayBooking,
       venueWindow,
+      ...dayBookingMeta,
       spotsRemaining: Math.max(0, table.guestCapacity - table.currentOccupancy),
       progressPercentage: table.minimumSpend > 0 ? Number(((table.amountContributed / table.minimumSpend) * 100).toFixed(1)) : 0,
       members: table.members.map((m) => ({ id: m.id, userId: m.userId, avatarUrl: m.user.userProfile?.avatarUrl || null, username: m.user.userProfile?.username || m.user.fullName || 'member' })),
