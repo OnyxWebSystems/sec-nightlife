@@ -6,8 +6,10 @@ import {
 } from './serviceSchedule.js';
 
 const SAST_OFFSET = '+02:00';
+const SAST_TZ = 'Africa/Johannesburg';
 const MIN_WINDOW_MINUTES = 30;
 const END_BUFFER_MINUTES = 60;
+const SLOT_STEP_MINUTES = 30;
 
 function parseClock(value) {
   if (!value || typeof value !== 'string') return null;
@@ -50,6 +52,40 @@ export function serviceInterval(startTime, endTime, venueWindow) {
   if (s == null || e == null) return null;
   if (e <= s) e += 1440;
   return [s, e];
+}
+
+export function currentClockSast(refDate = new Date()) {
+  const d = refDate instanceof Date ? refDate : new Date(refDate);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: SAST_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const h = parts.find((p) => p.type === 'hour')?.value;
+  const m = parts.find((p) => p.type === 'minute')?.value;
+  if (!h || !m) return null;
+  return `${h}:${m}`;
+}
+
+export function ceilToSlotStep(minutes, step = SLOT_STEP_MINUTES) {
+  if (!Number.isFinite(minutes)) return null;
+  return Math.ceil(minutes / step) * step;
+}
+
+export function earliestBookableStartMinutes(venueWindow, refDate = new Date(), step = SLOT_STEP_MINUTES) {
+  if (!venueWindow?.startTime) return null;
+  const bookableStart = toServiceMinutes(venueWindow.startTime, venueWindow);
+  if (bookableStart == null) return null;
+
+  const nowClock = currentClockSast(refDate);
+  if (!nowClock) return bookableStart;
+
+  const nowM = toServiceMinutes(nowClock, venueWindow);
+  if (nowM == null) return bookableStart;
+
+  const roundedNow = ceilToSlotStep(nowM, step);
+  return Math.max(bookableStart, roundedNow);
 }
 
 export function latestBookableEndTime(venueWindow, bufferMinutes = END_BUFFER_MINUTES) {
@@ -106,13 +142,18 @@ export function bookingDurationMinutes(startTime, endTime, venueWindow) {
 export function buildAvailableGaps(
   venueWindow,
   occupancy = [],
-  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES } = {},
+  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES, refDate = new Date() } = {},
 ) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) return [];
 
-  const bookableStart = toServiceMinutes(venueWindow.startTime, venueWindow);
+  let bookableStart = toServiceMinutes(venueWindow.startTime, venueWindow);
   const venueEnd = toServiceMinutes(venueWindow.endTime, venueWindow);
   if (bookableStart == null || venueEnd == null) return [];
+
+  const earliest = earliestBookableStartMinutes(venueWindow, refDate);
+  if (earliest != null) {
+    bookableStart = Math.max(bookableStart, earliest);
+  }
 
   let bookableEnd = venueEnd - endBufferMinutes;
   if (bookableEnd <= bookableStart) return [];
@@ -253,13 +294,19 @@ export function isTimeWithinWindow(time, windowStart, windowEnd) {
   return t.minutes >= s.minutes || t.minutes <= e.minutes;
 }
 
-export function validateUserWindow(userStart, userEnd, venueWindow) {
+export function validateUserWindow(userStart, userEnd, venueWindow, refDate = new Date()) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) {
     return { ok: false, error: 'No service window configured for this day' };
   }
   const s = parseClock(userStart);
   const e = parseClock(userEnd);
   if (!s || !e) return { ok: false, error: 'Invalid time format' };
+
+  const earliest = earliestBookableStartMinutes(venueWindow, refDate);
+  const startM = toServiceMinutes(userStart, venueWindow);
+  if (earliest != null && startM != null && startM < earliest) {
+    return { ok: false, error: 'This time has already passed' };
+  }
 
   const duration = bookingDurationMinutes(userStart, userEnd, venueWindow);
   if (duration == null || duration < MIN_WINDOW_MINUTES) {
@@ -334,7 +381,7 @@ export function validateDayBookingWindow(table, payload, existing, bookingDate =
     return { ok: false, error: 'Select a start and end time for your booking' };
   }
   const venueWindow = venueWindowForDate(table, date);
-  const check = validateUserWindow(windowStart, windowEnd, venueWindow);
+  const check = validateUserWindow(windowStart, windowEnd, venueWindow, date);
   if (!check.ok) return check;
   return { ok: true, bookingDate: date, windowStart, windowEnd, windowEndsAt: windowEndInstant(date, windowStart, windowEnd) };
 }

@@ -1,38 +1,101 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Clock, Users } from 'lucide-react';
-import { Label } from '@/components/ui/label';
+import DayBookingTimeChipRail from '@/components/tables/DayBookingTimeChipRail';
 import {
   MIN_WINDOW_MINUTES,
   SLOT_STEP_MINUTES,
+  buildAvailableGaps,
   buildTimelineSegments,
   defaultWindowFromGaps,
+  earliestBookableStartTime,
+  endTimeFromDuration,
   formatDurationLabel,
   formatWindowLabel,
+  hasSlotsRemainingToday,
   latestBookableEndTime,
   listTimeOptionsInGap,
+  toServiceMinutes,
   validateBookingWindow,
   findGapContainingWindow,
 } from '@/lib/dayBookingSlotUtils';
 
 export { isWindowValid } from '@/lib/dayBookingSlotUtils';
 
-function TimeSelect({ label, value, options, onChange, disabled }) {
+const DURATION_PRESETS = [
+  { key: '1h', label: '1h', minutes: 60 },
+  { key: '2h', label: '2h', minutes: 120 },
+  { key: '3h', label: '3h', minutes: 180 },
+  { key: 'close', label: 'Until close', minutes: null },
+];
+
+function useNowTick(intervalMs = 60000) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+function DurationPills({ startTime, endTime, activeGap, venueWindow, latestBookableEnd, onSelect, disabled }) {
+  const activeKey = useMemo(() => {
+    if (!startTime || !endTime || !venueWindow) return null;
+    for (const preset of DURATION_PRESETS) {
+      if (preset.minutes == null) {
+        const gapEnd = activeGap?.endTime;
+        if (gapEnd === endTime) return preset.key;
+        const latest = latestBookableEnd;
+        if (latest === endTime) return preset.key;
+        continue;
+      }
+      const computed = endTimeFromDuration(startTime, preset.minutes, venueWindow, activeGap, latestBookableEnd);
+      if (computed === endTime) return preset.key;
+    }
+    return null;
+  }, [startTime, endTime, venueWindow, activeGap, latestBookableEnd]);
+
   return (
-    <div>
-      <Label className="text-xs text-[var(--sec-text-muted)]">{label}</Label>
-      <select
-        value={value || ''}
-        disabled={disabled || !options.length}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full h-10 rounded-lg border px-3 text-sm bg-[var(--sec-bg-elevated)] text-[var(--sec-text-primary)]"
-        style={{ borderColor: 'var(--sec-border)' }}
-      >
-        {options.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
+    <div className="flex flex-wrap gap-2">
+      {DURATION_PRESETS.map((preset) => {
+        const isActive = activeKey === preset.key;
+        return (
+          <button
+            key={preset.key}
+            type="button"
+            disabled={disabled || !startTime}
+            onClick={() => {
+              if (!startTime) return;
+              let end;
+              if (preset.minutes == null) {
+                end = latestBookableEnd || activeGap?.endTime;
+                if (activeGap && venueWindow) {
+                  const fromDuration = endTimeFromDuration(
+                    startTime,
+                    9999,
+                    venueWindow,
+                    activeGap,
+                    latestBookableEnd,
+                  );
+                  end = fromDuration || end;
+                }
+              } else {
+                end = endTimeFromDuration(startTime, preset.minutes, venueWindow, activeGap, latestBookableEnd);
+              }
+              if (end) onSelect(end);
+            }}
+            className="rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-150"
+            style={{
+              minHeight: 36,
+              border: `1px solid ${isActive ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
+              background: isActive ? 'var(--sec-accent-muted)' : 'transparent',
+              color: isActive ? 'var(--sec-accent-bright)' : 'var(--sec-text-muted)',
+              opacity: disabled || !startTime ? 0.5 : 1,
+            }}
+          >
+            {preset.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -52,22 +115,29 @@ export default function DayBookingTimeSlotPicker({
   closedToday = false,
   openDaysSummary = null,
 }) {
+  const now = useNowTick();
   const latestBookableEnd = latestBookableEndProp || latestBookableEndTime(venueWindow);
-  const gaps = availableGaps?.length
-    ? availableGaps
-    : [];
+  const earliestStart = earliestBookableStartTime(venueWindow, now);
+
+  const gaps = useMemo(() => {
+    if (venueWindow) {
+      const computed = buildAvailableGaps(venueWindow, occupancy, { refDate: now });
+      if (computed.length) return computed;
+    }
+    return availableGaps?.length ? availableGaps : [];
+  }, [venueWindow, occupancy, availableGaps, now.getTime()]);
 
   const [activeGap, setActiveGap] = useState(null);
 
   useEffect(() => {
     if (!venueWindow || readOnly || value?.startTime) return;
-    const initial = defaultWindowFromGaps(gaps, venueWindow);
+    const initial = defaultWindowFromGaps(gaps, venueWindow, { refDate: now });
     if (initial) {
       onChange?.(initial);
       const gap = findGapContainingWindow(gaps, initial.startTime, initial.endTime, venueWindow);
       if (gap) setActiveGap(gap);
     }
-  }, [venueWindow?.startTime, venueWindow?.endTime, gaps.length]);
+  }, [venueWindow?.startTime, venueWindow?.endTime, gaps.length, now.getTime()]);
 
   useEffect(() => {
     if (!value?.startTime || !value?.endTime || !venueWindow) return;
@@ -75,45 +145,62 @@ export default function DayBookingTimeSlotPicker({
     if (gap) setActiveGap(gap);
   }, [value?.startTime, value?.endTime, gaps, venueWindow]);
 
+  // Bump selection if it becomes invalid (page left open)
+  useEffect(() => {
+    if (!venueWindow || readOnly || !value?.startTime) return;
+    const err = validateBookingWindow(value, venueWindow, occupancy, { mode, refDate: now });
+    if (err === 'This time has already passed') {
+      const initial = defaultWindowFromGaps(gaps, venueWindow, { refDate: now });
+      if (initial) onChange?.(initial);
+    }
+  }, [now.getTime()]);
+
   const validation = useMemo(
-    () => validateBookingWindow(value, venueWindow, occupancy, { mode }),
-    [value, venueWindow, occupancy, mode],
+    () => validateBookingWindow(value, venueWindow, occupancy, { mode, refDate: now }),
+    [value, venueWindow, occupancy, mode, now.getTime()],
   );
 
-  const { segments, ticks } = useMemo(
-    () => buildTimelineSegments(venueWindow, occupancy, value, latestBookableEnd),
-    [venueWindow, occupancy, value, latestBookableEnd],
+  const { segments, ticks, nowPct, nowTime } = useMemo(
+    () => buildTimelineSegments(venueWindow, occupancy, value, latestBookableEnd, now),
+    [venueWindow, occupancy, value, latestBookableEnd, now.getTime()],
   );
 
   const startOptions = useMemo(() => {
-    if (!activeGap) return [];
-    const all = listTimeOptionsInGap(activeGap, SLOT_STEP_MINUTES);
-    const endM = value?.endTime
-      ? parseInt(value.endTime.split(':')[0], 10) * 60 + parseInt(value.endTime.split(':')[1], 10)
-      : null;
+    if (!activeGap || !venueWindow) return [];
+    const all = listTimeOptionsInGap(activeGap, SLOT_STEP_MINUTES, venueWindow, now, {
+      applyEarliestFilter: true,
+    });
+    const endM = value?.endTime ? toServiceMinutes(value.endTime, venueWindow) : null;
     return all.filter((t) => {
       if (endM == null) return true;
-      const tm = parseInt(t.split(':')[0], 10) * 60 + parseInt(t.split(':')[1], 10);
+      const tm = toServiceMinutes(t, venueWindow);
+      if (tm == null) return false;
       let em = endM;
       let sm = tm;
-      if (em <= sm) return false;
+      if (em <= sm) em += 1440;
       return em - sm >= MIN_WINDOW_MINUTES;
     });
-  }, [activeGap, value?.endTime]);
+  }, [activeGap, value?.endTime, venueWindow, now.getTime()]);
 
   const endOptions = useMemo(() => {
-    if (!activeGap || !value?.startTime) return [];
-    const all = listTimeOptionsInGap(activeGap, SLOT_STEP_MINUTES);
-    const startM = parseInt(value.startTime.split(':')[0], 10) * 60 + parseInt(value.startTime.split(':')[1], 10);
+    if (!activeGap || !value?.startTime || !venueWindow) return [];
+    const all = listTimeOptionsInGap(activeGap, SLOT_STEP_MINUTES, venueWindow, now, {
+      applyEarliestFilter: false,
+    });
+    const startM = toServiceMinutes(value.startTime, venueWindow);
+    if (startM == null) return [];
     return all.filter((t) => {
-      const tm = parseInt(t.split(':')[0], 10) * 60 + parseInt(t.split(':')[1], 10);
+      const tm = toServiceMinutes(t, venueWindow);
+      if (tm == null) return false;
       let em = tm;
       let sm = startM;
       if (em <= sm) em += 1440;
-      if (sm < startM) sm += 1440;
       return em - sm >= MIN_WINDOW_MINUTES;
     });
-  }, [activeGap, value?.startTime]);
+  }, [activeGap, value?.startTime, venueWindow, now.getTime()]);
+
+  const slotsRemaining = hasSlotsRemainingToday(venueWindow, occupancy, now);
+  const showEarliestHint = earliestStart && venueWindow?.startTime && earliestStart !== venueWindow.startTime;
 
   if (!venueWindow) {
     if (closedToday) {
@@ -123,6 +210,7 @@ export default function DayBookingTimeSlotPicker({
           style={{
             borderColor: 'var(--sec-border)',
             background: 'linear-gradient(145deg, var(--sec-bg-card) 0%, var(--sec-bg-elevated) 100%)',
+            boxShadow: 'var(--shadow-card)',
           }}
         >
           <div className="flex items-start gap-3">
@@ -156,6 +244,7 @@ export default function DayBookingTimeSlotPicker({
         style={{
           borderColor: 'var(--sec-border)',
           background: 'linear-gradient(145deg, var(--sec-bg-card) 0%, var(--sec-bg-elevated) 100%)',
+          boxShadow: 'var(--shadow-card)',
         }}
       >
         <div className="flex items-start gap-3">
@@ -182,37 +271,69 @@ export default function DayBookingTimeSlotPicker({
 
   const handleGapSelect = (gap) => {
     setActiveGap(gap);
-    const initial = defaultWindowFromGaps([gap], venueWindow, { defaultDurationMinutes: 120 });
+    const initial = defaultWindowFromGaps([gap], venueWindow, { defaultDurationMinutes: 120, refDate: now });
     if (initial) onChange?.(initial);
   };
 
+  const visibleTicks = ticks.filter((_, i) => {
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      return i % 2 === 0;
+    }
+    return true;
+  });
+
   return (
     <div
-      className={`rounded-xl border space-y-4 ${compact ? 'p-3' : 'p-4'}`}
+      className={`rounded-xl border space-y-4 ${compact ? 'p-3' : 'p-4 sm:p-5'}`}
       style={{
         borderColor: 'var(--sec-border)',
+        borderTopColor: 'var(--sec-accent-border)',
+        borderTopWidth: 2,
         background: 'linear-gradient(145deg, var(--sec-bg-card) 0%, var(--sec-bg-elevated) 100%)',
+        boxShadow: 'var(--shadow-card)',
       }}
     >
       <div className="flex items-start gap-3">
         <div
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-          style={{ background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)' }}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+          style={{
+            background: 'var(--sec-accent-muted)',
+            border: '1px solid var(--sec-accent-border)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+          }}
         >
-          <Clock size={16} style={{ color: 'var(--sec-accent)' }} />
+          <Clock size={18} style={{ color: 'var(--sec-accent-bright)' }} />
         </div>
-        <div>
-          <p className="text-sm font-semibold text-[var(--sec-text-primary)]">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-[var(--sec-accent-bright)]">
             {dayLabel} · Service {serviceLabel}
           </p>
           <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
             {mode === 'host' ? 'Choose when you will host this table' : 'Choose when you will join'}
             {latestBookableEnd ? ` · Last booking ends by ${latestBookableEnd}` : ''}
           </p>
+          {showEarliestHint ? (
+            <p className="text-xs mt-1" style={{ color: 'var(--sec-accent)' }}>
+              From {earliestStart} onwards
+            </p>
+          ) : null}
         </div>
       </div>
 
-      {gaps.length > 0 ? (
+      {!slotsRemaining ? (
+        <div
+          className="rounded-lg px-4 py-3 text-center"
+          style={{ background: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)' }}
+        >
+          <p className="text-sm font-medium text-[var(--sec-text-primary)]">No more slots today</p>
+          <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+            Service is ending soon. Try again tomorrow
+            {openDaysSummary ? ` (${openDaysSummary})` : ''}.
+          </p>
+        </div>
+      ) : null}
+
+      {gaps.length > 1 ? (
         <div className="space-y-2">
           <p className="text-xs font-medium text-[var(--sec-text-secondary)]">Available periods</p>
           <div className="flex flex-wrap gap-2">
@@ -226,9 +347,10 @@ export default function DayBookingTimeSlotPicker({
                   onClick={() => handleGapSelect(gap)}
                   className="rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
                   style={{
+                    minHeight: 36,
                     border: `1px solid ${isActive ? 'var(--sec-accent)' : 'var(--sec-border)'}`,
                     background: isActive ? 'var(--sec-accent-muted)' : 'var(--sec-bg-base)',
-                    color: isActive ? 'var(--sec-accent)' : 'var(--sec-text-secondary)',
+                    color: isActive ? 'var(--sec-accent-bright)' : 'var(--sec-text-secondary)',
                   }}
                 >
                   {gap.startTime} – {gap.endTime}
@@ -237,72 +359,113 @@ export default function DayBookingTimeSlotPicker({
             })}
           </div>
         </div>
-      ) : (
-        <p className="text-xs text-amber-400">No available time slots on this table today.</p>
-      )}
+      ) : gaps.length === 0 && slotsRemaining === false ? null : null}
 
-      <div className="space-y-2">
-        <div
-          className="relative h-10 rounded-lg overflow-hidden"
-          style={{ background: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)' }}
-        >
-          {segments
-            .filter((s) => s.type === 'booked')
-            .map((seg, i) => (
+      {slotsRemaining ? (
+        <div className="space-y-2">
+          <div
+            className="relative h-12 sm:h-14 rounded-xl overflow-hidden"
+            style={{ background: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)' }}
+          >
+            {segments
+              .filter((s) => s.type === 'past')
+              .map((seg, i) => (
+                <div
+                  key={`past-${i}`}
+                  className="absolute top-0 bottom-0"
+                  style={{
+                    left: `${seg.left}%`,
+                    width: `${Math.max(seg.width, 0.5)}%`,
+                    background:
+                      'repeating-linear-gradient(-45deg, rgba(80,80,80,0.25), rgba(80,80,80,0.25) 4px, rgba(40,40,40,0.15) 4px, rgba(40,40,40,0.15) 8px)',
+                  }}
+                />
+              ))}
+            {segments
+              .filter((s) => s.type === 'booked')
+              .map((seg, i) => (
+                <div
+                  key={`booked-${i}`}
+                  title={seg.spotsRemaining != null ? `Booked · ${seg.spotsRemaining} spots left` : seg.label}
+                  className="absolute top-0 bottom-0"
+                  style={{
+                    left: `${seg.left}%`,
+                    width: `${Math.max(seg.width, 1)}%`,
+                    background:
+                      'repeating-linear-gradient(-45deg, rgba(239,68,68,0.35), rgba(239,68,68,0.35) 4px, rgba(239,68,68,0.15) 4px, rgba(239,68,68,0.15) 8px)',
+                    borderRight: '1px solid rgba(239,68,68,0.4)',
+                  }}
+                />
+              ))}
+            {segments
+              .filter((s) => s.type === 'selected')
+              .map((seg, i) => (
+                <div
+                  key={`selected-${i}`}
+                  className="absolute top-1 bottom-1 rounded-md"
+                  style={{
+                    left: `${seg.left}%`,
+                    width: `${Math.max(seg.width, 2)}%`,
+                    background: 'var(--sec-gradient-silver)',
+                    opacity: 0.85,
+                    border: '1px solid var(--sec-accent)',
+                    boxShadow: '0 0 12px rgba(192,192,192,0.2)',
+                  }}
+                />
+              ))}
+            {nowPct != null ? (
               <div
-                key={`booked-${i}`}
-                title={seg.spotsRemaining != null ? `Booked · ${seg.spotsRemaining} spots left` : seg.label}
-                className="absolute top-0 bottom-0"
+                className="absolute top-0 bottom-0 z-10 pointer-events-none"
+                style={{ left: `${nowPct}%`, width: 2, marginLeft: -1 }}
+              >
+                <div className="h-full w-0.5" style={{ background: 'var(--sec-accent-bright)' }} />
+              </div>
+            ) : null}
+          </div>
+          <div className="relative h-5 text-[10px] sm:text-[11px] text-[var(--sec-text-muted)]">
+            {visibleTicks.map((tick) => (
+              <span
+                key={tick.time}
+                className="absolute -translate-x-1/2 whitespace-nowrap"
+                style={{ left: `${tick.pct}%` }}
+              >
+                {tick.time}
+              </span>
+            ))}
+            {nowPct != null && nowTime ? (
+              <span
+                className="absolute -translate-x-1/2 text-[9px] font-medium whitespace-nowrap"
+                style={{ left: `${nowPct}%`, top: -2, color: 'var(--sec-accent-bright)' }}
+              >
+                Now
+              </span>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-3 text-[10px] text-[var(--sec-text-muted)]">
+            <span className="flex items-center gap-1">
+              <span
+                className="inline-block w-3 h-3 rounded-sm"
                 style={{
-                  left: `${seg.left}%`,
-                  width: `${Math.max(seg.width, 1)}%`,
                   background:
-                    'repeating-linear-gradient(-45deg, rgba(239,68,68,0.35), rgba(239,68,68,0.35) 4px, rgba(239,68,68,0.15) 4px, rgba(239,68,68,0.15) 8px)',
-                  borderRight: '1px solid rgba(239,68,68,0.4)',
+                    'repeating-linear-gradient(-45deg, rgba(80,80,80,0.4), rgba(80,80,80,0.4) 2px, transparent 2px, transparent 4px)',
                 }}
               />
-            ))}
-          {segments
-            .filter((s) => s.type === 'selected')
-            .map((seg, i) => (
-              <div
-                key={`selected-${i}`}
-                className="absolute top-0 bottom-0"
-                style={{
-                  left: `${seg.left}%`,
-                  width: `${Math.max(seg.width, 2)}%`,
-                  background: 'var(--sec-accent-muted)',
-                  border: '1px solid var(--sec-accent)',
-                  borderRadius: 4,
-                }}
-              />
-            ))}
-        </div>
-        <div className="relative h-4 text-[10px] text-[var(--sec-text-muted)]">
-          {ticks.map((tick) => (
-            <span
-              key={tick.time}
-              className="absolute -translate-x-1/2"
-              style={{ left: `${tick.pct}%` }}
-            >
-              {tick.time}
+              Past
             </span>
-          ))}
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: 'rgba(239,68,68,0.4)' }} />
+              Booked
+            </span>
+            <span className="flex items-center gap-1">
+              <span
+                className="inline-block w-3 h-3 rounded-sm"
+                style={{ background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent)' }}
+              />
+              Your booking
+            </span>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-3 text-[10px] text-[var(--sec-text-muted)]">
-          <span className="flex items-center gap-1">
-            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: 'rgba(239,68,68,0.4)' }} />
-            Booked
-          </span>
-          <span className="flex items-center gap-1">
-            <span
-              className="inline-block w-3 h-3 rounded-sm"
-              style={{ background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent)' }}
-            />
-            Your booking
-          </span>
-        </div>
-      </div>
+      ) : null}
 
       {occupancy.length > 0 ? (
         <div className="space-y-2">
@@ -323,32 +486,57 @@ export default function DayBookingTimeSlotPicker({
         </div>
       ) : null}
 
-      {activeGap ? (
-        <div className="grid grid-cols-2 gap-3">
-          <TimeSelect
+      {activeGap && slotsRemaining ? (
+        <div className="space-y-4">
+          <DayBookingTimeChipRail
             label="Arrive from"
+            options={startOptions}
             value={value?.startTime}
-            options={startOptions.length ? startOptions : listTimeOptionsInGap(activeGap)}
             onChange={(startTime) => onChange?.({ startTime, endTime: value?.endTime || activeGap.endTime })}
           />
-          <TimeSelect
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium tracking-wide text-[var(--sec-text-secondary)]">Duration</p>
+            <DurationPills
+              startTime={value?.startTime}
+              endTime={value?.endTime}
+              activeGap={activeGap}
+              venueWindow={venueWindow}
+              latestBookableEnd={latestBookableEnd}
+              onSelect={(endTime) => onChange?.({ startTime: value?.startTime || activeGap.startTime, endTime })}
+            />
+          </div>
+
+          <DayBookingTimeChipRail
             label="Leave by"
+            options={endOptions}
             value={value?.endTime}
-            options={endOptions.length ? endOptions : listTimeOptionsInGap(activeGap)}
             onChange={(endTime) => onChange?.({ startTime: value?.startTime || activeGap.startTime, endTime })}
           />
         </div>
       ) : null}
 
       {validation ? (
-        <p className="text-xs text-red-400">{validation}</p>
-      ) : value?.startTime && value?.endTime ? (
-        <p className="text-xs text-[var(--sec-text-muted)]">
-          Your booking: {value.startTime} – {value.endTime}
-          {formatDurationLabel(value.startTime, value.endTime, venueWindow)
-            ? ` (${formatDurationLabel(value.startTime, value.endTime, venueWindow)})`
-            : ''}
+        <p className="text-xs" style={{ color: 'var(--sec-error)' }}>
+          {validation}
         </p>
+      ) : value?.startTime && value?.endTime ? (
+        <div
+          className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium"
+          style={{
+            border: '1px solid var(--sec-accent-border)',
+            background: 'var(--sec-accent-muted)',
+            color: 'var(--sec-accent-bright)',
+          }}
+        >
+          <Clock size={12} />
+          <span>
+            {value.startTime} – {value.endTime}
+            {formatDurationLabel(value.startTime, value.endTime, venueWindow)
+              ? ` · ${formatDurationLabel(value.startTime, value.endTime, venueWindow)}`
+              : ''}
+          </span>
+        </div>
       ) : null}
     </div>
   );

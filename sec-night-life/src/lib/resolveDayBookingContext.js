@@ -163,7 +163,7 @@ export function resolveDayBookingContext(venueTable, { tierSlot = null, tierData
   const availableGaps =
     (Array.isArray(venueTable?.availableGaps) && venueTable.availableGaps.length
       ? venueTable.availableGaps
-      : null) || (venueWindow ? buildAvailableGaps(venueWindow, dayOccupancy) : []);
+      : null) || (venueWindow ? buildAvailableGaps(venueWindow, dayOccupancy, { refDate }) : []);
 
   const latestBookableEnd =
     venueTable?.latestBookableEnd || (venueWindow ? latestBookableEndTime(venueWindow) : null);

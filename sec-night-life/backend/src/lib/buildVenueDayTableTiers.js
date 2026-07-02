@@ -73,7 +73,7 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
     const tier = tierMap.get(tierKey);
     const occupancy = await buildOccupancyForSlot(vt, bookingDate);
     const slotWindow = venueWindowForDate(vt, bookingDate) || venueWindow;
-    const availableGaps = slotWindow ? buildAvailableGaps(slotWindow, occupancy) : [];
+    const availableGaps = slotWindow ? buildAvailableGaps(slotWindow, occupancy, { refDate: bookingDate }) : [];
 
     let canHost = availableGaps.length > 0;
     let joinableSessions = occupancy.filter((o) => o.spotsRemaining > 0);
