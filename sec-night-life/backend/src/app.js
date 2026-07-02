@@ -88,19 +88,34 @@ app.use(helmet({
   hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false
 }));
 
+function addOriginWithWwwAlias(set, raw) {
+  const normalized = String(raw || '').trim().replace(/\/+$/, '');
+  if (!normalized) return;
+  set.add(normalized);
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
+    const host = url.hostname;
+    if (host.startsWith('www.')) {
+      set.add(`${url.protocol}//${host.slice(4)}${url.port ? `:${url.port}` : ''}`);
+    } else if (!host.includes('localhost') && host.split('.').length >= 2) {
+      set.add(`${url.protocol}//www.${host}${url.port ? `:${url.port}` : ''}`);
+    }
+  } catch {
+    // Ignore invalid origin strings.
+  }
+}
+
 // Strict CORS (normalize origins: trim trailing slashes for comparison)
-const allowedOrigins = new Set(
-  (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:4173')
-    .split(',')
-    .map(o => o.trim().replace(/\/+$/, ''))
-    .filter(Boolean)
-);
+const allowedOrigins = new Set();
+for (const origin of (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:4173').split(',')) {
+  addOriginWithWwwAlias(allowedOrigins, origin);
+}
 
 // Ensure frontend origin from APP_URL is accepted as well (common in production deployments).
 if (process.env.APP_URL) {
   try {
-    const appOrigin = new URL(process.env.APP_URL).origin.replace(/\/+$/, '');
-    if (appOrigin) allowedOrigins.add(appOrigin);
+    addOriginWithWwwAlias(allowedOrigins, new URL(process.env.APP_URL).origin);
   } catch {
     // APP_URL format is validated at startup; ignore here as a defense-in-depth guard.
   }
