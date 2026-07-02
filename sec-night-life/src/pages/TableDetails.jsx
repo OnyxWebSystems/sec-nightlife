@@ -33,7 +33,11 @@ import { mobileFooterPadding, MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConst
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
 import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
 import DayBookingTimeSlotPicker, { isWindowValid } from '@/components/tables/DayBookingTimeSlotPicker';
-import { buildAvailableGaps, defaultWindowFromGaps } from '@/lib/dayBookingSlotUtils';
+import { defaultWindowFromGaps } from '@/lib/dayBookingSlotUtils';
+import {
+  isDayBookingVenueTable,
+  resolveDayBookingContext,
+} from '@/lib/resolveDayBookingContext';
 
 /* ── small shared helpers ─────────────────────────────────────── */
 
@@ -172,7 +176,7 @@ export default function TableDetails() {
   useEffect(() => {
     if (!isVenueSource || venueLoading || !venueTable) return;
     const isJoinMode = bookingModeParam === 'join' || (!bookingModeParam && venueBookingMode === 'join');
-    const isDayBooking = Boolean(venueTable.isDayBooking);
+    const isDayBooking = isDayBookingVenueTable(venueTable);
     if (isJoinMode && venueTable.hostedTableId && !isDayBooking) {
       navigate(
         `${createPageUrl('TableDetails')}?id=${encodeURIComponent(venueTable.hostedTableId)}&source=hosted&join=1`,
@@ -181,18 +185,34 @@ export default function TableDetails() {
     }
   }, [isVenueSource, venueLoading, venueTable, bookingModeParam, venueBookingMode, navigate]);
 
-  const venueDayWindow = venueTable?.venueWindow ?? null;
-  const isDayBookingTable = Boolean(venueTable?.isDayBooking && venueDayWindow);
-  const dayOccupancy = venueTable?.dayOccupancy ?? [];
-  const availableGaps = useMemo(
+  const needsTierOccupancy =
+    isVenueSource &&
+    !!venueTable &&
+    isDayBookingVenueTable(venueTable) &&
+    !Array.isArray(venueTable?.dayOccupancy);
+
+  const { data: dayTierData } = useQuery({
+    queryKey: ['venue-day-table-tiers', venueTable?.venueId],
+    queryFn: () => apiGet(`/api/venues/${venueTable.venueId}/day-table-tiers`),
+    enabled: needsTierOccupancy && !!venueTable?.venueId,
+  });
+
+  const dayBookingCtx = useMemo(
     () =>
-      venueTable?.availableGaps ??
-      (venueDayWindow ? buildAvailableGaps(venueDayWindow, dayOccupancy) : []),
-    [venueTable?.availableGaps, venueDayWindow, dayOccupancy],
+      venueTable
+        ? resolveDayBookingContext(venueTable, { tierData: dayTierData })
+        : null,
+    [venueTable, dayTierData],
   );
 
+  const isDayBookingTable = Boolean(dayBookingCtx?.isDayBooking);
+  const venueDayWindow = dayBookingCtx?.venueWindow ?? null;
+  const dayOccupancy = dayBookingCtx?.dayOccupancy ?? [];
+  const availableGaps = dayBookingCtx?.availableGaps ?? [];
+  const dayOpenToday = dayBookingCtx?.isOpenToday ?? false;
+
   useEffect(() => {
-    if (!isDayBookingTable) return;
+    if (!isDayBookingTable || !dayOpenToday) return;
     const fromUrl =
       windowStartParam && windowEndParam
         ? { startTime: windowStartParam, endTime: windowEndParam }
@@ -214,11 +234,13 @@ export default function TableDetails() {
     windowStartParam,
     windowEndParam,
     availableGaps,
+    dayOpenToday,
   ]);
 
-  const bookingWindow = isDayBookingTable ? dayBookingWindow : null;
+  const bookingWindow = isDayBookingTable && dayOpenToday ? dayBookingWindow : null;
   const dayWindowReady =
     !isDayBookingTable ||
+    !dayOpenToday ||
     isWindowValid(venueDayWindow, bookingWindow, dayOccupancy, {
       mode: isHostCheckout ? 'host' : 'join',
     });
@@ -797,10 +819,12 @@ export default function TableDetails() {
                   onChange={setDayBookingWindow}
                   occupancy={dayOccupancy}
                   availableGaps={availableGaps}
-                  serviceDay={venueTable?.serviceDay}
-                  latestBookableEnd={venueTable?.latestBookableEnd}
-                  isOvernight={venueTable?.isOvernight}
+                  serviceDay={dayBookingCtx?.serviceDay}
+                  latestBookableEnd={dayBookingCtx?.latestBookableEnd}
+                  isOvernight={dayBookingCtx?.isOvernight}
                   mode={isHostCheckout ? 'host' : 'join'}
+                  closedToday={!dayOpenToday}
+                  openDaysSummary={dayBookingCtx?.openDaysSummary}
                 />
               </div>
             ) : null}
@@ -873,7 +897,7 @@ export default function TableDetails() {
             {venueCheckoutPreview.error}
           </p>
         ) : null}
-        {!dayWindowReady && isDayBookingTable && !tablePurchased ? (
+        {!dayWindowReady && isDayBookingTable && dayOpenToday && !tablePurchased ? (
           <p style={{ color: 'var(--sec-warning)', fontSize: 13, marginTop: 12, textAlign: 'center' }}>
             Choose a valid arrival and leave time within today&apos;s service window.
           </p>

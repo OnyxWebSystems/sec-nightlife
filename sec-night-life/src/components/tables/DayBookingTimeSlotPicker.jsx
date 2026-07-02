@@ -49,6 +49,8 @@ export default function DayBookingTimeSlotPicker({
   mode = 'host',
   readOnly = false,
   compact = false,
+  closedToday = false,
+  openDaysSummary = null,
 }) {
   const latestBookableEnd = latestBookableEndProp || latestBookableEndTime(venueWindow);
   const gaps = availableGaps?.length
@@ -113,7 +115,36 @@ export default function DayBookingTimeSlotPicker({
     });
   }, [activeGap, value?.startTime]);
 
-  if (!venueWindow) return null;
+  if (!venueWindow) {
+    if (closedToday) {
+      return (
+        <div
+          className="rounded-xl border p-4"
+          style={{
+            borderColor: 'var(--sec-border)',
+            background: 'linear-gradient(145deg, var(--sec-bg-card) 0%, var(--sec-bg-elevated) 100%)',
+          }}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+              style={{ background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)' }}
+            >
+              <Clock size={16} style={{ color: 'var(--sec-accent)' }} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-[var(--sec-text-primary)]">Not open today</p>
+              <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+                This table is not available for day bookings today.
+                {openDaysSummary ? ` Open: ${openDaysSummary}.` : ''}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const dayLabel = serviceDay?.label || 'Today';
   const serviceLabel = formatWindowLabel(venueWindow.startTime, venueWindow.endTime, isOvernight);

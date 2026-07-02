@@ -7,6 +7,8 @@ import { ChevronLeft, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import EventTableTierCard from '@/components/events/EventTableTierCard';
 import EventTableTierSheet from '@/components/events/EventTableTierSheet';
+import { formatWindowLabel, isOvernightWindow } from '@/lib/dayBookingSlotUtils';
+import { venueWindowFromSchedule } from '@/lib/resolveDayBookingContext';
 
 export default function VenueBook() {
   const navigate = useNavigate();
@@ -28,7 +30,19 @@ export default function VenueBook() {
   });
 
   const tiers = tierData?.tiers ?? [];
-  const venueWindow = tierData?.venueWindow ?? null;
+  const firstSlotId = tiers[0]?.slots?.[0]?.venueTableId ?? null;
+
+  const { data: sampleTable } = useQuery({
+    queryKey: ['venue-table-sample', firstSlotId],
+    queryFn: () => apiGet(`/api/venue-tables/${firstSlotId}`),
+    enabled: !!firstSlotId && !tierData?.venueWindow,
+  });
+
+  const venueWindow =
+    tierData?.venueWindow ?? venueWindowFromSchedule(sampleTable) ?? null;
+  const venueWindowIsOvernight = venueWindow
+    ? isOvernightWindow(venueWindow.startTime, venueWindow.endTime)
+    : false;
   const customListingId = tierData?.customListingId ?? null;
   const allowsCustomRequests = Boolean(tierData?.allowsCustomRequests);
   const dayBookingsOn = Boolean(venue?.accepts_day_bookings ?? venue?.acceptsDayBookings);
@@ -76,7 +90,7 @@ export default function VenueBook() {
       <p className="text-sm text-[var(--sec-text-muted)] mb-2">{venue?.name || 'Venue'} — day bookings</p>
       {venueWindow ? (
         <p className="text-xs text-[var(--sec-text-muted)] mb-6">
-          Open today {venueWindow.startTime}–{venueWindow.endTime}
+          Open today {formatWindowLabel(venueWindow.startTime, venueWindow.endTime, venueWindowIsOvernight)}
         </p>
       ) : (
         <div className="mb-6" />
