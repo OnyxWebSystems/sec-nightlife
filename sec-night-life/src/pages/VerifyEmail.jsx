@@ -17,7 +17,11 @@ export default function VerifyEmail() {
     let cancelled = false;
     (async () => {
       try {
-        const data = await apiPost('/api/auth/verify-email', { token }, { skipAuth: true });
+        const data = await apiPost(
+          '/api/auth/verify-email',
+          { token },
+          { skipAuth: true, timeoutMs: 20000 },
+        );
         if (cancelled) return;
         setStatus('success');
         setMessage(data?.message || 'Email verified. You can now sign in.');

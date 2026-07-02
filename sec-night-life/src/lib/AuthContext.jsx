@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import * as authService from '@/services/authService';
 import { getRefreshToken } from '@/api/client';
 import {
@@ -8,6 +9,7 @@ import {
   userFromSessionCache,
 } from '@/lib/sessionCache';
 import { setSessionResumeCallback, startSessionResume } from '@/lib/sessionResume';
+import { shouldSkipAuthBootstrap } from '@/lib/publicAuthPaths';
 
 const AuthContext = createContext();
 
@@ -57,9 +59,11 @@ function restoreCachedSession(setUser, setUserProfile, setIsAuthenticated) {
 }
 
 export const AuthProvider = ({ children }) => {
+  const location = useLocation();
   const hasTokens = hasStoredAuthTokens();
   const initialCache = hasTokens ? readSessionCache() : null;
   const initialSession = userFromSessionCache(initialCache);
+  const skipBootstrap = shouldSkipAuthBootstrap(location.pathname);
 
   const [user, setUser] = useState(initialSession.user);
   const [userProfile, setUserProfile] = useState(initialSession.profile);
@@ -67,7 +71,9 @@ export const AuthProvider = ({ children }) => {
     Boolean(initialSession.user) || hasTokens,
   );
   /** True only when we have tokens but no cached user to show yet (first open after login). */
-  const [isLoadingAuth, setIsLoadingAuth] = useState(hasTokens && !initialSession.user);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(
+    hasTokens && !initialSession.user && !skipBootstrap,
+  );
   const [authError, setAuthError] = useState(null);
   const checkInFlight = useRef(false);
 
@@ -149,15 +155,20 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    if (shouldSkipAuthBootstrap(location.pathname)) {
+      setIsLoadingAuth(false);
+      return;
+    }
     if (hasTokens) {
       void checkAuth();
     } else {
       setIsLoadingAuth(false);
     }
-  }, [checkAuth, hasTokens]);
+  }, [checkAuth, hasTokens, location.pathname]);
 
   useEffect(() => {
     setSessionResumeCallback(() => {
+      if (shouldSkipAuthBootstrap(window.location.pathname)) return;
       void checkAuth();
     });
     return startSessionResume();

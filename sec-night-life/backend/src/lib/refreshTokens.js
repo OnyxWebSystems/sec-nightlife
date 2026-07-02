@@ -87,18 +87,40 @@ export async function pruneUserRefreshTokens(userId, keep = 25) {
   await prisma.refreshToken.deleteMany({ where: { id: { in: ids } } });
 }
 
-export async function createRefreshTokenRow(userId, refreshExpiry) {
+export async function createRefreshTokenRow(userId, refreshExpiry, tx = prisma) {
   const rawRefresh = `${userId}.${uuidv4()}.${uuidv4()}`;
   const refreshHash = await hashRefreshToken(rawRefresh);
   const tokenLookup = hashTokenSha256Sync(rawRefresh);
 
-  await prisma.refreshToken.create({
+  await tx.refreshToken.create({
     data: {
       userId,
       token: refreshHash,
       tokenLookup,
       expiresAt: refreshExpiry,
     },
+  });
+
+  return rawRefresh;
+}
+
+/** Atomically issue a new refresh token and revoke the old one (create before delete). */
+export async function rotateRefreshToken(matchedRecord, refreshExpiry) {
+  const userId = matchedRecord.userId;
+  const rawRefresh = `${userId}.${uuidv4()}.${uuidv4()}`;
+  const refreshHash = await hashRefreshToken(rawRefresh);
+  const tokenLookup = hashTokenSha256Sync(rawRefresh);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.refreshToken.create({
+      data: {
+        userId,
+        token: refreshHash,
+        tokenLookup,
+        expiresAt: refreshExpiry,
+      },
+    });
+    await tx.refreshToken.delete({ where: { id: matchedRecord.id } });
   });
 
   return rawRefresh;

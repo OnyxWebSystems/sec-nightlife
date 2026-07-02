@@ -16,6 +16,7 @@ import {
   findRefreshTokenRecord,
   pruneUserRefreshTokens,
   revokeRefreshToken,
+  rotateRefreshToken,
 } from '../lib/refreshTokens.js';
 
 const router = Router();
@@ -894,10 +895,9 @@ router.post('/refresh', async (req, res, next) => {
       return res.status(403).json({ error: 'Account suspended. Contact support.' });
     }
 
-    // SECURITY: Rotate refresh token and extend sliding expiry (no session prune on refresh)
-    await prisma.refreshToken.delete({ where: { id: matched.id } });
+    // SECURITY: Rotate refresh token and extend sliding expiry (create new before deleting old)
     const refreshExpiry = refreshExpiryDate();
-    const newRefreshToken = await createRefreshTokenRow(user.id, refreshExpiry);
+    const newRefreshToken = await rotateRefreshToken(matched, refreshExpiry);
     const accessToken = jwt.sign(
       { userId: user.id, role: user.role },
       JWT_ACCESS_SECRET,

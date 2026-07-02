@@ -2,9 +2,9 @@
  * Keeps users signed in by refreshing access tokens before they expire.
  * Refresh tokens last at least 4 months; access tokens are at least 1 hour.
  */
-import { getRefreshToken, refreshAccessToken } from '@/api/client';
+import { accessTokenNeedsRefresh, getRefreshToken, refreshAccessToken } from '@/api/client';
 
-const REFRESH_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes — well under 1h minimum access lifetime
+const CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes — only refresh when access token is near expiry
 const TOKENS_UPDATED_KEY = 'sec_tokens_updated';
 
 function notifyTokensUpdated() {
@@ -18,13 +18,14 @@ export function startSessionKeepalive() {
 
   const tick = () => {
     if (!getRefreshToken()) return;
+    if (!accessTokenNeedsRefresh()) return;
     void refreshAccessToken().then((ok) => {
       if (ok) notifyTokensUpdated();
     });
   };
 
   tick();
-  const intervalId = window.setInterval(tick, REFRESH_INTERVAL_MS);
+  const intervalId = window.setInterval(tick, CHECK_INTERVAL_MS);
 
   const onVisible = () => {
     if (document.visibilityState === 'visible') tick();
@@ -34,6 +35,7 @@ export function startSessionKeepalive() {
   const onStorage = (e) => {
     if (e.key === TOKENS_UPDATED_KEY || e.key === 'refresh_token' || e.key === 'access_token') {
       // Another tab rotated tokens — localStorage already has the new values.
+      void getRefreshToken();
     }
   };
   window.addEventListener('storage', onStorage);

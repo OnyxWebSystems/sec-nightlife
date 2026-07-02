@@ -143,6 +143,11 @@ async function doRefreshAccessToken(opts = {}) {
         if (latest && latest !== refreshToken) {
           return doRefreshAccessToken({ ...opts, _storageRetry: true, _attempt: 0 });
         }
+        await waitForPeerRefresh(3000);
+        const afterPeer = getRefreshToken();
+        if (afterPeer && afterPeer !== refreshToken) {
+          return doRefreshAccessToken({ ...opts, _storageRetry: true, _attempt: 0 });
+        }
       }
       clearRefreshLock();
       const stillCurrent = getRefreshToken() === refreshToken;
@@ -188,10 +193,18 @@ function accessTokenExpiresWithinMs(withinMs) {
   }
 }
 
+/** True when access token is missing or expires within the given window (default 10 min). */
+export function accessTokenNeedsRefresh(withinMs = 10 * 60 * 1000) {
+  const token = getToken();
+  if (!token) return Boolean(getRefreshToken());
+  return accessTokenExpiresWithinMs(withinMs);
+}
+
 if (REFRESH_CHANNEL) {
   REFRESH_CHANNEL.onmessage = (event) => {
     if (event?.data?.type === 'tokens_updated') {
-      // Another tab rotated tokens — localStorage already has the new values.
+      // Another tab rotated tokens — localStorage already has the new values; no action needed.
+      void getToken();
     }
   };
 }
@@ -202,12 +215,21 @@ export async function api(method, path, body = null, opts = {}) {
   if (opts.skipAuth !== true && p !== '/api/auth/refresh' && getRefreshToken() && accessTokenExpiresWithinMs(10 * 60 * 1000)) {
     await refreshAccessToken();
   }
+  const timeoutMs = Number(opts.timeoutMs) || 0;
+  const controller = timeoutMs > 0 ? new AbortController() : null;
+  const timeoutId =
+    controller && timeoutMs > 0 ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  const { timeoutMs: _t, skipAuth: _s, _retriedAfterRefresh: _r, ...fetchOpts } = opts;
   const options = {
     method,
     headers: getHeaders(opts.skipAuth !== true),
     credentials: 'include',
-    ...opts
+    ...fetchOpts,
   };
+  if (controller) {
+    options.signal = controller.signal;
+  }
   if (body && method !== 'GET') {
     options.body = typeof body === 'string' ? body : JSON.stringify(body);
   }
@@ -215,11 +237,18 @@ export async function api(method, path, body = null, opts = {}) {
   try {
     res = await fetch(url, options);
   } catch (networkErr) {
+    if (networkErr?.name === 'AbortError') {
+      const err = new Error('Request timed out. Check your connection and try again.');
+      err.data = { code: 'REQUEST_TIMEOUT' };
+      throw err;
+    }
     const msg = networkErr?.message || 'Network error';
     const friendly = msg.includes('fetch') || msg.includes('ECONNRESET') || msg.includes('Failed')
       ? 'Cannot reach server. Make sure the backend is running (npm run dev in sec-night-life/backend).'
       : msg;
     throw new Error(friendly);
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
   }
   const text = await res.text();
   let data;

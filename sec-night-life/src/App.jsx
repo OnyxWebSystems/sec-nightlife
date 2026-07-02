@@ -16,31 +16,13 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import SecLoadingScreen from '@/components/ui/SecLoadingScreen';
 import RequireBusinessAccount from '@/components/RequireBusinessAccount';
 import RequireOnboardingComplete from '@/components/RequireOnboardingComplete';
+import VerifyEmail from '@/pages/VerifyEmail';
+import { ONBOARDING_EXEMPT_PAGES, isPublicAppPath } from '@/lib/publicAuthPaths';
+
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : null;
-const ONBOARDING_EXEMPT_PAGES = new Set([
-  'Onboarding',
-  'ProfileSetup',
-  'VenueOnboarding',
-  'Welcome',
-  'Home',
-  'Login',
-  'Register',
-  'ResetPassword',
-  'VerifyEmail',
-  'ForgotPassword',
-  'PaymentSuccess',
-  'TicketSuccess',
-  'TicketVerify',
-]);
 
-function isPublicAppPath(pathname) {
-  const normalized = String(pathname || '/').replace(/\/+$/, '') || '/';
-  if (normalized === '/' || normalized === '/Home') return true;
-  const segment = normalized.replace(/^\//, '').split('/')[0];
-  return ONBOARDING_EXEMPT_PAGES.has(segment);
-}
 const BUSINESS_ONLY_PAGES = new Set([
   'BusinessDashboard',
   'VenueAnalytics',
@@ -115,9 +97,7 @@ const AuthenticatedApp = () => {
         path="/verify-email"
         element={
           <LayoutWrapper currentPageName="VerifyEmail">
-            <Suspense fallback={<RoutePageFallback />}>
-              {Pages.VerifyEmail ? <Pages.VerifyEmail /> : null}
-            </Suspense>
+            <VerifyEmail />
           </LayoutWrapper>
         }
       />
@@ -168,21 +148,21 @@ function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <PreferencesProvider>
-        <QueryClientProvider client={queryClientInstance}>
-          <Router>
+    <PreferencesProvider>
+      <QueryClientProvider client={queryClientInstance}>
+        <Router>
+          <AuthProvider>
             <ActiveVenueProvider>
               <StaffVenueProvider>
                 <NavigationTracker />
                 <AuthenticatedApp />
               </StaffVenueProvider>
             </ActiveVenueProvider>
-          </Router>
-          <Toaster />
-        </QueryClientProvider>
-      </PreferencesProvider>
-    </AuthProvider>
+          </AuthProvider>
+        </Router>
+        <Toaster />
+      </QueryClientProvider>
+    </PreferencesProvider>
   )
 }
 

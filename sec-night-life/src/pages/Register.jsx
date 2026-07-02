@@ -3,6 +3,7 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { clearTokens, apiGet } from '@/api/client';
+import { clearSessionCache } from '@/lib/sessionCache';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -109,6 +110,7 @@ export default function Register() {
         normalizedUsername
       );
       clearTokens();
+      clearSessionCache();
       setPendingLegalAcceptFromRegister({
         termsVersion: LEGAL_ACCEPT_VERSION.termsOfService,
         privacyVersion: LEGAL_ACCEPT_VERSION.privacyPolicy,
