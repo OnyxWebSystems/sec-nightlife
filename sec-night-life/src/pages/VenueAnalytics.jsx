@@ -35,6 +35,17 @@ function isTicketingEvent(event) {
   return event?.event_format === 'TICKETING_ONLY' || hasTiers;
 }
 
+function pickRevenueAmount(analytics, grossKey, netKey, revenueMode) {
+  if (revenueMode === 'net') return Number(analytics?.[netKey] ?? analytics?.[grossKey] ?? 0);
+  return Number(analytics?.[grossKey] ?? 0);
+}
+
+function revenueScopeLabel(revenueScope) {
+  if (revenueScope === 'per_event') return 'Selected event';
+  if (revenueScope === 'day_bookings') return 'Day bookings only';
+  return 'All hosted events';
+}
+
 export default function VenueAnalytics() {
   const [user, setUser] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
@@ -87,18 +98,24 @@ export default function VenueAnalytics() {
   }, [venues, selectedVenue, venueScope.inStaffSession, scopeKey, venueScope.venueName]);
 
   const { data: analytics, isLoading: analyticsLoading, isFetching: analyticsFetching } = useQuery({
-    queryKey: ['venue-analytics', scopeKey, dateRange, revenueScope, selectedEventId],
+    queryKey: ['venue-analytics', scopeKey, dateRange, revenueScope, revenueMode, selectedEventId],
     queryFn: () => {
       const days = parseInt(dateRange, 10) || 30;
       const params = new URLSearchParams({
         days: String(days),
+        revenue_mode: revenueMode,
       });
       if (venueScope.venueQuery) {
         const extra = new URLSearchParams(venueScope.venueQuery);
         extra.forEach((v, k) => params.set(k, v));
       }
-      if (revenueScope === 'per_event' && selectedEventId) {
-        params.set('event_id', selectedEventId);
+      if (revenueScope === 'per_event') {
+        params.set('revenue_scope', 'events');
+        if (selectedEventId) params.set('event_id', selectedEventId);
+      } else if (revenueScope === 'day_bookings') {
+        params.set('revenue_scope', 'day_bookings');
+      } else {
+        params.set('revenue_scope', 'all');
       }
       return apiGet(`/api/business/venue-analytics?${params.toString()}`);
     },
@@ -201,11 +218,13 @@ export default function VenueAnalytics() {
       avgRating,
       totalEvents: eventsInPeriod,
       upcomingEvents: Number(analytics?.upcomingEventsCount ?? 0),
-      ticketPaymentZar: Number(analytics?.ticketPaymentZar || 0),
-      hostedTablePaymentZar: Number(analytics?.hostedTablePaymentZar || 0),
-      dayBookingHostPaymentZar: Number(analytics?.dayBookingHostPaymentZar || 0),
-      venueTablePaymentZar: Number(analytics?.venueTablePaymentZar || 0),
-      otherPaymentZar: Number(analytics?.otherPaymentZar || 0),
+      ticketPaymentZar: pickRevenueAmount(analytics, 'ticketPaymentZar', 'ticketPaymentNetZar', revenueMode),
+      hostedTablePaymentZar: pickRevenueAmount(analytics, 'hostedTablePaymentZar', 'hostedTablePaymentNetZar', revenueMode),
+      dayBookingHostPaymentZar: pickRevenueAmount(analytics, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', revenueMode),
+      dayBookingGuestPaymentZar: pickRevenueAmount(analytics, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', revenueMode),
+      dayBookingOtherPaymentZar: pickRevenueAmount(analytics, 'dayBookingOtherPaymentZar', 'dayBookingOtherPaymentNetZar', revenueMode),
+      venueTablePaymentZar: pickRevenueAmount(analytics, 'venueTablePaymentZar', 'venueTablePaymentNetZar', revenueMode),
+      otherPaymentZar: pickRevenueAmount(analytics, 'otherPaymentZar', 'otherPaymentNetZar', revenueMode),
       refundedVenueShareZar: Number(analytics?.refundedVenueShareZar || 0),
       refundedGrossZar: Number(analytics?.refundedGrossZar || 0),
       eventTypeCounts,
@@ -222,22 +241,16 @@ export default function VenueAnalytics() {
     const daysChrono = Array.from({ length: days }, (_, i) => subDays(new Date(), days - 1 - i));
     const byDayGross = Object.fromEntries((analytics?.revenueByDay || []).map((d) => [d.date, Number(d.gross) || 0]));
     const byDayNet = Object.fromEntries((analytics?.revenueByDay || []).map((d) => [d.date, Number(d.net ?? d.gross) || 0]));
-    const grossTotal = Number(analytics?.grossRevenueZar || 0);
-    const netTotal = Number(analytics?.netRevenueZar ?? 0);
     return daysChrono.map((day) => {
       const key = format(day, 'yyyy-MM-dd');
-      const dayGross = Number(byDayGross[key] || 0);
-      const amount =
-        revenueMode === 'net'
-          ? Number(byDayNet[key] ?? (grossTotal > 0 ? (dayGross / grossTotal) * netTotal : 0))
-          : dayGross;
+      const amount = revenueMode === 'net' ? Number(byDayNet[key] || 0) : Number(byDayGross[key] || 0);
       return {
         key,
         date: format(day, days <= 14 ? 'MMM dd' : 'd MMM'),
         sales: amount,
       };
     });
-  }, [analytics?.revenueByDay, analytics?.grossRevenueZar, analytics?.netRevenueZar, periodDays, revenueMode]);
+  }, [analytics?.revenueByDay, periodDays, revenueMode]);
 
   const eventTypeChartData = useMemo(() => {
     if (!metrics?.eventTypeCounts) return [];
@@ -345,7 +358,7 @@ export default function VenueAnalytics() {
                     </SelectTrigger>
                     <SelectContent className="bg-[#141416] border-[#262629] text-white">
                       <SelectItem value="gross">Gross Revenue</SelectItem>
-                      <SelectItem value="net">Net revenue (matches total; share of fees by day)</SelectItem>
+                      <SelectItem value="net">Net revenue (venue share)</SelectItem>
                     </SelectContent>
                   </Select>
                 </CardContent>
@@ -361,6 +374,7 @@ export default function VenueAnalytics() {
                     <SelectContent className="bg-[#141416] border-[#262629] text-white">
                       <SelectItem value="all_events">All Events Combined</SelectItem>
                       <SelectItem value="per_event">Single Event</SelectItem>
+                      <SelectItem value="day_bookings">Day bookings only</SelectItem>
                     </SelectContent>
                   </Select>
                 </CardContent>
@@ -372,7 +386,7 @@ export default function VenueAnalytics() {
                   <Select
                     value={selectedEventId}
                     onValueChange={setSelectedEventId}
-                    disabled={revenueScope !== 'per_event' || events.length === 0}
+                    disabled={revenueScope !== 'per_event' || revenueScope === 'day_bookings' || events.length === 0}
                   >
                     <SelectTrigger className="bg-[#141416] border-[#262629] disabled:opacity-50">
                       <SelectValue
@@ -407,7 +421,7 @@ export default function VenueAnalytics() {
                       </p>
                       )}
                       <p className="text-xs mt-1" style={{ color: 'var(--sec-success)' }}>
-                        {revenueScope === 'per_event' ? 'Selected event' : 'All hosted events'} - {revenueMode === 'net' ? 'Net' : 'Gross'} - Last {dateRange} days
+                        {revenueScopeLabel(revenueScope)} — {revenueMode === 'net' ? 'Net' : 'Gross'} — Last {dateRange} days
                       </p>
                     </div>
                     <DollarSign className="w-8 h-8" style={{ color: 'var(--sec-success)' }} />
@@ -469,43 +483,72 @@ export default function VenueAnalytics() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              <Card className="glass-card border-[#262629]">
-                <CardContent className="pt-6">
-                  <p className="text-gray-500 text-sm">Ticket revenue</p>
-                  <p className="text-2xl font-bold text-white mt-1">R{metrics.ticketPaymentZar.toLocaleString()}</p>
-                </CardContent>
-              </Card>
-              <Card className="glass-card border-[#262629]">
-                <CardContent className="pt-6">
-                  <p className="text-gray-500 text-sm" title="External listings and event-linked host fees">
-                    Hosted table fees
-                  </p>
-                  <p className="text-2xl font-bold text-white mt-1">R{metrics.hostedTablePaymentZar.toLocaleString()}</p>
-                </CardContent>
-              </Card>
-              <Card className="glass-card border-[#262629]">
-                <CardContent className="pt-6">
-                  <p className="text-gray-500 text-sm" title="Day-booking slot host checkouts at your venue">
-                    Day-booking hosts
-                  </p>
-                  <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingHostPaymentZar.toLocaleString()}</p>
-                </CardContent>
-              </Card>
-              <Card className="glass-card border-[#262629]">
-                <CardContent className="pt-6">
-                  <p className="text-gray-500 text-sm" title="Guest table join payments">
-                    Table joins (guests)
-                  </p>
-                  <p className="text-2xl font-bold text-white mt-1">R{metrics.venueTablePaymentZar.toLocaleString()}</p>
-                </CardContent>
-              </Card>
-              <Card className="glass-card border-[#262629]">
-                <CardContent className="pt-6">
-                  <p className="text-gray-500 text-sm">Other</p>
-                  <p className="text-2xl font-bold text-white mt-1">R{metrics.otherPaymentZar.toLocaleString()}</p>
-                </CardContent>
-              </Card>
+            <div className={`grid gap-4 ${revenueScope === 'day_bookings' ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-5'}`}>
+              {revenueScope === 'day_bookings' ? (
+                <>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm" title="Day-booking slot host checkouts">
+                        Host fees
+                      </p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingHostPaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm" title="Guest joins on day-booking tables">
+                        Table joins
+                      </p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingGuestPaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm">Other</p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingOtherPaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                </>
+              ) : (
+                <>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm">Ticket revenue</p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.ticketPaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm" title="External listings and event-linked host fees">
+                        Hosted table fees
+                      </p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.hostedTablePaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm" title="Day-booking slot host checkouts at your venue">
+                        Day-booking hosts
+                      </p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingHostPaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm" title="Guest table join payments">
+                        Table joins (guests)
+                      </p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.venueTablePaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm">Other</p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.otherPaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
               {metrics.refundedVenueShareZar > 0 ? (
                 <Card className="glass-card border-[#262629]">
                   <CardContent className="pt-6">
@@ -522,7 +565,7 @@ export default function VenueAnalytics() {
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
-                  Revenue trend (last {periodDays} days) — {revenueMode === 'net' ? 'Net' : 'Gross'}
+                  Revenue trend (last {periodDays} days) — {revenueScopeLabel(revenueScope)} — {revenueMode === 'net' ? 'Net' : 'Gross'}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -654,9 +697,15 @@ export default function VenueAnalytics() {
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[#141416]">
-                    <p className="text-sm text-gray-400 mb-1">Table join payments (guests)</p>
+                    <p className="text-sm text-gray-400 mb-1">
+                      {revenueScope === 'day_bookings' ? 'Table join payments' : 'Table join payments (guests)'}
+                    </p>
                     <p className="text-xl font-bold text-white">
-                      R{Math.round(metrics.venueTablePaymentZar).toLocaleString()}
+                      R{Math.round(
+                        revenueScope === 'day_bookings'
+                          ? metrics.dayBookingGuestPaymentZar
+                          : metrics.venueTablePaymentZar,
+                      ).toLocaleString()}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">Guest checkouts in the last {dateRange} days</p>
                   </div>
@@ -667,7 +716,7 @@ export default function VenueAnalytics() {
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       {revenueScope === 'per_event'
-                        ? 'Switch to all-venue scope to include day bookings (no event linked)'
+                        ? 'Switch to all-venue or day-bookings scope to include day bookings'
                         : 'Host fees for day-booking slots at your venue'}
                     </p>
                   </div>

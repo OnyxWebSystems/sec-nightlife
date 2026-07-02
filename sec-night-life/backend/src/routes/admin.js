@@ -409,6 +409,9 @@ router.get('/payments', async (req, res, next) => {
       ),
     );
 
+    const { repairMissingVenueTablePayouts } = await import('../lib/paystackPayout.js');
+    await repairMissingVenueTablePayouts({ sinceDays: 60, limit: 50 }).catch(() => null);
+
     const { status, type, limit = 50, offset = 0, from, to } = req.query;
     const where = {};
     const rawStatus = status != null && String(status) !== '' ? String(status) : '';

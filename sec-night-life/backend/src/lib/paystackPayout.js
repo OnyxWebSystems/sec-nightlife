@@ -180,3 +180,87 @@ export async function resolveRecipientCodeForVenue(venueId) {
   if (v?.ownerUserId) return resolveRecipientCodeForUser(v.ownerUserId);
   return null;
 }
+
+function flattenPaymentMetadata(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const nested = value.metadata && typeof value.metadata === 'object' ? value.metadata : {};
+  return { ...nested, ...value };
+}
+
+/**
+ * Idempotently record venue-table payout ledger (SEC 15% + venue 85%) when missing.
+ */
+export async function ensureVenueTablePayoutLedger({ reference, amountZar, venueId }) {
+  const gross = Number(amountZar) || 0;
+  if (!reference || gross <= 0 || !venueId) {
+    return { skipped: true, reason: 'invalid_input' };
+  }
+
+  const existing = await prisma.payoutLedger.findFirst({ where: { paymentReference: reference } });
+  if (existing) {
+    return { skipped: true, status: existing.status, ledgerId: existing.id };
+  }
+
+  const { secAmount, recipientAmount } = splitPlatformGross(gross);
+  const venueCode = await resolveRecipientCodeForVenue(venueId);
+  const result = await recordPayoutAndMaybeTransfer({
+    paymentReference: reference,
+    grossZar: gross,
+    secAmount,
+    recipientAmount,
+    recipientType: 'VENUE',
+    recipientVenueId: venueId,
+    recipientUserId: null,
+    paystackRecipientCode: venueCode,
+  });
+  return { skipped: false, ...result };
+}
+
+/**
+ * Backfill missing payout ledgers for successful venue table checkouts.
+ */
+export async function repairMissingVenueTablePayouts({ sinceDays = 60, limit = 80 } = {}) {
+  const since = new Date(Date.now() - sinceDays * 86400000);
+  const payments = await prisma.payment.findMany({
+    where: { status: 'success', createdAt: { gte: since } },
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(limit * 3, 500),
+    select: { reference: true, amount: true, metadata: true },
+  });
+
+  const tableTypes = new Set(['TABLE_CHECKOUT', 'VENUE_TABLE_JOIN']);
+  let repaired = 0;
+  let skipped = 0;
+
+  for (const pay of payments) {
+    if (repaired + skipped >= limit) break;
+    const meta = flattenPaymentMetadata(pay.metadata);
+    if (!tableTypes.has(String(meta.type || ''))) continue;
+
+    const venueId = meta.venue_id ?? meta.venueId;
+    const memberId = meta.venueTableMemberId ?? meta.venue_table_member_id;
+    if (!venueId || !memberId) continue;
+
+    const ledger = await prisma.payoutLedger.findFirst({ where: { paymentReference: pay.reference } });
+    if (ledger) {
+      skipped += 1;
+      continue;
+    }
+
+    const member = await prisma.venueTableMember.findUnique({
+      where: { id: String(memberId) },
+      select: { status: true },
+    });
+    if (member?.status !== 'CONFIRMED') continue;
+
+    const result = await ensureVenueTablePayoutLedger({
+      reference: pay.reference,
+      amountZar: Number(pay.amount) || 0,
+      venueId: String(venueId),
+    });
+    if (!result.skipped) repaired += 1;
+    else skipped += 1;
+  }
+
+  return { repaired, skipped, scanned: payments.length };
+}

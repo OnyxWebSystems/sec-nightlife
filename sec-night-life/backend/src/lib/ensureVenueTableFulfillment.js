@@ -14,7 +14,7 @@ import {
   holderDisplayNameFromUser,
   venueTableTicketTitle,
 } from './ticketHelpers.js';
-import { splitSecPlatform, recordPayoutAndMaybeTransfer, resolveRecipientCodeForVenue } from './paystackPayout.js';
+import { splitSecPlatform, ensureVenueTablePayoutLedger } from './paystackPayout.js';
 import { logger } from './logger.js';
 
 function flattenMetadata(value) {
@@ -259,20 +259,18 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       eventStartsAt,
       eventEndsAt,
     });
-    const { secAmount: sAmt, recipientAmount: vAmt } = splitSecPlatform(Number(amount || 0));
-    const venueCode = await resolveRecipientCodeForVenue(refreshedVt.venueId);
-    await recordPayoutAndMaybeTransfer({
-      paymentReference: reference,
-      grossZar: Number(amount || 0),
-      secAmount: sAmt,
-      recipientAmount: vAmt,
-      recipientType: 'VENUE',
-      recipientVenueId: refreshedVt.venueId,
-      recipientUserId: null,
-      paystackRecipientCode: venueCode,
-    }).catch((e) => logger.warn('venue table repair payout failed', { err: e?.message }));
     repaired = true;
   }
 
-  return { repaired, reason: repaired ? 'ok' : 'already_complete' };
+  const payoutResult = await ensureVenueTablePayoutLedger({
+    reference,
+    amountZar: Number(amount || 0),
+    venueId: refreshedVt.venueId,
+  }).catch((e) => {
+    logger.warn('venue table repair payout failed', { err: e?.message });
+    return { skipped: true };
+  });
+  if (payoutResult && !payoutResult.skipped) repaired = true;
+
+  return { repaired, reason: repaired ? 'ok' : 'already_complete', payout: payoutResult };
 }

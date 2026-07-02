@@ -278,7 +278,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
   const userId = priorPay.userId || metadata.user_id || metadata.userId || null;
   const email =
     paystackData?.customer?.email || priorPay.email || metadata.email || 'unknown@secnightlife.app';
-  const amount = paystackData?.amount ? paystackData.amount / 100 : 0;
+  const amount = paystackData?.amount
+    ? paystackData.amount / 100
+    : Number(priorPay?.amount) || 0;
   const type = metadata.type || 'other';
 
   try {

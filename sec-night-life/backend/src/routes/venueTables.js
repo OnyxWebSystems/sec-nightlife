@@ -1189,6 +1189,9 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       metadata.window_end = windowCtx.windowEnd;
       metadata.booking_date = windowCtx.bookingDate?.toISOString?.() || String(windowCtx.bookingDate);
     }
+    if (!table.eventId) {
+      metadata.is_day_booking = true;
+    }
 
     const pay = await initializePaystackPayment({
       userId: req.userId,
