@@ -148,21 +148,21 @@ function App() {
   }, []);
 
   return (
-    <PreferencesProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <Router>
-          <AuthProvider>
+    <QueryClientProvider client={queryClientInstance}>
+      <Router>
+        <AuthProvider>
+          <PreferencesProvider>
             <ActiveVenueProvider>
               <StaffVenueProvider>
                 <NavigationTracker />
                 <AuthenticatedApp />
               </StaffVenueProvider>
             </ActiveVenueProvider>
-          </AuthProvider>
-        </Router>
-        <Toaster />
-      </QueryClientProvider>
-    </PreferencesProvider>
+          </PreferencesProvider>
+        </AuthProvider>
+      </Router>
+      <Toaster />
+    </QueryClientProvider>
   )
 }
 
