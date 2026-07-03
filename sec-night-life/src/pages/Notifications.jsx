@@ -319,6 +319,14 @@ export default function Notifications() {
       if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
         return n.referenceId;
       }
+      const hostPaymentTitle =
+        typeof n.title === 'string' &&
+        (/host payment confirmed/i.test(n.title) ||
+          /host booking confirmed/i.test(n.title) ||
+          /hosted table payment confirmed/i.test(n.title));
+      if (hostPaymentTitle) {
+        return `${createPageUrl('HostDashboard')}?tab=tables&manage=1`;
+      }
       if (actionUrl) {
         if (actionUrl.includes('Profile') || actionUrl.includes('Tickets')) {
           return `${createPageUrl('Profile')}?tab=tickets`;

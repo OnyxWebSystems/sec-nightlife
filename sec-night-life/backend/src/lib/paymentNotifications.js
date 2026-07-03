@@ -15,13 +15,14 @@ export async function notifyPaymentSuccess({
   emailSubject = null,
 }) {
   if (!userId) return;
+  const routePath = actionUrl && String(actionUrl).startsWith('/') ? String(actionUrl) : null;
   await createInAppNotification({
     userId,
     type: 'TABLE_JOINED',
     title,
     body,
-    referenceId,
-    referenceType,
+    referenceId: routePath || referenceId,
+    referenceType: routePath ? 'ROUTE' : referenceType,
   });
   if (email) {
     const appBase = process.env.APP_URL || 'https://secnightlife.com';
@@ -54,13 +55,14 @@ export async function notifyUserAlert({
   emailHtml = null,
 }) {
   if (!userId) return;
+  const routePath = actionUrl && String(actionUrl).startsWith('/') ? String(actionUrl) : null;
   await createInAppNotification({
     userId,
     type: inAppType || 'TABLE_JOINED',
     title,
     body,
-    referenceId,
-    referenceType,
+    referenceId: routePath || referenceId,
+    referenceType: routePath ? 'ROUTE' : referenceType,
   });
   if (email) {
     const appBase = process.env.APP_URL || 'https://secnightlife.com';

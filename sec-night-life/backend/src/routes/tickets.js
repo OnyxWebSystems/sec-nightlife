@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { ticketExpiresAtFromRow } from '../lib/ticketHelpers.js';
 import { buildTicketDoorContext } from '../lib/ticketDoorContext.js';
-import { buildTicketVerifyUrlWithHints, ticketVerifyPublicOrigin } from '../lib/ticketVerifyUrl.js';
+import { buildTicketVerifyUrlWithHints, defaultTicketVerifyOrigin } from '../lib/ticketVerifyUrl.js';
 import { evaluatePrintedHints, hostInstructionsForKind } from '../lib/ticketVerifyHints.js';
 import { assertAdmitPermission, admitTicketTx, evaluateTicketEntryValidity } from '../lib/ticketAdmit.js';
 
@@ -55,7 +55,7 @@ function requestOrigin(req) {
 
 async function mapTicketRowWithDoor(req, t) {
   const door = await buildTicketDoorContext(prisma, t);
-  const origin = ticketVerifyPublicOrigin() || requestOrigin(req);
+  const origin = defaultTicketVerifyOrigin();
   const verify_url = buildTicketVerifyUrlWithHints(origin, t.qrToken, {
     venueName: door.venue_name,
     eventStartsAt: t.eventStartsAt,

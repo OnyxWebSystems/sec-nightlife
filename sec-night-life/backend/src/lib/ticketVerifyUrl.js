@@ -8,6 +8,11 @@ export function ticketVerifyPublicOrigin() {
   );
 }
 
+/** Public app origin for ticket QR links — never the API host. */
+export function defaultTicketVerifyOrigin() {
+  return ticketVerifyPublicOrigin() || 'https://secnightlife.com';
+}
+
 export function truncateVenueHint(name) {
   if (name == null || typeof name !== 'string') return null;
   const s = name.trim();

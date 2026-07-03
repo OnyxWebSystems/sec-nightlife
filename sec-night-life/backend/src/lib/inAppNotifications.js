@@ -10,6 +10,9 @@ function pushPathForNotification(data) {
       ? data.referenceId
       : '/Home';
   }
+  if (data.referenceType === 'ROUTE' && typeof data.referenceId === 'string' && data.referenceId.startsWith('/')) {
+    return data.referenceId;
+  }
   if (data.referenceType === 'message' || data.type === 'MESSAGE') return '/Messages';
   if (data.referenceType === 'event' || data.type === 'EVENT_REMINDER') return '/Notifications';
   return '/Notifications';

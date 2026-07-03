@@ -71,6 +71,37 @@ export function getTicketVerifyUrl(
     return `${base}/TicketVerify?${parts.join('&')}`;
 }
 
+/** True when a verify URL points at the API host (not the public SPA). */
+export function isApiLikeVerifyHost(url: string): boolean {
+    try {
+        const u = new URL(url);
+        const h = u.hostname.toLowerCase();
+        return h.startsWith('api.') || h.includes('.api.') || u.pathname.startsWith('/api');
+    } catch {
+        return false;
+    }
+}
+
+/** Prefer a public-app verify URL; ignore server URLs that target the API host. */
+export function resolveTicketVerifyUrl(ticket: {
+    verify_url?: string | null;
+    qr_token?: string | null;
+    venue_name?: string | null;
+    event_starts_at?: string | null;
+    event_code?: string | null;
+}): string | null {
+    const token = ticket?.qr_token;
+    if (!token) return null;
+    const hints = {
+        venueName: ticket.venue_name,
+        eventStartsAt: ticket.event_starts_at,
+        eventCode: ticket.event_code,
+    };
+    const fromServer = ticket.verify_url?.trim();
+    if (fromServer && !isApiLikeVerifyHost(fromServer)) return fromServer;
+    return getTicketVerifyUrl(token, hints);
+}
+
 export function getVenueProfileShareUrl(venueId: string): string {
     return `${getPublicAppOrigin()}/VenueProfile?id=${encodeURIComponent(venueId)}`;
 }

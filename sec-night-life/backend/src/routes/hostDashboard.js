@@ -21,6 +21,7 @@ import {
   isExternalMeetupInFuture,
   shouldShowHostedTableOnHostDashboard,
 } from '../lib/eventWallClock.js';
+import { normalizeBookingDateSast, windowEndInstant } from '../lib/dayBookingWindows.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from '../lib/hostedTableSecFees.js';
 import { addUserToHostedTableGroupChat, removeUserFromHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
@@ -1498,14 +1499,46 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
       hostedTableIds: ids,
       inviterUserId: req.userId,
     });
-    const out = tables.map((t) => ({
-      ...t,
-      memberCount: t._count?.members ?? 0,
-      isPast: !shouldShowHostedTableOnHostDashboard(t, t.event),
-      eventLocation: t.tableType === 'IN_APP_EVENT' && t.event ? buildEventLocationPayload(t.event) : null,
-      pendingJoinCount: pendingByTable[t.id] ?? 0,
-      pendingInviteCount: pendingInvitesByTable[t.id] ?? 0,
-    }));
+    const dayVenueTableIds = tables.filter((t) => t.venueTableId && !t.eventId).map((t) => t.venueTableId);
+    const hostMembers =
+      dayVenueTableIds.length > 0
+        ? await prisma.venueTableMember.findMany({
+            where: {
+              venueTableId: { in: dayVenueTableIds },
+              userId: req.userId,
+              memberRole: 'HOST',
+            },
+            select: {
+              venueTableId: true,
+              bookingDate: true,
+              windowStartTime: true,
+              windowEndTime: true,
+            },
+          })
+        : [];
+    const hostMemberByVenueTable = Object.fromEntries(hostMembers.map((m) => [m.venueTableId, m]));
+    const out = tables.map((t) => {
+      let row = t;
+      if (t.venueTableId && !t.eventId) {
+        const member = hostMemberByVenueTable[t.venueTableId];
+        if (member?.windowStartTime && member?.windowEndTime) {
+          const effectiveEnd = windowEndInstant(
+            normalizeBookingDateSast(member.bookingDate || t.eventDate),
+            member.windowStartTime,
+            member.windowEndTime,
+          );
+          if (effectiveEnd) row = { ...t, windowEndsAt: effectiveEnd };
+        }
+      }
+      return {
+      ...row,
+      memberCount: row._count?.members ?? 0,
+      isPast: !shouldShowHostedTableOnHostDashboard(row, row.event),
+      eventLocation: row.tableType === 'IN_APP_EVENT' && row.event ? buildEventLocationPayload(row.event) : null,
+      pendingJoinCount: pendingByTable[row.id] ?? 0,
+      pendingInviteCount: pendingInvitesByTable[row.id] ?? 0,
+    };
+    });
     res.json(out);
   } catch (e) {
     next(e);

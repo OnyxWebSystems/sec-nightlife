@@ -276,24 +276,39 @@ const MS_24H = 24 * 60 * 60 * 1000;
 
 /** When a day-booking host session moves from Upcoming to Past on the host dashboard. */
 export function dayBookingHideAfterUtc(hostedRow) {
-  if (hostedRow?.windowEndsAt) {
-    const end =
-      hostedRow.windowEndsAt instanceof Date ? hostedRow.windowEndsAt : new Date(hostedRow.windowEndsAt);
-    if (!Number.isNaN(end.getTime())) return end;
-  }
+  let hideAfter = null;
+
   if (hostedRow?.eventDate && hostedRow?.eventTime) {
     const start = parseWindowInstant(hostedRow.eventDate, hostedRow.eventTime);
     if (start && !Number.isNaN(start.getTime())) {
-      return new Date(start.getTime() + MS_24H);
+      if (hostedRow?.windowEndsAt) {
+        const stored =
+          hostedRow.windowEndsAt instanceof Date ? hostedRow.windowEndsAt : new Date(hostedRow.windowEndsAt);
+        if (!Number.isNaN(stored.getTime()) && stored.getTime() >= start.getTime()) {
+          hideAfter = stored;
+        } else {
+          hideAfter = new Date(start.getTime() + MS_24H);
+        }
+      } else {
+        hideAfter = new Date(start.getTime() + MS_24H);
+      }
     }
   }
-  if (hostedRow?.eventDate) {
+
+  if (!hideAfter && hostedRow?.windowEndsAt) {
+    const end =
+      hostedRow.windowEndsAt instanceof Date ? hostedRow.windowEndsAt : new Date(hostedRow.windowEndsAt);
+    if (!Number.isNaN(end.getTime())) hideAfter = end;
+  }
+
+  if (!hideAfter && hostedRow?.eventDate) {
     const ymd = formatYmdSast(hostedRow.eventDate);
     const endOfBookingDay = new Date(`${ymd}T00:00:00+02:00`);
     endOfBookingDay.setUTCDate(endOfBookingDay.getUTCDate() + 1);
-    return endOfBookingDay;
+    hideAfter = endOfBookingDay;
   }
-  return null;
+
+  return hideAfter;
 }
 
 export function windowEndInstant(date, startTime, endTime) {

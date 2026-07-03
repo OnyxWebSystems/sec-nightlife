@@ -6,7 +6,7 @@ import { Ticket, Calendar, Trash2, RotateCcw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Button } from "@/components/ui/button";
 import { Link } from 'react-router-dom';
-import { createPageUrl, getTicketVerifyUrl } from '@/utils';
+import { createPageUrl, resolveTicketVerifyUrl } from '@/utils';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import {
@@ -200,13 +200,7 @@ export default function MyTickets({ userId }) {
     const isInactiveTab = tab === 'inactive';
     const isRefunded = Boolean(ticket.refund_status || ticket.refunded_at);
     const phase = isRefunded ? 'refunded' : ticketPhase(ticket);
-    const verifyUrl =
-      ticket.verify_url ||
-      getTicketVerifyUrl(ticket.qr_token, {
-        venueName: ticket.venue_name,
-        eventStartsAt: ticket.event_starts_at,
-        eventCode: ticket.event_code,
-      });
+    const verifyUrl = resolveTicketVerifyUrl(ticket);
     const doorTimeLabel = ticket.event_starts_at
       ? format(parseISO(ticket.event_starts_at), 'EEE MMM d · HH:mm')
       : null;

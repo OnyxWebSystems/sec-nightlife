@@ -10,7 +10,7 @@ import {
   formatVisibleUntilSast,
 } from './ticketHelpers.js';
 import { buildTicketDoorContext } from './ticketDoorContext.js';
-import { buildTicketVerifyUrlWithHints, ticketVerifyPublicOrigin } from './ticketVerifyUrl.js';
+import { buildTicketVerifyUrlWithHints, defaultTicketVerifyOrigin } from './ticketVerifyUrl.js';
 import { logger } from './logger.js';
 
 function notificationCopyForTicketKind(kind, title) {
@@ -155,7 +155,7 @@ export async function issueTicketAndNotify(db, params) {
   }
 
   const door = await buildTicketDoorContext(db, ticket);
-  const base = ticketVerifyPublicOrigin();
+  const base = defaultTicketVerifyOrigin();
   const qrContent = buildTicketVerifyUrlWithHints(base, qrToken, {
     venueName: door.venue_name,
     eventStartsAt: ticket.eventStartsAt,
@@ -229,8 +229,8 @@ export async function sendConsolidatedEventTicketsEmail({
 }) {
   if (!to || !tickets.length) return;
 
-  const base = ticketVerifyPublicOrigin();
-  const profileUrl = base ? `${base}/Profile` : '/Profile';
+  const base = defaultTicketVerifyOrigin();
+  const profileUrl = `${base}/Profile`;
 
   const qrSections = [];
   const attachments = [];

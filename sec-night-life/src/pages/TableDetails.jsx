@@ -27,7 +27,7 @@ import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import QRCode from 'qrcode';
-import { getTicketVerifyUrl } from '@/utils';
+import { resolveTicketVerifyUrl } from '@/utils';
 import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import VenueMenuBrowser, { getVenueMenuCartStats } from '@/components/menu/VenueMenuBrowser';
 import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
@@ -78,9 +78,7 @@ function HostCheckoutQrInline({ ticket }) {
   const [dataUrl, setDataUrl] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    const verifyUrl =
-      ticket?.verify_url ||
-      (ticket?.qr_token ? getTicketVerifyUrl(ticket.qr_token) : null);
+    const verifyUrl = resolveTicketVerifyUrl(ticket) || null;
     if (!verifyUrl) return undefined;
     QRCode.toDataURL(verifyUrl, {
       width: 160,
