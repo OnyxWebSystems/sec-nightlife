@@ -1,0 +1,11 @@
+Public payment demo video (no login required):
+
+https://res.cloudinary.com/dta2lrkje/video/upload/v1782747050/sec-paystack/payment-demo-ticket.mp4
+
+After next frontend deploy (optional backup page):
+
+https://secnightlife.com/paystack-demo.html
+
+App:
+
+https://secnightlife.com

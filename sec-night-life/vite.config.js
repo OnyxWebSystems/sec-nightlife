@@ -16,6 +16,25 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('@radix-ui')) return 'radix';
+          if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+          if (id.includes('framer-motion')) return 'motion';
+          if (id.includes('@sentry')) return 'sentry';
+          if (id.includes('@tanstack/react-query')) return 'query';
+          if (
+            id.includes('react-router') ||
+            id.includes('react-dom') ||
+            /node_modules[/\\]react[/\\]/.test(id)
+          ) {
+            return 'react';
+          }
+        },
+      },
+    },
   },
   server: {
     proxy: {

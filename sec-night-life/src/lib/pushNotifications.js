@@ -3,7 +3,8 @@
  * Requires Firebase google-services.json / GoogleService-Info.plist — see docs/FIREBASE_PUSH_SETUP.md
  */
 import { Capacitor } from '@capacitor/core';
-import { apiPost } from '@/api/client';
+import { apiPost, api } from '@/api/client';
+import { handleDeepLinkPath } from '@/lib/deepLink';
 
 let registeredToken = null;
 
@@ -14,6 +15,17 @@ async function syncPushToken(token, platform) {
     registeredToken = token;
   } catch (err) {
     console.warn('[push] token sync failed:', err?.message || err);
+  }
+}
+
+export async function clearPushTokenOnLogout() {
+  const token = registeredToken;
+  registeredToken = null;
+  if (!token || !Capacitor.isNativePlatform()) return;
+  try {
+    await api('DELETE', '/api/users/push-token', { token });
+  } catch {
+    // Best-effort — session may already be cleared.
   }
 }
 
@@ -40,6 +52,12 @@ export async function initPushNotifications() {
 
     await PushNotifications.addListener('pushNotificationReceived', (notification) => {
       console.info('[push] received:', notification);
+    });
+
+    await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+      const data = action?.notification?.data || {};
+      const path = data.path || data.url;
+      if (path) handleDeepLinkPath(path);
     });
 
     await PushNotifications.register();

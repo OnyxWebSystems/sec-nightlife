@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SEC Nightlife — Paystack Payment Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Inter, system-ui, sans-serif;
+      background: #0b0b0f;
+      color: #f5f5f5;
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.35rem; margin-bottom: 8px; }
+    p { color: #a8a8a8; font-size: 0.95rem; line-height: 1.55; margin-bottom: 20px; }
+    video {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid #2a2a2e;
+      background: #000;
+    }
+    .meta { margin-top: 16px; font-size: 0.85rem; color: #6b6b6b; }
+    a { color: #c8c8c8; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SEC Nightlife — Payment demo</h1>
+    <p>
+      This video shows a party-goer purchasing an event ticket via Paystack checkout,
+      then viewing the issued ticket and QR code in their profile.
+      No login required to watch this page.
+    </p>
+    <video controls playsinline preload="metadata" poster="">
+      <source src="/paystack-demo.mp4" type="video/mp4" />
+      Your browser does not support embedded video.
+      <a href="/paystack-demo.mp4">Download the video</a>
+    </video>
+    <p class="meta">
+      App: <a href="https://secnightlife.com">secnightlife.com</a>
+      · Direct video: <a href="/paystack-demo.mp4">paystack-demo.mp4</a>
+    </p>
+  </div>
+</body>
+</html>

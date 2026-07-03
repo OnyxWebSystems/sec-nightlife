@@ -41,7 +41,7 @@ npm run cap:android    # open Android Studio
 npm run cap:ios        # open Xcode (macOS)
 ```
 
-Launch handoff guide: [docs/FOUNDER_LAUNCH_HANDOFF.md](docs/FOUNDER_LAUNCH_HANDOFF.md)
+Launch handoff guide: [docs/FOUNDER_SOFTWARE_SETUP.md](docs/FOUNDER_SOFTWARE_SETUP.md)
 
 ## Notes
 

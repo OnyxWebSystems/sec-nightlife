@@ -103,7 +103,8 @@ export default function ChatRoom() {
     queryKey: ['messages', chat?.id],
     queryFn: () => dataService.Message.filter({ chat_id: chat.id }, 'created_date', 100),
     enabled: !!chat?.id,
-    refetchInterval: 8000,
+    refetchInterval: () =>
+      typeof document !== 'undefined' && document.visibilityState === 'hidden' ? false : 8000,
     refetchOnWindowFocus: false,
   });
 

@@ -141,6 +141,7 @@ export async function loadUserOrLogin(returnUrl) {
 export function logout(shouldRedirect) {
   const rt = localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
   if (rt) apiPost('/api/auth/logout', { refreshToken: rt }).catch(() => {});
+  void import('@/lib/pushNotifications').then(({ clearPushTokenOnLogout }) => clearPushTokenOnLogout());
   clearTokens();
   clearSessionCache();
   if (shouldRedirect !== false) window.location.href = window.location.origin + '/';

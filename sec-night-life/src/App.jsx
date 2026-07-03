@@ -13,6 +13,7 @@ import { PreferencesProvider } from '@/context/PreferencesContext';
 import { ActiveVenueProvider } from '@/context/ActiveVenueContext';
 import { StaffVenueProvider } from '@/context/StaffVenueContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import DeepLinkBridge from '@/components/DeepLinkBridge';
 import SecLoadingScreen from '@/components/ui/SecLoadingScreen';
 import RequireBusinessAccount from '@/components/RequireBusinessAccount';
 import RequireOnboardingComplete from '@/components/RequireOnboardingComplete';
@@ -150,6 +151,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClientInstance}>
       <Router>
+        <DeepLinkBridge />
         <AuthProvider>
           <PreferencesProvider>
             <ActiveVenueProvider>

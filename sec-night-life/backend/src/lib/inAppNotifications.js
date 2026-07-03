@@ -1,9 +1,25 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
+import { sendPushToUser } from './pushDelivery.js';
+
+function pushPathForNotification(data) {
+  if (data.referenceType === 'message' || data.type === 'MESSAGE') return '/Messages';
+  if (data.referenceType === 'event' || data.type === 'EVENT_REMINDER') return '/Notifications';
+  return '/Notifications';
+}
+
+async function maybeSendPush(userId, data) {
+  void sendPushToUser(userId, {
+    title: data.title,
+    body: data.body,
+    path: pushPathForNotification(data),
+    referenceId: data.referenceId,
+  }).catch(() => {});
+}
 
 export async function createInAppNotification(data, db = prisma) {
   try {
-    return await db.inAppNotification.create({
+    const row = await db.inAppNotification.create({
       data: {
         userId: data.userId,
         venueId: data.venueId ?? null,
@@ -14,6 +30,8 @@ export async function createInAppNotification(data, db = prisma) {
         referenceType: data.referenceType ?? null,
       },
     });
+    await maybeSendPush(data.userId, data);
+    return row;
   } catch (e) {
     logger?.warn?.('in-app notification create failed', { err: e?.message, data });
     return null;

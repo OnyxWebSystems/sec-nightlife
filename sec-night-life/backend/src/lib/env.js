@@ -161,10 +161,9 @@ export function validateEnv() {
     }
 
     if (!process.env.CRON_SECRET || process.env.CRON_SECRET.trim() === '') {
-      warn(
-        'CRON_SECRET is not set. Vercel Cron jobs that call /api/cron/* will receive 401 until ' +
-        'CRON_SECRET is set to the same value configured in the Vercel project (Bearer token). ' +
-        'Event interest reminders (T-3h) and other cron tasks will not run.'
+      fatal(
+        'CRON_SECRET is not set. Vercel Cron jobs that call /api/cron/* will receive 401. ' +
+        'Set CRON_SECRET in backend Vercel env to the same Bearer token configured in Vercel Cron settings.'
       );
     }
 

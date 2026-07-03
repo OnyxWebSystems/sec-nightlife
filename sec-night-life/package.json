@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/validate-frontend-env.mjs",
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
@@ -20,7 +21,8 @@
     "launch:capture:party": "node ../launch-resources/scripts/capture-launch-assets.mjs --party-only",
     "launch:export-legal": "node ../launch-resources/scripts/export-legal-pages.mjs",
     "launch:paystack-demo": "node ../launch-resources/scripts/capture-paystack-demo.mjs",
-    "launch:generate-assets": "node ../launch-resources/scripts/generate-store-assets.mjs"
+    "launch:generate-assets": "node ../launch-resources/scripts/generate-store-assets.mjs",
+    "verify:production": "node scripts/verify-production.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",

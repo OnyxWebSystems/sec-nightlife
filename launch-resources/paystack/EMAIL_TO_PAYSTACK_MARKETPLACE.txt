@@ -1,0 +1,112 @@
+To: reviews@paystack.com
+Subject: Re: Activation Request for Sec Nightlife (1806436) — Marketplace clarification
+From: menzisimelane6@gmail.com
+Cc: sihle.soa@gmail.com
+
+---
+
+Hi Janet,
+
+Thank you for your email. Please find below our clarification on how Sec Nightlife operates as a marketplace. We are happy to provide any further information you need.
+
+Business: Sec Nightlife
+Paystack merchant ID: 1806436
+Live platform: https://secnightlife.com
+
+---
+
+1) Vendor verification and KYC
+
+Sec Nightlife connects party-goers with licensed nightlife venues, table hosts, and promoters in South Africa. We do not sell physical goods.
+
+Venue vendors (primary vendors on the platform):
+Before a venue can operate commercially, the business owner must complete venue onboarding and upload compliance documents in the Business Dashboard:
+• Liquor licence
+• Business registration (CIPC)
+• Health certificate
+• Tax clearance (SARS)
+
+Each document is manually reviewed by our compliance team in the admin dashboard. A venue is only marked verified when all required documents are approved. Rejected submissions must be corrected and re-uploaded. Venue obligations are also set out in our Venue Compliance Charter: https://secnightlife.com/VenueComplianceCharter
+
+Individual users (party-goers and table hosts):
+• Users confirm they are 18+ via our Age Verification Declaration and provide date of birth at registration.
+• Users may upload a government ID for identity verification; our team manually reviews submissions and approves or rejects them before verified-only features (such as hosting tables) are enabled.
+• Fraud, misrepresentation, and abuse are handled under our Community Guidelines and Terms of Service, including account suspension where necessary.
+
+We verify KYC information through manual review of uploaded documents against the user’s or venue’s profile — we do not rely on automated third-party KYC scoring at this stage.
+
+---
+
+2) Policy documents (online links)
+
+Acceptable Use Policy:
+• Community Guidelines: https://secnightlife.com/CommunityGuidelines
+• Terms of Service: https://secnightlife.com/TermsOfService
+• User Agreement: https://secnightlife.com/UserAgreement
+• Promoter Code of Conduct: https://secnightlife.com/PromoterCodeOfConduct
+
+Shipping Policy:
+Sec Nightlife does not ship physical products. Our equivalent Service Delivery & Fulfillment policy is described here:
+• Venue Compliance Charter (in-venue service delivery): https://secnightlife.com/VenueComplianceCharter
+• Terms of Service (platform role and services): https://secnightlife.com/TermsOfService
+
+Digital tickets and QR codes are issued immediately in the app after successful payment. Tables and events are fulfilled in person at the venue by the venue or host.
+
+Returns Policy:
+• Refund Policy: https://secnightlife.com/RefundPolicy
+
+---
+
+3) Do you receive payments on behalf of vendors?
+
+Yes. Customer payments for tickets, tables, menu items linked to bookings, and similar flows are collected by Sec Nightlife through Paystack on our platform account.
+
+We retain a 15% platform fee and transfer 85% to the venue or table host via Paystack Transfers after successful payment (when their payout bank details are configured). Certain platform-only products (such as venue promotion publishing and boost fees) are collected 100% by Sec Nightlife.
+
+---
+
+4) Are funds held before disbursement? If yes, how long?
+
+Customer funds are collected on our Paystack balance. For transactions where the venue or host has completed payout setup, we initiate the 85% Paystack Transfer promptly after payment verification — typically within minutes of a successful charge.
+
+If payout bank details are missing or invalid, the recipient’s share remains recorded as pending in our system until they complete Sec Wallet payout setup in the app. We do not operate a fixed multi-day escrow hold; we are a payment facilitator using Paystack collection and transfers.
+
+---
+
+5) Wallets / balances / transfers between users
+
+Users and venues receive a Sec Wallet ID (for example SEC-U-… or SEC-V-…). This is an identifier and payout dashboard — not a stored-value e-money wallet.
+
+• Users cannot spend a cash balance inside the app.
+• Users cannot transfer wallet balances to another user or vendor on the platform.
+• The wallet shows payout history and any pending earnings awaiting Paystack transfer.
+• Venues may look up a user’s Sec Wallet ID to pay an approved refund directly via bank transfer off-platform.
+
+---
+
+6) Fulfilment centre?
+
+No. Sec Nightlife is not a fulfilment centre. We do not warehouse or ship goods. Services are delivered digitally (tickets/QR in-app) and in person at venues. Venues and hosts fulfil their own events and table services.
+
+---
+
+7) Refunds, cancellations, and disputes
+
+• Refund responsibility lies primarily with the venue or event organizer, as set out in our Refund Policy: https://secnightlife.com/RefundPolicy
+• For eligible ticket and table purchases, customers may submit a refund request in the app. If a venue approves, they pay the customer directly (typically by bank transfer using the customer’s Sec Wallet ID). Sec Nightlife retains its 15% platform fee on the original transaction; tickets/QR codes are invalidated and capacity is restored.
+• Cancellations (event cancelled, venue closure, etc.) are handled per venue policy and applicable law.
+• Disputes: customers contact the venue first; SEC support may facilitate administratively but does not accept liability for venue outcomes.
+
+---
+
+Platform demo (payment flow — no login required):
+https://res.cloudinary.com/dta2lrkje/video/upload/v1782747050/sec-paystack/payment-demo-ticket.mp4
+
+Please let us know if you need additional documentation, a live walkthrough, or clarification on any payment flow.
+
+Best regards,
+Menzi Simelane
+Founder, Sec Nightlife
+menzisimelane6@gmail.com
+
+Developer: Sihle Simelane — sihle.soa@gmail.com

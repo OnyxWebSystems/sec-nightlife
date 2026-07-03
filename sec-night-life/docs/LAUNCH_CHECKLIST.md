@@ -6,12 +6,13 @@ Use before public launch. Check off each item in Vercel / Neon / external dashbo
 
 - [ ] Backend `NODE_ENV=production`
 - [ ] `DATABASE_URL` (Neon pooler) + `DIRECT_DATABASE_URL` on backend Vercel
-- [ ] `CRON_SECRET` set on backend — **required** (cron jobs fail without it)
+- [ ] `CRON_SECRET` set on backend — **required** (backend refuses to start in production without it)
 - [ ] `SKIP_EMAIL_VERIFICATION` and `ALLOW_UNVERIFIED_LOGIN` **unset** on production backend
 - [ ] `JWT_ACCESS_EXPIRY` optional (code default 24h, min 1h); `JWT_REFRESH_EXPIRY` optional (code default 120d, min 4 months)
-- [ ] `CORS_ORIGIN` + `APP_URL` = `https://secnightlife.com` (or your domain)
+- [ ] `CORS_ORIGIN` + `APP_URL` = `https://secnightlife.com`
+- [ ] Frontend `VITE_API_URL=https://api.secnightlife.com`, `VITE_PUBLIC_APP_URL=https://secnightlife.com`
 - [ ] `RESEND_API_KEY` + verified `EMAIL_FROM` domain
-- [ ] Frontend `VITE_API_URL`, `VITE_PUBLIC_APP_URL`, Cloudinary, Google Maps keys
+- [ ] Cloudinary + Google Maps keys on frontend/backend Vercel
 - [ ] Optional: `VITE_SENTRY_DSN` + backend `SENTRY_DSN`
 
 ## Health probes
@@ -21,13 +22,13 @@ Use before public launch. Check off each item in Vercel / Neon / external dashbo
 | `GET /api/health` | `{ status: "ok" }` |
 | `GET /api/health/ready` | `{ status: "ready", db: "ok" }` |
 
-Point uptime monitors at `/api/health/ready`.
+Point uptime monitors at `/api/health/ready`. Run `npm run verify:production` after deploy.
 
 ## Smoke tests (production)
 
 1. Guest opens `/` — splash, no auth spinner, zero API calls
 2. Register → verify email → login OTP → Home loads
-3. Home loads in **≤5 API calls** (bootstrap + feed + events + venues + featured-details)
+3. Home loads in **≤5 API calls** on first paint (bootstrap + feed + events + featured-details; venues load on scroll)
 4. Map shows pins in nearby + all modes
 5. Send group chat message — appears within poll interval
 6. Native app: push token registers (`POST /api/users/push-token` returns 200)
@@ -45,10 +46,14 @@ Point uptime monitors at `/api/health/ready`.
 - [ ] Apple Developer + Google Play accounts
 - [ ] Store screenshots, privacy policy URL, app description — see [`launch-resources/README.md`](../../launch-resources/README.md)
 - [ ] Firebase APNs key (iOS) — see `FIREBASE_PUSH_SETUP.md`
-- [ ] FCM send service (backend) — tokens stored; delivery wiring is post-launch if not yet implemented
+- [ ] FCM push delivery from backend — set `FIREBASE_SERVICE_ACCOUNT_JSON` (see `FIREBASE_PUSH_SETUP.md`)
 
 ## Deferred (post-launch)
 
 - Upstash Redis for feed caching + distributed rate limits
-- FCM push delivery from backend cron/events
+- Pusher for real-time chat
 - AdminDashboard lazy sub-routes
+
+## Related
+
+- [FOUNDER_SOFTWARE_SETUP.md](./FOUNDER_SOFTWARE_SETUP.md) — step-by-step software setup and costs

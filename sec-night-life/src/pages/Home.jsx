@@ -248,6 +248,8 @@ export default function Home() {
   const { location: locPrefs, geoCoords } = usePreferences();
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [venueSectionInView, setVenueSectionInView] = useState(false);
+  const venuesSectionRef = useRef(null);
   const [selectedCity, setSelectedCity] = useState('all');
   const [selectedVenueType, setSelectedVenueType] = useState('all');
   const [sessionId] = useState(() => getOrCreateSessionId());
@@ -497,6 +499,29 @@ export default function Home() {
   }, [homeBootstrap?.tableOfferings]);
   const tablesLoading = bootstrapLoading;
 
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    const el = venuesSectionRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setVenueSectionInView(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) setVenueSectionInView(true);
+      },
+      { rootMargin: '120px 0px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (showFilters) setVenueSectionInView(true);
+  }, [showFilters]);
+
+  const shouldLoadVenues = showFilters || selectedCity !== 'all' || venueSectionInView;
+
   const { data: venues = [] } = useQuery({
     queryKey: ['all-venues', selectedCity],
     queryFn: () => {
@@ -505,7 +530,7 @@ export default function Home() {
       return apiGet(`/api/venues?${params.toString()}`);
     },
     staleTime: listStale,
-    enabled: !!user?.id,
+    enabled: !!user?.id && shouldLoadVenues,
   });
 
   const cities = [...new Set(venues.map(v => v.city).filter(Boolean))];
@@ -973,7 +998,7 @@ export default function Home() {
         </section>
 
         {/* ── Explore Venues ── */}
-        <section style={{ marginBottom: 24 }}>
+        <section ref={venuesSectionRef} style={{ marginBottom: 24 }}>
           <div style={{ marginBottom: 16 }}>
             <span className="sec-label">Directory</span>
             <h2 style={{ fontSize: 19, fontWeight: 600, color: 'var(--sec-text-primary)', margin: '4px 0 16px', letterSpacing: '-0.02em' }}>
