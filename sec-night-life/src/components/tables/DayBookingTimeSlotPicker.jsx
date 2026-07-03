@@ -361,7 +361,7 @@ export default function DayBookingTimeSlotPicker({
         </div>
       ) : gaps.length === 0 && slotsRemaining === false ? null : null}
 
-      {slotsRemaining ? (
+      {slotsRemaining || occupancy.length > 0 ? (
         <div className="space-y-2">
           <div
             className="relative h-12 sm:h-14 rounded-xl overflow-hidden"
@@ -478,7 +478,7 @@ export default function DayBookingTimeSlotPicker({
               <Users size={12} style={{ color: 'var(--sec-text-muted)' }} />
               <span className="text-[var(--sec-text-secondary)]">
                 Booked {o.startTime}–{o.endTime}
-                {o.hostName ? ` · ${o.hostName}` : ''}
+                {o.hostName ? ` · @${String(o.hostName).replace(/^@/, '')}` : ''}
                 {o.spotsRemaining != null ? ` · ${o.spotsRemaining} spots left` : ''}
               </span>
             </div>

@@ -108,7 +108,18 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
     });
   }
 
-  const tiers = [...tierMap.values()].map((tier) => {
+  const tiers = [...tierMap.values()]
+    .map((tier) => {
+      const bookableSlots = tier.slots.filter((s) => {
+        if (s.canHost) return true;
+        if ((s.joinableSessions || []).some((j) => (j.hostedTable?.spotsRemaining ?? 0) > 0)) return true;
+        if (!s.isHosted && s.spotsRemaining > 0) return true;
+        return false;
+      });
+      return { ...tier, slots: bookableSlots };
+    })
+    .filter((tier) => tier.slots.length > 0)
+    .map((tier) => {
     let tablesOpenForHost = 0;
     let tablesOpenForJoin = 0;
     let totalSpotsRemaining = 0;

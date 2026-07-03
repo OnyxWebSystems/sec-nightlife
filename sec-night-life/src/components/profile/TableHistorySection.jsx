@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiDelete } from '@/api/client';
 import { createPageUrl } from '@/utils';
+import { tableHistoryDetailHref } from '@/lib/ticketDetailHref';
 import { format, parseISO } from 'date-fns';
 import { Users, Trash2, TrendingUp, Ticket, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -10,11 +11,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 
 function historyHref(row) {
-  if (row.venueTableId) return createPageUrl(`TableDetails?id=${row.venueTableId}&source=venue`);
-  if (row.hostedTableId) return createPageUrl(`TableDetails?id=${row.hostedTableId}&source=hosted`);
-  if (row.tableId) return createPageUrl(`TableDetails?id=${row.tableId}`);
-  if (row.eventId) return createPageUrl(`EventDetails?id=${row.eventId}`);
-  return null;
+  return tableHistoryDetailHref(row);
 }
 
 function roleLabel(role) {

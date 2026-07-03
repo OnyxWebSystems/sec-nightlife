@@ -7,6 +7,7 @@ import { format, parseISO } from 'date-fns';
 import { Button } from "@/components/ui/button";
 import { Link } from 'react-router-dom';
 import { createPageUrl, resolveTicketVerifyUrl } from '@/utils';
+import { ticketDetailHrefFromTicket } from '@/lib/ticketDetailHref';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import {
@@ -28,6 +29,7 @@ function TicketQrBlock({ verifyUrl, eventCode }) {
     return () => mq.removeEventListener('change', sync);
   }, []);
   useEffect(() => {
+    if (!verifyUrl) return undefined;
     let cancelled = false;
     const ecLevel = verifyUrl.length > 200 ? 'H' : 'M';
     QRCode.toDataURL(verifyUrl, {
@@ -48,6 +50,14 @@ function TicketQrBlock({ verifyUrl, eventCode }) {
   }, [verifyUrl, size]);
 
   const dimClass = size <= 144 ? 'w-36 h-36' : 'w-44 h-44';
+
+  if (!verifyUrl) {
+    return (
+      <div className={`${dimClass} rounded-md border border-[#262629] flex items-center justify-center p-2 shrink-0`}>
+        <p className="text-[10px] text-center text-gray-500">QR unavailable — refresh tickets online</p>
+      </div>
+    );
+  }
 
   if (!dataUrl) {
     return <div className={`${dimClass} rounded-md bg-white/10 animate-pulse shrink-0`} />;
@@ -78,15 +88,7 @@ function TicketQrBlock({ verifyUrl, eventCode }) {
 }
 
 function ticketDetailHref(ticket) {
-  if (ticket.venue_table_id) {
-    return createPageUrl(`TableDetails?id=${ticket.venue_table_id}&source=venue`);
-  }
-  if (ticket.event_id) return createPageUrl(`EventDetails?id=${ticket.event_id}`);
-  if (ticket.table_id) return createPageUrl(`TableDetails?id=${ticket.table_id}`);
-  if (ticket.hosted_table_id) {
-    return createPageUrl(`TableDetails?id=${ticket.hosted_table_id}&source=hosted`);
-  }
-  return createPageUrl('Profile');
+  return ticketDetailHrefFromTicket(ticket);
 }
 
 export default function MyTickets({ userId }) {

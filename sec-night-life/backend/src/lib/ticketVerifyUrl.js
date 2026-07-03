@@ -10,7 +10,16 @@ export function ticketVerifyPublicOrigin() {
 
 /** Public app origin for ticket QR links — never the API host. */
 export function defaultTicketVerifyOrigin() {
-  return ticketVerifyPublicOrigin() || 'https://secnightlife.com';
+  const raw = ticketVerifyPublicOrigin() || 'https://secnightlife.com';
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    if (host.startsWith('api.') || host.includes('.api.')) {
+      return 'https://secnightlife.com';
+    }
+  } catch {
+    return 'https://secnightlife.com';
+  }
+  return raw;
 }
 
 export function truncateVenueHint(name) {

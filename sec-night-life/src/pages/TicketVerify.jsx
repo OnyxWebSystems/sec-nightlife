@@ -53,7 +53,7 @@ export default function TicketVerify() {
     if (ec) qs.set('ec', ec);
     if (vn) qs.set('vn', vn);
     if (at) qs.set('at', at);
-    return apiGet(`/api/tickets/qr?${qs.toString()}`, { skipAuth: true });
+    return apiGet(`/api/tickets/qr?${qs.toString()}`, { skipAuth: true, timeoutMs: 15000 });
   }, [token, queryKey]);
 
   useEffect(() => {
@@ -489,6 +489,12 @@ export default function TicketVerify() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {!loading && !payload && (
+        <div className="w-full max-w-lg my-auto rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5 text-center">
+          <p className="text-sm text-amber-100">Could not load ticket details. Check your connection and try again.</p>
         </div>
       )}
 

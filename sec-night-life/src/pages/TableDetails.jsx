@@ -1166,7 +1166,7 @@ export default function TableDetails() {
             </div>
           </div>
         ) : null}
-        {!inRequestFlow && venueCheckoutStep === 'menu' ? (
+        {!inRequestFlow && venueCheckoutStep === 'menu' && !tablePurchased ? (
           <TableCheckoutFooter
             itemCount={itemCount}
             cartTotalZar={chargeableTotal}

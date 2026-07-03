@@ -29,6 +29,7 @@ const AUTH_BOOTSTRAP_SKIP_SEGMENTS = new Set([
   'reset-password',
   'login',
   'register',
+  'ticketverify',
 ]);
 
 function firstPathSegment(pathname) {

@@ -34,6 +34,30 @@ function SlotRow({ label, sub, actionLabel, onAction, disabled }) {
   );
 }
 
+function hostSlotSubtitle(s, tier, isDayBooking) {
+  const fee =
+    Number(tier.hostBookingFeeZar) > 0 ? ` · Host fee R${Number(tier.hostBookingFeeZar).toLocaleString()}` : '';
+  if (s.isHosted && isDayBooking) {
+    const hosts = (s.joinableSessions || s.occupancy || [])
+      .map((j) => {
+        const ht = j.hostedTable || j;
+        const u = ht?.host?.username || ht?.host?.fullName;
+        return u ? `@${String(u).replace(/^@/, '')}` : null;
+      })
+      .filter(Boolean);
+    const hostLabel = hosts.length ? hosts.join(', ') : 'Another host';
+    return `${s.spotsRemaining} spots left · ${hostLabel} · some times booked`;
+  }
+  return `${s.spotsRemaining} spots left${fee}`;
+}
+
+function hostedSessionLabel(ht, tableName, sessionLabel) {
+  const u = ht?.host?.username || ht?.host?.fullName || 'Host';
+  const name = ht?.tableName && ht.tableName !== tableName ? ht.tableName : tableName;
+  const time = sessionLabel || (ht?.windowStartTime && ht?.windowEndTime ? `${ht.windowStartTime}–${ht.windowEndTime}` : null);
+  return time ? `${name} · @${String(u).replace(/^@/, '')} · ${time}` : `${name} · @${String(u).replace(/^@/, '')}`;
+}
+
 function hostedJoinOptions(tier) {
   const out = [];
   for (const s of tier.slots || []) {
@@ -79,7 +103,9 @@ export default function EventTableTierSheet({
   const isDayBooking = Boolean(venueWindow);
   const allSlots = tier.slots || [];
   const unhostedSlots = allSlots.filter((s) => !s.isHosted && s.spotsRemaining > 0);
-  const hostSlots = isDayBooking ? allSlots : unhostedSlots;
+  const hostSlots = isDayBooking
+    ? allSlots.filter((s) => s.canHost)
+    : unhostedSlots;
   const hostedSlots = hostedJoinOptions(tier);
   const isVip = tier.category === 'vip';
 
@@ -179,11 +205,7 @@ export default function EventTableTierSheet({
                 <SlotRow
                   key={`host-${s.venueTableId}`}
                   label={s.tableName}
-                  sub={
-                    s.isHosted && isDayBooking
-                      ? `${s.spotsRemaining} spots left · Some times already booked today`
-                      : `${s.spotsRemaining} spots left${Number(tier.hostBookingFeeZar) > 0 ? ` · Host fee R${Number(tier.hostBookingFeeZar).toLocaleString()}` : ''}`
-                  }
+                  sub={hostSlotSubtitle(s, tier, isDayBooking)}
                   actionLabel="Host"
                   onAction={() => goVenue(s.venueTableId, 'host')}
                 />
@@ -203,19 +225,17 @@ export default function EventTableTierSheet({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {hostedSlots.map((s) => {
                   const ht = s.hostedTable;
-                  const hostName = ht.host?.username || ht.host?.fullName || 'Host';
                   const joinLabel = ht.isPublic ? 'Join' : 'Request';
                   const feeNote = ht.hasJoiningFee && ht.joiningFee ? ` · Join fee R${Number(ht.joiningFee).toLocaleString()}` : '';
                   const spotsLabel =
                     ht.isCustomTable && ht.guestCapacity
                       ? `${ht.spotsRemaining} of ${ht.guestCapacity} guest spots`
                       : `${ht.spotsRemaining} spots left`;
-                  const timeNote = s.sessionLabel ? ` · ${s.sessionLabel}` : '';
                   return (
                     <SlotRow
                       key={`hosted-${s.hostedTableId}`}
-                      label={ht.tableName || s.tableName}
-                      sub={`Hosted by ${hostName} · ${spotsLabel}${timeNote}${feeNote}`}
+                      label={hostedSessionLabel(ht, s.tableName, s.sessionLabel)}
+                      sub={`${spotsLabel}${feeNote}`}
                       actionLabel={joinLabel}
                       onAction={() =>
                         goHosted(s.hostedTableId, {

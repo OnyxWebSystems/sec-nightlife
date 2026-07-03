@@ -554,6 +554,8 @@ export async function buildOccupancyForSlot(venueTable, bookingDate = new Date()
       startTime,
       endTime,
       hostedTableId: ht.id,
+      hostName:
+        ht.host?.userProfile?.username || ht.host?.username || ht.host?.fullName || null,
       hostedTable: buildHostedTablePayload(ht, { goingCount }),
       spotsRemaining: ht.spotsRemaining,
     });

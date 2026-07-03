@@ -11,6 +11,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { logger } from './lib/logger.js';
+import { defaultTicketVerifyOrigin } from './lib/ticketVerifyUrl.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import venueRoutes from './routes/venues.js';
@@ -238,6 +239,13 @@ app.use('/api/celebrations', generalLimiter, celebrationRoutes);
 
 app.get('/', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+/** Legacy / misconfigured QR links that hit the API host — redirect to the public SPA. */
+app.get('/TicketVerify', (req, res) => {
+  const base = defaultTicketVerifyOrigin();
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(302, `${base}/TicketVerify${qs}`);
 });
 
 app.get('/api/health', (req, res) => {
