@@ -65,7 +65,20 @@ export function currentClockSast(refDate = new Date()) {
   const h = parts.find((p) => p.type === 'hour')?.value;
   const m = parts.find((p) => p.type === 'minute')?.value;
   if (!h || !m) return null;
-  return `${h}:${m}`;
+  return `${String(parseInt(h, 10)).padStart(2, '0')}:${String(parseInt(m, 10)).padStart(2, '0')}`;
+}
+
+export function nowMinutesSast(venueWindow, now = new Date()) {
+  const nowClock = currentClockSast(now);
+  if (!nowClock || !venueWindow) return null;
+  return toServiceMinutes(nowClock, venueWindow);
+}
+
+export function isStartTimeInPast(startTime, venueWindow, now = new Date()) {
+  const nowM = nowMinutesSast(venueWindow, now);
+  const startM = toServiceMinutes(startTime, venueWindow);
+  if (nowM == null || startM == null) return false;
+  return startM < nowM;
 }
 
 export function ceilToSlotStep(minutes, step = SLOT_STEP_MINUTES) {
@@ -73,15 +86,12 @@ export function ceilToSlotStep(minutes, step = SLOT_STEP_MINUTES) {
   return Math.ceil(minutes / step) * step;
 }
 
-export function earliestBookableStartMinutes(venueWindow, refDate = new Date(), step = SLOT_STEP_MINUTES) {
+export function earliestBookableStartMinutes(venueWindow, now = new Date(), step = SLOT_STEP_MINUTES) {
   if (!venueWindow?.startTime) return null;
   const bookableStart = toServiceMinutes(venueWindow.startTime, venueWindow);
   if (bookableStart == null) return null;
 
-  const nowClock = currentClockSast(refDate);
-  if (!nowClock) return bookableStart;
-
-  const nowM = toServiceMinutes(nowClock, venueWindow);
+  const nowM = nowMinutesSast(venueWindow, now);
   if (nowM == null) return bookableStart;
 
   const roundedNow = ceilToSlotStep(nowM, step);
@@ -142,7 +152,7 @@ export function bookingDurationMinutes(startTime, endTime, venueWindow) {
 export function buildAvailableGaps(
   venueWindow,
   occupancy = [],
-  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES, refDate = new Date() } = {},
+  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES, now = new Date() } = {},
 ) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) return [];
 
@@ -150,7 +160,7 @@ export function buildAvailableGaps(
   const venueEnd = toServiceMinutes(venueWindow.endTime, venueWindow);
   if (bookableStart == null || venueEnd == null) return [];
 
-  const earliest = earliestBookableStartMinutes(venueWindow, refDate);
+  const earliest = earliestBookableStartMinutes(venueWindow, now);
   if (earliest != null) {
     bookableStart = Math.max(bookableStart, earliest);
   }
@@ -294,7 +304,7 @@ export function isTimeWithinWindow(time, windowStart, windowEnd) {
   return t.minutes >= s.minutes || t.minutes <= e.minutes;
 }
 
-export function validateUserWindow(userStart, userEnd, venueWindow, refDate = new Date()) {
+export function validateUserWindow(userStart, userEnd, venueWindow, now = new Date()) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) {
     return { ok: false, error: 'No service window configured for this day' };
   }
@@ -302,9 +312,7 @@ export function validateUserWindow(userStart, userEnd, venueWindow, refDate = ne
   const e = parseClock(userEnd);
   if (!s || !e) return { ok: false, error: 'Invalid time format' };
 
-  const earliest = earliestBookableStartMinutes(venueWindow, refDate);
-  const startM = toServiceMinutes(userStart, venueWindow);
-  if (earliest != null && startM != null && startM < earliest) {
+  if (isStartTimeInPast(userStart, venueWindow, now)) {
     return { ok: false, error: 'This time has already passed' };
   }
 
@@ -381,7 +389,7 @@ export function validateDayBookingWindow(table, payload, existing, bookingDate =
     return { ok: false, error: 'Select a start and end time for your booking' };
   }
   const venueWindow = venueWindowForDate(table, date);
-  const check = validateUserWindow(windowStart, windowEnd, venueWindow, date);
+  const check = validateUserWindow(windowStart, windowEnd, venueWindow, new Date());
   if (!check.ok) return check;
   return { ok: true, bookingDate: date, windowStart, windowEnd, windowEndsAt: windowEndInstant(date, windowStart, windowEnd) };
 }

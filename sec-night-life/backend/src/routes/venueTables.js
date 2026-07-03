@@ -695,7 +695,7 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
           spotsRemaining: o.spotsRemaining,
           hostName: o.hostedTable?.host?.username || o.hostedTable?.host?.fullName || null,
         })),
-        availableGaps: buildAvailableGaps(venueWindow, occupancy, { refDate: bookingDate }),
+        availableGaps: buildAvailableGaps(venueWindow, occupancy, { now: bookingDate }),
       };
     }
     let myMembership = null;

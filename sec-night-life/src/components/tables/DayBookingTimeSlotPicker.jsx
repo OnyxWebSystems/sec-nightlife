@@ -121,7 +121,7 @@ export default function DayBookingTimeSlotPicker({
 
   const gaps = useMemo(() => {
     if (venueWindow) {
-      const computed = buildAvailableGaps(venueWindow, occupancy, { refDate: now });
+      const computed = buildAvailableGaps(venueWindow, occupancy, { now });
       if (computed.length) return computed;
     }
     return availableGaps?.length ? availableGaps : [];
@@ -131,7 +131,7 @@ export default function DayBookingTimeSlotPicker({
 
   useEffect(() => {
     if (!venueWindow || readOnly || value?.startTime) return;
-    const initial = defaultWindowFromGaps(gaps, venueWindow, { refDate: now });
+    const initial = defaultWindowFromGaps(gaps, venueWindow, { now });
     if (initial) {
       onChange?.(initial);
       const gap = findGapContainingWindow(gaps, initial.startTime, initial.endTime, venueWindow);
@@ -148,15 +148,15 @@ export default function DayBookingTimeSlotPicker({
   // Bump selection if it becomes invalid (page left open)
   useEffect(() => {
     if (!venueWindow || readOnly || !value?.startTime) return;
-    const err = validateBookingWindow(value, venueWindow, occupancy, { mode, refDate: now });
+    const err = validateBookingWindow(value, venueWindow, occupancy, { mode, now });
     if (err === 'This time has already passed') {
-      const initial = defaultWindowFromGaps(gaps, venueWindow, { refDate: now });
+      const initial = defaultWindowFromGaps(gaps, venueWindow, { now });
       if (initial) onChange?.(initial);
     }
   }, [now.getTime()]);
 
   const validation = useMemo(
-    () => validateBookingWindow(value, venueWindow, occupancy, { mode, refDate: now }),
+    () => validateBookingWindow(value, venueWindow, occupancy, { mode, now }),
     [value, venueWindow, occupancy, mode, now.getTime()],
   );
 
@@ -271,7 +271,7 @@ export default function DayBookingTimeSlotPicker({
 
   const handleGapSelect = (gap) => {
     setActiveGap(gap);
-    const initial = defaultWindowFromGaps([gap], venueWindow, { defaultDurationMinutes: 120, refDate: now });
+    const initial = defaultWindowFromGaps([gap], venueWindow, { defaultDurationMinutes: 120, now });
     if (initial) onChange?.(initial);
   };
 

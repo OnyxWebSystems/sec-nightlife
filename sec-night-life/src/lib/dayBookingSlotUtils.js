@@ -28,7 +28,21 @@ export function currentClockSast(refDate = new Date()) {
   const h = parts.find((p) => p.type === 'hour')?.value;
   const m = parts.find((p) => p.type === 'minute')?.value;
   if (!h || !m) return null;
-  return `${h}:${m}`;
+  return `${String(parseInt(h, 10)).padStart(2, '0')}:${String(parseInt(m, 10)).padStart(2, '0')}`;
+}
+
+export function nowMinutesSast(venueWindow, now = new Date()) {
+  const nowClock = currentClockSast(now);
+  if (!nowClock || !venueWindow) return null;
+  return toServiceMinutes(nowClock, venueWindow);
+}
+
+/** True when the slot start time is strictly before the current SAST minute. */
+export function isStartTimeInPast(startTime, venueWindow, now = new Date()) {
+  const nowM = nowMinutesSast(venueWindow, now);
+  const startM = toServiceMinutes(startTime, venueWindow);
+  if (nowM == null || startM == null) return false;
+  return startM < nowM;
 }
 
 export function ceilToSlotStep(minutes, step = SLOT_STEP_MINUTES) {
@@ -36,23 +50,20 @@ export function ceilToSlotStep(minutes, step = SLOT_STEP_MINUTES) {
   return Math.ceil(minutes / step) * step;
 }
 
-export function earliestBookableStartMinutes(venueWindow, refDate = new Date(), step = SLOT_STEP_MINUTES) {
+export function earliestBookableStartMinutes(venueWindow, now = new Date(), step = SLOT_STEP_MINUTES) {
   if (!venueWindow?.startTime) return null;
   const bookableStart = toServiceMinutes(venueWindow.startTime, venueWindow);
   if (bookableStart == null) return null;
 
-  const nowClock = currentClockSast(refDate);
-  if (!nowClock) return bookableStart;
-
-  const nowM = toServiceMinutes(nowClock, venueWindow);
+  const nowM = nowMinutesSast(venueWindow, now);
   if (nowM == null) return bookableStart;
 
   const roundedNow = ceilToSlotStep(nowM, step);
   return Math.max(bookableStart, roundedNow);
 }
 
-export function earliestBookableStartTime(venueWindow, refDate = new Date()) {
-  const mins = earliestBookableStartMinutes(venueWindow, refDate);
+export function earliestBookableStartTime(venueWindow, now = new Date()) {
+  const mins = earliestBookableStartMinutes(venueWindow, now);
   if (mins == null) return null;
   return minutesToHHmm(mins);
 }
@@ -118,7 +129,7 @@ export function bookingDurationMinutes(startTime, endTime, venueWindow) {
 export function buildAvailableGaps(
   venueWindow,
   occupancy = [],
-  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES, refDate = new Date() } = {},
+  { minMinutes = MIN_WINDOW_MINUTES, endBufferMinutes = END_BUFFER_MINUTES, now = new Date() } = {},
 ) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) return [];
 
@@ -126,7 +137,7 @@ export function buildAvailableGaps(
   const venueEnd = toServiceMinutes(venueWindow.endTime, venueWindow);
   if (bookableStart == null || venueEnd == null) return [];
 
-  const earliest = earliestBookableStartMinutes(venueWindow, refDate);
+  const earliest = earliestBookableStartMinutes(venueWindow, now);
   if (earliest != null) {
     bookableStart = Math.max(bookableStart, earliest);
   }
@@ -190,7 +201,7 @@ export function listTimeOptionsInGap(
   gap,
   stepMinutes = SLOT_STEP_MINUTES,
   venueWindow = null,
-  refDate = new Date(),
+  now = new Date(),
   { applyEarliestFilter = true } = {},
 ) {
   if (!gap?.startTime || !gap?.endTime) return [];
@@ -202,7 +213,7 @@ export function listTimeOptionsInGap(
   if (t1 <= t0) t1 += 1440;
 
   if (venueWindow && applyEarliestFilter) {
-    const earliest = earliestBookableStartMinutes(venueWindow, refDate, stepMinutes);
+    const earliest = earliestBookableStartMinutes(venueWindow, now, stepMinutes);
     if (earliest != null) {
       t0 = Math.max(t0, earliest);
     }
@@ -229,14 +240,14 @@ export function findGapContainingWindow(gaps, startTime, endTime, venueWindow) {
 export function defaultWindowFromGaps(
   gaps,
   venueWindow,
-  { defaultDurationMinutes = 120, refDate = new Date() } = {},
+  { defaultDurationMinutes = 120, now = new Date() } = {},
 ) {
   if (!gaps?.length || !venueWindow) return null;
   const gap = gaps[0];
   const g = serviceInterval(gap.startTime, gap.endTime, venueWindow);
   if (!g) return null;
 
-  const earliest = earliestBookableStartMinutes(venueWindow, refDate);
+  const earliest = earliestBookableStartMinutes(venueWindow, now);
   const startM = earliest != null ? Math.max(g[0], earliest) : g[0];
   if (g[1] - startM < MIN_WINDOW_MINUTES) return null;
 
@@ -270,7 +281,7 @@ export function validateBookingWindow(
   value,
   venueWindow,
   occupancy = [],
-  { mode = 'host', refDate = new Date() } = {},
+  { mode = 'host', now = new Date() } = {},
 ) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) {
     return 'No service window configured for today';
@@ -278,9 +289,7 @@ export function validateBookingWindow(
   const { startTime, endTime } = value || {};
   if (!startTime || !endTime) return 'Select a start and end time';
 
-  const earliest = earliestBookableStartMinutes(venueWindow, refDate);
-  const startM = toServiceMinutes(startTime, venueWindow);
-  if (earliest != null && startM != null && startM < earliest) {
+  if (isStartTimeInPast(startTime, venueWindow, now)) {
     return 'This time has already passed';
   }
 
@@ -296,7 +305,7 @@ export function validateBookingWindow(
     return `Bookings must end by ${latestEnd} (1 hour before service ends)`;
   }
 
-  const gaps = buildAvailableGaps(venueWindow, occupancy, { refDate });
+  const gaps = buildAvailableGaps(venueWindow, occupancy, { now });
   const inGap = findGapContainingWindow(gaps, startTime, endTime, venueWindow);
   if (!inGap) {
     return mode === 'host'
@@ -311,12 +320,12 @@ export function isWindowValid(venueWindow, value, occupancy = [], options = {}) 
   return !validateBookingWindow(value, venueWindow, occupancy, options);
 }
 
-export function hasSlotsRemainingToday(venueWindow, occupancy = [], refDate = new Date()) {
-  return buildAvailableGaps(venueWindow, occupancy, { refDate }).length > 0;
+export function hasSlotsRemainingToday(venueWindow, occupancy = [], now = new Date()) {
+  return buildAvailableGaps(venueWindow, occupancy, { now }).length > 0;
 }
 
 /** Timeline segments for visual rail: past, booked, selected, now marker */
-export function buildTimelineSegments(venueWindow, occupancy, selectedWindow, latestEnd, refDate = new Date()) {
+export function buildTimelineSegments(venueWindow, occupancy, selectedWindow, latestEnd, now = new Date()) {
   if (!venueWindow) return { segments: [], ticks: [], nowPct: null };
 
   const bookableStart = toServiceMinutes(venueWindow.startTime, venueWindow);
@@ -328,8 +337,8 @@ export function buildTimelineSegments(venueWindow, occupancy, selectedWindow, la
 
   const segments = [];
 
-  const earliest = earliestBookableStartMinutes(venueWindow, refDate);
-  const nowClock = currentClockSast(refDate);
+  const earliest = earliestBookableStartMinutes(venueWindow, now);
+  const nowClock = currentClockSast(now);
   const nowM = nowClock ? toServiceMinutes(nowClock, venueWindow) : null;
 
   if (earliest != null && earliest > bookableStart) {
