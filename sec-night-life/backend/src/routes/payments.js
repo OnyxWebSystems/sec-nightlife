@@ -248,6 +248,7 @@ async function finalizePaymentIfFulfilled(reference, paystackData = null) {
 }
 
 const SIDE_EFFECTS_PROCESSING_STALE_MS = 2 * 60 * 1000;
+const HOST_FULFILLMENT_TX_OPTS = { timeout: 30000, maxWait: 10000 };
 
 function sideEffectsProcessingIsStale(meta) {
   if (!meta?.side_effects_processing) return true;
@@ -629,15 +630,42 @@ async function applyReferenceSideEffects(reference, paystackData) {
       const totalPaid = Number(amount || 0);
       const { secAmount, recipientAmount: venueAmount } = splitSecPlatform(totalPaid);
 
+      const windowFields = memberWindowFieldsFromMetadata(member, metadata);
+      const memberForHost = { ...member, ...windowFields };
+      const isHostPayment = isVenueTableHostPayment(metadata, member);
+
+      if (isHostPayment) {
+        if (Object.keys(windowFields).length) {
+          await tx.venueTableMember.update({
+            where: { id: member.id },
+            data: windowFields,
+          });
+        }
+        const hostResult = await ensureHostedTableFromVenueHostPayment({
+          tx,
+          venueTable: table,
+          userId: String(userId),
+          paystackReference: reference,
+          amountTotal: totalPaid,
+          selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
+          settlementMode: metadata.settlement_mode || member.settlementMode,
+          hostMember: memberForHost,
+        });
+        if (!hostResult.ok) {
+          throw new Error(`host_fulfillment_failed:${hostResult.error || 'host_table_create_failed'}`);
+        }
+        const freshTable = await tx.venueTable.findUnique({ where: { id: table.id } });
+        if (!freshTable?.hostedTableId) {
+          throw new Error('host_fulfillment_failed:hosted_table_id_missing');
+        }
+      }
+
       const currentOccupancy = table.currentOccupancy + 1;
       const amountContributed = table.amountContributed + totalPaid;
       const nextStatus =
         currentOccupancy >= table.guestCapacity
           ? 'LOCKED'
           : (amountContributed >= table.minimumSpend ? 'PARTIALLY_FILLED' : 'AVAILABLE');
-
-      const windowFields = memberWindowFieldsFromMetadata(member, metadata);
-      const confirmedMember = { ...member, ...windowFields, status: 'CONFIRMED' };
 
       await tx.venueTableMember.update({
         where: { id: member.id },
@@ -679,28 +707,6 @@ async function applyReferenceSideEffects(reference, paystackData) {
         });
       }
 
-      const bookingMode = metadata.booking_mode || metadata.bookingMode;
-      const isHostPayment = isVenueTableHostPayment(metadata, member);
-      if (isHostPayment) {
-        const hostResult = await ensureHostedTableFromVenueHostPayment({
-          tx,
-          venueTable: table,
-          userId: String(userId),
-          paystackReference: reference,
-          amountTotal: totalPaid,
-          selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
-          settlementMode: metadata.settlement_mode || member.settlementMode,
-          hostMember: confirmedMember,
-        });
-        if (!hostResult.ok) {
-          hostFulfillmentError = hostResult.error || 'host_table_create_failed';
-        }
-        const freshTable = await tx.venueTable.findUnique({ where: { id: table.id } });
-        if (!freshTable?.hostedTableId) {
-          hostFulfillmentError = hostFulfillmentError || 'hosted_table_id_missing';
-        }
-      }
-
       const user = await tx.user.findUnique({
         where: { id: String(userId) },
         include: { userProfile: { select: { username: true } } },
@@ -716,9 +722,8 @@ async function applyReferenceSideEffects(reference, paystackData) {
         referenceId: table.id,
         referenceType: 'VENUE_TABLE',
       });
-    });
+    }, HOST_FULFILLMENT_TX_OPTS);
 
-    const bookingModeRepair = metadata.booking_mode || metadata.bookingMode;
     const memberForRepair = await prisma.venueTableMember.findFirst({
       where: {
         id: String(venueTableMemberId),
@@ -733,6 +738,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         await prisma.$transaction(async (tx) => {
           const freshTable = await tx.venueTable.findUnique({ where: { id: String(venueTableId) } });
           if (freshTable && !freshTable.hostedTableId) {
+            const windowFields = memberWindowFieldsFromMetadata(memberForRepair, metadata);
             const hostResult = await ensureHostedTableFromVenueHostPayment({
               tx,
               venueTable: freshTable,
@@ -741,20 +747,17 @@ async function applyReferenceSideEffects(reference, paystackData) {
               amountTotal: Number(amount || 0),
               selectedMenuItems: metadata.selectedMenuItems || memberForRepair.selectedMenuItems,
               settlementMode: metadata.settlement_mode || memberForRepair.settlementMode,
-              hostMember: memberForRepair,
+              hostMember: { ...memberForRepair, ...windowFields },
             });
             if (!hostResult.ok) {
               hostFulfillmentError = hostResult.error || hostFulfillmentError;
             }
           }
-        });
+        }, HOST_FULFILLMENT_TX_OPTS);
       }
     }
 
     const vtAfterHost = await prisma.venueTable.findUnique({ where: { id: String(venueTableId) } });
-    if (isHostRepair && memberForRepair?.status === 'CONFIRMED' && !vtAfterHost?.hostedTableId) {
-      throw new Error(`host_fulfillment_failed:${hostFulfillmentError || 'hosted_table_missing'}`);
-    }
 
     const vtMember = await prisma.venueTableMember.findFirst({
       where: {
@@ -1864,9 +1867,16 @@ async function buildPaymentVerifyResponse(reference, paystackStatus) {
 
   const responseStatus = fulfillmentApplied ? 'paid' : 'processing';
 
+  const bookingMode = paidMeta.booking_mode || paidMeta.bookingMode;
+  const isHostCheckout =
+    bookingMode === 'host' ||
+    bookingMode === 'custom_host' ||
+    paidMeta.member_role === 'HOST';
+
   return {
     status: responseStatus,
     paystack_status: paystackStatus,
+    paystack_reference: reference,
     fulfillment: {
       applied: fulfillmentApplied,
       pending: fulfillmentPending,
@@ -1874,6 +1884,8 @@ async function buildPaymentVerifyResponse(reference, paystackStatus) {
     },
     payout_status: payoutStatus,
     payment_type: paidMeta.type || paidRow?.type || null,
+    booking_mode: bookingMode || null,
+    is_host_checkout: isHostCheckout,
   };
 }
 

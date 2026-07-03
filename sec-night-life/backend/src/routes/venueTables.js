@@ -10,6 +10,7 @@ import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { sendEmail } from '../lib/email.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfterPayment.js';
+import { ensureVenueTableFulfillmentForPayment } from '../lib/ensureVenueTableFulfillment.js';
 import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
 import { canJoinTablesAsGuest } from '../lib/access.js';
@@ -543,6 +544,18 @@ function resolveBookingMode(raw, table, specs) {
   return 'join';
 }
 
+async function hostFulfillmentIncomplete(table, member) {
+  if (!member || member.status !== 'CONFIRMED') return false;
+  if (member.memberRole !== 'HOST') return false;
+  if (table.hostedTableId) {
+    const ticket = member.paystackReference
+      ? await prisma.ticket.findUnique({ where: { paystackReference: member.paystackReference } })
+      : null;
+    return !ticket;
+  }
+  return true;
+}
+
 async function buildVenueCheckoutForTable(table, venue, menuItems, payload, existing) {
   const specs = existing?.userSpecs || {};
   const bookingMode = resolveBookingMode(payload.bookingMode, table, specs);
@@ -984,6 +997,15 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
     });
     if (existing?.status === 'CONFIRMED') {
+      const needsFulfillment = await hostFulfillmentIncomplete(table, existing);
+      if (needsFulfillment) {
+        return res.status(200).json({
+          needsFulfillment: true,
+          paystackReference: existing.paystackReference || null,
+          memberId: existing.id,
+          message: 'Payment received but your table pass is still being prepared. Use repair or verify to complete.',
+        });
+      }
       return res.status(400).json({ error: 'Already joined' });
     }
     if (existing?.status === 'PENDING_VENUE_REVIEW') {
@@ -1212,6 +1234,51 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    next(e);
+  }
+});
+
+router.post('/:tableId/repair-fulfillment', authenticateToken, async (req, res, next) => {
+  try {
+    const table = await prisma.venueTable.findUnique({ where: { id: req.params.tableId } });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    const member = await prisma.venueTableMember.findUnique({
+      where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
+    });
+    if (!member) return res.status(404).json({ error: 'No membership for this table' });
+    const reference =
+      (typeof req.body?.paystackReference === 'string' && req.body.paystackReference) ||
+      member.paystackReference;
+    if (!reference) {
+      return res.status(400).json({ error: 'No payment reference to repair' });
+    }
+    const pay = await prisma.payment.findUnique({
+      where: { reference },
+      select: { userId: true, status: true },
+    });
+    if (!pay || String(pay.userId) !== String(req.userId)) {
+      return res.status(403).json({ error: 'Not authorized to repair this payment' });
+    }
+    const repair = await ensureVenueTableFulfillmentForPayment(reference, { status: 'success' });
+    const refreshedTable = await prisma.venueTable.findUnique({
+      where: { id: table.id },
+      select: { hostedTableId: true },
+    });
+    const ticket = await prisma.ticket.findUnique({
+      where: { paystackReference: reference },
+      select: { id: true },
+    });
+    const fulfilled = Boolean(refreshedTable?.hostedTableId && ticket);
+    res.json({
+      fulfilled,
+      repaired: repair.repaired,
+      reason: repair.reason,
+      hostError: repair.hostError || null,
+      paystackReference: reference,
+      hostedTableId: refreshedTable?.hostedTableId || null,
+      ticketId: ticket?.id || null,
+    });
+  } catch (e) {
     next(e);
   }
 });

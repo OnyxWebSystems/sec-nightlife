@@ -17,6 +17,8 @@ import { windowEndInstant } from './dayBookingWindows.js';
 import { splitSecPlatform, ensureVenueTablePayoutLedger } from './paystackPayout.js';
 import { logger } from './logger.js';
 
+const HOST_FULFILLMENT_TX_OPTS = { timeout: 30000, maxWait: 10000 };
+
 function flattenMetadata(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const nested = value.metadata && typeof value.metadata === 'object' ? value.metadata : {};
@@ -97,6 +99,32 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       const table = freshMember.venueTable;
       const totalPaid = Number(amount || 0);
       const { secAmount, recipientAmount: venueAmount } = splitSecPlatform(totalPaid);
+      const memberForHost = { ...freshMember, ...windowFields };
+      const isHostPayment = isVenueTableHostPayment(metadata, freshMember);
+
+      if (isHostPayment && !table.hostedTableId) {
+        if (Object.keys(windowFields).length) {
+          await tx.venueTableMember.update({
+            where: { id: freshMember.id },
+            data: windowFields,
+          });
+        }
+        const hostResult = await ensureHostedTableFromVenueHostPayment({
+          tx,
+          venueTable: table,
+          userId: String(userId),
+          paystackReference: reference,
+          amountTotal: totalPaid,
+          selectedMenuItems: metadata.selectedMenuItems || freshMember.selectedMenuItems,
+          settlementMode: metadata.settlement_mode || freshMember.settlementMode,
+          hostMember: memberForHost,
+        });
+        if (!hostResult.ok) {
+          hostFulfillmentError = hostResult.error || 'host_table_create_failed';
+          throw new Error(`host_fulfillment_failed:${hostFulfillmentError}`);
+        }
+      }
+
       const currentOccupancy = table.currentOccupancy + 1;
       const amountContributed = table.amountContributed + totalPaid;
       const nextStatus =
@@ -105,8 +133,6 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           : amountContributed >= table.minimumSpend
             ? 'PARTIALLY_FILLED'
             : 'AVAILABLE';
-
-      const confirmedMember = { ...freshMember, ...windowFields, status: 'CONFIRMED' };
 
       await tx.venueTableMember.update({
         where: { id: freshMember.id },
@@ -141,23 +167,11 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           },
         });
       }
-
-      const isHostPayment = isVenueTableHostPayment(metadata, freshMember);
-      if (isHostPayment && !table.hostedTableId) {
-        const hostResult = await ensureHostedTableFromVenueHostPayment({
-          tx,
-          venueTable: table,
-          userId: String(userId),
-          paystackReference: reference,
-          amountTotal: totalPaid,
-          selectedMenuItems: metadata.selectedMenuItems || freshMember.selectedMenuItems,
-          settlementMode: metadata.settlement_mode || freshMember.settlementMode,
-          hostMember: confirmedMember,
-        });
-        if (!hostResult.ok) {
-          hostFulfillmentError = hostResult.error || 'host_table_create_failed';
-        }
-      }
+    }, HOST_FULFILLMENT_TX_OPTS).catch((err) => {
+      logger.warn('ensureVenueTableFulfillmentForPayment confirm failed', {
+        reference,
+        err: err?.message,
+      });
     });
     repaired = true;
     member = await prisma.venueTableMember.findFirst({
@@ -203,7 +217,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           repaired = true;
         }
       }
-    });
+    }, HOST_FULFILLMENT_TX_OPTS);
   }
 
   const refreshedVt = await prisma.venueTable.findUnique({

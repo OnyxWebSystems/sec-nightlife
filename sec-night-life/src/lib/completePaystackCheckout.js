@@ -1,9 +1,10 @@
 import { toast } from 'sonner';
-import { verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
+import { verifyPaystackReference, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
 
 export function invalidatePostPaymentQueries(queryClient, { eventId } = {}) {
   if (!queryClient) return;
   queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+  queryClient.invalidateQueries({ queryKey: ['host-tickets'] });
   queryClient.invalidateQueries({ queryKey: ['host-tables'] });
   queryClient.invalidateQueries({ queryKey: ['business-bookings'] });
   queryClient.invalidateQueries({ queryKey: ['biz-event-table-bookings'] });
@@ -20,6 +21,31 @@ export function invalidatePostPaymentQueries(queryClient, { eventId } = {}) {
   }
 }
 
+function isFulfilledResult(result) {
+  return (
+    result?.fulfillment?.applied === true ||
+    (result?.status === 'paid' && result?.fulfillment?.applied !== false)
+  );
+}
+
+/**
+ * Poll verify until fulfillment completes, fails, or timeout.
+ */
+export async function pollPaymentFulfillment(reference, { maxMs = 120000, intervalMs = 5000 } = {}) {
+  const started = Date.now();
+  let lastResult = null;
+  while (Date.now() - started < maxMs) {
+    lastResult = await verifyPaystackReference(reference);
+    if (isFulfilledResult(lastResult)) return { ...lastResult, fulfilled: true };
+    if (lastResult?.status === 'failed') return { ...lastResult, fulfilled: false };
+    if (lastResult?.fulfillment?.error) return { ...lastResult, fulfilled: false };
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, intervalMs);
+    });
+  }
+  return { ...(lastResult || {}), fulfilled: isFulfilledResult(lastResult) };
+}
+
 /**
  * Verify a Paystack charge with retries, refresh caches, and surface fulfillment status.
  */
@@ -30,13 +56,17 @@ export async function completePaystackCheckout({
   retries = 4,
   baseDelayMs = 500,
   showToasts = true,
+  pollUntilFulfilled = false,
+  pollMaxMs = 120000,
 }) {
   const ref = payload?.reference || reference;
-  const result = await verifyPaystackReferenceWithRetry(ref, { retries, baseDelayMs });
+  let result = await verifyPaystackReferenceWithRetry(ref, { retries, baseDelayMs });
 
-  const fulfilled =
-    result?.fulfillment?.applied === true ||
-    (result?.status === 'paid' && result?.fulfillment?.applied !== false);
+  if (!isFulfilledResult(result) && pollUntilFulfilled) {
+    result = await pollPaymentFulfillment(ref, { maxMs: pollMaxMs });
+  }
+
+  const fulfilled = isFulfilledResult(result);
 
   if (fulfilled) {
     const eventId =
@@ -65,12 +95,12 @@ export async function completePaystackCheckout({
       }
     } else if (result?.status === 'processing' || result?.paystack_status === 'success') {
       const hostCheckout =
-        result?.payment_type === 'TABLE_CHECKOUT' &&
-        (result?.metadata?.booking_mode === 'host' ||
-          result?.metadata?.booking_mode === 'custom_host');
+        result?.is_host_checkout === true ||
+        (result?.payment_type === 'TABLE_CHECKOUT' &&
+          (result?.booking_mode === 'host' || result?.booking_mode === 'custom_host'));
       if (hostCheckout && result?.fulfillment?.error) {
         toast.error('Payment received but table setup failed', {
-          description: `Reference ${ref}. Contact support with this reference.`,
+          description: `Reference ${ref}. Tap Retry fulfillment or contact support.`,
         });
       } else {
         toast.message('Payment received', {

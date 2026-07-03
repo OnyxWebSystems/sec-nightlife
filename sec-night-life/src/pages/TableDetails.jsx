@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl, getStoredPromoterRef } from '@/utils';
 import * as authService from '@/services/authService';
@@ -133,7 +133,11 @@ export default function TableDetails() {
   const [hostPaySuccess, setHostPaySuccess] = useState(false);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [hostFulfillmentPending, setHostFulfillmentPending] = useState(false);
+  const [awaitingFulfillment, setAwaitingFulfillment] = useState(false);
+  const [fulfillmentError, setFulfillmentError] = useState(null);
+  const [repairingFulfillment, setRepairingFulfillment] = useState(false);
   const [lastPaymentReference, setLastPaymentReference] = useState(null);
+  const autoRepairAttemptedRef = useRef(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -324,16 +328,24 @@ export default function TableDetails() {
     enabled: isVenueSource && !!tableId && !!venueTable && (!isDayBookingTable || dayWindowReady),
   });
 
+  const venueMembership = venueTable?.myMembership;
+  const activePayReference = lastPaymentReference || venueMembership?.paystackReference || null;
+
   const { data: hostCheckoutTicket } = useQuery({
-    queryKey: ['host-checkout-ticket', lastPaymentReference],
+    queryKey: ['host-checkout-ticket', activePayReference],
     queryFn: async () => {
       const rows = await apiGet('/api/tickets/my?bucket=active');
       const list = Array.isArray(rows) ? rows : rows?.tickets || [];
-      return list.find((t) => t.paystack_reference === lastPaymentReference) || null;
+      return list.find((t) => t.paystack_reference === activePayReference) || null;
     },
-    enabled: Boolean(lastPaymentReference && (hostPaySuccess || paymentComplete || hostFulfillmentPending)),
+    enabled: Boolean(
+      activePayReference &&
+        (hostPaySuccess || paymentComplete || hostFulfillmentPending || awaitingFulfillment),
+    ),
     refetchInterval: (query) =>
-      hostFulfillmentPending || (paymentComplete && !query.state.data) ? 2500 : false,
+      hostFulfillmentPending || awaitingFulfillment || (paymentComplete && !query.state.data)
+        ? 2500
+        : false,
   });
 
   useEffect(() => {
@@ -342,7 +354,6 @@ export default function TableDetails() {
     }
   }, []);
 
-  const venueMembership = venueTable?.myMembership;
   const isAlreadyHostedByUser =
     isVenueSource &&
     isHostCheckout &&
@@ -362,6 +373,83 @@ export default function TableDetails() {
       setPaymentComplete(true);
     }
   }, [isVenueSource, venueMembership?.status, venueMembership?.paidAt, venueMembership?.amountPaid]);
+
+  useEffect(() => {
+    if (!hostCheckoutTicket) return;
+    setPaymentComplete(true);
+    if (isHostCheckout) setHostPaySuccess(true);
+    setAwaitingFulfillment(false);
+    setFulfillmentError(null);
+  }, [hostCheckoutTicket, isHostCheckout]);
+
+  useEffect(() => {
+    if (!isVenueSource || !tableId || !venueMembership?.paystackReference) return;
+    if (hostCheckoutTicket || autoRepairAttemptedRef.current) return;
+    if (venueMembership.status !== 'CONFIRMED') return;
+    if (!isHostCheckout && venueMembership.memberRole !== 'HOST') return;
+
+    autoRepairAttemptedRef.current = true;
+    const ref = venueMembership.paystackReference;
+    setLastPaymentReference(ref);
+    setAwaitingFulfillment(true);
+    void completePaystackCheckout({
+      reference: ref,
+      queryClient,
+      showToasts: false,
+      pollUntilFulfilled: true,
+      pollMaxMs: 90000,
+    }).then((result) => {
+      if (result.fulfilled) {
+        setPaymentComplete(true);
+        setHostPaySuccess(true);
+        setFulfillmentError(null);
+      } else if (result?.fulfillment?.error) {
+        setFulfillmentError(result.fulfillment.error);
+      }
+      setAwaitingFulfillment(false);
+      queryClient.invalidateQueries(['venue-table', tableId]);
+      queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+    });
+  }, [
+    isVenueSource,
+    tableId,
+    isHostCheckout,
+    venueMembership?.paystackReference,
+    venueMembership?.status,
+    venueMembership?.memberRole,
+    hostCheckoutTicket,
+    queryClient,
+  ]);
+
+  const retryRepairFulfillment = async () => {
+    const ref = activePayReference;
+    if (!ref || !tableId) return;
+    setRepairingFulfillment(true);
+    setFulfillmentError(null);
+    try {
+      const res = await apiPost(`/api/venue-tables/${tableId}/repair-fulfillment`, {
+        paystackReference: ref,
+      });
+      queryClient.invalidateQueries(['venue-table', tableId]);
+      queryClient.invalidateQueries({ queryKey: ['host-checkout-ticket', ref] });
+      queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+      if (res?.fulfilled) {
+        setPaymentComplete(true);
+        setHostPaySuccess(true);
+        toast.success('Table pass ready — check your QR below');
+      } else {
+        setFulfillmentError(res?.hostError || res?.reason || 'Could not complete table setup');
+        toast.error('Table setup still incomplete', {
+          description: `Reference ${ref}. Contact support if this persists.`,
+        });
+      }
+    } catch (e) {
+      setFulfillmentError(e?.data?.error || e?.message || 'Repair failed');
+      toast.error(e?.data?.error || e?.message || 'Repair failed');
+    } finally {
+      setRepairingFulfillment(false);
+    }
+  };
 
   useEffect(() => {
     if (!isVenueSource || !venueTable) return;
@@ -441,6 +529,13 @@ export default function TableDetails() {
           queryClient.invalidateQueries(['event-table-tiers', venueTable.eventId]);
         }
       };
+      if (pay?.needsFulfillment && pay?.paystackReference) {
+        setLastPaymentReference(pay.paystackReference);
+        setAwaitingFulfillment(true);
+        setPaymentComplete(true);
+        void retryRepairFulfillment();
+        return;
+      }
       if (pay?.confirmed) {
         refreshBookingQueries();
         setPaymentComplete(true);
@@ -459,30 +554,30 @@ export default function TableDetails() {
           reference: pay.reference,
           accessCode: pay.access_code,
           authorizationUrl: pay.authorization_url,
-          onSuccess: async (payload) => {
-            setHostFulfillmentPending(true);
+          onSuccess: (payload) => {
             setLastPaymentReference(pay.reference);
-            try {
-              const result = await completePaystackCheckout({
-                reference: pay.reference,
-                payload,
-                queryClient,
-                showToasts: true,
-                retries: 6,
-                baseDelayMs: 800,
-              });
+            setAwaitingFulfillment(true);
+            setFulfillmentError(null);
+            void completePaystackCheckout({
+              reference: pay.reference,
+              payload,
+              queryClient,
+              showToasts: true,
+              retries: 4,
+              baseDelayMs: 800,
+              pollUntilFulfilled: true,
+              pollMaxMs: 120000,
+            }).then((result) => {
               refreshBookingQueries();
               if (result.fulfilled) {
                 setPaymentComplete(true);
                 if (isHostCheckout) setHostPaySuccess(true);
-              } else if (result?.status === 'processing') {
-                toast.message('Preparing your table pass…', {
-                  description: 'Payment received. Your QR will appear here shortly.',
-                });
+                setFulfillmentError(null);
+              } else if (result?.fulfillment?.error) {
+                setFulfillmentError(result.fulfillment.error);
               }
-            } finally {
-              setHostFulfillmentPending(false);
-            }
+              setAwaitingFulfillment(false);
+            });
           },
         });
       } else {
@@ -715,7 +810,7 @@ export default function TableDetails() {
     });
     const membership = venueTable.myMembership;
     const tablePurchased = paymentComplete || hostPaySuccess || isAlreadyHostedByUser;
-    const showPurchasePanel = tablePurchased || hostFulfillmentPending;
+    const showPurchasePanel = tablePurchased || hostFulfillmentPending || awaitingFulfillment;
     const membershipSpecs = membership?.userSpecs || {};
     const approvedCustomMin =
       membership?.status === 'APPROVED' && membershipSpecs.proposedMinimumSpend != null
@@ -807,7 +902,7 @@ export default function TableDetails() {
               background: 'var(--sec-success-muted, rgba(34,197,94,0.08))',
             }}
           >
-            {hostFulfillmentPending ? (
+            {(hostFulfillmentPending || awaitingFulfillment) && !hostCheckoutTicket && !fulfillmentError ? (
               <>
                 <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 8 }}>
                   Preparing your table pass…
@@ -815,6 +910,30 @@ export default function TableDetails() {
                 <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 0, color: 'var(--sec-text-secondary)' }}>
                   Payment received. Your QR ticket will appear here in a moment.
                 </p>
+              </>
+            ) : fulfillmentError ? (
+              <>
+                <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-error, #ef4444)', marginBottom: 8 }}>
+                  Payment received — table setup incomplete
+                </p>
+                <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 12, color: 'var(--sec-text-secondary)' }}>
+                  {fulfillmentError}
+                  {activePayReference ? (
+                    <>
+                      {' '}
+                      Reference: <strong>{activePayReference}</strong>
+                    </>
+                  ) : null}
+                </p>
+                <button
+                  type="button"
+                  className="sec-btn sec-btn-primary sec-btn-full"
+                  style={{ height: 44, marginBottom: 8 }}
+                  disabled={repairingFulfillment}
+                  onClick={() => void retryRepairFulfillment()}
+                >
+                  {repairingFulfillment ? 'Retrying…' : 'Retry fulfillment'}
+                </button>
               </>
             ) : (
               <>
