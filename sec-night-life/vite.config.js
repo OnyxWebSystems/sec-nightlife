@@ -20,10 +20,9 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
+          // Do not split recharts/d3 — separate chunk causes TDZ crash on production load.
           if (id.includes('@radix-ui')) return 'radix';
-          if (id.includes('recharts') || id.includes('d3-')) return 'charts';
           if (id.includes('framer-motion')) return 'motion';
-          if (id.includes('@sentry')) return 'sentry';
           if (id.includes('@tanstack/react-query')) return 'query';
           if (
             id.includes('react-router') ||
