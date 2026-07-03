@@ -3,7 +3,7 @@
  * Uses the same UTC convention as {@link eventStartsAtFromEvent} / {@link eventStartsAtFromHostedTable} in ticketHelpers.
  */
 import { eventStartsAtFromEvent, eventStartsAtFromHostedTable, eventEndsAtFromEvent } from './ticketHelpers.js';
-import { isDayVenueHostedTable, isHostedTableForToday, startOfTomorrowSast } from './dayBookingWindows.js';
+import { isDayVenueHostedTable, dayBookingHideAfterUtc } from './dayBookingWindows.js';
 
 const MS_24H = 24 * 60 * 60 * 1000;
 
@@ -34,19 +34,7 @@ export function isExternalMeetupInFuture(eventDate, eventTime, now = new Date())
 /** When this hosted table should drop off the host's "My tables" list (event end, or legacy start + 24h). */
 export function hostDashboardHideAfterUtc(hostedRow, eventRow, now = new Date()) {
   if (isDayVenueHostedTable(hostedRow)) {
-    if (!isHostedTableForToday(hostedRow, now)) {
-      return new Date(0);
-    }
-    if (hostedRow?.windowEndsAt) {
-      const end =
-        hostedRow.windowEndsAt instanceof Date ? hostedRow.windowEndsAt : new Date(hostedRow.windowEndsAt);
-      if (!Number.isNaN(end.getTime())) return end;
-    }
-    const start = eventStartsAtFromHostedTable(hostedRow);
-    if (start && !Number.isNaN(start.getTime())) {
-      return new Date(start.getTime() + MS_24H);
-    }
-    return startOfTomorrowSast(now);
+    return dayBookingHideAfterUtc(hostedRow);
   }
 
   if (hostedRow?.windowEndsAt) {

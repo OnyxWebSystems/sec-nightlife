@@ -947,8 +947,8 @@ export default function HostDashboard() {
             <div className="min-w-0">
               <h2 className="font-semibold text-lg">My tables</h2>
               <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
-                Live and upcoming tables stay here. After a SEC event ends, or 24 hours after your own venue table starts,
-                the table moves to Past tables.
+                Live and upcoming tables stay here. Day bookings move to Past after your booked window ends; SEC event
+                tables move after the event ends (or 24 hours after start for meet-ups).
               </p>
             </div>
             <button

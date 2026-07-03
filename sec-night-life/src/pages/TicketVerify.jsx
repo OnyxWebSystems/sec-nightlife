@@ -92,9 +92,16 @@ export default function TicketVerify() {
     (async () => {
       try {
         const res = await fetchVerify();
-        if (!cancelled && res) {
-          setPayload(res);
-          saveTicketVerifySnapshot(token, res);
+        if (!cancelled) {
+          if (res) {
+            setPayload(res);
+            saveTicketVerifySnapshot(token, res);
+          } else {
+            setPayload({
+              valid: false,
+              reason: 'Could not verify this ticket — empty response from SEC. Try again or open the link from your confirmation email.',
+            });
+          }
         }
       } catch (e) {
         if (!cancelled) {

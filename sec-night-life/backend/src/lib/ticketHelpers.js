@@ -202,9 +202,13 @@ export function eventStartsAtFromEvent(event) {
   return d;
 }
 
-/** Hosted table calendar + clock (UTC hours from eventTime string). */
+/** Hosted table calendar + clock (SAST wall time when eventTime is HH:mm). */
 export function eventStartsAtFromHostedTable(t) {
   if (!t?.eventDate) return null;
+  if (t.eventTime && /^\d{2}:\d{2}$/.test(String(t.eventTime))) {
+    const instant = parseWindowInstant(t.eventDate, t.eventTime);
+    if (instant) return instant;
+  }
   const d = t.eventDate instanceof Date ? new Date(t.eventDate) : new Date(t.eventDate);
   const start = new Date(d.getTime());
   const parts = String(t.eventTime || '').split(':');

@@ -202,14 +202,6 @@ export function buildAvailableGaps(
     }));
 }
 
-function formatDateYmd(date) {
-  const d = date instanceof Date ? date : new Date(date);
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const da = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${mo}-${da}`;
-}
-
 function formatYmdSast(date) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Africa/Johannesburg',
@@ -273,11 +265,35 @@ export function isDaySessionStillActive(ht, venueTable, now = new Date()) {
 /** Calendar date + HH:mm in SAST (+02:00), matching cron.js eventStartDateTime. */
 export function parseWindowInstant(date, hhmm) {
   if (!date || !hhmm) return null;
-  const ymd = formatDateYmd(date);
+  const ymd = formatYmdSast(date);
   const clock = /^\d{2}:\d{2}$/.test(String(hhmm)) ? String(hhmm) : null;
   if (!clock) return null;
   const instant = new Date(`${ymd}T${clock}:00${SAST_OFFSET}`);
   return Number.isNaN(instant.getTime()) ? null : instant;
+}
+
+const MS_24H = 24 * 60 * 60 * 1000;
+
+/** When a day-booking host session moves from Upcoming to Past on the host dashboard. */
+export function dayBookingHideAfterUtc(hostedRow) {
+  if (hostedRow?.windowEndsAt) {
+    const end =
+      hostedRow.windowEndsAt instanceof Date ? hostedRow.windowEndsAt : new Date(hostedRow.windowEndsAt);
+    if (!Number.isNaN(end.getTime())) return end;
+  }
+  if (hostedRow?.eventDate && hostedRow?.eventTime) {
+    const start = parseWindowInstant(hostedRow.eventDate, hostedRow.eventTime);
+    if (start && !Number.isNaN(start.getTime())) {
+      return new Date(start.getTime() + MS_24H);
+    }
+  }
+  if (hostedRow?.eventDate) {
+    const ymd = formatYmdSast(hostedRow.eventDate);
+    const endOfBookingDay = new Date(`${ymd}T00:00:00+02:00`);
+    endOfBookingDay.setUTCDate(endOfBookingDay.getUTCDate() + 1);
+    return endOfBookingDay;
+  }
+  return null;
 }
 
 export function windowEndInstant(date, startTime, endTime) {
