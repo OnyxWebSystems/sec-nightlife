@@ -21,7 +21,7 @@ Production readiness improved from **~62/100** to **~78/100** via safe, low-risk
 - **Home queries** — `enabled: !!user?.id` for authenticated-only data
 - **RequireOnboardingComplete** — uses `useAuth()` (no duplicate `/api/auth/me`)
 - **Layout** — React Query dedup for `staff-venues`, `compliance-access`, `user-roles-me`; reuses `biz-venues` via ActiveVenueContext
-- **Vite** — `manualChunks` for react, query, motion, sentry, charts, radix (`vite.config.js`)
+- **Vite** — `manualChunks` for react, query, motion, radix (`vite.config.js`; recharts stays in main graph — separate charts chunk crashes on load)
 - **Sentry** — dynamic import after first paint
 
 ### Assets
