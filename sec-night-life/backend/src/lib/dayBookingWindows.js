@@ -219,10 +219,22 @@ function formatYmdSast(date) {
   }).format(date instanceof Date ? date : new Date(date));
 }
 
+/** Calendar day in SAST as UTC instant (for hostedTable.eventDate). */
+export function bookingDateStartSast(date = new Date()) {
+  const ymd = formatYmdSast(date);
+  return new Date(`${ymd}T00:00:00+02:00`);
+}
+
+export function normalizeBookingDateSast(raw) {
+  if (!raw) return bookingDateStartSast(new Date());
+  const d = raw instanceof Date ? raw : new Date(raw);
+  if (Number.isNaN(d.getTime())) return bookingDateStartSast(new Date());
+  return bookingDateStartSast(d);
+}
+
 /** Start of calendar day in SAST as UTC instant. */
 export function startOfTodaySast(now = new Date()) {
-  const ymd = formatYmdSast(now);
-  return new Date(`${ymd}T00:00:00+02:00`);
+  return bookingDateStartSast(now);
 }
 
 export function startOfTomorrowSast(now = new Date()) {
@@ -446,11 +458,18 @@ function sessionWindowFromHosted(ht, venueTable, bookingDate) {
   return { startTime, endTime };
 }
 
-export async function canHostInWindow(venueTableId, bookingDate, userStart, userEnd, { excludeHostedTableId = null } = {}) {
+export async function canHostInWindow(
+  venueTableId,
+  bookingDate,
+  userStart,
+  userEnd,
+  { excludeHostedTableId = null, excludePaystackReference = null } = {},
+) {
   const sessions = await getActiveDaySessions(venueTableId, bookingDate);
   const venueTable = await prisma.venueTable.findUnique({ where: { id: venueTableId } });
   for (const ht of sessions) {
     if (excludeHostedTableId && ht.id === excludeHostedTableId) continue;
+    if (excludePaystackReference && ht.hostFeePaystackRef === excludePaystackReference) continue;
     const { startTime, endTime } = sessionWindowFromHosted(ht, venueTable, bookingDate);
     const vw = venueTable ? venueWindowForDate(venueTable, bookingDate) : null;
     if (startTime && endTime && windowsOverlap(userStart, userEnd, startTime, endTime, vw)) {

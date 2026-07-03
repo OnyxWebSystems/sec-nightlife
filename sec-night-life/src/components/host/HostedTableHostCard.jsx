@@ -120,8 +120,11 @@ export default function HostedTableHostCard({
         </div>
 
         <p className="text-xs text-[var(--sec-text-muted)]">
-          {format(parseISO(t.eventDate), 'EEE d MMM')} · {t.eventTime} ·{' '}
-          {t.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External meet-up'}
+          {format(parseISO(t.eventDate), 'EEE d MMM')} · {t.eventTime}
+          {t.windowEndsAt
+            ? ` – ${format(typeof t.windowEndsAt === 'string' ? parseISO(t.windowEndsAt) : new Date(t.windowEndsAt), 'HH:mm')}`
+            : ''}{' '}
+          · {!t.eventId ? 'Day booking' : t.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External meet-up'}
         </p>
 
         {t.tableDescription ? (
@@ -135,6 +138,14 @@ export default function HostedTableHostCard({
           >
             Members {t.memberCount ?? t._count?.members ?? 0}
           </Link>
+          {t.hostFeePaystackRef ? (
+            <Link
+              to={createPageUrl('Profile?tab=tickets')}
+              className="px-2.5 py-1 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] hover:border-[var(--sec-accent-border)] transition-colors"
+            >
+              View QR
+            </Link>
+          ) : null}
           <span className="px-2.5 py-1 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]">
             Spots left {t.spotsRemaining}
           </span>

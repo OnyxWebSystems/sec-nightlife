@@ -64,9 +64,19 @@ export async function completePaystackCheckout({
         toast.success('Payment confirmed');
       }
     } else if (result?.status === 'processing' || result?.paystack_status === 'success') {
-      toast.message('Payment received', {
-        description: 'Your ticket is being prepared. Check Profile → Tickets in a moment.',
-      });
+      const hostCheckout =
+        result?.payment_type === 'TABLE_CHECKOUT' &&
+        (result?.metadata?.booking_mode === 'host' ||
+          result?.metadata?.booking_mode === 'custom_host');
+      if (hostCheckout && result?.fulfillment?.error) {
+        toast.error('Payment received but table setup failed', {
+          description: `Reference ${ref}. Contact support with this reference.`,
+        });
+      } else {
+        toast.message('Payment received', {
+          description: 'Your table pass is being prepared. This may take a moment.',
+        });
+      }
     } else if (result?.status === 'failed') {
       toast.error('Payment failed. Please try again.');
     }

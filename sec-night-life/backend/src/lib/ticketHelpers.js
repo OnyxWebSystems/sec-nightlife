@@ -4,7 +4,7 @@ import {
   dayStartsAtFromVenueTableSchedule,
   serviceScheduleFromTable,
 } from './serviceSchedule.js';
-import { windowEndInstant } from './dayBookingWindows.js';
+import { windowEndInstant, parseWindowInstant } from './dayBookingWindows.js';
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 
@@ -131,6 +131,35 @@ export function dayStartsAtFromVenueTable(table, refDate = new Date()) {
     }
   }
   return start;
+}
+
+/** Day-booking host/join tickets: event start is the booked window start, not venue default open. */
+export function dayEventStartsAtFromMember(member, table, refDate = new Date()) {
+  if (member?.windowStartTime && member?.bookingDate) {
+    const instant = parseWindowInstant(member.bookingDate, member.windowStartTime);
+    if (instant) return instant;
+  }
+  if (member?.windowStartTime) {
+    const instant = parseWindowInstant(refDate, member.windowStartTime);
+    if (instant) return instant;
+  }
+  return dayStartsAtFromVenueTable(table, refDate);
+}
+
+export function formatVisibleUntilSast(date) {
+  if (!date) return null;
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  const formatted = new Intl.DateTimeFormat('en-ZA', {
+    timeZone: 'Africa/Johannesburg',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+  return `${formatted} (SAST)`;
 }
 
 /** Ticket QR expiry for day venue table bookings — ends at booked window end (not +24h). */

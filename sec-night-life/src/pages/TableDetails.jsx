@@ -26,6 +26,8 @@ import HostedTableExperience from '@/components/tables/HostedTableExperience';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
+import QRCode from 'qrcode';
+import { getTicketVerifyUrl } from '@/utils';
 import MenuPicker, { menuSelectionToPayload, menuSelectionChargeableTotal } from '@/components/menu/MenuPicker';
 import VenueMenuBrowser, { getVenueMenuCartStats } from '@/components/menu/VenueMenuBrowser';
 import TableCheckoutFooter from '@/components/menu/TableCheckoutFooter';
@@ -72,6 +74,49 @@ function StatCell({ value, label, valueStyle = {} }) {
   );
 }
 
+function HostCheckoutQrInline({ ticket }) {
+  const [dataUrl, setDataUrl] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const verifyUrl =
+      ticket?.verify_url ||
+      (ticket?.qr_token ? getTicketVerifyUrl(ticket.qr_token) : null);
+    if (!verifyUrl) return undefined;
+    QRCode.toDataURL(verifyUrl, {
+      width: 160,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#0a0a0b', light: '#ffffff' },
+    })
+      .then((url) => {
+        if (!cancelled) setDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket]);
+
+  if (!ticket) return null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      {dataUrl ? (
+        <img src={dataUrl} alt="Table pass QR" style={{ width: 160, height: 160, borderRadius: 8, background: '#fff', padding: 4 }} />
+      ) : (
+        <div style={{ width: 160, height: 160, borderRadius: 8, background: 'var(--sec-bg-elevated)' }} />
+      )}
+      {ticket.expires_at ? (
+        <p style={{ fontSize: 12, color: 'var(--sec-text-secondary)', margin: 0 }}>
+          Valid until {format(parseISO(ticket.expires_at), 'EEE d MMM, HH:mm')}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /* ── page ─────────────────────────────────────────────────────── */
 
 export default function TableDetails() {
@@ -87,6 +132,8 @@ export default function TableDetails() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [hostPaySuccess, setHostPaySuccess] = useState(false);
   const [paymentComplete, setPaymentComplete] = useState(false);
+  const [hostFulfillmentPending, setHostFulfillmentPending] = useState(false);
+  const [lastPaymentReference, setLastPaymentReference] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -277,6 +324,18 @@ export default function TableDetails() {
     enabled: isVenueSource && !!tableId && !!venueTable && (!isDayBookingTable || dayWindowReady),
   });
 
+  const { data: hostCheckoutTicket } = useQuery({
+    queryKey: ['host-checkout-ticket', lastPaymentReference],
+    queryFn: async () => {
+      const rows = await apiGet('/api/tickets/my?bucket=active');
+      const list = Array.isArray(rows) ? rows : rows?.tickets || [];
+      return list.find((t) => t.paystack_reference === lastPaymentReference) || null;
+    },
+    enabled: Boolean(lastPaymentReference && (hostPaySuccess || paymentComplete || hostFulfillmentPending)),
+    refetchInterval: (query) =>
+      hostFulfillmentPending || (paymentComplete && !query.state.data) ? 2500 : false,
+  });
+
   useEffect(() => {
     if (urlParams.get('request') === '1') {
       setCustomRequestStep('menu');
@@ -400,21 +459,30 @@ export default function TableDetails() {
           reference: pay.reference,
           accessCode: pay.access_code,
           authorizationUrl: pay.authorization_url,
-          onSuccess: (payload) => {
-            setPaymentComplete(true);
-            if (isHostCheckout) setHostPaySuccess(true);
-            refreshBookingQueries();
-            if (isHostCheckout) {
-              toast.success('Payment successful — you are hosting this table');
-            } else {
-              toast.success('Payment successful — booking confirmed');
+          onSuccess: async (payload) => {
+            setHostFulfillmentPending(true);
+            setLastPaymentReference(pay.reference);
+            try {
+              const result = await completePaystackCheckout({
+                reference: pay.reference,
+                payload,
+                queryClient,
+                showToasts: true,
+                retries: 6,
+                baseDelayMs: 800,
+              });
+              refreshBookingQueries();
+              if (result.fulfilled) {
+                setPaymentComplete(true);
+                if (isHostCheckout) setHostPaySuccess(true);
+              } else if (result?.status === 'processing') {
+                toast.message('Preparing your table pass…', {
+                  description: 'Payment received. Your QR will appear here shortly.',
+                });
+              }
+            } finally {
+              setHostFulfillmentPending(false);
             }
-            void completePaystackCheckout({
-              reference: pay.reference,
-              payload,
-              queryClient,
-              showToasts: true,
-            });
           },
         });
       } else {
@@ -647,6 +715,7 @@ export default function TableDetails() {
     });
     const membership = venueTable.myMembership;
     const tablePurchased = paymentComplete || hostPaySuccess || isAlreadyHostedByUser;
+    const showPurchasePanel = tablePurchased || hostFulfillmentPending;
     const membershipSpecs = membership?.userSpecs || {};
     const approvedCustomMin =
       membership?.status === 'APPROVED' && membershipSpecs.proposedMinimumSpend != null
@@ -728,7 +797,7 @@ export default function TableDetails() {
             Your booking window: {bookingWindow.startTime}–{bookingWindow.endTime}
           </p>
         ) : null}
-        {tablePurchased ? (
+        {showPurchasePanel ? (
           <div
             className="sec-card"
             style={{
@@ -738,32 +807,58 @@ export default function TableDetails() {
               background: 'var(--sec-success-muted, rgba(34,197,94,0.08))',
             }}
           >
-            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-success, #22c55e)', marginBottom: 8 }}>
-              {isHostCheckout ? 'Paid — you are hosting this table' : 'Paid — your booking is confirmed'}
-            </p>
-            <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 12, color: 'var(--sec-text-secondary)' }}>
-              {isHostCheckout
-                ? 'Your QR ticket is in Profile → Tickets. Use Host Dashboard to approve join requests and set your table rules.'
-                : 'Your QR ticket is in Profile → Tickets.'}
-            </p>
-            {isHostCheckout ? (
-              <button
-                type="button"
-                className="sec-btn sec-btn-primary sec-btn-full"
-                style={{ height: 44 }}
-                onClick={() => navigate(createPageUrl('HostDashboard?tab=tables&manage=1'))}
-              >
-                Open Host Dashboard
-              </button>
+            {hostFulfillmentPending ? (
+              <>
+                <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 8 }}>
+                  Preparing your table pass…
+                </p>
+                <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 0, color: 'var(--sec-text-secondary)' }}>
+                  Payment received. Your QR ticket will appear here in a moment.
+                </p>
+              </>
             ) : (
-              <button
-                type="button"
-                className="sec-btn sec-btn-primary sec-btn-full"
-                style={{ height: 44 }}
-                onClick={() => navigate(createPageUrl('Profile?tab=tickets'))}
-              >
-                View your QR ticket
-              </button>
+              <>
+                <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-success, #22c55e)', marginBottom: 8 }}>
+                  {isHostCheckout ? 'Paid — you are hosting this table' : 'Paid — your booking is confirmed'}
+                </p>
+                {isHostCheckout && hostCheckoutTicket ? (
+                  <HostCheckoutQrInline ticket={hostCheckoutTicket} />
+                ) : null}
+                <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 12, color: 'var(--sec-text-secondary)' }}>
+                  {isHostCheckout
+                    ? 'Your QR ticket is in Profile → Tickets. Use Host Dashboard to approve join requests and set your table rules.'
+                    : 'Your QR ticket is in Profile → Tickets.'}
+                </p>
+                {isHostCheckout ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="sec-btn sec-btn-primary sec-btn-full"
+                      style={{ height: 44 }}
+                      onClick={() => navigate(createPageUrl('HostDashboard?tab=tables&manage=1'))}
+                    >
+                      Open Host Dashboard
+                    </button>
+                    <button
+                      type="button"
+                      className="sec-btn sec-btn-secondary sec-btn-full"
+                      style={{ height: 44 }}
+                      onClick={() => navigate(createPageUrl('Profile?tab=tickets'))}
+                    >
+                      View in Profile → Tickets
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="sec-btn sec-btn-primary sec-btn-full"
+                    style={{ height: 44 }}
+                    onClick={() => navigate(createPageUrl('Profile?tab=tickets'))}
+                  >
+                    View your QR ticket
+                  </button>
+                )}
+              </>
             )}
           </div>
         ) : null}

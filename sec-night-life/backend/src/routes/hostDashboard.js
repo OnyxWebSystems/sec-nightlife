@@ -1442,6 +1442,7 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
         venueAddress: true,
         eventDate: true,
         eventTime: true,
+        hostFeePaystackRef: true,
         windowEndsAt: true,
         guestQuantity: true,
         spotsRemaining: true,

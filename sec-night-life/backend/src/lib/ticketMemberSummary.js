@@ -38,6 +38,10 @@ export async function buildVenueTableMemberTicketSummary(prisma, {
     lines.push(table.tableName);
   }
 
+  if (member?.windowStartTime && member?.windowEndTime) {
+    lines.push(`Table time: ${member.windowStartTime} – ${member.windowEndTime}`);
+  }
+
   const specs = member?.userSpecs && typeof member.userSpecs === 'object' ? member.userSpecs : null;
   if (specs?.guestCount != null) {
     lines.push(`Guests: ${specs.guestCount}`);

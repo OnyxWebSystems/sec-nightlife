@@ -5,15 +5,15 @@ import { recordEventVenueTableBooking, recordGuestEventVenueTableBookingIfNeeded
 import { resolveVenueMenuSelections } from './menuHelpers.js';
 import { buildVenueTableMemberTicketSummary } from './ticketMemberSummary.js';
 import {
-  visibleUntilAfterEventDate,
   visibleUntilForVenueTableMember,
   visibleUntilForDayVenueTable,
   eventStartsAtFromEvent,
   eventEndsAtFromEvent,
-  dayStartsAtFromVenueTable,
+  dayEventStartsAtFromMember,
   holderDisplayNameFromUser,
   venueTableTicketTitle,
 } from './ticketHelpers.js';
+import { windowEndInstant } from './dayBookingWindows.js';
 import { splitSecPlatform, ensureVenueTablePayoutLedger } from './paystackPayout.js';
 import { logger } from './logger.js';
 
@@ -21,6 +21,25 @@ function flattenMetadata(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const nested = value.metadata && typeof value.metadata === 'object' ? value.metadata : {};
   return { ...nested, ...value };
+}
+
+function memberWindowFieldsFromMetadata(member, metadata) {
+  const startTime =
+    metadata.window_start || metadata.windowStart || member?.windowStartTime || null;
+  const endTime = metadata.window_end || metadata.windowEnd || member?.windowEndTime || null;
+  const bookingRaw = metadata.booking_date || member?.bookingDate || null;
+  const bookingDate = bookingRaw ? new Date(bookingRaw) : null;
+  if (!startTime || !endTime) return {};
+  return {
+    windowStartTime: String(startTime),
+    windowEndTime: String(endTime),
+    ...(bookingDate && !Number.isNaN(bookingDate.getTime()) ? { bookingDate } : {}),
+  };
+}
+
+function isVenueTableHostPayment(metadata, member) {
+  const bookingMode = metadata.booking_mode || metadata.bookingMode;
+  return bookingMode === 'host' || bookingMode === 'custom_host' || member?.memberRole === 'HOST';
 }
 
 /**
@@ -53,6 +72,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
   const amount = paystackData?.amount ? paystackData.amount / 100 : Number(pay.amount || 0);
   const email = pay.email || paystackData?.customer?.email || metadata.email || 'unknown@secnightlife.app';
   let repaired = false;
+  let hostFulfillmentError = null;
 
   let member = await prisma.venueTableMember.findFirst({
     where: {
@@ -63,6 +83,8 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
     include: { venueTable: { include: { venue: true } } },
   });
   if (!member) return { repaired: false, reason: 'member_not_found' };
+
+  const windowFields = memberWindowFieldsFromMetadata(member, metadata);
 
   if (member.status === 'PENDING_PAYMENT') {
     await prisma.$transaction(async (tx) => {
@@ -84,6 +106,8 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
             ? 'PARTIALLY_FILLED'
             : 'AVAILABLE';
 
+      const confirmedMember = { ...freshMember, ...windowFields, status: 'CONFIRMED' };
+
       await tx.venueTableMember.update({
         where: { id: freshMember.id },
         data: {
@@ -93,6 +117,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           paidAt: new Date(),
           paystackReference: reference,
           tableSessionNumber: Number(table.tableSessionNumber) || 1,
+          ...windowFields,
         },
       });
       await tx.venueTable.update({
@@ -117,11 +142,9 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
         });
       }
 
-      const bookingMode = metadata.booking_mode || metadata.bookingMode;
-      const isHostPayment =
-        bookingMode === 'host' || bookingMode === 'custom_host' || freshMember.memberRole === 'HOST';
+      const isHostPayment = isVenueTableHostPayment(metadata, freshMember);
       if (isHostPayment && !table.hostedTableId) {
-        await ensureHostedTableFromVenueHostPayment({
+        const hostResult = await ensureHostedTableFromVenueHostPayment({
           tx,
           venueTable: table,
           userId: String(userId),
@@ -129,7 +152,11 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           amountTotal: totalPaid,
           selectedMenuItems: metadata.selectedMenuItems || freshMember.selectedMenuItems,
           settlementMode: metadata.settlement_mode || freshMember.settlementMode,
+          hostMember: confirmedMember,
         });
+        if (!hostResult.ok) {
+          hostFulfillmentError = hostResult.error || 'host_table_create_failed';
+        }
       }
     });
     repaired = true;
@@ -137,6 +164,13 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       where: { id: String(venueTableMemberId) },
       include: { venueTable: { include: { venue: true } } },
     });
+  } else if (Object.keys(windowFields).length) {
+    await prisma.venueTableMember.update({
+      where: { id: member.id },
+      data: windowFields,
+    });
+    member = { ...member, ...windowFields };
+    repaired = true;
   }
 
   const vt = await prisma.venueTable.findUnique({
@@ -147,14 +181,13 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
     return { repaired, reason: repaired ? 'confirmed_pending_ticket' : 'not_confirmed' };
   }
 
-  const bookingMode = metadata.booking_mode || metadata.bookingMode;
-  const isHostMode = bookingMode === 'host' || bookingMode === 'custom_host' || member.memberRole === 'HOST';
+  const isHostMode = isVenueTableHostPayment(metadata, member);
 
   if (isHostMode && !vt.hostedTableId) {
     await prisma.$transaction(async (tx) => {
       const freshTable = await tx.venueTable.findUnique({ where: { id: vt.id } });
       if (freshTable && !freshTable.hostedTableId) {
-        await ensureHostedTableFromVenueHostPayment({
+        const hostResult = await ensureHostedTableFromVenueHostPayment({
           tx,
           venueTable: freshTable,
           userId: String(userId),
@@ -162,8 +195,13 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           amountTotal: amount,
           selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
           settlementMode: metadata.settlement_mode || member.settlementMode,
+          hostMember: member,
         });
-        repaired = true;
+        if (!hostResult.ok) {
+          hostFulfillmentError = hostResult.error || hostFulfillmentError;
+        } else {
+          repaired = true;
+        }
       }
     });
   }
@@ -172,6 +210,19 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
     where: { id: String(venueTableId) },
     include: { event: true, venue: true },
   });
+
+  if (isHostMode && !refreshedVt?.hostedTableId) {
+    logger.warn('ensureVenueTableFulfillmentForPayment: host table still missing', {
+      reference,
+      venueTableId,
+      error: hostFulfillmentError,
+    });
+    return {
+      repaired,
+      reason: 'host_table_missing',
+      hostError: hostFulfillmentError || 'hosted_table_id_missing',
+    };
+  }
 
   if (isHostMode && refreshedVt?.hostedTableId && refreshedVt.eventId) {
     const existingBooking = await prisma.eventVenueTableBooking.findFirst({
@@ -202,7 +253,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       paystackReference: reference,
       amountTotal: amount,
       selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
-      bookingMode,
+      bookingMode: metadata.booking_mode || metadata.bookingMode,
       memberRole: member.memberRole,
     });
     if (guestBooking) repaired = true;
@@ -216,11 +267,20 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
     });
     const visFallback = refreshedVt.event?.date
       ? visibleUntilForVenueTableMember(refreshedVt, refreshedVt.event)
-      : visibleUntilForDayVenueTable(refreshedVt);
+      : visibleUntilForDayVenueTable(refreshedVt, new Date(), {
+          windowEndsAt:
+            member?.windowEndTime && member?.windowStartTime && member?.bookingDate
+              ? windowEndInstant(member.bookingDate, member.windowStartTime, member.windowEndTime)
+              : null,
+          windowStartTime: member?.windowStartTime,
+          windowEndTime: member?.windowEndTime,
+          bookingDate: member?.bookingDate,
+        });
     const eventStartsAt = refreshedVt.event
       ? eventStartsAtFromEvent(refreshedVt.event)
-      : dayStartsAtFromVenueTable(refreshedVt);
+      : dayEventStartsAtFromMember(member, refreshedVt);
     const eventEndsAt = refreshedVt.event ? eventEndsAtFromEvent(refreshedVt.event) : null;
+    const bookingMode = metadata.booking_mode || metadata.bookingMode;
     const settlementMode = metadata.settlement_mode || metadata.settlementMode || member.settlementMode;
     const minSpendZar = isHostMode
       ? Number(refreshedVt.hostMinimumSpend ?? refreshedVt.minimumSpend ?? 0)
@@ -252,6 +312,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       subtitle: refreshedVt.venue?.name || null,
       visibleUntil: visFallback,
       venueTableId: refreshedVt.id,
+      hostedTableId: refreshedVt.hostedTableId || null,
       eventId: refreshedVt.eventId || null,
       quantity: 1,
       holderDisplayName: holderDisplayNameFromUser(vu),

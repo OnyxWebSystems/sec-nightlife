@@ -29,6 +29,7 @@ import {
   recordGuestEventVenueTableBookingIfNeeded,
 } from '../lib/eventVenueBooking.js';
 import { ensureHostedTableFromVenueHostPayment, resolveVenueIdForHostedTable } from '../lib/venueTableHostAfterPayment.js';
+import { windowEndInstant } from '../lib/dayBookingWindows.js';
 import {
   visibleUntilAfterEventDate,
   visibleUntilAfterParty,
@@ -40,6 +41,7 @@ import {
   eventEndsAtFromEvent,
   dayStartsAtFromVenueTable,
   dayEndsAtFromVenueTable,
+  dayEventStartsAtFromMember,
   holderDisplayNameFromUser,
   venueTableTicketTitle,
   formatSpecsFromTable,
@@ -182,6 +184,37 @@ function flattenPaymentMetadata(value) {
   if (!isObjectRecord(value)) return {};
   const nested = isObjectRecord(value.metadata) ? value.metadata : {};
   return { ...nested, ...value };
+}
+
+function memberWindowFieldsFromMetadata(member, metadata) {
+  const startTime =
+    metadata.window_start || metadata.windowStart || member?.windowStartTime || null;
+  const endTime = metadata.window_end || metadata.windowEnd || member?.windowEndTime || null;
+  const bookingRaw = metadata.booking_date || member?.bookingDate || null;
+  const bookingDate = bookingRaw ? new Date(bookingRaw) : null;
+  if (!startTime || !endTime) return {};
+  return {
+    windowStartTime: String(startTime),
+    windowEndTime: String(endTime),
+    ...(bookingDate && !Number.isNaN(bookingDate.getTime()) ? { bookingDate } : {}),
+  };
+}
+
+function isVenueTableHostPayment(metadata, member) {
+  const bookingMode = metadata.booking_mode || metadata.bookingMode;
+  return bookingMode === 'host' || bookingMode === 'custom_host' || member?.memberRole === 'HOST';
+}
+
+async function getVenueTablePayoutStatus(reference) {
+  const log = await prisma.splitPaymentLog.findFirst({ where: { reference } });
+  if (!log) return { ledger: 'missing' };
+  const payout = await prisma.payoutLedger.findFirst({ where: { paymentReference: reference } });
+  return {
+    ledger: 'ok',
+    secAmount: log.secAmount,
+    venueAmount: log.venueAmount,
+    transferStatus: payout?.status || 'pending',
+  };
 }
 
 async function finalizePaymentIfFulfilled(reference, paystackData = null) {
@@ -584,6 +617,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
     venueTableMemberId &&
     userId
   ) {
+    let hostFulfillmentError = null;
     await prisma.$transaction(async (tx) => {
       const member = await tx.venueTableMember.findFirst({
         where: { id: String(venueTableMemberId), venueTableId: String(venueTableId), userId: String(userId) },
@@ -602,6 +636,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
           ? 'LOCKED'
           : (amountContributed >= table.minimumSpend ? 'PARTIALLY_FILLED' : 'AVAILABLE');
 
+      const windowFields = memberWindowFieldsFromMetadata(member, metadata);
+      const confirmedMember = { ...member, ...windowFields, status: 'CONFIRMED' };
+
       await tx.venueTableMember.update({
         where: { id: member.id },
         data: {
@@ -611,13 +648,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           paidAt: new Date(),
           paystackReference: reference,
           tableSessionNumber: Number(table.tableSessionNumber) || 1,
-          ...(metadata.window_start || metadata.windowStart
-            ? {
-                windowStartTime: metadata.window_start || metadata.windowStart,
-                windowEndTime: metadata.window_end || metadata.windowEnd,
-                bookingDate: metadata.booking_date ? new Date(metadata.booking_date) : member.bookingDate,
-              }
-            : {}),
+          ...windowFields,
         },
       });
       try {
@@ -634,21 +665,24 @@ async function applyReferenceSideEffects(reference, paystackData) {
           status: nextStatus,
         },
       });
-      await tx.splitPaymentLog.create({
-        data: {
-          venueTableId: table.id,
-          memberId: member.id,
-          totalAmount: totalPaid,
-          secAmount,
-          venueAmount,
-          reference,
-        },
-      });
+      const existingLog = await tx.splitPaymentLog.findFirst({ where: { reference } });
+      if (!existingLog) {
+        await tx.splitPaymentLog.create({
+          data: {
+            venueTableId: table.id,
+            memberId: member.id,
+            totalAmount: totalPaid,
+            secAmount,
+            venueAmount,
+            reference,
+          },
+        });
+      }
 
       const bookingMode = metadata.booking_mode || metadata.bookingMode;
-      const isHostPayment = bookingMode === 'host' || bookingMode === 'custom_host' || member.memberRole === 'HOST';
+      const isHostPayment = isVenueTableHostPayment(metadata, member);
       if (isHostPayment) {
-        await ensureHostedTableFromVenueHostPayment({
+        const hostResult = await ensureHostedTableFromVenueHostPayment({
           tx,
           venueTable: table,
           userId: String(userId),
@@ -656,8 +690,15 @@ async function applyReferenceSideEffects(reference, paystackData) {
           amountTotal: totalPaid,
           selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
           settlementMode: metadata.settlement_mode || member.settlementMode,
-          hostMember: member,
+          hostMember: confirmedMember,
         });
+        if (!hostResult.ok) {
+          hostFulfillmentError = hostResult.error || 'host_table_create_failed';
+        }
+        const freshTable = await tx.venueTable.findUnique({ where: { id: table.id } });
+        if (!freshTable?.hostedTableId) {
+          hostFulfillmentError = hostFulfillmentError || 'hosted_table_id_missing';
+        }
       }
 
       const user = await tx.user.findUnique({
@@ -685,17 +726,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
         userId: String(userId),
       },
     });
-    const isHostRepair =
-      bookingModeRepair === 'host' ||
-      bookingModeRepair === 'custom_host' ||
-      memberForRepair?.memberRole === 'HOST';
+    const isHostRepair = isVenueTableHostPayment(metadata, memberForRepair);
     if (isHostRepair && memberForRepair?.status === 'CONFIRMED') {
       const tableForRepair = await prisma.venueTable.findUnique({ where: { id: String(venueTableId) } });
-      if (tableForRepair) {
+      if (tableForRepair && !tableForRepair.hostedTableId) {
         await prisma.$transaction(async (tx) => {
           const freshTable = await tx.venueTable.findUnique({ where: { id: String(venueTableId) } });
-          if (freshTable) {
-            await ensureHostedTableFromVenueHostPayment({
+          if (freshTable && !freshTable.hostedTableId) {
+            const hostResult = await ensureHostedTableFromVenueHostPayment({
               tx,
               venueTable: freshTable,
               userId: String(userId),
@@ -705,9 +743,17 @@ async function applyReferenceSideEffects(reference, paystackData) {
               settlementMode: metadata.settlement_mode || memberForRepair.settlementMode,
               hostMember: memberForRepair,
             });
+            if (!hostResult.ok) {
+              hostFulfillmentError = hostResult.error || hostFulfillmentError;
+            }
           }
         });
       }
+    }
+
+    const vtAfterHost = await prisma.venueTable.findUnique({ where: { id: String(venueTableId) } });
+    if (isHostRepair && memberForRepair?.status === 'CONFIRMED' && !vtAfterHost?.hostedTableId) {
+      throw new Error(`host_fulfillment_failed:${hostFulfillmentError || 'hosted_table_missing'}`);
     }
 
     const vtMember = await prisma.venueTableMember.findFirst({
@@ -743,44 +789,44 @@ async function applyReferenceSideEffects(reference, paystackData) {
       });
     }
     const bookingModePaid = metadata.booking_mode || metadata.bookingMode;
-    const isHostPaymentPaid =
-      bookingModePaid === 'host' ||
-      bookingModePaid === 'custom_host' ||
-      vtMember?.memberRole === 'HOST';
+    const isHostPaymentPaid = isVenueTableHostPayment(metadata, vtMember);
     const payerRow = await prisma.user.findUnique({
       where: { id: String(userId) },
       select: { email: true },
     });
     const payerEmail = payerRow?.email || email;
-    if (isHostPaymentPaid) {
-      await notifyPaymentSuccess({
-        userId: String(userId),
-        email: payerEmail,
-        title: 'Table host payment confirmed',
-        body: `You're now hosting ${vtMember?.venueTable?.tableName || 'your table'}. Open Host Dashboard to approve join requests and set table rules.`,
-        actionUrl: '/HostDashboard?tab=tables&manage=1',
-        referenceId: String(venueTableId),
-        referenceType: 'VENUE_TABLE',
-        emailSubject: `You're hosting ${vtMember?.venueTable?.tableName || 'your table'}`,
-      });
-    } else {
-      await notifyPaymentSuccess({
-        userId: String(userId),
-        email: payerEmail,
-        title: 'Table booking confirmed',
-        body: `Your payment for ${vtMember?.venueTable?.tableName || 'your table'} was successful.`,
-        actionUrl: `/TableDetails?id=${venueTableId}&source=venue`,
-        referenceId: String(venueTableId),
-        referenceType: 'VENUE_TABLE',
-        emailSubject: `Booking confirmed — ${vtMember?.venueTable?.tableName || 'table'}`,
-      });
+    const hostTableReady = !isHostPaymentPaid || Boolean(vtAfterHost?.hostedTableId);
+    if (hostTableReady) {
+      if (isHostPaymentPaid) {
+        await notifyPaymentSuccess({
+          userId: String(userId),
+          email: payerEmail,
+          title: 'Table host payment confirmed',
+          body: `You're now hosting ${vtMember?.venueTable?.tableName || 'your table'}. Open Host Dashboard to approve join requests and set table rules.`,
+          actionUrl: '/HostDashboard?tab=tables&manage=1',
+          referenceId: String(venueTableId),
+          referenceType: 'VENUE_TABLE',
+          emailSubject: `You're hosting ${vtMember?.venueTable?.tableName || 'your table'}`,
+        });
+      } else {
+        await notifyPaymentSuccess({
+          userId: String(userId),
+          email: payerEmail,
+          title: 'Table booking confirmed',
+          body: `Your payment for ${vtMember?.venueTable?.tableName || 'your table'} was successful.`,
+          actionUrl: `/TableDetails?id=${venueTableId}&source=venue`,
+          referenceId: String(venueTableId),
+          referenceType: 'VENUE_TABLE',
+          emailSubject: `Booking confirmed — ${vtMember?.venueTable?.tableName || 'table'}`,
+        });
+      }
     }
 
     const vt = await prisma.venueTable.findUnique({
       where: { id: String(venueTableId) },
       include: { event: true, venue: true },
     });
-    if (vt && userId) {
+    if (vt && userId && hostTableReady) {
       const member = await prisma.venueTableMember.findFirst({
         where: {
           id: String(venueTableMemberId),
@@ -797,21 +843,19 @@ async function applyReferenceSideEffects(reference, paystackData) {
         : visibleUntilForDayVenueTable(vt, new Date(), {
             windowEndsAt:
               member?.windowEndTime && member?.windowStartTime && member?.bookingDate
-                ? (await import('../lib/dayBookingWindows.js')).windowEndInstant(
-                    member.bookingDate,
-                    member.windowStartTime,
-                    member.windowEndTime,
-                  )
+                ? windowEndInstant(member.bookingDate, member.windowStartTime, member.windowEndTime)
                 : null,
             windowStartTime: member?.windowStartTime,
             windowEndTime: member?.windowEndTime,
             bookingDate: member?.bookingDate,
           });
-      const eventStartsAt = vt.event ? eventStartsAtFromEvent(vt.event) : dayStartsAtFromVenueTable(vt);
+      const eventStartsAt = vt.event
+        ? eventStartsAtFromEvent(vt.event)
+        : dayEventStartsAtFromMember(member, vt);
       const eventEndsAt = vt.event ? eventEndsAtFromEvent(vt.event) : null;
       const bookingMode = metadata.booking_mode || metadata.bookingMode;
       const settlementMode = metadata.settlement_mode || metadata.settlementMode || member?.settlementMode;
-      const isHostMode = bookingMode === 'host' || bookingMode === 'custom_host' || member?.memberRole === 'HOST';
+      const isHostMode = isVenueTableHostPayment(metadata, member);
       const minSpendZar = isHostMode
         ? Number(vt.hostMinimumSpend ?? vt.minimumSpend ?? 0)
         : Number(vt.minimumSpend ?? 0);
@@ -838,6 +882,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         subtitle: vt.venue?.name || null,
         visibleUntil: visFallback,
         venueTableId: vt.id,
+        hostedTableId: vt.hostedTableId || null,
         eventId: vt.eventId || null,
         quantity: 1,
         holderDisplayName: holderDisplayNameFromUser(vu),
@@ -1774,6 +1819,14 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
     if (!memberId) return false;
     const member = await prisma.venueTableMember.findUnique({ where: { id: String(memberId) } });
     if (member?.status !== 'CONFIRMED') return false;
+    const isHost = isVenueTableHostPayment(paidMeta, member);
+    if (isHost) {
+      const vt = await prisma.venueTable.findUnique({
+        where: { id: member.venueTableId },
+        select: { hostedTableId: true },
+      });
+      if (!vt?.hostedTableId) return false;
+    }
     const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
     return Boolean(ticket);
   }
@@ -1805,34 +1858,9 @@ async function buildPaymentVerifyResponse(reference, paystackStatus) {
     select: { metadata: true, type: true },
   });
   const paidMeta = flattenPaymentMetadata(paidRow?.metadata);
-  let fulfillmentApplied = await isPaymentFulfillmentComplete(reference, paidMeta);
-  let fulfillmentPending = false;
-
-  if (!fulfillmentApplied && paystackStatus === 'success') {
-    const type = paidMeta.type || '';
-    if (type === 'TABLE_CHECKOUT' || type === 'VENUE_TABLE_JOIN') {
-      const memberId = paidMeta.venueTableMemberId || paidMeta.venue_table_member_id;
-      if (memberId) {
-        const member = await prisma.venueTableMember.findUnique({ where: { id: String(memberId) } });
-        if (member?.status === 'CONFIRMED') {
-          const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
-          fulfillmentApplied = true;
-          fulfillmentPending = !ticket;
-        }
-      }
-    }
-    if (type === 'HOSTED_TABLE_JOIN') {
-      const memberId = paidMeta.hosted_table_member_id || paidMeta.hostedTableMemberId;
-      if (memberId) {
-        const member = await prisma.hostedTableMember.findUnique({ where: { id: String(memberId) } });
-        if (member?.status === 'GOING') {
-          const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
-          fulfillmentApplied = true;
-          fulfillmentPending = !ticket;
-        }
-      }
-    }
-  }
+  const fulfillmentApplied = await isPaymentFulfillmentComplete(reference, paidMeta);
+  const fulfillmentPending = paystackStatus === 'success' && !fulfillmentApplied;
+  const payoutStatus = await getVenueTablePayoutStatus(reference).catch(() => ({ ledger: 'unknown' }));
 
   const responseStatus = fulfillmentApplied ? 'paid' : 'processing';
 
@@ -1844,6 +1872,7 @@ async function buildPaymentVerifyResponse(reference, paystackStatus) {
       pending: fulfillmentPending,
       error: paidMeta.side_effects_error || null,
     },
+    payout_status: payoutStatus,
     payment_type: paidMeta.type || paidRow?.type || null,
   };
 }

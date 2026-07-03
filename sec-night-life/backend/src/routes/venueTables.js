@@ -20,6 +20,7 @@ import {
   eventStartsAtFromEvent,
   eventEndsAtFromEvent,
   dayStartsAtFromVenueTable,
+  dayEventStartsAtFromMember,
   holderDisplayNameFromUser,
   venueTableTicketTitle,
 } from '../lib/ticketHelpers.js';
@@ -1064,7 +1065,7 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
           const freshMember = await tx.venueTableMember.findUnique({
             where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
           });
-          await ensureHostedTableFromVenueHostPayment({
+          const hostResult = await ensureHostedTableFromVenueHostPayment({
             tx,
             venueTable: table,
             userId: req.userId,
@@ -1074,6 +1075,9 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
             settlementMode,
             hostMember: freshMember,
           });
+          if (!hostResult.ok) {
+            throw new Error(hostResult.error || 'host_create_failed');
+          }
         }
       });
       const payer = await prisma.user.findUnique({
@@ -1091,7 +1095,9 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
             windowEndTime: windowCtx?.windowEnd,
             bookingDate: windowCtx?.bookingDate,
           });
-      const eventStartsAt = table.event ? eventStartsAtFromEvent(table.event) : dayStartsAtFromVenueTable(table);
+      const eventStartsAt = table.event
+        ? eventStartsAtFromEvent(table.event)
+        : dayEventStartsAtFromMember(confirmedMember, table);
       const eventEndsAt = table.event ? eventEndsAtFromEvent(table.event) : null;
       const minSpendZar = isHost
         ? Number(table.hostMinimumSpend ?? table.minimumSpend ?? 0)
