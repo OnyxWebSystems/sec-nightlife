@@ -192,7 +192,7 @@ export default function Friends() {
             <TabsTrigger value="requests" className="min-h-[44px] relative">
               Requests
               {(reqBadge?.count || 0) > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-red-600 text-[10px] flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 sec-nav-count-badge min-w-[18px] h-[18px] text-[10px]">
                   {reqBadge.count > 9 ? '9+' : reqBadge.count}
                 </span>
               )}
@@ -328,30 +328,16 @@ export default function Friends() {
                               Add
                             </Button>
                           )}
-                        {!debouncedSearch.trim() && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="min-h-[40px]"
-                              onClick={() =>
-                                navigate(`${createPageUrl('UserProfile')}?id=${f.id}`)
-                              }
-                            >
-                              Profile
-                            </Button>
-                            {f.conversationId && (
-                              <Button
-                                size="sm"
-                                className="min-h-[40px]"
-                                onClick={() =>
-                                  navigate(`${createPageUrl('Messages')}?dm=${f.conversationId}`)
-                                }
-                              >
-                                Message
-                              </Button>
-                            )}
-                          </>
+                        {!debouncedSearch.trim() && f.conversationId && (
+                          <Button
+                            size="sm"
+                            className="min-h-[40px]"
+                            onClick={() =>
+                              navigate(`${createPageUrl('Messages')}?dm=${f.conversationId}`)
+                            }
+                          >
+                            Message
+                          </Button>
                         )}
                       </div>
                     </li>

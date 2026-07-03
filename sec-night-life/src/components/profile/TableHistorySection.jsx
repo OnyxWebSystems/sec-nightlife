@@ -73,7 +73,16 @@ export default function TableHistorySection({ userId, isOwn = false, limit = 8 }
     onError: (e) => toast.error(e?.data?.error || e?.message || 'Could not remove'),
   });
 
-  const items = data?.items ?? [];
+  const items = React.useMemo(() => {
+    const raw = data?.items ?? [];
+    const seen = new Set();
+    return raw.filter((row) => {
+      const key = row.id || `${row.role}:${row.eventId}:${row.tableName}:${row.eventTitle}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [data?.items]);
   const canDelete = isOwn || data?.isOwn;
 
   if (isLoading) {

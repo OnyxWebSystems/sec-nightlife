@@ -569,22 +569,6 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       if (b.has(id)) mutualFriendsCount += 1;
     }
 
-    let recentActivity = [];
-    if (friendshipStatus === 'ACCEPTED' || viewerId === targetId) {
-      recentActivity = await prisma.friendActivity.findMany({
-        where: { userId: targetId },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-        select: {
-          activityType: true,
-          description: true,
-          referenceId: true,
-          referenceType: true,
-          createdAt: true,
-        },
-      });
-    }
-
     let conversationId = null;
     if (friendshipStatus === 'ACCEPTED') {
       const parts = orderedParticipants(viewerId, targetId);
@@ -607,126 +591,8 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
     const canUnblock =
       friendship?.status === 'BLOCKED' && friendship.requesterId === viewerId;
 
-    const now = new Date();
     const rawInterests = user.userProfile?.interests;
     const interests = Array.isArray(rawInterests) ? rawInterests : [];
-
-    const attendedRows = await prisma.eventAttendance.findMany({
-      where: {
-        userId: targetId,
-        event: {
-          deletedAt: null,
-          status: 'published',
-          date: { lt: now },
-        },
-      },
-      select: {
-        event: {
-          select: {
-            id: true,
-            title: true,
-            date: true,
-            city: true,
-            coverImageUrl: true,
-          },
-        },
-      },
-      orderBy: { event: { date: 'desc' } },
-      take: 25,
-    });
-    const pastEventsAttended = [];
-    const seenAtt = new Set();
-    for (const row of attendedRows) {
-      const ev = row.event;
-      if (!ev || seenAtt.has(ev.id)) continue;
-      seenAtt.add(ev.id);
-      pastEventsAttended.push(ev);
-    }
-
-    const extraEventIds = new Set();
-    const purchaseRows = await prisma.payment.findMany({
-      where: { userId: targetId, status: 'success' },
-      select: { metadata: true },
-      take: 200,
-    });
-    for (const row of purchaseRows) {
-      for (const eid of collectEventIdsFromPaymentMetadata(row.metadata)) {
-        if (!seenAtt.has(eid)) extraEventIds.add(eid);
-      }
-    }
-    const txEventRows = await prisma.transaction.findMany({
-      where: { userId: targetId, status: 'paid', eventId: { not: null } },
-      select: { eventId: true },
-      distinct: ['eventId'],
-      take: 100,
-    });
-    for (const row of txEventRows) {
-      if (row.eventId && !seenAtt.has(row.eventId)) extraEventIds.add(row.eventId);
-    }
-    if (extraEventIds.size > 0) {
-      const extraEvents = await prisma.event.findMany({
-        where: {
-          id: { in: [...extraEventIds] },
-          deletedAt: null,
-          status: 'published',
-          date: { lt: now },
-        },
-        select: {
-          id: true,
-          title: true,
-          date: true,
-          city: true,
-          coverImageUrl: true,
-        },
-        orderBy: { date: 'desc' },
-        take: 40,
-      });
-      for (const ev of extraEvents) {
-        if (!ev || seenAtt.has(ev.id)) continue;
-        seenAtt.add(ev.id);
-        pastEventsAttended.push(ev);
-      }
-    }
-    pastEventsAttended.sort((a, b) => new Date(b.date) - new Date(a.date));
-    if (pastEventsAttended.length > 25) pastEventsAttended.length = 25;
-
-    const hostedTables = await prisma.table.findMany({
-      where: {
-        hostUserId: targetId,
-        deletedAt: null,
-        event: { deletedAt: null, status: 'published' },
-      },
-      select: {
-        name: true,
-        event: {
-          select: {
-            id: true,
-            title: true,
-            date: true,
-            city: true,
-            coverImageUrl: true,
-          },
-        },
-      },
-      orderBy: { event: { date: 'desc' } },
-      take: 40,
-    });
-    const hostedEvents = [];
-    const seenHost = new Set();
-    for (const t of hostedTables) {
-      const ev = t.event;
-      if (!ev || seenHost.has(ev.id)) continue;
-      seenHost.add(ev.id);
-      hostedEvents.push({
-        id: ev.id,
-        title: ev.title,
-        date: ev.date,
-        city: ev.city,
-        coverImageUrl: ev.coverImageUrl,
-        tableName: t.name,
-      });
-      if (hostedEvents.length >= 20) break;
-    }
 
     const [userReviewRows, venueUserReviewRows] = await Promise.all([
       prisma.userReview.findMany({
@@ -754,12 +620,9 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       gender: user.userProfile?.gender || null,
       bio: user.userProfile?.bio || null,
       interests,
-      pastEventsAttended,
-      hostedEvents,
       friendshipStatus,
       friendshipId: friendship?.id || null,
       mutualFriendsCount,
-      recentActivity,
       conversationId,
       blockedByThem,
       canUnblock,

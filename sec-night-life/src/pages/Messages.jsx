@@ -286,7 +286,7 @@ export default function Messages() {
                 <span className="text-[10px] text-gray-600">{formatDistanceToNow(c.at, { addSuffix: true })}</span>
               )}
               {c.unread > 0 && (
-                <span className="min-w-[22px] h-[22px] rounded-full bg-red-600 text-white text-xs flex items-center justify-center">
+                <span className="min-w-[22px] h-[22px] rounded-full sec-nav-count-badge text-xs">
                   {c.unread > 9 ? '9+' : c.unread}
                 </span>
               )}

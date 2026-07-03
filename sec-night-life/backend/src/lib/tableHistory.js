@@ -107,6 +107,38 @@ export function participationKey(role, ids = {}) {
   return `${r}:${ids.tableId || ''}:${ids.hostedTableId || ''}:${ids.venueTableId || ''}`;
 }
 
+/** Secondary dedupe key when the same participation appears with different ID fields. */
+export function canonicalHistoryKey(row) {
+  const role =
+    row.role === 'HOST' || row.role === 'host'
+      ? 'host'
+      : row.role === 'ATTENDED' || row.role === 'attended'
+        ? 'attended'
+        : 'joined';
+  const title = (row.tableName || row.eventTitle || '').toLowerCase().trim();
+  const eventId = row.eventId || '';
+  return `${role}:${eventId}:${title}`;
+}
+
+function rowParticipationKey(row) {
+  if ((row.role === 'ATTENDED' || row.role === 'attended') && row.eventId) {
+    return `ATTENDED:${row.eventId}`;
+  }
+  return participationKey(row.role, row);
+}
+
+function tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row) {
+  const canon = canonicalHistoryKey(row);
+  if (byCanonical.has(canon)) return false;
+
+  const key = rowParticipationKey(row);
+  if (hiddenKeys.has(key) || byKey.has(key)) return false;
+
+  byKey.set(key, row);
+  byCanonical.add(canon);
+  return true;
+}
+
 function ticketRoleFromKind(kind) {
   if (kind === 'EVENT_TICKET') return 'ATTENDED';
   if (kind === 'TABLE_HOST_FEE') return 'HOST';
@@ -377,6 +409,7 @@ export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys
   }
 
   const byKey = new Map();
+  const byCanonical = new Set();
   const coveredEventIds = new Set();
 
   const rememberEvent = (row) => {
@@ -384,30 +417,24 @@ export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys
   };
 
   for (const row of persistedRows) {
-    const key = participationKey(row.role, row);
-    if (hiddenKeys.has(key)) continue;
-    byKey.set(key, row);
-    rememberEvent(row);
+    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row)) {
+      rememberEvent(row);
+    }
   }
 
   for (const row of live) {
-    const key = participationKey(row.role, row);
-    if (hiddenKeys.has(key) || byKey.has(key)) continue;
-    byKey.set(key, row);
-    rememberEvent(row);
+    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row)) {
+      rememberEvent(row);
+    }
   }
 
   for (const row of ticketRows) {
     if (row.role === 'ATTENDED' && row.eventId && coveredEventIds.has(row.eventId)) {
       continue;
     }
-    const key =
-      row.role === 'ATTENDED' && row.eventId
-        ? `ATTENDED:${row.eventId}`
-        : participationKey(row.role, row);
-    if (hiddenKeys.has(key) || byKey.has(key)) continue;
-    byKey.set(key, row);
-    rememberEvent(row);
+    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row)) {
+      rememberEvent(row);
+    }
   }
 
   const merged = [...byKey.values()].sort(

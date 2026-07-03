@@ -506,7 +506,7 @@ export default function Layout({ children, currentPageName }) {
                   <span className="sec-badge sec-badge-gold" style={{ marginLeft: 'auto' }}>New</span>
                 )}
                 {item.badge > 0 && (
-                  <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, borderRadius: 9, backgroundColor: 'var(--sec-accent)', color: '#000', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
+                  <span className="sec-nav-count-badge" style={{ marginLeft: 'auto' }}>
                     {item.badge > 99 ? '99+' : item.badge}
                   </span>
                 )}
@@ -526,7 +526,7 @@ export default function Layout({ children, currentPageName }) {
               <item.icon {...iconProps} />
               <span>{item.name}</span>
               {item.badge > 0 && (
-                <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, borderRadius: 9, backgroundColor: item.page === 'Messages' ? 'var(--sec-accent)' : 'var(--sec-error)', color: item.page === 'Messages' ? '#000' : '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
+                <span className="sec-nav-count-badge" style={{ marginLeft: 'auto' }}>
                   {item.badge > 99 ? '99+' : item.badge}
                 </span>
               )}

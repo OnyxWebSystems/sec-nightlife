@@ -2,7 +2,14 @@ import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { sendPushToUser } from './pushDelivery.js';
 
+const NOTIFICATION_BATCH_SIZE = 500;
+
 function pushPathForNotification(data) {
+  if (data.type === 'PLATFORM_ANNOUNCEMENT') {
+    return typeof data.referenceId === 'string' && data.referenceId.startsWith('/')
+      ? data.referenceId
+      : '/Home';
+  }
   if (data.referenceType === 'message' || data.type === 'MESSAGE') return '/Messages';
   if (data.referenceType === 'event' || data.type === 'EVENT_REMINDER') return '/Notifications';
   return '/Notifications';
@@ -55,5 +62,62 @@ export async function createInAppNotificationsForUsers(userIds, data) {
     });
   } catch (e) {
     logger?.warn?.('in-app notification createMany failed', { err: e?.message });
+  }
+}
+
+/**
+ * Notify all active users when an admin publishes a platform announcement.
+ * Runs in batches; push delivery is fire-and-forget per user.
+ * @param {object} announcement - platform_announcements row
+ * @param {string} [excludeUserId] - publishing admin (optional)
+ */
+export async function notifyAllUsersPlatformAnnouncement(announcement, excludeUserId = null) {
+  if (!announcement?.id) return;
+
+  const body =
+    typeof announcement.message === 'string'
+      ? announcement.message.slice(0, 200)
+      : '';
+  const referenceId =
+    typeof announcement.ctaUrl === 'string' && announcement.ctaUrl.trim().startsWith('/')
+      ? announcement.ctaUrl.trim()
+      : '/Home';
+
+  const notificationData = {
+    type: 'PLATFORM_ANNOUNCEMENT',
+    title: announcement.title,
+    body,
+    referenceId,
+    referenceType: 'ROUTE',
+  };
+
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        suspendedAt: null,
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+      },
+      select: { id: true },
+    });
+
+    for (let i = 0; i < users.length; i += NOTIFICATION_BATCH_SIZE) {
+      const batch = users.slice(i, i + NOTIFICATION_BATCH_SIZE);
+      const userIds = batch.map((u) => u.id);
+      await createInAppNotificationsForUsers(userIds, notificationData);
+      for (const userId of userIds) {
+        void maybeSendPush(userId, notificationData);
+      }
+    }
+
+    logger?.info?.('platform announcement notifications sent', {
+      announcementId: announcement.id,
+      userCount: users.length,
+    });
+  } catch (e) {
+    logger?.warn?.('platform announcement notification fan-out failed', {
+      err: e?.message,
+      announcementId: announcement.id,
+    });
   }
 }

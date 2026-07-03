@@ -669,10 +669,7 @@ export default function Home() {
             <Link to={createPageUrl('Notifications')} className="sec-nav-icon relative" aria-label="Notifications">
               <Bell size={18} strokeWidth={1.5} />
               {notificationUnread > 0 ? (
-                <span
-                  className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center text-[9px] font-bold text-black"
-                  style={{ backgroundColor: 'var(--sec-success)' }}
-                >
+                <span className="absolute -top-1 -right-1 sec-nav-count-badge min-w-[16px] h-4 px-1 text-[9px]">
                   {notificationUnread > 99 ? '99+' : notificationUnread}
                 </span>
               ) : null}

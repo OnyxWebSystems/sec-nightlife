@@ -22,6 +22,7 @@ import {
   Archive,
   RotateCcw,
   Shield,
+  Megaphone,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow, parseISO } from 'date-fns';
@@ -43,6 +44,7 @@ const NOTIFICATION_ICONS = {
   EVENT_INTEREST_REMINDER: Calendar,
   PROMOTER_EVENT_ASSIGNED: Calendar,
   VENUE_STAFF_ASSIGNED: Shield,
+  PLATFORM_ANNOUNCEMENT: Megaphone,
   table_request: Users,
   TABLE_REQUEST: Users,
   TABLE_APPROVED: Users,
@@ -81,6 +83,7 @@ const NOTIFICATION_COLORS = {
   system: 'sec-badge-muted',
   EVENT_INTEREST_REMINDER: 'sec-badge-silver',
   VENUE_STAFF_ASSIGNED: 'sec-badge-gold',
+  PLATFORM_ANNOUNCEMENT: 'sec-badge-silver',
 };
 
 export default function Notifications() {
@@ -175,6 +178,13 @@ export default function Notifications() {
       return `${createPageUrl('Friends')}?tab=requests`;
     }
     if (t === 'FRIEND_ACCEPTED') return `${createPageUrl('Friends')}?tab=all`;
+
+    if (t === 'PLATFORM_ANNOUNCEMENT') {
+      if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
+        return n.referenceId;
+      }
+      return createPageUrl('Home');
+    }
 
     if (t === 'TABLE_REQUEST' || t === 'table_request') {
       return business ? withVenueQuery(`${createPageUrl('BusinessVenueTables')}?tab=requests`) : null;

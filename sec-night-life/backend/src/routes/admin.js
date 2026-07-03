@@ -9,7 +9,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/rbac.js';
 import { auditFromReq } from '../lib/audit.js';
 import { privateDownloadUrl, signCloudinaryUrl } from '../lib/cloudinarySignedUrl.js';
-import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { createInAppNotification, notifyAllUsersPlatformAnnouncement } from '../lib/inAppNotifications.js';
 import { sendIdVerificationApprovedEmail } from '../lib/email.js';
 import { requireSuperAdmin } from '../middleware/complianceReviewer.js';
 import { getPromotersLeaderboard } from '../lib/leaderboard.js';
@@ -1133,6 +1133,7 @@ router.post('/announcements', async (req, res, next) => {
       entityId: row.id,
       metadata: { title: row.title },
     });
+    void notifyAllUsersPlatformAnnouncement(row, req.userId);
     res.status(201).json({
       id: row.id,
       title: row.title,

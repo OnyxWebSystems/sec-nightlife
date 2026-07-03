@@ -6,7 +6,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, UserPlus, UserCheck, MessageCircle, Ban, BadgeCheck } from 'lucide-react';
 import { dataService } from '@/services/dataService';
 import { Button } from '@/components/ui/button';
-import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
 import UserProfileReviewsSection from '@/components/reviews/UserProfileReviewsSection';
 import { StarRatingDisplay } from '@/components/reviews/StarRating';
@@ -97,12 +96,6 @@ export default function UserProfile() {
   const st = profile.friendshipStatus;
   const genderLabel =
     profile?.gender === 'male' ? 'Male' : profile?.gender === 'female' ? 'Female' : profile?.gender === 'other' ? 'Other' : null;
-
-  const activityLink = (a) => {
-    if (a.referenceType === 'EVENT' && a.referenceId) return createPageUrl(`EventDetails?id=${a.referenceId}`);
-    if (a.referenceType === 'TABLE' && a.referenceId) return createPageUrl(`TableDetails?id=${a.referenceId}`);
-    return null;
-  };
 
   return (
     <div className="min-h-screen pb-6 max-w-app md:max-w-app-md mx-auto">
@@ -238,55 +231,6 @@ export default function UserProfile() {
             <p className="text-sm text-gray-600">No interests listed yet.</p>
           )}
         </div>
-
-        <div>
-          <h3 className="text-sm font-semibold text-gray-500 mb-2">Past events</h3>
-          {Array.isArray(profile.pastEventsAttended) && profile.pastEventsAttended.length > 0 ? (
-            <ul className="space-y-2">
-              {profile.pastEventsAttended.map((ev) => (
-                <li key={ev.id}>
-                  <Link
-                    to={createPageUrl(`EventDetails?id=${ev.id}`)}
-                    className="text-sm text-gray-200 hover:text-[var(--sec-accent)] flex flex-col gap-0.5 min-h-[44px] justify-center border-b border-[#262629] pb-2"
-                  >
-                    <span className="font-medium">{ev.title}</span>
-                    <span className="text-xs text-gray-500">
-                      {ev.city ? `${ev.city} · ` : ''}
-                      {ev.date ? format(new Date(ev.date), 'd MMM yyyy') : ''}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-gray-600">No past events to show.</p>
-          )}
-        </div>
-
-        <div>
-          <h3 className="text-sm font-semibold text-gray-500 mb-2">Events hosted</h3>
-          {Array.isArray(profile.hostedEvents) && profile.hostedEvents.length > 0 ? (
-            <ul className="space-y-2">
-              {profile.hostedEvents.map((ev) => (
-                <li key={`${ev.id}-${ev.tableName}`}>
-                  <Link
-                    to={createPageUrl(`EventDetails?id=${ev.id}`)}
-                    className="text-sm text-gray-200 hover:text-[var(--sec-accent)] flex flex-col gap-0.5 min-h-[44px] justify-center border-b border-[#262629] pb-2"
-                  >
-                    <span className="font-medium">{ev.title}</span>
-                    <span className="text-xs text-gray-500">
-                      Table: {ev.tableName}
-                      {ev.city ? ` · ${ev.city}` : ''}
-                      {ev.date ? ` · ${format(new Date(ev.date), 'd MMM yyyy')}` : ''}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-gray-600">No hosted events yet.</p>
-          )}
-        </div>
       </div>
 
       <UserProfileReviewsSection profileUserId={userId} profileUsername={profile.username} />
@@ -298,40 +242,6 @@ export default function UserProfile() {
           <p className="text-sm text-gray-500">
             Add {profile.fullName?.split(' ')?.[0] || 'them'} as a friend to see their table history.
           </p>
-        )}
-      </div>
-
-      <div className="mt-10">
-        <h3 className="text-sm font-semibold text-gray-500 mb-2">Activity</h3>
-        {st !== 'ACCEPTED' && !isSelf ? (
-          <p className="text-sm text-gray-500">
-            Add {profile.fullName?.split(' ')?.[0] || 'them'} as a friend to see their activity.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {(profile.recentActivity || []).map((a) => {
-              const href = activityLink(a);
-              const line = (
-                <>
-                  {a.description} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
-                </>
-              );
-              return (
-                <li key={`${a.createdAt}-${a.description}-${a.referenceId || ''}`} className="text-sm text-gray-400 border-b border-[#262629] pb-2">
-                  {href ? (
-                    <Link to={href} className="flex min-h-[44px] flex-col justify-center text-gray-300 hover:text-[var(--sec-accent)]">
-                      {line}
-                    </Link>
-                  ) : (
-                    line
-                  )}
-                </li>
-              );
-            })}
-            {(!profile.recentActivity || profile.recentActivity.length === 0) && (
-              <p className="text-sm text-gray-600">No recent activity.</p>
-            )}
-          </ul>
         )}
       </div>
     </div>
