@@ -82,7 +82,20 @@ export function isApiLikeVerifyHost(url: string): boolean {
     }
 }
 
-/** Prefer a public-app verify URL; ignore server URLs that target the API host. */
+/** True when a verify URL is not a canonical production SPA host (preview, localhost, API). */
+export function isNonProductionVerifyHost(url: string): boolean {
+    if (isApiLikeVerifyHost(url)) return true;
+    try {
+        const h = new URL(url).hostname.toLowerCase();
+        if (h === 'localhost' || h === '127.0.0.1') return true;
+        if (h.endsWith('.vercel.app')) return true;
+    } catch {
+        return true;
+    }
+    return false;
+}
+
+/** Prefer a public-app verify URL; ignore server URLs that target non-canonical hosts. */
 export function resolveTicketVerifyUrl(ticket: {
     verify_url?: string | null;
     qr_token?: string | null;
@@ -98,7 +111,7 @@ export function resolveTicketVerifyUrl(ticket: {
         eventCode: ticket.event_code,
     };
     const fromServer = ticket.verify_url?.trim();
-    if (fromServer && !isApiLikeVerifyHost(fromServer)) return fromServer;
+    if (fromServer && !isNonProductionVerifyHost(fromServer)) return fromServer;
     return getTicketVerifyUrl(token, hints);
 }
 

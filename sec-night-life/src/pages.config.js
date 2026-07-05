@@ -3,11 +3,26 @@ import __Layout from './Layout.jsx';
 import Home from './pages/Home.jsx';
 import Onboarding from './pages/Onboarding.jsx';
 import Login from './pages/Login.jsx';
+import TicketVerify from './pages/TicketVerify.jsx';
+import PaymentSuccess from './pages/PaymentSuccess.jsx';
+import TicketSuccess from './pages/TicketSuccess.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
 import { isStaleChunkLoadError, scheduleChunkReloadOnce } from './lib/chunkLoadRecovery';
 
 const modules = import.meta.glob('./pages/*.jsx');
 
-const EAGER_PAGES = new Set(['Home', 'Onboarding', 'Login']);
+/** Public deep-link entry points — must not be lazy (cold load deadlocks on circular chunks). */
+const EAGER_PAGES = new Set([
+  'Home',
+  'Onboarding',
+  'Login',
+  'TicketVerify',
+  'PaymentSuccess',
+  'TicketSuccess',
+  'ForgotPassword',
+  'ResetPassword',
+]);
 
 /** Warm Vite chunk for a route name (e.g. "Profile") before navigation. Safe to call repeatedly. */
 export function prefetchPage(pageName) {
@@ -31,7 +46,16 @@ function lazyPage(loader) {
   });
 }
 
-const EAGER_IMPORTS = { Home, Onboarding, Login };
+const EAGER_IMPORTS = {
+  Home,
+  Onboarding,
+  Login,
+  TicketVerify,
+  PaymentSuccess,
+  TicketSuccess,
+  ForgotPassword,
+  ResetPassword,
+};
 
 export const PAGES = Object.fromEntries(
   Object.entries(modules).map(([path, loader]) => {

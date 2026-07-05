@@ -33,6 +33,14 @@ const checks = [
     url: FRONTEND,
     expectHtml: true,
   },
+  {
+    name: 'TicketVerify page bundle',
+    url: `${FRONTEND}/TicketVerify?token=smoke-test`,
+    expectHtml: (text) =>
+      text.includes('Verifying ticket') ||
+      text.includes('Door check') ||
+      text.includes('TicketVerify'),
+  },
 ];
 
 async function fetchCheck({ name, url, expectJson, expectHtml }) {
@@ -45,7 +53,11 @@ async function fetchCheck({ name, url, expectJson, expectHtml }) {
   }
 
   if (expectHtml) {
-    if (!text.includes('SEC') && !text.includes('root')) {
+    const htmlOk =
+      typeof expectHtml === 'function'
+        ? expectHtml(text)
+        : text.includes('SEC') || text.includes('root');
+    if (!htmlOk) {
       return { name, url, ok: false, error: 'Unexpected HTML body' };
     }
     return { name, url, ok: true };

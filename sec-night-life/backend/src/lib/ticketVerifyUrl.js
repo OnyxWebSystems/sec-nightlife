@@ -8,16 +8,26 @@ export function ticketVerifyPublicOrigin() {
   );
 }
 
-/** Public app origin for ticket QR links — never the API host. */
+const CANONICAL_VERIFY_ORIGIN = 'https://secnightlife.com';
+
+function isNonProductionVerifyHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return true;
+  if (host === 'localhost' || host === '127.0.0.1') return true;
+  if (host.startsWith('api.') || host.includes('.api.')) return true;
+  if (host.endsWith('.vercel.app')) return true;
+  return false;
+}
+
+/** Public app origin for ticket QR links — never the API host or Vercel preview. */
 export function defaultTicketVerifyOrigin() {
-  const raw = ticketVerifyPublicOrigin() || 'https://secnightlife.com';
+  const raw = ticketVerifyPublicOrigin() || CANONICAL_VERIFY_ORIGIN;
   try {
-    const host = new URL(raw).hostname.toLowerCase();
-    if (host.startsWith('api.') || host.includes('.api.')) {
-      return 'https://secnightlife.com';
+    if (isNonProductionVerifyHost(new URL(raw).hostname)) {
+      return CANONICAL_VERIFY_ORIGIN;
     }
   } catch {
-    return 'https://secnightlife.com';
+    return CANONICAL_VERIFY_ORIGIN;
   }
   return raw;
 }
