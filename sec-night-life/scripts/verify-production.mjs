@@ -36,20 +36,47 @@ const checks = [
   {
     name: 'TicketVerify page bundle',
     url: `${FRONTEND}/TicketVerify?token=smoke-test`,
-    expectHtml: (text) =>
-      text.includes('Verifying ticket') ||
-      text.includes('Door check') ||
-      text.includes('TicketVerify'),
+    expectTicketVerifyBundle: true,
   },
 ];
 
-async function fetchCheck({ name, url, expectJson, expectHtml }) {
+async function fetchCheck({ name, url, expectJson, expectHtml, expectTicketVerifyBundle }) {
   const res = await fetch(url, { redirect: 'follow' });
   const ct = res.headers.get('content-type') || '';
   const text = await res.text();
 
   if (!res.ok) {
     return { name, url, ok: false, error: `HTTP ${res.status}` };
+  }
+
+  if (expectTicketVerifyBundle) {
+    const bundleMatch = text.match(/src="(\/assets\/index-[^"]+\.js)"/);
+    if (!bundleMatch) {
+      return { name, url, ok: false, error: 'Main JS bundle not found in TicketVerify HTML' };
+    }
+    const bundleUrl = new URL(bundleMatch[1], url).toString();
+    const bundleRes = await fetch(bundleUrl, { redirect: 'follow' });
+    const bundleText = await bundleRes.text();
+    if (!bundleRes.ok) {
+      return { name, url: bundleUrl, ok: false, error: `Bundle HTTP ${bundleRes.status}` };
+    }
+    if (!bundleText.includes('Verifying ticket with SEC')) {
+      return {
+        name,
+        url: bundleUrl,
+        ok: false,
+        error: 'TicketVerify not eager-loaded in main bundle',
+      };
+    }
+    if (/TicketVerify-[A-Za-z0-9]+\.js/.test(bundleText)) {
+      return {
+        name,
+        url: bundleUrl,
+        ok: false,
+        error: 'TicketVerify still lazy-loaded as separate chunk',
+      };
+    }
+    return { name, url, ok: true };
   }
 
   if (expectHtml) {
