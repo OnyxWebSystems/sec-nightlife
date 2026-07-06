@@ -14,11 +14,14 @@ function offeringHref(offering) {
   if (offering.type === 'venue_day' && offering.venueId) {
     return createPageUrl(`VenueBook?venueId=${offering.venueId}`);
   }
+  if (offering.type === 'hosted_venue_day' && offering.hostedTableId) {
+    return createPageUrl(`TableDetails?id=${offering.hostedTableId}&source=hosted`);
+  }
   if (offering.type === 'hosted_host' && offering.eventId && offering.hostUserId) {
     return createPageUrl(`EventHostTables?eventId=${offering.eventId}&hostUserId=${offering.hostUserId}`);
   }
   if (offering.type === 'hosted_external' && offering.hostUserId) {
-    const first = offering.tables?.[0]?.id;
+    const first = offering.hostedTableId || offering.tables?.[0]?.id;
     if (first) return createPageUrl(`TableDetails?id=${first}&source=hosted`);
     return createPageUrl(`EventHostTables?hostUserId=${offering.hostUserId}`);
   }
@@ -38,7 +41,17 @@ export default function TableOfferingCard({ offering, wide = false }) {
   const [imgError, setImgError] = useState(false);
   if (!offering?.id) return null;
 
-  const isHosted = offering.type === 'hosted_host' || offering.type === 'hosted_external';
+  const isHosted =
+    offering.type === 'hosted_host' ||
+    offering.type === 'hosted_external' ||
+    offering.type === 'hosted_venue_day';
+  const hostName =
+    offering.hostName ||
+    offering.host?.username ||
+    offering.host?.fullName ||
+    null;
+  const hostAvatarUrl = offering.hostAvatarUrl || offering.host?.avatarUrl || null;
+  const isPrivate = offering.isPublic === false || offering.tables?.some((t) => t.isPublic === false);
   const imgSrc = imgError ? NIGHTLIFE_PLACEHOLDERS.event : getEventImage(offering.imageUrl);
 
   const tierLabels = (offering.tiers || [])
@@ -119,12 +132,12 @@ export default function TableOfferingCard({ offering, wide = false }) {
           </motion.div>
         )}
 
-        {isHosted && offering.hostName && (
+        {isHosted && hostName && (
           <div
             style={{
               position: 'absolute',
               top: 12,
-              right: offering.boosted ? 100 : 12,
+              right: offering.boosted ? 100 : isPrivate ? 88 : 12,
               display: 'flex',
               alignItems: 'center',
               gap: 6,
@@ -149,15 +162,36 @@ export default function TableOfferingCard({ offering, wide = false }) {
                 color: 'var(--sec-accent)',
               }}
             >
-              {offering.hostAvatarUrl ? (
-                <img src={offering.hostAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              {hostAvatarUrl ? (
+                <img src={hostAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
-                (offering.hostName || '?')[0]
+                (hostName || '?')[0]
               )}
             </div>
             <span style={{ fontSize: 10, fontWeight: 600, color: '#fff', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              @{offering.hostName}
+              @{hostName}
             </span>
+          </div>
+        )}
+
+        {isPrivate && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 12,
+              right: offering.boosted ? 100 : 12,
+              padding: '5px 10px',
+              borderRadius: 'var(--radius-pill)',
+              background: 'rgba(0,0,0,0.72)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              color: 'rgba(255,255,255,0.75)',
+            }}
+          >
+            Private
           </div>
         )}
 
@@ -256,7 +290,7 @@ export default function TableOfferingCard({ offering, wide = false }) {
             )}
             {isHosted && offering.minJoinFeeZar != null && offering.minJoinFeeZar > 0 && (
               <span style={{ color: 'rgba(212,175,55,0.9)', fontWeight: 600 }}>
-                Join from R{Number(offering.minJoinFeeZar).toFixed(0)}
+                {isPrivate ? 'Request from ' : 'Join from '}R{Number(offering.minJoinFeeZar).toFixed(0)}
               </span>
             )}
             {!isHosted && offering.minBookingFeeZar > 0 && (

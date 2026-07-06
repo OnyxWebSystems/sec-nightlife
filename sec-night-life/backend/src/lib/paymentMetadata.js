@@ -92,6 +92,28 @@ export function isDayBookingGuestPayment(meta) {
   return t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN' || t === 'table';
 }
 
+/** Guest join fee on an unhosted venue slot (revenue to venue, not host). */
+export function isVenueDirectDayBookingJoinPayment(meta) {
+  if (!isDayBookingPayment(meta)) return false;
+  if (String(meta.type || '') === 'HOSTED_TABLE_JOIN') return false;
+  if (isDayBookingHostPayment(meta)) return false;
+  const bookingMode = meta.booking_mode || meta.bookingMode;
+  const memberRole = meta.member_role || meta.memberRole;
+  if (bookingMode === 'host' || bookingMode === 'custom_host' || memberRole === 'HOST') return false;
+  const t = String(meta.type || '');
+  return t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN' || t === 'table';
+}
+
+/** Join fee component paid directly to the venue on unhosted day-booking slots. */
+export function venueDirectJoinFeeZar(meta) {
+  if (!isObjectRecord(meta)) return 0;
+  const fromField = Number(meta.booking_fee_zar ?? meta.bookingFeeZar ?? 0) || 0;
+  if (fromField > 0) return fromField;
+  const lines = Array.isArray(meta.lines) ? meta.lines : [];
+  const line = lines.find((l) => l && l.code === 'booking_fee');
+  return line ? Number(line.amount_zar || line.amountZar || 0) || 0 : 0;
+}
+
 /** Host / custom-table checkout via venue inventory (creates a hosted table). */
 export function isHostedTableVenuePayment(meta) {
   if (!isObjectRecord(meta)) return false;
@@ -114,7 +136,7 @@ export function createEmptyRevenueCounters() {
     dayBookingGuestPaymentNetZar: 0,
     dayBookingMenuPaymentZar: 0,
     dayBookingMenuPaymentNetZar: 0,
-    dayBookingJoinFeeVolumeZar: 0,
+    dayBookingVenueJoinFeeVolumeZar: 0,
     dayBookingOtherPaymentZar: 0,
     dayBookingOtherPaymentNetZar: 0,
     venueTablePaymentZar: 0,

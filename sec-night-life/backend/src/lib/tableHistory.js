@@ -107,6 +107,64 @@ export function participationKey(role, ids = {}) {
   return `${r}:${ids.tableId || ''}:${ids.hostedTableId || ''}:${ids.venueTableId || ''}`;
 }
 
+/** Collapse linked venue/host sessions to one HOST participation key. */
+export function canonicalHostSessionKey(row, hostedToVenue = null) {
+  const isHost = row.role === 'HOST' || row.role === 'host';
+  if (!isHost) return null;
+  const venueTableId = row.venueTableId || (row.hostedTableId && hostedToVenue?.get(row.hostedTableId)) || null;
+  if (venueTableId) return `HOST:venue-session:${venueTableId}`;
+  if (row.hostedTableId) return `HOST:hosted:${row.hostedTableId}`;
+  if (row.tableId) return `HOST:legacy:${row.tableId}`;
+  return null;
+}
+
+async function buildHostSessionContext(rows) {
+  const hostedIds = new Set();
+  const venueIds = new Set();
+  for (const row of rows) {
+    if (row.hostedTableId) hostedIds.add(row.hostedTableId);
+    if (row.venueTableId) venueIds.add(row.venueTableId);
+  }
+  const hostedToVenue = new Map();
+  const venueSlotNames = new Map();
+
+  if (hostedIds.size) {
+    const hostedRows = await prisma.hostedTable.findMany({
+      where: { id: { in: [...hostedIds] } },
+      select: { id: true, venueTableId: true },
+    });
+    for (const h of hostedRows) {
+      if (h.venueTableId) hostedToVenue.set(h.id, h.venueTableId);
+    }
+  }
+
+  const allVenueIds = new Set([...venueIds, ...hostedToVenue.values()]);
+  if (allVenueIds.size) {
+    const venueRows = await prisma.venueTable.findMany({
+      where: { id: { in: [...allVenueIds] } },
+      select: { id: true, tableName: true, hostedTableId: true },
+    });
+    for (const vt of venueRows) {
+      venueSlotNames.set(vt.id, vt.tableName);
+      if (vt.hostedTableId) hostedToVenue.set(vt.hostedTableId, vt.id);
+    }
+  }
+
+  return { hostedToVenue, venueSlotNames };
+}
+
+function resolveVenueSlotNameForHistory(row, hostedToVenue, venueSlotNames) {
+  const venueTableId =
+    row.venueTableId || (row.hostedTableId && hostedToVenue.get(row.hostedTableId)) || null;
+  if (venueTableId && venueSlotNames.has(venueTableId)) {
+    return venueSlotNames.get(venueTableId);
+  }
+  const raw = row.tableName || '';
+  const hostPassIdx = raw.indexOf(' — Host pass');
+  if (hostPassIdx > 0) return raw.slice(0, hostPassIdx);
+  return row.tableName;
+}
+
 /** Secondary dedupe key when the same participation appears with different ID fields. */
 export function canonicalHistoryKey(row) {
   const role =
@@ -120,16 +178,18 @@ export function canonicalHistoryKey(row) {
   return `${role}:${eventId}:${title}`;
 }
 
-function rowParticipationKey(row) {
+function rowParticipationKey(row, hostedToVenue = null) {
   if ((row.role === 'ATTENDED' || row.role === 'attended') && row.eventId) {
     return `ATTENDED:${row.eventId}`;
   }
+  const hostKey = canonicalHostSessionKey(row, hostedToVenue);
+  if (hostKey) return hostKey;
   return participationKey(row.role, row);
 }
 
-function tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row) {
+function tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row, hostedToVenue = null) {
   const canon = canonicalHistoryKey(row);
-  const key = rowParticipationKey(row);
+  const key = rowParticipationKey(row, hostedToVenue);
   if (hiddenKeys.has(key)) return false;
 
   const roleNorm =
@@ -140,7 +200,10 @@ function tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row) {
         : 'joined';
 
   if (roleNorm === 'joined') {
-    const hostKey = participationKey('HOST', row);
+    const hostKey = canonicalHostSessionKey(
+      { ...row, role: 'HOST' },
+      hostedToVenue,
+    ) || participationKey('HOST', row);
     if (byKey.has(hostKey)) return false;
   }
 
@@ -154,7 +217,7 @@ function tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row) {
     }
   }
 
-  if (byCanonical.has(canon) && roleNorm !== 'host') return false;
+  if (byCanonical.has(canon)) return false;
 
   if (byKey.has(key)) return false;
 
@@ -173,16 +236,20 @@ function ticketRoleFromKind(kind, ticket = null) {
   return 'JOINED';
 }
 
-function ticketHistoryKey(ticket) {
+function ticketHistoryKey(ticket, hostedToVenue = null) {
   if (ticket.kind === 'EVENT_TICKET' && ticket.eventId) {
     return `ATTENDED:${ticket.eventId}`;
   }
   const role = ticketRoleFromKind(ticket.kind, ticket);
-  return participationKey(role, {
+  const row = {
+    role,
     tableId: ticket.tableId,
     hostedTableId: ticket.hostedTableId,
     venueTableId: ticket.venueTableId,
-  });
+  };
+  const hostKey = canonicalHostSessionKey(row, hostedToVenue);
+  if (hostKey && (role === 'HOST' || role === 'host')) return hostKey;
+  return participationKey(role, row);
 }
 
 function ticketToHistoryRow(ticket, userId) {
@@ -207,7 +274,7 @@ function ticketToHistoryRow(ticket, userId) {
  * Build event history items from issued tickets (QR-backed participation).
  * @param {string} userId
  */
-export async function gatherTicketEventHistory(userId) {
+export async function gatherTicketEventHistory(userId, hostedToVenue = null) {
   const tickets = await prisma.ticket.findMany({
     where: {
       userId,
@@ -230,7 +297,7 @@ export async function gatherTicketEventHistory(userId) {
 
   const byKey = new Map();
   for (const ticket of tickets) {
-    const key = ticketHistoryKey(ticket);
+    const key = ticketHistoryKey(ticket, hostedToVenue);
     if (!byKey.has(key)) {
       byKey.set(key, ticketToHistoryRow(ticket, userId));
     }
@@ -304,11 +371,25 @@ export async function gatherLiveTableParticipation(userId) {
     }),
     prisma.hostedTable.findMany({
       where: { hostUserId: userId, status: { not: 'DRAFT' } },
-      select: { id: true, tableName: true, eventId: true, createdAt: true, event: { select: { title: true } } },
+      select: {
+        id: true,
+        tableName: true,
+        venueTableId: true,
+        eventId: true,
+        createdAt: true,
+        event: { select: { title: true } },
+      },
     }),
     prisma.venueTable.findMany({
       where: { hostUserId: userId },
-      select: { id: true, tableName: true, eventId: true, createdAt: true, event: { select: { title: true } } },
+      select: {
+        id: true,
+        tableName: true,
+        hostedTableId: true,
+        eventId: true,
+        createdAt: true,
+        event: { select: { title: true } },
+      },
     }),
     prisma.hostedTableMember.findMany({
       where: {
@@ -356,6 +437,7 @@ export async function gatherLiveTableParticipation(userId) {
     items.push(synthRow('HOST', {
       userId,
       hostedTableId: ht.id,
+      venueTableId: ht.venueTableId || null,
       eventId: ht.eventId,
       tableName: ht.tableName,
       eventTitle: ht.event?.title || null,
@@ -363,6 +445,7 @@ export async function gatherLiveTableParticipation(userId) {
     }));
   }
   for (const vt of venueHosted) {
+    if (vt.hostedTableId) continue;
     items.push(synthRow('HOST', {
       userId,
       venueTableId: vt.id,
@@ -415,13 +498,19 @@ export async function gatherLiveTableParticipation(userId) {
  * @param {number} limit
  */
 export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys, limit = 20) {
+  const allSeedRows = [...persistedRows];
+  const { hostedToVenue, venueSlotNames } = await buildHostSessionContext(allSeedRows);
+
   const [liveResult, ticketResult] = await Promise.allSettled([
     gatherLiveTableParticipation(userId),
-    gatherTicketEventHistory(userId),
+    gatherTicketEventHistory(userId, hostedToVenue),
   ]);
 
   const live = liveResult.status === 'fulfilled' ? liveResult.value : [];
   const ticketRows = ticketResult.status === 'fulfilled' ? ticketResult.value : [];
+  const mergedContext = await buildHostSessionContext([...allSeedRows, ...live, ...ticketRows]);
+  const ctxHostedToVenue = mergedContext.hostedToVenue;
+  const ctxVenueSlotNames = mergedContext.venueSlotNames;
 
   if (liveResult.status === 'rejected') {
     logger?.warn?.('gatherLiveTableParticipation failed', {
@@ -445,13 +534,13 @@ export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys
   };
 
   for (const row of persistedRows) {
-    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row)) {
+    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row, ctxHostedToVenue)) {
       rememberEvent(row);
     }
   }
 
   for (const row of live) {
-    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row)) {
+    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row, ctxHostedToVenue)) {
       rememberEvent(row);
     }
   }
@@ -460,7 +549,7 @@ export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys
     if (row.role === 'ATTENDED' && row.eventId && coveredEventIds.has(row.eventId)) {
       continue;
     }
-    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row)) {
+    if (tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row, ctxHostedToVenue)) {
       rememberEvent(row);
     }
   }
@@ -470,8 +559,14 @@ export async function mergeTableHistoryForUser(userId, persistedRows, hiddenKeys
   );
 
   return merged.slice(0, limit).map((row) => {
-    if (row.id) return mapTableHistoryRow(row);
-    return { ...mapTableHistoryRow(row), id: `synth-${participationKey(row.role, row)}` };
+    const tableName = resolveVenueSlotNameForHistory(row, ctxHostedToVenue, ctxVenueSlotNames);
+    const normalized = { ...row, tableName };
+    if (row.id) return { ...mapTableHistoryRow(normalized), tableName };
+    return {
+      ...mapTableHistoryRow(normalized),
+      id: `synth-${rowParticipationKey(normalized, ctxHostedToVenue)}`,
+      tableName,
+    };
   });
 }
 

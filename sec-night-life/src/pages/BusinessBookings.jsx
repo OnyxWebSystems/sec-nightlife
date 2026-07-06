@@ -224,6 +224,7 @@ export default function BusinessBookings() {
   const [user, setUser] = useState(null);
   const [mainTab, setMainTab] = useState('tables');
   const [tableSubTab, setTableSubTab] = useState('event');
+  const [dayVenueScope, setDayVenueScope] = useState('active');
   const [search, setSearch] = useState('');
   const [ticketSearch, setTicketSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -260,10 +261,14 @@ export default function BusinessBookings() {
   });
 
   const { data: venueTableBookingsData, isLoading: venueBookingsLoading } = useQuery({
-    queryKey: ['biz-venue-table-bookings', user?.id, scopeKey],
+    queryKey: ['biz-venue-table-bookings', user?.id, scopeKey, dayVenueScope],
     queryFn: () => {
-      const q = venueScope.venueQuery ? `?${venueScope.venueQuery}` : '';
-      return apiGet(`/api/business/venue-table-bookings${q}`);
+      const params = new URLSearchParams({ session_scope: dayVenueScope });
+      if (venueScope.venueQuery) {
+        const extra = new URLSearchParams(venueScope.venueQuery);
+        extra.forEach((v, k) => params.set(k, v));
+      }
+      return apiGet(`/api/business/venue-table-bookings?${params.toString()}`);
     },
     enabled: !!user && mainTab === 'tables' && tableSubTab === 'venue-day',
     refetchOnWindowFocus: true,
@@ -611,6 +616,25 @@ export default function BusinessBookings() {
                   Paid bookings from day table listings and custom table requests after guests complete checkout.
                 </p>
 
+                <Tabs value={dayVenueScope} onValueChange={setDayVenueScope}>
+                  <TabsList className="mb-4 border-0" style={{ background: 'transparent' }}>
+                    <TabsTrigger
+                      value="active"
+                      className="rounded-full px-4 py-2 text-sm data-[state=active]:bg-[var(--sec-accent-muted)] data-[state=active]:text-[var(--sec-accent)]"
+                      style={{ border: '1px solid var(--sec-border)', marginBottom: 0 }}
+                    >
+                      Active
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="past"
+                      className="rounded-full px-4 py-2 text-sm data-[state=active]:bg-[var(--sec-accent-muted)] data-[state=active]:text-[var(--sec-accent)]"
+                      style={{ border: '1px solid var(--sec-border)', marginBottom: 0 }}
+                    >
+                      Past tables
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+
                 <FilterBar>
                   <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
                     <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
@@ -629,8 +653,12 @@ export default function BusinessBookings() {
                 ) : filteredVenueTables.length === 0 ? (
                   <EmptyState
                     icon={CalendarDays}
-                    title="No day table bookings"
-                    description="When guests pay for day tables or custom requests, they will show up here."
+                    title={dayVenueScope === 'past' ? 'No past day tables' : 'No active day table bookings'}
+                    description={
+                      dayVenueScope === 'past'
+                        ? 'Ended sessions from today appear here until midnight.'
+                        : 'When guests pay for day tables or custom requests, they will show up here while the session is active.'
+                    }
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -654,8 +682,15 @@ export default function BusinessBookings() {
                               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                                 {row.table?.venue?.name}
                                 {' · Day booking'}
-                                {row.status === 'LEFT' ? ' · Past session' : ''}
+                                {row.sessionEnded ? ' · Session ended' : ' · Active session'}
                               </p>
+                              {(row.table?.startTime || row.table?.endTime) ? (
+                                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                                  {row.table.startTime || '—'}
+                                  {' – '}
+                                  {row.table.endTime || '—'}
+                                </p>
+                              ) : null}
                               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                                 @{row.user?.username || row.user?.fullName || 'Guest'}
                               </p>
@@ -960,19 +995,6 @@ export default function BusinessBookings() {
                   ) : null}
                 </div>
               </div>
-              {sessionDetail?.canManageLive && sessionDetail?.hostedTableId ? (
-                <div style={{ padding: '16px 20px 20px', borderTop: '1px solid var(--sec-border)' }}>
-                  <Button
-                    onClick={() => {
-                      closeSessionView();
-                      navigate(createPageUrl('TableDetails') + `?id=${sessionDetail.hostedTableId}&source=hosted`);
-                    }}
-                    className="w-full h-11 rounded-xl font-semibold sec-btn-accent"
-                  >
-                    Manage table <ChevronRight size={15} className="ml-1" />
-                  </Button>
-                </div>
-              ) : null}
             </>
           )}
         </DialogContent>

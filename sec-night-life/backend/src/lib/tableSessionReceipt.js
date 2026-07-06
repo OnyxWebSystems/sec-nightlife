@@ -1,5 +1,5 @@
 import { prisma } from './prisma.js';
-import { formatYmdSast, windowEndInstant } from './dayBookingWindows.js';
+import { formatYmdSast, windowEndInstant, isDaySessionStillActive } from './dayBookingWindows.js';
 import { flattenPaymentMetadata, basePaymentReference } from './paymentMetadata.js';
 import { resolveVenueMenuSelections } from './menuHelpers.js';
 import { resolveVenueContextForHostedTable } from './venueTableHostAfterPayment.js';
@@ -18,6 +18,30 @@ export function memberBelongsToTodaySast(member, venueTable, now = new Date()) {
   if (member?.paidAt) return formatYmdSast(member.paidAt) === todayYmd;
   if (member?.joinedAt) return formatYmdSast(member.joinedAt) === todayYmd;
   if (venueTable?.tableSessionDate) return formatYmdSast(venueTable.tableSessionDate) === todayYmd;
+  return false;
+}
+
+export function resolveMemberSessionEndAt(member, venueTable, hostedTable) {
+  if (hostedTable?.windowEndsAt) {
+    const end =
+      hostedTable.windowEndsAt instanceof Date
+        ? hostedTable.windowEndsAt
+        : new Date(hostedTable.windowEndsAt);
+    if (!Number.isNaN(end.getTime())) return end;
+  }
+  const bookingDate = member?.bookingDate || hostedTable?.eventDate || venueTable?.serviceDate || null;
+  const startTime = member?.windowStartTime || hostedTable?.eventTime || venueTable?.startTime || null;
+  const endTime = member?.windowEndTime || venueTable?.endTime || null;
+  if (bookingDate && startTime && endTime) {
+    return windowEndInstant(bookingDate, startTime, endTime);
+  }
+  return null;
+}
+
+export function isDayBookingSessionEnded(member, venueTable, hostedTable, now = new Date()) {
+  if (hostedTable && isDaySessionStillActive(hostedTable, venueTable, now)) return false;
+  const endAt = resolveMemberSessionEndAt(member, venueTable, hostedTable);
+  if (endAt && !Number.isNaN(endAt.getTime())) return endAt.getTime() <= now.getTime();
   return false;
 }
 
@@ -41,7 +65,9 @@ async function resolveMenuLines(selectedMenuItems, venueId) {
   return (resolved.items || []).map((item) => ({
     name: item.name || 'Item',
     quantity: Number(item.quantity) || 1,
-    lineTotal: (Number(item.price) || 0) * (Number(item.quantity) || 1),
+    lineTotal:
+      Number(item.lineTotalZar) ||
+      (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
   }));
 }
 
@@ -55,7 +81,10 @@ async function loadPaymentBreakdown(paystackReference, venueId) {
     select: { amount: true, metadata: true },
   });
   const meta = flattenPaymentMetadata(pay?.metadata);
-  const joinFeeZar = Number(meta.join_zar ?? meta.joinZar ?? 0) || 0;
+  const joinFeeZar =
+    Number(meta.join_zar ?? meta.joinZar ?? 0) ||
+    Number(meta.booking_fee_zar ?? meta.bookingFeeZar ?? 0) ||
+    0;
   const menuZar = Number(meta.menu_zar ?? meta.menuZar ?? 0) || 0;
   const entranceZar = Number(meta.entrance_zar ?? meta.entranceZar ?? 0) || 0;
   const lineTotalZar = Number(pay?.amount ?? 0) || joinFeeZar + menuZar + entranceZar;

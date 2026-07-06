@@ -10,6 +10,8 @@ import {
   createEmptyRevenueCounters,
   isTicketPaymentMeta,
   isDayBookingPayment,
+  isVenueDirectDayBookingJoinPayment,
+  venueDirectJoinFeeZar,
   paymentMatchesRevenueScope,
 } from '../lib/paymentMetadata.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
@@ -34,6 +36,7 @@ import { repairMissingHostedTableJoinPayouts } from '../lib/paystackPayout.js';
 import {
   buildTableSessionReceipt,
   memberBelongsToTodaySast,
+  isDayBookingSessionEnded,
   inferMemberSessionNumber as inferMemberSessionFromReceipt,
 } from '../lib/tableSessionReceipt.js';
 
@@ -1026,14 +1029,16 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     let ticketSalesFromPayments = 0;
 
-    let dayBookingJoinFeeVolumeZar = 0;
+    let dayBookingVenueJoinFeeVolumeZar = 0;
 
     for (const p of payments) {
       const meta = flattenPaymentMetadata(p.metadata);
       if (!paymentMatchesVenueScope(meta, venueId, eventIdSet)) continue;
-      if (isDayBookingPayment(meta)) {
-        const joinZar = Number(meta.join_zar ?? meta.joinZar ?? 0) || 0;
-        if (joinZar > 0) dayBookingJoinFeeVolumeZar += joinZar;
+      if (revenueScope === 'day_bookings' && isDayBookingPayment(meta)) {
+        if (isVenueDirectDayBookingJoinPayment(meta)) {
+          const fee = venueDirectJoinFeeZar(meta);
+          if (fee > 0) dayBookingVenueJoinFeeVolumeZar += fee;
+        }
       }
       if (p.reference && matchedPaymentRefs.has(p.reference)) continue;
       if (isRefundedPaymentRef(p.reference, refundedRefs)) continue;
@@ -1123,7 +1128,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       dayBookingOtherPaymentNetZar: roundZar(revenueCounters.dayBookingOtherPaymentNetZar),
       dayBookingMenuPaymentZar: roundZar(revenueCounters.dayBookingMenuPaymentZar),
       dayBookingMenuPaymentNetZar: roundZar(revenueCounters.dayBookingMenuPaymentNetZar),
-      dayBookingJoinFeeVolumeZar: roundZar(dayBookingJoinFeeVolumeZar),
+      dayBookingVenueJoinFeeVolumeZar: roundZar(dayBookingVenueJoinFeeVolumeZar),
       venueTablePaymentZar: roundZar(revenueCounters.venueTablePaymentZar),
       venueTablePaymentNetZar: roundZar(revenueCounters.venueTablePaymentNetZar),
       otherPaymentZar: roundZar(revenueCounters.otherPaymentZar),
@@ -1596,18 +1601,34 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
     if (hostedTableIds.length) {
       const hostedRows = await prisma.hostedTable.findMany({
         where: { id: { in: hostedTableIds } },
-        select: { id: true, status: true },
+        select: {
+          id: true,
+          status: true,
+          windowEndsAt: true,
+          eventDate: true,
+          eventTime: true,
+          venueTableId: true,
+        },
       });
       for (const ht of hostedRows) hostedById.set(ht.id, ht);
     }
 
     const refundedRefs = await loadRefundedPaymentRefs(venueIds);
+    const sessionScope = String(req.query.session_scope || 'active').toLowerCase();
     const includePast = String(req.query.include_past || '') === '1';
+    const effectiveScope = includePast ? 'past' : sessionScope;
 
-    res.json({
-      items: members
-        .filter((m) => includePast || memberBelongsToTodaySast(m, m.venueTable))
-        .map((m) => {
+    const mapped = members
+      .filter((m) => {
+        if (!memberBelongsToTodaySast(m, m.venueTable)) return false;
+        const hostedTable = m.venueTable.hostedTableId
+          ? hostedById.get(m.venueTable.hostedTableId) || null
+          : null;
+        const ended = isDayBookingSessionEnded(m, m.venueTable, hostedTable);
+        if (effectiveScope === 'past') return ended;
+        return !ended;
+      })
+      .map((m) => {
         const sessionNumber = inferMemberSessionNumber(m, m.venueTable);
         const hostedTable = m.venueTable.hostedTableId
           ? hostedById.get(m.venueTable.hostedTableId) || null
@@ -1646,9 +1667,28 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
             venue: m.venueTable.venue,
             canRelease: m.status === 'CONFIRMED' && computeCanRelease(m.venueTable, hostedTable),
           },
+          sessionEnded: isDayBookingSessionEnded(m, m.venueTable, hostedTable),
         };
-      }),
-    });
+      });
+
+    const sessionGroups = new Map();
+    for (const row of mapped) {
+      const key = `${row.table?.id}:${row.sessionNumber ?? 1}`;
+      const existing = sessionGroups.get(key);
+      if (!existing) {
+        sessionGroups.set(key, row);
+        continue;
+      }
+      const preferRow =
+        row.memberRole === 'HOST' && existing.memberRole !== 'HOST'
+          ? row
+          : Number(row.amountPaid || 0) > Number(existing.amountPaid || 0)
+            ? row
+            : existing;
+      sessionGroups.set(key, preferRow);
+    }
+
+    res.json({ items: [...sessionGroups.values()] });
   } catch (e) {
     next(e);
   }

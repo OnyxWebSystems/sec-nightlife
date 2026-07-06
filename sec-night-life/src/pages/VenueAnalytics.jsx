@@ -223,7 +223,7 @@ export default function VenueAnalytics() {
       dayBookingHostPaymentZar: pickRevenueAmount(analytics, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', revenueMode),
       dayBookingGuestPaymentZar: pickRevenueAmount(analytics, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', revenueMode),
       dayBookingMenuPaymentZar: pickRevenueAmount(analytics, 'dayBookingMenuPaymentZar', 'dayBookingMenuPaymentNetZar', revenueMode),
-      dayBookingJoinFeeVolumeZar: Number(analytics?.dayBookingJoinFeeVolumeZar || 0),
+      dayBookingVenueJoinFeeVolumeZar: Number(analytics?.dayBookingVenueJoinFeeVolumeZar || 0),
       dayBookingOtherPaymentZar: pickRevenueAmount(analytics, 'dayBookingOtherPaymentZar', 'dayBookingOtherPaymentNetZar', revenueMode),
       venueTablePaymentZar: pickRevenueAmount(analytics, 'venueTablePaymentZar', 'venueTablePaymentNetZar', revenueMode),
       otherPaymentZar: pickRevenueAmount(analytics, 'otherPaymentZar', 'otherPaymentNetZar', revenueMode),
@@ -514,10 +514,10 @@ export default function VenueAnalytics() {
                   </Card>
                   <Card className="glass-card border-[#262629]">
                     <CardContent className="pt-6">
-                      <p className="text-gray-500 text-sm" title="Join fees paid by guests (paid to hosts, not venue revenue)">
-                        Join fees (to hosts)
+                      <p className="text-gray-500 text-sm" title="Join fees guests pay when joining an unhosted venue slot (venue revenue)">
+                        Join fees (to venue)
                       </p>
-                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingJoinFeeVolumeZar.toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingVenueJoinFeeVolumeZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
                 </>

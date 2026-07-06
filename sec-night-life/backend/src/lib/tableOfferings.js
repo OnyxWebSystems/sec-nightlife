@@ -173,11 +173,29 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
     },
   });
 
+  const linkedVenueTableIds = [
+    ...new Set(hostedRows.map((t) => t.venueTableId).filter(Boolean)),
+  ];
+  const linkedVenueById = new Map();
+  if (linkedVenueTableIds.length) {
+    const linkedVenueRows = await prisma.venueTable.findMany({
+      where: { id: { in: linkedVenueTableIds } },
+      select: {
+        id: true,
+        tableName: true,
+        venueId: true,
+        startTime: true,
+        endTime: true,
+        venue: { select: { id: true, name: true, city: true, coverImageUrl: true } },
+      },
+    });
+    for (const vt of linkedVenueRows) linkedVenueById.set(vt.id, vt);
+  }
+
   const offerings = [];
   const venueEventMap = new Map();
   const venueDayMap = new Map();
   const hostedHostMap = new Map();
-  const hostedSoloMap = new Map();
 
   for (const t of openVenueRows) {
     if (t.isCustomListing && !t.allowsCustomRequests) continue;
@@ -328,6 +346,8 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
           eventDate: t.eventDate,
           startTime: t.eventTime,
           host,
+          hostName: host.username || host.fullName || null,
+          hostAvatarUrl: host.avatarUrl || null,
           tables: [],
           totalSpots: 0,
           minJoinFeeZar: null,
@@ -351,44 +371,44 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
         if (g.maxJoinFeeZar == null || jf > g.maxJoinFeeZar) g.maxJoinFeeZar = jf;
       }
     } else {
-      const key = t.hostUserId;
-      if (!hostedSoloMap.has(key)) {
-        hostedSoloMap.set(key, {
-          type: 'hosted_external',
-          id: `hosted-ext-${t.hostUserId}-${t.id}`,
-          eventId: null,
-          hostUserId: t.hostUserId,
-          venueId: null,
-          title: host.username ? `@${host.username}` : host.fullName || 'Host',
-          subtitle: t.venueName || 'External meet-up',
-          imageUrl: t.photo || null,
-          city: null,
-          eventDate: t.eventDate,
-          startTime: t.eventTime,
-          host,
-          tables: [tableSummary],
-          totalSpots: spots,
-          minJoinFeeZar: t.hasJoiningFee ? Number(t.joiningFee || 0) : null,
-          maxJoinFeeZar: t.hasJoiningFee ? Number(t.joiningFee || 0) : null,
-          boosted,
-          tableCount: 1,
-        });
-      } else {
-        const g = hostedSoloMap.get(key);
-        g.tables.push(tableSummary);
-        g.totalSpots += spots;
-        g.tableCount += 1;
-        if (isVipHosted) g.hasVip = true;
-        if (boosted) {
-          g.boosted = true;
-          if (t.photo) g.imageUrl = t.photo;
-        }
-      }
+      const linkedVt = t.venueTableId ? linkedVenueById.get(t.venueTableId) : null;
+      const isVenueDay = Boolean(linkedVt);
+      const slotName = linkedVt?.tableName || t.tableName;
+      const jf = t.hasJoiningFee ? Number(t.joiningFee || 0) : 0;
+      offerings.push({
+        type: isVenueDay ? 'hosted_venue_day' : 'hosted_external',
+        id: isVenueDay ? `hosted-venue-day-${t.id}` : `hosted-ext-${t.id}`,
+        eventId: null,
+        hostUserId: t.hostUserId,
+        hostedTableId: t.id,
+        venueId: linkedVt?.venueId || null,
+        venueTableId: t.venueTableId || null,
+        title: isVenueDay ? slotName : host.username ? `@${host.username}` : host.fullName || 'Host',
+        subtitle: isVenueDay
+          ? linkedVt?.venue?.name || t.venueName || 'Venue'
+          : t.venueName || 'External meet-up',
+        imageUrl: t.photo || linkedVt?.venue?.coverImageUrl || null,
+        city: linkedVt?.venue?.city || null,
+        eventDate: t.eventDate,
+        startTime: t.eventTime || linkedVt?.startTime || null,
+        windowEndsAt: t.windowEndsAt || null,
+        host,
+        hostName: host.username || host.fullName || null,
+        hostAvatarUrl: host.avatarUrl || null,
+        tables: [tableSummary],
+        totalSpots: spots,
+        minJoinFeeZar: t.hasJoiningFee && jf > 0 ? jf : null,
+        maxJoinFeeZar: t.hasJoiningFee && jf > 0 ? jf : null,
+        isPublic: t.isPublic,
+        tableName: slotName,
+        boosted,
+        tableCount: 1,
+        hasVip: isVipHosted,
+      });
     }
   }
 
   for (const g of hostedHostMap.values()) offerings.push(g);
-  for (const g of hostedSoloMap.values()) offerings.push(g);
 
   const sorted = sortOfferings(offerings, friendIds, sessionSeed);
   return sorted.slice(0, cappedLimit);
