@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { issueTicketAndNotify } from './issueTicket.js';
 import { ensureHostedTableFromVenueHostPayment } from './venueTableHostAfterPayment.js';
+import { resolveDailySessionNumber } from './dailyTableSession.js';
 import { recordEventVenueTableBooking, recordGuestEventVenueTableBookingIfNeeded } from './eventVenueBooking.js';
 import { resolveVenueMenuSelections } from './menuHelpers.js';
 import { buildVenueTableMemberTicketSummary } from './ticketMemberSummary.js';
@@ -133,6 +134,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           : amountContributed >= table.minimumSpend
             ? 'PARTIALLY_FILLED'
             : 'AVAILABLE';
+      const dailySessionNumber = resolveDailySessionNumber(table, new Date());
 
       await tx.venueTableMember.update({
         where: { id: freshMember.id },
@@ -142,7 +144,7 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
           selectedMenuItems: metadata.selectedMenuItems || freshMember.selectedMenuItems,
           paidAt: new Date(),
           paystackReference: reference,
-          tableSessionNumber: Number(table.tableSessionNumber) || 1,
+          tableSessionNumber: dailySessionNumber,
           ...windowFields,
         },
       });

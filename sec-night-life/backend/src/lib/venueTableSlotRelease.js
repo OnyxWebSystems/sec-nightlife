@@ -1,3 +1,5 @@
+import { bumpDailySessionNumber } from './dailyTableSession.js';
+
 /**
  * Reset a venue table slot so it can be booked again (manual release or host refund).
  * @param {import('@prisma/client').Prisma.TransactionClient} tx
@@ -9,11 +11,18 @@ export async function releaseVenueTableSlot(tx, tableId, { bumpSession = true } 
       id: true,
       hostedTableId: true,
       tableSessionNumber: true,
+      tableSessionDate: true,
     },
   });
   if (!table) return { released: false, reason: 'table_not_found' };
 
-  const nextSessionNumber = bumpSession ? (Number(table.tableSessionNumber) || 1) + 1 : Number(table.tableSessionNumber) || 1;
+  const sessionPatch = bumpSession
+    ? bumpDailySessionNumber(table)
+    : {
+        tableSessionNumber: Number(table.tableSessionNumber) || 1,
+        tableSessionDate: table.tableSessionDate ?? null,
+      };
+  const nextSessionNumber = sessionPatch.tableSessionNumber;
 
   if (table.hostedTableId) {
     await tx.hostedTableMember.updateMany({
@@ -47,6 +56,7 @@ export async function releaseVenueTableSlot(tx, tableId, { bumpSession = true } 
       hostedTableId: null,
       isActive: true,
       tableSessionNumber: nextSessionNumber,
+      tableSessionDate: sessionPatch.tableSessionDate,
     },
   });
 
@@ -65,12 +75,19 @@ export async function releaseVenueTableSlotForHostRefund(tx, tableId, { hostUser
       hostedTableId: true,
       hostUserId: true,
       tableSessionNumber: true,
+      tableSessionDate: true,
       guestCapacity: true,
     },
   });
   if (!table) return { released: false, reason: 'table_not_found' };
 
-  const nextSessionNumber = bumpSession ? (Number(table.tableSessionNumber) || 1) + 1 : Number(table.tableSessionNumber) || 1;
+  const sessionPatch = bumpSession
+    ? bumpDailySessionNumber(table)
+    : {
+        tableSessionNumber: Number(table.tableSessionNumber) || 1,
+        tableSessionDate: table.tableSessionDate ?? null,
+      };
+  const nextSessionNumber = sessionPatch.tableSessionNumber;
   const hostedTableId = table.hostedTableId;
 
   if (hostedTableId && hostUserId) {
@@ -133,6 +150,7 @@ export async function releaseVenueTableSlotForHostRefund(tx, tableId, { hostUser
       currentOccupancy: guestOccupancy,
       status: guestOccupancy > 0 ? 'PARTIALLY_FILLED' : 'AVAILABLE',
       tableSessionNumber: nextSessionNumber,
+      tableSessionDate: sessionPatch.tableSessionDate,
       isActive: true,
     },
   });

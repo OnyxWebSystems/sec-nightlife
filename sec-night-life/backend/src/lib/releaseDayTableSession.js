@@ -1,4 +1,5 @@
 import { prisma } from './prisma.js';
+import { bumpDailySessionNumber } from './dailyTableSession.js';
 import {
   computeLegacyWindowEndsAt,
   isDaySessionStillActive,
@@ -44,14 +45,19 @@ export async function releaseDayTableSession(tx, { hostedTableId }, { bumpSessio
         hostedTableId: true,
         hostUserId: true,
         tableSessionNumber: true,
+        tableSessionDate: true,
         currentOccupancy: true,
       },
     });
 
     if (venueTable) {
-      const nextSessionNumber = bumpSession
-        ? (Number(venueTable.tableSessionNumber) || 1) + 1
-        : Number(venueTable.tableSessionNumber) || 1;
+      const sessionPatch = bumpSession
+        ? bumpDailySessionNumber(venueTable)
+        : {
+            tableSessionNumber: Number(venueTable.tableSessionNumber) || 1,
+            tableSessionDate: venueTable.tableSessionDate ?? null,
+          };
+      const nextSessionNumber = sessionPatch.tableSessionNumber;
 
       await tx.venueTableMember.updateMany({
         where: {
@@ -73,6 +79,7 @@ export async function releaseDayTableSession(tx, { hostedTableId }, { bumpSessio
 
       const patch = {
         tableSessionNumber: nextSessionNumber,
+        tableSessionDate: sessionPatch.tableSessionDate,
       };
 
       if (venueTable.hostedTableId === hosted.id) {
@@ -113,13 +120,18 @@ export async function releaseDayTableSession(tx, { hostedTableId }, { bumpSessio
         hostedTableId: true,
         hostUserId: true,
         tableSessionNumber: true,
+        tableSessionDate: true,
         currentOccupancy: true,
       },
     });
     if (linkedVenueTable) {
-      const nextSessionNumber = bumpSession
-        ? (Number(linkedVenueTable.tableSessionNumber) || 1) + 1
-        : Number(linkedVenueTable.tableSessionNumber) || 1;
+      const sessionPatch = bumpSession
+        ? bumpDailySessionNumber(linkedVenueTable)
+        : {
+            tableSessionNumber: Number(linkedVenueTable.tableSessionNumber) || 1,
+            tableSessionDate: linkedVenueTable.tableSessionDate ?? null,
+          };
+      const nextSessionNumber = sessionPatch.tableSessionNumber;
       await tx.venueTableMember.updateMany({
         where: {
           venueTableId: linkedVenueTable.id,
@@ -138,6 +150,7 @@ export async function releaseDayTableSession(tx, { hostedTableId }, { bumpSessio
           status: 'AVAILABLE',
           amountContributed: 0,
           tableSessionNumber: nextSessionNumber,
+          tableSessionDate: sessionPatch.tableSessionDate,
         },
       });
     }
@@ -256,7 +269,13 @@ export async function expireDayTableSessions({ now = new Date() } = {}) {
       for (const tableId of staleVenueTableIds) {
         const vt = await tx.venueTable.findUnique({
           where: { id: tableId },
-          select: { id: true, hostedTableId: true, hostUserId: true, tableSessionNumber: true },
+          select: {
+            id: true,
+            hostedTableId: true,
+            hostUserId: true,
+            tableSessionNumber: true,
+            tableSessionDate: true,
+          },
         });
         if (!vt) continue;
         if (vt.hostedTableId && !releasedHostedIds.has(vt.hostedTableId)) {
@@ -268,6 +287,7 @@ export async function expireDayTableSessions({ now = new Date() } = {}) {
           continue;
         }
         if (vt.hostUserId || vt.hostedTableId) {
+          const sessionPatch = bumpDailySessionNumber(vt);
           await tx.venueTable.update({
             where: { id: vt.id },
             data: {
@@ -276,7 +296,8 @@ export async function expireDayTableSessions({ now = new Date() } = {}) {
               currentOccupancy: 0,
               status: 'AVAILABLE',
               amountContributed: 0,
-              tableSessionNumber: (Number(vt.tableSessionNumber) || 1) + 1,
+              tableSessionNumber: sessionPatch.tableSessionNumber,
+              tableSessionDate: sessionPatch.tableSessionDate,
             },
           });
           released += 1;

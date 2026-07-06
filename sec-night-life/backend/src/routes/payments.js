@@ -29,6 +29,7 @@ import {
   recordGuestEventVenueTableBookingIfNeeded,
 } from '../lib/eventVenueBooking.js';
 import { ensureHostedTableFromVenueHostPayment, resolveVenueIdForHostedTable } from '../lib/venueTableHostAfterPayment.js';
+import { resolveDailySessionNumber } from '../lib/dailyTableSession.js';
 import { windowEndInstant } from '../lib/dayBookingWindows.js';
 import {
   visibleUntilAfterEventDate,
@@ -666,6 +667,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
         currentOccupancy >= table.guestCapacity
           ? 'LOCKED'
           : (amountContributed >= table.minimumSpend ? 'PARTIALLY_FILLED' : 'AVAILABLE');
+      const dailySessionNumber = resolveDailySessionNumber(table, new Date());
 
       await tx.venueTableMember.update({
         where: { id: member.id },
@@ -675,7 +677,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
           selectedMenuItems: metadata.selectedMenuItems || member.selectedMenuItems,
           paidAt: new Date(),
           paystackReference: reference,
-          tableSessionNumber: Number(table.tableSessionNumber) || 1,
+          tableSessionNumber: dailySessionNumber,
           ...windowFields,
         },
       });

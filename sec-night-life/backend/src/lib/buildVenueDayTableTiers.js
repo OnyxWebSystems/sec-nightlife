@@ -5,6 +5,7 @@ import {
   buildOccupancyForSlot,
   buildAvailableGaps,
   canHostInWindow,
+  normalizeBookingDateSast,
   venueWindowForDate,
   venueWindowFromTables,
   windowsOverlap,
@@ -17,7 +18,7 @@ import { expireDayTableSessions } from './releaseDayTableSession.js';
  * @param {{ windowStart?: string, windowEnd?: string, bookingDate?: Date }} [options]
  */
 export async function buildVenueDayTableTiers(venueId, options = {}) {
-  const bookingDate = options.bookingDate || new Date();
+  const bookingDate = normalizeBookingDateSast(options.bookingDate || new Date());
   const userWindowStart = options.windowStart || null;
   const userWindowEnd = options.windowEnd || null;
 

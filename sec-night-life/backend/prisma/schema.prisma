@@ -1803,6 +1803,8 @@ model VenueTable {
   isActive          Boolean          @default(true) @map("is_active")
   /// Incremented each time venue releases/resets the slot for a new booking session.
   tableSessionNumber Int             @default(1) @map("table_session_number")
+  /// SAST calendar date for tableSessionNumber (resets daily).
+  tableSessionDate  DateTime?        @map("table_session_date") @db.Date
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
 

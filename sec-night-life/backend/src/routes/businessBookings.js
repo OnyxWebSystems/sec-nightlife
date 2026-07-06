@@ -28,6 +28,7 @@ import {
   loadRefundedMetricsForPeriod,
 } from '../lib/refunds.js';
 import { releaseVenueTableSlot, computeCanReleaseTable } from '../lib/venueTableSlotRelease.js';
+import { resolveDailySessionNumber } from '../lib/dailyTableSession.js';
 
 const router = Router();
 
@@ -208,10 +209,14 @@ async function supplementEventTableBookingsFromVenueMembers({ eventIds, venueIds
 
     let hostedTable = vt.hostedTableId ? hostedById.get(vt.hostedTableId) || null : null;
     let isDirectVenueSlot = false;
-    let sessionNumber = Number(vt.tableSessionNumber) || 1;
+    let sessionNumber = resolveDailySessionNumber(vt);
     if (!hostedTable) {
       isDirectVenueSlot = true;
-      if (m.status === 'LEFT') sessionNumber = Math.max(1, sessionNumber - 1);
+      if (m.tableSessionNumber != null) {
+        sessionNumber = Number(m.tableSessionNumber) || 1;
+      } else if (m.status === 'LEFT') {
+        sessionNumber = Math.max(1, sessionNumber - 1);
+      }
       hostedTable = syntheticHostedTableFromVenueRow(vt, sessionNumber);
     }
 
@@ -396,9 +401,7 @@ function isSyntheticHostedId(id) {
 
 function inferMemberSessionNumber(member, venueTable) {
   if (member.tableSessionNumber != null) return Number(member.tableSessionNumber) || 1;
-  const vtSession = Number(venueTable?.tableSessionNumber) || 1;
-  if (member.status === 'LEFT') return Math.max(1, vtSession - 1);
-  return vtSession;
+  return resolveDailySessionNumber(venueTable);
 }
 
 function mapUserBrief(u) {
@@ -468,7 +471,7 @@ function mapVenueTableManagementItem(t, hosted, goingCount = null) {
     canDeleteTier: canDeleteDayTier(t, hosted),
     canRestoreToListings: !t.isActive && !inUse,
     canResetTable: inUse,
-    tableSessionNumber: t.tableSessionNumber ?? 1,
+    tableSessionNumber: resolveDailySessionNumber(t),
     minimumSpend: t.minimumSpend,
     hostMinimumSpend: t.hostMinimumSpend,
     bookingFeeZar: t.bookingFeeZar,
@@ -711,7 +714,7 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
     });
 
     const mapped = rows.map((r) => {
-      const sessionNumber = r.tableSessionNumber || r.venueTable?.tableSessionNumber || 1;
+      const sessionNumber = r.tableSessionNumber || resolveDailySessionNumber(r.venueTable);
       const hostedTable =
         r.hostedTable ||
         (r.venueTableId && r.venueTable
@@ -1620,7 +1623,7 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
             endTime: m.venueTable.endTime,
             hostUserId: m.venueTable.hostUserId,
             hostedTableId: m.venueTable.hostedTableId,
-            tableSessionNumber: m.venueTable.tableSessionNumber ?? 1,
+            tableSessionNumber: resolveDailySessionNumber(m.venueTable),
             venue: m.venueTable.venue,
             canRelease: m.status === 'CONFIRMED' && computeCanRelease(m.venueTable, hostedTable),
           },
@@ -1758,7 +1761,7 @@ router.get('/table-booking-detail', authenticateToken, async (req, res, next) =>
       tableName = vt.tableName;
       eventTitle = vt.event?.title || null;
       eventId = vt.eventId;
-      const currentSession = Number(vt.tableSessionNumber) || 1;
+      const currentSession = resolveDailySessionNumber(vt);
       const isPastSession = sessionNumber < currentSession;
       status = isPastSession ? 'RESET' : vt.currentOccupancy > 0 || vt.hostUserId ? 'ACTIVE' : 'ENDED';
       canManageLive = false;
@@ -2334,8 +2337,6 @@ router.post('/venue-tables/:tableId/release', authenticateToken, async (req, res
       return res.status(400).json({ error: 'Table is already available' });
     }
 
-    const nextSessionNumber = (Number(table.tableSessionNumber) || 1) + 1;
-
     const releaseResult = await prisma.$transaction(async (tx) =>
       releaseVenueTableSlot(tx, table.id, { bumpSession: true }),
     );
@@ -2343,7 +2344,7 @@ router.post('/venue-tables/:tableId/release', authenticateToken, async (req, res
     res.json({
       released: true,
       tableId: table.id,
-      sessionNumber: releaseResult.sessionNumber ?? nextSessionNumber,
+      sessionNumber: releaseResult.sessionNumber ?? resolveDailySessionNumber(table),
     });
   } catch (e) {
     next(e);

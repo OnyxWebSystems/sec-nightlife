@@ -28,11 +28,16 @@ export const WEEKDAY_FULL = {
   sunday: 'Sunday',
 };
 
-const JS_DAY_TO_KEY = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const SAST_TZ = 'Africa/Johannesburg';
 
 export function weekdayKeyFromDate(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date);
-  return JS_DAY_TO_KEY[d.getDay()] || 'monday';
+  const label = new Intl.DateTimeFormat('en-US', {
+    timeZone: SAST_TZ,
+    weekday: 'long',
+  }).format(d);
+  const key = String(label || '').toLowerCase();
+  return WEEKDAY_KEYS.includes(key) ? key : 'monday';
 }
 
 function parseClock(value) {

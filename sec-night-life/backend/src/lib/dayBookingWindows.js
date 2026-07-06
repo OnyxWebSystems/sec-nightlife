@@ -202,7 +202,7 @@ export function buildAvailableGaps(
     }));
 }
 
-function formatYmdSast(date) {
+export function formatYmdSast(date) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Africa/Johannesburg',
     year: 'numeric',

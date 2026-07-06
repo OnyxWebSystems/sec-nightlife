@@ -1,4 +1,5 @@
 import { prisma } from './prisma.js';
+import { resolveDailySessionNumber } from './dailyTableSession.js';
 
 /**
  * Idempotent log for venue dashboard: SEC event hosted table host or paid guest.
@@ -110,11 +111,12 @@ export async function recordGuestEventVenueTableBookingIfNeeded({
       tierLabel: true,
       tableName: true,
       tableSessionNumber: true,
+      tableSessionDate: true,
     },
   });
   if (!table?.eventId) return null;
 
-  const session = Number(tableSessionNumber ?? table.tableSessionNumber) || 1;
+  const session = Number(tableSessionNumber ?? resolveDailySessionNumber(table)) || 1;
 
   if (table.hostedTableId) {
     return recordEventVenueTableBooking({

@@ -8,6 +8,7 @@ import {
   resolveBookingWindowFromMember,
   windowEndInstant,
 } from './dayBookingWindows.js';
+import { stampDailySessionOnHost } from './dailyTableSession.js';
 
 function parseHostingTierKey(key) {
   if (!key || typeof key !== 'string') return { category: 'GENERAL', tierIndex: 0 };
@@ -162,6 +163,7 @@ async function createHostedTableFromVenueSlot({
     data: {
       hostedTableId: hosted.id,
       hostUserId: userId,
+      ...(eventId ? {} : stampDailySessionOnHost(venueTable, new Date())),
     },
   });
 
