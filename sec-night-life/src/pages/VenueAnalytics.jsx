@@ -268,15 +268,15 @@ export default function VenueAnalytics() {
   const chartsLoading = analyticsLoading || analyticsFetching;
 
   return (
-    <div className="min-h-screen bg-[#0A0A0B]">
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg)' }}>
       <PageBackHeader title="Analytics Dashboard" subtitle="Business insights and performance metrics" pageName="VenueAnalytics" />
-      <div className="max-w-7xl mx-auto space-y-6 p-6">
-        <div className="flex items-center justify-end">
+      <div className="max-w-7xl mx-auto space-y-6 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
           <Select value={dateRange} onValueChange={setDateRange}>
-            <SelectTrigger className="w-40 bg-[#141416] border-[#262629]">
+            <SelectTrigger className="w-full sm:w-40 bg-[var(--sec-bg-elevated)] border-[var(--sec-border)]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="bg-[#141416] border-[#262629] text-white">
+            <SelectContent className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white">
               <SelectItem value="7">Last 7 days</SelectItem>
               <SelectItem value="30">Last 30 days</SelectItem>
               <SelectItem value="90">Last 90 days</SelectItem>
@@ -285,7 +285,7 @@ export default function VenueAnalytics() {
         </div>
 
         {/* Venue Selector */}
-        <Card className="glass-card border-[#262629]">
+        <Card className="glass-card border-[var(--sec-border)]">
           <CardContent className="pt-6">
             {venueScope.inStaffSession && selectedVenueRecord ? (
               <div>
@@ -302,10 +302,10 @@ export default function VenueAnalytics() {
               </div>
             ) : (
               <Select value={selectedVenue} onValueChange={setSelectedVenue}>
-                <SelectTrigger className="bg-[#141416] border-[#262629]">
+                <SelectTrigger className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)]">
                   <SelectValue placeholder="Select a venue to view analytics" />
                 </SelectTrigger>
-                <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                <SelectContent className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white">
                   {venues.map((venue) => (
                     <SelectItem key={venue.id} value={venue.id}>{venue.name}</SelectItem>
                   ))}
@@ -319,24 +319,24 @@ export default function VenueAnalytics() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {Array.from({ length: 4 }).map((_, i) => (
-                <Card key={i} className="glass-card border-[#262629]">
+                <Card key={i} className="glass-card border-[var(--sec-border)]">
                   <CardContent className="pt-6 space-y-3">
-                    <Skeleton className="h-4 w-24 bg-[#262629]" />
-                    <Skeleton className="h-8 w-32 bg-[#262629]" />
+                    <Skeleton className="h-4 w-24 bg-[var(--sec-border)]" />
+                    <Skeleton className="h-8 w-32 bg-[var(--sec-border)]" />
                   </CardContent>
                 </Card>
               ))}
             </div>
-            <Card className="glass-card border-[#262629]">
+            <Card className="glass-card border-[var(--sec-border)]">
               <CardContent className="pt-6">
-                <Skeleton className="h-64 w-full bg-[#262629]" />
+                <Skeleton className="h-64 w-full bg-[var(--sec-border)]" />
               </CardContent>
             </Card>
           </div>
         ) : null}
 
         {selectedVenue && metrics && !hasAnalyticsData && !chartsLoading ? (
-          <Card className="glass-card border-[#262629]">
+          <Card className="glass-card border-[var(--sec-border)]">
             <CardContent className="py-16 text-center">
               <TrendingUp className="w-10 h-10 mx-auto mb-3 text-gray-600" />
               <p className="text-white font-medium">No revenue data yet</p>
@@ -351,14 +351,14 @@ export default function VenueAnalytics() {
           <>
             {/* Revenue Controls */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[var(--sec-border)]">
                 <CardContent className="pt-6 space-y-2">
                   <p className="text-gray-500 text-sm">Revenue Mode</p>
                   <Select value={revenueMode} onValueChange={setRevenueMode}>
-                    <SelectTrigger className="bg-[#141416] border-[#262629]">
+                    <SelectTrigger className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)]">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                    <SelectContent className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white">
                       <SelectItem value="gross">Gross Revenue</SelectItem>
                       <SelectItem value="net">Net revenue (venue share)</SelectItem>
                     </SelectContent>
@@ -366,14 +366,14 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[var(--sec-border)]">
                 <CardContent className="pt-6 space-y-2">
                   <p className="text-gray-500 text-sm">Revenue Scope</p>
                   <Select value={revenueScope} onValueChange={setRevenueScope}>
-                    <SelectTrigger className="bg-[#141416] border-[#262629]">
+                    <SelectTrigger className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)]">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                    <SelectContent className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white">
                       <SelectItem value="all_events">All Events Combined</SelectItem>
                       <SelectItem value="per_event">Single Event</SelectItem>
                       <SelectItem value="day_bookings">Day bookings only</SelectItem>
@@ -382,7 +382,7 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[var(--sec-border)]">
                 <CardContent className="pt-6 space-y-2">
                   <p className="text-gray-500 text-sm">Event Selection</p>
                   <Select
@@ -390,12 +390,12 @@ export default function VenueAnalytics() {
                     onValueChange={setSelectedEventId}
                     disabled={revenueScope !== 'per_event' || revenueScope === 'day_bookings' || events.length === 0}
                   >
-                    <SelectTrigger className="bg-[#141416] border-[#262629] disabled:opacity-50">
+                    <SelectTrigger className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] disabled:opacity-50">
                       <SelectValue
                         placeholder={events.length === 0 ? 'No events available' : 'Select an event'}
                       />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#141416] border-[#262629] text-white">
+                    <SelectContent className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white">
                       {eventSelectionOptions.map((event) => (
                         <SelectItem key={event.id} value={event.id}>
                           {event.title || (event.date ? `Untitled event (${format(new Date(event.date), 'MMM dd')})` : 'Untitled event')}
@@ -410,13 +410,13 @@ export default function VenueAnalytics() {
 
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="glass-card border-[#262629] border-l-2 border-l-[var(--sec-success)]">
+              <Card className="glass-card border-[var(--sec-border)] border-l-2 border-l-[var(--sec-success)]">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-gray-500 text-sm">Total Revenue</p>
                       {chartsLoading ? (
-                        <Skeleton className="h-9 w-28 mt-1 bg-[#262629]" />
+                        <Skeleton className="h-9 w-28 mt-1 bg-[var(--sec-border)]" />
                       ) : (
                       <p className="text-3xl font-bold text-white mt-1">
                         R{metrics.totalRevenue.toLocaleString()}
@@ -431,13 +431,13 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629] border-l-2 border-l-[var(--sec-accent)]">
+              <Card className="glass-card border-[var(--sec-border)] border-l-2 border-l-[var(--sec-accent)]">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-gray-500 text-sm">Ticket Sales</p>
                       {chartsLoading ? (
-                        <Skeleton className="h-9 w-16 mt-1 bg-[#262629]" />
+                        <Skeleton className="h-9 w-16 mt-1 bg-[var(--sec-border)]" />
                       ) : (
                       <p className="text-3xl font-bold text-white mt-1">{metrics.ticketSales}</p>
                       )}
@@ -448,13 +448,13 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629] border-l-2 border-l-[var(--sec-warning)]">
+              <Card className="glass-card border-[var(--sec-border)] border-l-2 border-l-[var(--sec-warning)]">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-gray-500 text-sm">Average Rating</p>
                       {chartsLoading ? (
-                        <Skeleton className="h-9 w-16 mt-1 bg-[#262629]" />
+                        <Skeleton className="h-9 w-16 mt-1 bg-[var(--sec-border)]" />
                       ) : (
                       <p className="text-3xl font-bold text-white mt-1">
                         {metrics.avgRating.toFixed(1)}
@@ -467,13 +467,13 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629] border-l-2 border-l-[var(--sec-accent)]">
+              <Card className="glass-card border-[var(--sec-border)] border-l-2 border-l-[var(--sec-accent)]">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-gray-500 text-sm">Total Events</p>
                       {chartsLoading ? (
-                        <Skeleton className="h-9 w-12 mt-1 bg-[#262629]" />
+                        <Skeleton className="h-9 w-12 mt-1 bg-[var(--sec-border)]" />
                       ) : (
                       <p className="text-3xl font-bold text-white mt-1">{metrics.totalEvents}</p>
                       )}
@@ -485,10 +485,10 @@ export default function VenueAnalytics() {
               </Card>
             </div>
 
-            <div className={`grid gap-4 ${revenueScope === 'day_bookings' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-5'}`}>
+            <div className={`grid gap-4 grid-cols-1 sm:grid-cols-2 ${revenueScope === 'day_bookings' ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
               {revenueScope === 'day_bookings' ? (
                 <>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm" title="Day-booking slot host checkouts">
                         Host fees
@@ -496,7 +496,7 @@ export default function VenueAnalytics() {
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingHostPaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm" title="Guest join checkouts (venue share)">
                         Guest checkouts
@@ -504,7 +504,7 @@ export default function VenueAnalytics() {
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingGuestPaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm" title="Menu pre-orders and add-ons (venue revenue)">
                         Menu payments
@@ -512,7 +512,7 @@ export default function VenueAnalytics() {
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingMenuPaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm" title="Join fees guests pay when joining an unhosted venue slot (venue revenue)">
                         Join fees (to venue)
@@ -523,13 +523,13 @@ export default function VenueAnalytics() {
                 </>
               ) : (
                 <>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm">Ticket revenue</p>
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.ticketPaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm" title="External listings and event-linked host fees">
                         Hosted table fees
@@ -537,7 +537,7 @@ export default function VenueAnalytics() {
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.hostedTablePaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm" title="Day-booking slot host checkouts at your venue">
                         Day-booking hosts
@@ -545,7 +545,7 @@ export default function VenueAnalytics() {
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingHostPaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm" title="Guest table join payments">
                         Table joins (guests)
@@ -553,7 +553,7 @@ export default function VenueAnalytics() {
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.venueTablePaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
-                  <Card className="glass-card border-[#262629]">
+                  <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm">Other</p>
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.otherPaymentZar.toLocaleString()}</p>
@@ -562,7 +562,7 @@ export default function VenueAnalytics() {
                 </>
               )}
               {metrics.refundedVenueShareZar > 0 ? (
-                <Card className="glass-card border-[#262629]">
+                <Card className="glass-card border-[var(--sec-border)]">
                   <CardContent className="pt-6">
                     <p className="text-gray-500 text-sm">Refunded (venue share)</p>
                     <p className="text-2xl font-bold text-amber-400 mt-1">R{metrics.refundedVenueShareZar.toLocaleString()}</p>
@@ -573,7 +573,7 @@ export default function VenueAnalytics() {
             </div>
 
             {/* Sales Trend — days match header selector; amounts match gross vs net mode */}
-            <Card className="glass-card border-[#262629]">
+            <Card className="glass-card border-[var(--sec-border)]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <TrendingUp className="w-5 h-5" style={{ color: 'var(--sec-success)' }} />
@@ -582,11 +582,11 @@ export default function VenueAnalytics() {
               </CardHeader>
               <CardContent>
                 {chartsLoading ? (
-                  <Skeleton className="h-64 w-full bg-[#262629]" />
+                  <Skeleton className="h-48 sm:h-64 w-full bg-[var(--sec-border)]" />
                 ) : salesTrend.length === 0 ? (
                   <p className="text-sm text-gray-500 py-12 text-center">No revenue in this period.</p>
                 ) : (
-                  <ChartContainer config={REVENUE_CHART_CONFIG} className="h-64 w-full aspect-auto">
+                  <ChartContainer config={REVENUE_CHART_CONFIG} className="h-48 sm:h-64 w-full aspect-auto overflow-x-auto">
                     <AreaChart data={salesTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
@@ -594,7 +594,7 @@ export default function VenueAnalytics() {
                           <stop offset="100%" stopColor="#d4af37" stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#262629" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--sec-border)" vertical={false} />
                       <XAxis
                         dataKey="date"
                         tick={{ fill: '#6b7280', fontSize: 11 }}
@@ -631,7 +631,7 @@ export default function VenueAnalytics() {
 
             {/* Event Types & Peak Times */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[var(--sec-border)]">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
                     <PieChartIcon className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
@@ -687,7 +687,7 @@ export default function VenueAnalytics() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[var(--sec-border)]">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
                     <Clock className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
@@ -695,11 +695,11 @@ export default function VenueAnalytics() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="p-3 rounded-lg bg-[#141416]">
+                  <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                     <p className="text-sm text-gray-400 mb-1">Peak Event Time</p>
                     <p className="text-xl font-bold text-white">{metrics.peakHour}</p>
                   </div>
-                  <div className="p-3 rounded-lg bg-[#141416]">
+                  <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                     <p className="text-sm text-gray-400 mb-1">Avg. Revenue per Event</p>
                     <p className="text-xl font-bold text-white">
                       R{Math.round(metrics.avgRevenuePerEvent).toLocaleString()}
@@ -708,7 +708,7 @@ export default function VenueAnalytics() {
                       {revenueScope === 'per_event' ? 'Selected event view' : `${metrics.eventRevenueCount} events with revenue`}
                     </p>
                   </div>
-                  <div className="p-3 rounded-lg bg-[#141416]">
+                  <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                     <p className="text-sm text-gray-400 mb-1">
                       {revenueScope === 'day_bookings' ? 'Table join payments' : 'Table join payments (guests)'}
                     </p>
@@ -721,7 +721,7 @@ export default function VenueAnalytics() {
                     </p>
                     <p className="text-xs text-gray-500 mt-1">Guest checkouts in the last {dateRange} days</p>
                   </div>
-                  <div className="p-3 rounded-lg bg-[#141416]">
+                  <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                     <p className="text-sm text-gray-400 mb-1">Day-booking host payments</p>
                     <p className="text-xl font-bold text-white">
                       R{Math.round(metrics.dayBookingHostPaymentZar).toLocaleString()}
@@ -738,7 +738,7 @@ export default function VenueAnalytics() {
 
             {/* Recent Reviews Summary */}
             {reviews.length > 0 && (
-              <Card className="glass-card border-[#262629]">
+              <Card className="glass-card border-[var(--sec-border)]">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
                     <Star className="w-5 h-5" style={{ color: 'var(--sec-warning)' }} />
@@ -747,19 +747,19 @@ export default function VenueAnalytics() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div className="text-center p-4 rounded-lg bg-[#141416]">
+                    <div className="text-center p-4 rounded-lg bg-[var(--sec-bg-elevated)]">
                       <p className="text-sm text-gray-400">Atmosphere</p>
                       <p className="text-2xl font-bold text-white mt-1">
                         {(reviews.reduce((sum, r) => sum + (r.atmosphere_rating || 0), 0) / reviews.length).toFixed(1)}
                       </p>
                     </div>
-                    <div className="text-center p-4 rounded-lg bg-[#141416]">
+                    <div className="text-center p-4 rounded-lg bg-[var(--sec-bg-elevated)]">
                       <p className="text-sm text-gray-400">Service</p>
                       <p className="text-2xl font-bold text-white mt-1">
                         {(reviews.reduce((sum, r) => sum + (r.service_rating || 0), 0) / reviews.length).toFixed(1)}
                       </p>
                     </div>
-                    <div className="text-center p-4 rounded-lg bg-[#141416]">
+                    <div className="text-center p-4 rounded-lg bg-[var(--sec-bg-elevated)]">
                       <p className="text-sm text-gray-400">Value</p>
                       <p className="text-2xl font-bold text-white mt-1">
                         {(reviews.reduce((sum, r) => sum + (r.value_rating || 0), 0) / reviews.length).toFixed(1)}
@@ -768,7 +768,7 @@ export default function VenueAnalytics() {
                   </div>
                   <div className="space-y-2">
                     {reviews.slice(0, 3).map((review) => (
-                      <div key={review.id} className="p-3 rounded-lg bg-[#141416]">
+                      <div key={review.id} className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                         <div className="flex items-center gap-2 mb-1">
                           {Array.from({ length: 5 }).map((_, i) => (
                             <Star

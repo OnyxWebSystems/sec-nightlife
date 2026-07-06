@@ -16,6 +16,8 @@ import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 
 import EventTableTierCard from '@/components/events/EventTableTierCard';
 import EventTableTierSheet from '@/components/events/EventTableTierSheet';
+import SeatingPlanCTA from '@/components/seating/SeatingPlanCTA';
+import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
 import TicketPurchaseButton from '@/components/events/TicketPurchaseButton';
 import EventShareModal from '@/components/events/EventShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
@@ -31,6 +33,7 @@ export default function EventDetails() {
   const [shareOpen, setShareOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState(null);
   const [promoterBanner, setPromoterBanner] = useState(null);
+  const [seatingViewerOpen, setSeatingViewerOpen] = useState(false);
 
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
@@ -114,6 +117,7 @@ export default function EventDetails() {
   const tableTiers = tableTiersData?.tiers ?? [];
   const customListingId = tableTiersData?.customListingId ?? null;
   const allowsCustomRequests = tableTiersData?.allowsCustomRequests ?? false;
+  const seatingPlan = tableTiersData?.seatingPlan ?? null;
 
   const toggleInterestMutation = useMutation({
     mutationFn: async () => {
@@ -552,6 +556,12 @@ export default function EventDetails() {
             <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Host or join on Sec</span>
           </div>
 
+          {seatingPlan ? (
+            <div style={{ marginBottom: 12 }}>
+              <SeatingPlanCTA plan={seatingPlan} onView={() => setSeatingViewerOpen(true)} />
+            </div>
+          ) : null}
+
           {tableTiers.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
               {tableTiers.map((tier) => (
@@ -754,6 +764,11 @@ export default function EventDetails() {
         onOpenChange={setShareOpen}
         eventId={eventId}
         eventTitle={event.title}
+      />
+      <SeatingPlanViewer
+        open={seatingViewerOpen}
+        onClose={() => setSeatingViewerOpen(false)}
+        plan={seatingPlan}
       />
     </div>
   );

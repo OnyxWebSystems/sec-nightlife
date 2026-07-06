@@ -36,6 +36,7 @@ const BUSINESS_ONLY_PAGES = new Set([
   'BusinessPromotionBoost',
   'BusinessMessages',
   'BusinessVenueTables',
+  'BusinessVenueSeatingPlans',
   'FeedbackInsights',
   'VenueProfile',
 ]);

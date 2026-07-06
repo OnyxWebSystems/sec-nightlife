@@ -14,7 +14,7 @@ import {
   Star, Users, ArrowRight, Building2, Plus,
   ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload, UtensilsCrossed, Armchair, Wallet,
   Settings,
-  RotateCcw,
+  RotateCcw, Map,
 } from 'lucide-react';
 import VenueSecWallet from '@/components/wallet/VenueSecWallet';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
@@ -29,6 +29,7 @@ const QUICK_ACTIONS = [
   { icon: BookOpen, label: 'Manage Bookings', page: 'BusinessBookings', perm: 'bookings' },
   { icon: RotateCcw, label: 'Refund requests', page: 'BusinessRefundRequests', perm: 'bookings' },
   { icon: Armchair, label: 'Tables & day bookings', page: 'BusinessVenueTables', perm: 'bookings' },
+  { icon: Map, label: 'Seating plans', page: 'BusinessVenueSeatingPlans', perm: 'bookings' },
   { icon: BarChart3, label: 'View Analytics', page: 'VenueAnalytics', perm: 'analytics' },
   { icon: Megaphone, label: 'Promotions', page: 'BusinessPromotions', perm: 'promotions' },
   { icon: UtensilsCrossed, label: 'Menu Maker', page: 'BusinessMenu', perm: 'menu' },
@@ -65,7 +66,7 @@ function getPublicVisibility(job) {
 
 function StatCard({ icon: Icon, label, value, sub }) {
   return (
-    <div className="sec-card" style={{ padding: 20 }}>
+    <div className="sec-card max-sm:p-4" style={{ padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <div style={{
           width: 38, height: 38, borderRadius: 10,
@@ -75,7 +76,7 @@ function StatCard({ icon: Icon, label, value, sub }) {
           <Icon size={18} style={{ color: 'var(--sec-accent)' }} />
         </div>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--sec-text-primary)', lineHeight: 1.1 }}>
+      <div className="text-2xl sm:text-[28px] font-bold" style={{ color: 'var(--sec-text-primary)', lineHeight: 1.1 }}>
         {value}
       </div>
       <div style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginTop: 4 }}>{label}</div>
@@ -771,7 +772,7 @@ export default function BusinessDashboard() {
             })}
         </div>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: 24 }}>
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-2 lg:grid-cols-4" style={{ marginBottom: 24 }}>
         {showEventsStats ? (
           <StatCard
             icon={Calendar}
@@ -807,7 +808,7 @@ export default function BusinessDashboard() {
       {visibleQuickActions.length > 0 && (
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Quick Actions</h3>
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
           {visibleQuickActions.map((action) => (
             <QuickAction
               key={action.page}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiPatch } from '@/api/client';
@@ -304,6 +304,23 @@ export default function BusinessVenueTables() {
     onError: (e) => toast.error(e?.data?.error || e.message),
   });
 
+  const saveSeatingPlanDay = useMutation({
+    mutationFn: (enabled) =>
+      apiPatch(`/api/venues/${venue.id}`, { show_seating_plan_for_day_bookings: enabled }),
+    onSuccess: () => {
+      toast.success('Seating plan setting saved');
+      qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
+    },
+    onError: (e) => toast.error(e?.data?.error || e.message),
+  });
+
+  const { data: seatingPlansData } = useQuery({
+    queryKey: ['venue-seating-plans', venue?.id],
+    queryFn: () => apiGet(`/api/business/venue-seating-plans?venue_id=${encodeURIComponent(venue.id)}`),
+    enabled: !!venue?.id,
+  });
+  const seatingPlanCount = seatingPlansData?.items?.length ?? 0;
+
   const saveVenueFees = useMutation({
     mutationFn: () =>
       apiPatch(`/api/venues/${venue.id}`, {
@@ -465,6 +482,7 @@ export default function BusinessVenueTables() {
 
   const pending = reservations?.items || [];
   const dayBookingsOn = Boolean(venueDetail?.accepts_day_bookings);
+  const seatingPlanDayOn = Boolean(venueDetail?.show_seating_plan_for_day_bookings);
   const customRequestsOn = Boolean(customListing?.isActive);
 
   return (
@@ -1086,6 +1104,28 @@ export default function BusinessVenueTables() {
               checked={customRequestsOn}
               onCheckedChange={setCustomRequestsEnabled}
               disabled={!dayBookingsOn || actionTableId === 'custom-requests'}
+            />
+          </div>
+          <div className="mt-6 flex items-center gap-3 border-t border-[var(--sec-border)] pt-5">
+            <div className="flex-1">
+              <p className="font-medium">Show seating plan on day bookings</p>
+              <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+                When on, guests see your default floor plan on Book on Sec before choosing a table.
+                {seatingPlanCount === 0 ? (
+                  <>
+                    {' '}
+                    <Link to={createPageUrl('BusinessVenueSeatingPlans')} className="sec-link" style={{ color: 'var(--sec-accent)' }}>
+                      Upload a plan
+                    </Link>{' '}
+                    first.
+                  </>
+                ) : null}
+              </p>
+            </div>
+            <Switch
+              checked={seatingPlanDayOn}
+              onCheckedChange={(v) => saveSeatingPlanDay.mutate(v)}
+              disabled={seatingPlanCount === 0 || saveSeatingPlanDay.isPending}
             />
           </div>
           <div className="mt-6 space-y-3 border-t border-[var(--sec-border)] pt-5">

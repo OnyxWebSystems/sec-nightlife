@@ -25,7 +25,7 @@ import {
   holderDisplayNameFromUser,
   venueTableTicketTitle,
 } from '../lib/ticketHelpers.js';
-import { buildVenueTableMemberTicketSummary } from '../lib/ticketMemberSummary.js';
+import { resolveVenueTableSeatingPlan } from '../lib/seatingPlanHelpers.js';
 import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
 import {
   buildAvailableGaps,
@@ -719,10 +719,12 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
         where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
       });
     }
+    const seatingPlan = await resolveVenueTableSeatingPlan(table);
     res.json({
       ...table,
       menuItems,
       myMembership,
+      seatingPlan,
       isDayBooking,
       venueWindow,
       ...dayBookingMeta,

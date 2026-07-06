@@ -1,90 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { createPageUrl, buildPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPatch } from '@/api/client';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
-import { 
-  Bell,
-  Users,
-  Calendar,
-  MessageCircle,
-  Briefcase,
-  DollarSign,
-  UserPlus,
-  Check,
-  X,
-  ChevronRight,
-  Trash2,
-  Star,
-  Archive,
-  RotateCcw,
-  Shield,
-  Megaphone,
-} from 'lucide-react';
-import { Button } from "@/components/ui/button";
-import { formatDistanceToNow, parseISO } from 'date-fns';
-import { motion, AnimatePresence } from 'framer-motion';
+import PageBackHeader from '@/components/layout/PageBackHeader';
+import NotificationCard from '@/components/notifications/NotificationCard';
+import { Bell, RotateCcw, CheckCheck } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-
-const NOTIFICATION_ICONS = {
-  FRIEND_REQUEST: UserPlus,
-  FRIEND_ACCEPTED: UserPlus,
-  DIRECT_MESSAGE: MessageCircle,
-  GROUP_MESSAGE: Users,
-  JOIN_REQUEST_ACCEPTED: Users,
-  EVENT_JOINED: Calendar,
-  TABLE_JOINED: Users,
-  friend_request: UserPlus,
-  table_invite: Users,
-  TABLE_INVITE: Users,
-  IDENTITY_VERIFICATION_REMINDER: Bell,
-  EVENT_INTEREST_REMINDER: Calendar,
-  PROMOTER_EVENT_ASSIGNED: Calendar,
-  VENUE_STAFF_ASSIGNED: Shield,
-  PLATFORM_ANNOUNCEMENT: Megaphone,
-  table_request: Users,
-  TABLE_REQUEST: Users,
-  TABLE_APPROVED: Users,
-  TABLE_DECLINED: Users,
-  TABLE_MESSAGE: MessageCircle,
-  table_update: Users,
-  table_full: Users,
-  job_application: Briefcase,
-  message: MessageCircle,
-  event_reminder: Calendar,
-  payment: DollarSign,
-  compliance: Bell,
-  system: Bell
-};
-
-const NOTIFICATION_COLORS = {
-  FRIEND_REQUEST: 'sec-badge-silver',
-  FRIEND_ACCEPTED: 'sec-badge-silver',
-  DIRECT_MESSAGE: 'sec-badge-silver',
-  GROUP_MESSAGE: 'sec-badge-success',
-  JOIN_REQUEST_ACCEPTED: 'sec-badge-success',
-  friend_request: 'sec-badge-silver',
-  table_invite: 'sec-badge-success',
-  table_request: 'sec-badge-success',
-  TABLE_REQUEST: 'sec-badge-success',
-  TABLE_APPROVED: 'sec-badge-success',
-  TABLE_DECLINED: 'sec-badge-danger',
-  TABLE_MESSAGE: 'sec-badge-silver',
-  table_update: 'sec-badge-silver',
-  table_full: 'sec-badge-gold',
-  job_application: 'sec-badge-gold',
-  message: 'sec-badge-silver',
-  event_reminder: 'sec-badge-silver',
-  payment: 'sec-badge-success',
-  compliance: 'sec-badge-gold',
-  system: 'sec-badge-muted',
-  EVENT_INTEREST_REMINDER: 'sec-badge-silver',
-  VENUE_STAFF_ASSIGNED: 'sec-badge-gold',
-  PLATFORM_ANNOUNCEMENT: 'sec-badge-silver',
-};
 
 export default function Notifications() {
   const [user, setUser] = useState(null);
@@ -526,203 +453,94 @@ export default function Notifications() {
     });
   };
 
+  const headerSubtitle = (() => {
+    if (unreadCount > 0) return `${unreadCount} unread`;
+    if (businessMode && venueScope.venueName) return venueScope.venueName;
+    return null;
+  })();
+
+  const headerActions = (
+    <div className="flex items-center gap-1 shrink-0">
+      {visibleNotifications.length > 0 && (
+        <Button
+          onClick={markAllAsRead}
+          variant="ghost"
+          size="sm"
+          disabled={unreadCount === 0}
+          className="min-h-[44px] px-2 sm:px-3"
+          style={{ color: unreadCount === 0 ? 'var(--sec-text-muted)' : 'var(--sec-accent)' }}
+          title="Mark all read"
+          aria-label="Mark all read"
+        >
+          <CheckCheck className="w-4 h-4 sm:mr-1" />
+          <span className="hidden sm:inline">Mark all read</span>
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="min-h-[44px] px-2 sm:px-3"
+        onClick={() => {
+          const prev = { favoriteIds, archivedIds, deletedIds };
+          setFavoriteIds([]);
+          setArchivedIds([]);
+          setDeletedIds([]);
+          toast('Cleared local notification actions', {
+            action: {
+              label: 'Undo',
+              onClick: () => {
+                setFavoriteIds(prev.favoriteIds);
+                setArchivedIds(prev.archivedIds);
+                setDeletedIds(prev.deletedIds);
+              },
+            },
+          });
+        }}
+        title="Undo local favorites/archive/delete changes"
+        aria-label="Undo local changes"
+      >
+        <RotateCcw className="w-4 h-4 sm:mr-1" />
+        <span className="hidden sm:inline">Undo</span>
+      </Button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-[#0A0A0B]/80 backdrop-blur-xl border-b border-[#262629]">
-        <div className="px-4 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Notifications</h1>
-              {unreadCount > 0 && (
-                <p className="text-sm font-semibold flex items-center gap-2 mt-0.5" style={{ color: 'var(--sec-success)' }}>
-                  <span
-                    className="inline-block w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: 'var(--sec-success)' }}
-                    aria-hidden
-                  />
-                  {unreadCount} unread
-                </p>
-              )}
-              {businessMode && venueScope.venueName ? (
-                <p className="text-xs text-gray-500 mt-1">{venueScope.venueName}</p>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              {visibleNotifications.length > 0 && (
-                <Button
-                  onClick={markAllAsRead}
-                  variant="ghost"
-                  disabled={unreadCount === 0}
-                  style={{ color: unreadCount === 0 ? 'var(--sec-text-muted)' : 'var(--sec-accent)' }}
-                >
-                  Mark all read
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  const prev = { favoriteIds, archivedIds, deletedIds };
-                  setFavoriteIds([]);
-                  setArchivedIds([]);
-                  setDeletedIds([]);
-                  toast('Cleared local notification actions', {
-                    action: {
-                      label: 'Undo',
-                      onClick: () => {
-                        setFavoriteIds(prev.favoriteIds);
-                        setArchivedIds(prev.archivedIds);
-                        setDeletedIds(prev.deletedIds);
-                      },
-                    },
-                  });
-                }}
-                title="Undo local favorites/archive/delete changes"
-              >
-                <RotateCcw className="w-4 h-4 mr-1" />
-                Undo
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <PageBackHeader
+        title="Notifications"
+        subtitle={headerSubtitle}
+        pageName="Notifications"
+        rightSlot={headerActions}
+      />
 
-      <div className="px-4 lg:px-8 py-4">
+      <div className="py-4 lg:px-4">
         {businessMode ? (
           <div className="mb-4">
             <VenueSwitcher />
           </div>
         ) : null}
-        <div className="mb-3 flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
-          <Button variant={view === 'all' ? 'default' : 'outline'} size="sm" className="flex-shrink-0" onClick={() => setView('all')}>All</Button>
-          <Button variant={view === 'favorites' ? 'default' : 'outline'} size="sm" className="flex-shrink-0" onClick={() => setView('favorites')}>Favorites</Button>
-          <Button variant={view === 'archived' ? 'default' : 'outline'} size="sm" className="flex-shrink-0" onClick={() => setView('archived')}>Archived</Button>
+        <div className="mb-3 flex gap-2 overflow-x-auto scrollbar-hide">
+          <Button variant={view === 'all' ? 'default' : 'outline'} size="sm" className="flex-shrink-0 min-h-[44px]" onClick={() => setView('all')}>All</Button>
+          <Button variant={view === 'favorites' ? 'default' : 'outline'} size="sm" className="flex-shrink-0 min-h-[44px]" onClick={() => setView('favorites')}>Favorites</Button>
+          <Button variant={view === 'archived' ? 'default' : 'outline'} size="sm" className="flex-shrink-0 min-h-[44px]" onClick={() => setView('archived')}>Archived</Button>
         </div>
-        {/* Notifications List */}
         <AnimatePresence>
-          {visibleNotifications.map((notification, index) => {
-            const Icon = NOTIFICATION_ICONS[notification.type] || Bell;
-            const colorClass = NOTIFICATION_COLORS[notification.type] || NOTIFICATION_COLORS.system;
-
-            return (
-              <motion.div
-                key={notification.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => openNotification(notification)}
-                onKeyDown={(e) => e.key === 'Enter' && openNotification(notification)}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, x: -100 }}
-                transition={{ delay: index * 0.03 }}
-                className={`mb-2 p-4 glass-card rounded-xl cursor-pointer relative ${!notification.is_read ? 'border-l-2' : ''}`}
-                style={!notification.is_read ? { borderLeftColor: 'var(--sec-success)' } : {}}
-              >
-                <div className="flex items-start gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass}`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className={`font-medium flex items-center gap-2 ${!notification.is_read ? 'text-white' : 'text-gray-400'}`}>
-                          {!notification.is_read ? (
-                            <span
-                              className="w-2 h-2 rounded-full shrink-0"
-                              style={{ backgroundColor: 'var(--sec-success)' }}
-                              aria-label="Unread"
-                            />
-                          ) : null}
-                          {notification.title}
-                        </h3>
-                        <p className="text-sm text-gray-500 mt-0.5">{notification.message}</p>
-                      </div>
-                      {notification.created_date && (
-                        <span className="text-xs text-gray-600 flex-shrink-0 ml-2">
-                          {formatDistanceToNow(typeof notification.created_date === 'string' ? parseISO(notification.created_date) : notification.created_date, { addSuffix: false })}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Action Buttons for specific types */}
-                    {notification.type === 'friend_request' && !notification.is_read && (
-                      <div className="flex gap-2 mt-3">
-                        <Button size="sm" className="h-8 sec-btn-primary">
-                          <Check className="w-4 h-4 mr-1" />
-                          Accept
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 border-[#262629]">
-                          <X className="w-4 h-4 mr-1" />
-                          Decline
-                        </Button>
-                      </div>
-                    )}
-
-                    {notification.type === 'table_request' && !notification.is_read && (
-                      <div className="flex gap-2 mt-3">
-                        <Button size="sm" className="h-8" style={{ backgroundColor: 'var(--sec-success)', color: '#000' }}>
-                          <Check className="w-4 h-4 mr-1" />
-                          Approve
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 border-[#262629]">
-                          <X className="w-4 h-4 mr-1" />
-                          Decline
-                        </Button>
-                      </div>
-                    )}
-
-                    {notification.action_url && !['friend_request', 'table_request'].includes(notification.type) && (
-                      <Link
-                        to={resolveActionUrl(notification)}
-                        className="inline-flex items-center gap-1 mt-2 text-sm sec-link"
-                    style={{ color: 'var(--sec-accent)' }}
-                        onClick={() => markAsReadMutation.mutate(notification.id)}
-                      >
-                        View details <ChevronRight className="w-4 h-4" />
-                      </Link>
-                    )}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavorite(notification.id);
-                    }}
-                    className="p-2 hover:bg-white/5 rounded-lg transition-colors"
-                    title={favoriteIds.includes(notification.id) ? 'Unfavorite' : 'Favorite'}
-                  >
-                    <Star className={`w-4 h-4 ${favoriteIds.includes(notification.id) ? 'text-yellow-400' : 'text-gray-600'}`} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleArchive(notification.id);
-                    }}
-                    className="p-2 hover:bg-white/5 rounded-lg transition-colors"
-                    title={archivedIds.includes(notification.id) ? 'Unarchive' : 'Archive'}
-                  >
-                    <Archive className="w-4 h-4 text-gray-600" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      softDeleteNotification(notification.id);
-                    }}
-                    className="p-2 hover:bg-white/5 rounded-lg transition-colors"
-                    title="Delete (undo available)"
-                  >
-                    <Trash2 className="w-4 h-4 text-gray-600" />
-                  </button>
-                </div>
-              </motion.div>
-            );
-          })}
+          {visibleNotifications.map((notification, index) => (
+            <NotificationCard
+              key={notification.id}
+              notification={notification}
+              index={index}
+              isFavorite={favoriteIds.includes(notification.id)}
+              isArchived={archivedIds.includes(notification.id)}
+              onOpen={openNotification}
+              onToggleFavorite={toggleFavorite}
+              onToggleArchive={toggleArchive}
+              onDelete={softDeleteNotification}
+              resolveActionUrl={resolveActionUrl}
+              onMarkAsRead={(id) => markAsReadMutation.mutate(id)}
+            />
+          ))}
         </AnimatePresence>
 
         {/* Empty State */}

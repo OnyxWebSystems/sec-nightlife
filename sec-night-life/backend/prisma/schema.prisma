@@ -561,6 +561,7 @@ model Venue {
   performanceScore            Float                 @default(0) @map("performance_score")
   transparencyScore           Float                 @default(0) @map("transparency_score")
   acceptsDayBookings          Boolean               @default(false) @map("accepts_day_bookings")
+  showSeatingPlanForDayBookings Boolean             @default(false) @map("show_seating_plan_for_day_bookings")
   hostTableFeeZar             Float                 @default(0) @map("host_table_fee_zar")
   customTableBookingFeeZar  Float                 @default(0) @map("custom_table_booking_fee_zar")
   bookingPolicies             Json?                 @map("booking_policies")
@@ -596,11 +597,32 @@ model Venue {
   legacyNotifications Notification[]
   inAppNotifications  InAppNotification[] @relation("VenueInAppNotifications")
   refundRequests      RefundRequest[]
+  seatingPlans        VenueSeatingPlan[]
 
   @@index([ownerUserId])
   @@index([city])
   @@index([complianceStatus])
   @@map("venues")
+}
+
+model VenueSeatingPlan {
+  id            String   @id @default(uuid())
+  venueId       String   @map("venue_id")
+  name          String
+  caption       String?
+  imageUrl      String   @map("image_url")
+  imagePublicId String?  @map("image_public_id")
+  sortOrder     Int      @default(0) @map("sort_order")
+  isDefault     Boolean  @default(false) @map("is_default")
+  zones         Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  venue  Venue   @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  events Event[] @relation("EventSeatingPlan")
+
+  @@index([venueId])
+  @@map("venue_seating_plans")
 }
 
 model MenuCatalogItem {
@@ -813,11 +835,14 @@ model Event {
   doorCheckPinHash   String?     @map("door_check_pin_hash")
   /// Optional door verification code shown on tickets/QR (PREFIX-MMDD-SUFFIX, unique per venue).
   eventCode         String?     @map("event_code")
+  showSeatingPlan   Boolean     @default(false) @map("show_seating_plan")
+  seatingPlanId     String?     @map("seating_plan_id")
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
   deletedAt         DateTime?   @map("deleted_at")
 
   venue         Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  seatingPlan   VenueSeatingPlan? @relation("EventSeatingPlan", fields: [seatingPlanId], references: [id], onDelete: SetNull)
   tables        Table[]
   hostedTables  HostedTable[]
   venueTables   VenueTable[]

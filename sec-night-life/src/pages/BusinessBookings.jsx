@@ -82,11 +82,10 @@ function StatTile({ label, value, accent, subtitle }) {
 function FilterBar({ children }) {
   return (
     <div
+      className="flex flex-col sm:flex-row sm:flex-wrap"
       style={{
-        display: 'flex',
         gap: 10,
         marginBottom: 18,
-        flexWrap: 'wrap',
         padding: '14px 16px',
         borderRadius: 14,
         background: 'var(--sec-bg-card)',
@@ -450,7 +449,7 @@ export default function BusinessBookings() {
         pageName="BusinessBookings"
       />
 
-      <div style={{ padding: '0 20px 32px' }}>
+      <div className="pb-8">
         <div style={{ marginBottom: 20 }}>
           <VenueSwitcher />
         </div>
@@ -502,7 +501,7 @@ export default function BusinessBookings() {
                   SEC hosted tables — host fees, guest joins, and tier payments for your events.
                 </p>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10, marginBottom: 16 }}>
                   <StatTile label="Tables" value={eventTableStats.tableCount} accent />
                   <StatTile label="Transactions" value={eventTableStats.transactionCount} />
                   <StatTile label="Open tables" value={eventTableStats.open} />
@@ -523,7 +522,7 @@ export default function BusinessBookings() {
                     />
                   </div>
                   <Select value={eventTimeScope} onValueChange={setEventTimeScope}>
-                    <SelectTrigger className="w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
+                    <SelectTrigger className="w-full sm:w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
@@ -533,7 +532,7 @@ export default function BusinessBookings() {
                     </SelectContent>
                   </Select>
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-[130px] h-10 rounded-xl" style={selectTriggerStyle}>
+                    <SelectTrigger className="w-full sm:w-[130px] h-10 rounded-xl" style={selectTriggerStyle}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
@@ -543,7 +542,7 @@ export default function BusinessBookings() {
                     </SelectContent>
                   </Select>
                   <Select value={selectedEventId} onValueChange={setSelectedEventId}>
-                    <SelectTrigger className="w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
+                    <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
                       <SelectValue placeholder="Event" />
                     </SelectTrigger>
                     <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
@@ -575,7 +574,8 @@ export default function BusinessBookings() {
                         role="button"
                         tabIndex={0}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                          <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
                           <div style={{
                             width: 48, height: 48, borderRadius: 12, flexShrink: 0,
                             background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)',
@@ -596,7 +596,9 @@ export default function BusinessBookings() {
                               {group.rolesSummary?.guests ? ` · ${group.rolesSummary.guests} guest${group.rolesSummary.guests === 1 ? '' : 's'}` : ''}
                             </div>
                           </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 w-full sm:w-auto shrink-0">
+                          <div className="text-left sm:text-right">
                             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-accent)' }}>
                               R{Number(group.totalPaidZar || 0).toFixed(0)}
                             </div>
@@ -604,6 +606,7 @@ export default function BusinessBookings() {
                           </div>
                           <StatusBadge status={(group.hostedTable?.status || '').toLowerCase()} />
                           <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -786,7 +789,7 @@ export default function BusinessBookings() {
                 </SelectContent>
               </Select>
               <Select value={ticketEventId} onValueChange={setTicketEventId}>
-                <SelectTrigger className="w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
+                <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
                   <SelectValue placeholder="Event" />
                 </SelectTrigger>
                 <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">

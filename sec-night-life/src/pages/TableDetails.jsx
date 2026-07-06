@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import HostedTableExperience from '@/components/tables/HostedTableExperience';
+import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
@@ -160,6 +161,7 @@ export default function TableDetails() {
   );
   const [customRequestStep, setCustomRequestStep] = useState(null);
   const [customSubmitting, setCustomSubmitting] = useState(false);
+  const [seatingViewerOpen, setSeatingViewerOpen] = useState(false);
 
   useEffect(() => { loadUser(); }, []);
 
@@ -213,6 +215,22 @@ export default function TableDetails() {
         (isVenueSource && !venueLoading && !venueTable)),
     retry: false,
   });
+
+  const hostedEventId =
+    hostedTable?.event_id ||
+    hostedTable?.eventId ||
+    venueTable?.eventId ||
+    venueTable?.event?.id ||
+    null;
+
+  const { data: hostedEventTiers } = useQuery({
+    queryKey: ['event-table-tiers', hostedEventId],
+    queryFn: () => apiGet(`/api/events/${encodeURIComponent(hostedEventId)}/table-tiers`),
+    enabled: !!hostedEventId && !venueTable?.seatingPlan,
+  });
+
+  const seatingPlan =
+    venueTable?.seatingPlan ?? hostedEventTiers?.seatingPlan ?? null;
 
   const venueBookingMode = useMemo(() => {
     if (bookingModeParam === 'host') return 'host';
@@ -801,6 +819,7 @@ export default function TableDetails() {
             autoOpenJoin={autoJoin === '1' || autoJoin === 'true'}
             autoOpenCheckout={checkoutParam === '1'}
             onBack={() => navigate(-1)}
+            seatingPlan={seatingPlan}
           />
         );
       }
@@ -888,11 +907,23 @@ export default function TableDetails() {
           ? mobileFooterPadding(minSpendZar > 0 ? 200 : 160)
           : mobileFooterPadding(120);
     return (
+      <>
       <div style={{ minHeight: '100vh', background: 'var(--sec-bg-base)', padding: '12px 16px max(12px, env(safe-area-inset-top))', paddingBottom: footerPad }}>
         <button onClick={() => navigate(-1)} className="sec-btn sec-btn-ghost" style={{ marginBottom: 12 }}>Back</button>
         <div className="sec-card" style={{ padding: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>{venueTable.tableName}</h1>
           <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>{venueTable.venue?.name}</p>
+          {seatingPlan ? (
+            <button
+              type="button"
+              onClick={() => setSeatingViewerOpen(true)}
+              className="sec-link mt-2 text-sm inline-flex items-center gap-1"
+              style={{ color: 'var(--sec-accent)' }}
+            >
+              <MapPin size={14} />
+              View seating plan
+            </button>
+          ) : null}
           <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-accent)', fontWeight: 600 }}>
             {isHostCheckout
               ? 'Hosting this table'
@@ -1287,6 +1318,12 @@ export default function TableDetails() {
           </TableCheckoutFooter>
         ) : null}
       </div>
+      <SeatingPlanViewer
+        open={seatingViewerOpen}
+        onClose={() => setSeatingViewerOpen(false)}
+        plan={seatingPlan}
+      />
+      </>
     );
   }
 
@@ -1308,6 +1345,7 @@ export default function TableDetails() {
         autoOpenJoin={autoJoin === '1' || autoJoin === 'true'}
         autoOpenCheckout={checkoutParam === '1'}
         onBack={() => navigate(-1)}
+        seatingPlan={seatingPlan}
       />
     );
   }

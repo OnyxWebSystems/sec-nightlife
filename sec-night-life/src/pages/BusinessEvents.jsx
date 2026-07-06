@@ -97,6 +97,8 @@ const EMPTY_EVENT = {
   allows_ticket_menu_addons: false,
   event_code: '',
   hosting_config: emptyHostingForm(),
+  show_seating_plan: false,
+  seating_plan_id: '',
 };
 
 const EVENT_CODE_REGEX = /^[A-Z]{2,4}-\d{4}-[A-Z0-9]{1,4}$/;
@@ -202,6 +204,18 @@ export default function BusinessEvents() {
     queryFn: () => apiGet(promotersUrl).then((r) => r?.data || []),
     enabled: !!promotersUrl,
   });
+
+  const seatingPlansQs = venueScope.staffContextToken
+    ? `?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`
+    : venue?.id
+      ? `?venue_id=${encodeURIComponent(venue.id)}`
+      : '';
+  const { data: seatingPlansData } = useQuery({
+    queryKey: ['venue-seating-plans', scopeKey],
+    queryFn: () => apiGet(`/api/business/venue-seating-plans${seatingPlansQs}`),
+    enabled: !!seatingPlansQs,
+  });
+  const venueSeatingPlans = seatingPlansData?.items ?? [];
 
   const { data: eventTablesData, isLoading: eventTablesLoading, refetch: refetchEventTables } = useQuery({
     queryKey: ['event-venue-tables', tablesEventId],
@@ -332,6 +346,8 @@ export default function BusinessEvents() {
       event_format: evt.event_format || 'TABLE_HOSTING',
       allows_ticket_menu_addons: Boolean(evt.allows_ticket_menu_addons),
       event_code: evt.event_code || '',
+      show_seating_plan: Boolean(evt.show_seating_plan),
+      seating_plan_id: evt.seating_plan_id || '',
     });
     setCreateMode(evt.event_format === 'TICKETING_ONLY' ? 'ticketing' : 'tables');
     try {
@@ -557,6 +573,14 @@ export default function BusinessEvents() {
       hostingPayload[cat].tiers = parsedTiers;
     }
     payload.hosting_config = hostingPayload;
+    payload.show_seating_plan = Boolean(form.show_seating_plan);
+    payload.seating_plan_id = form.show_seating_plan
+      ? (form.seating_plan_id || venueSeatingPlans.find((p) => p.is_default)?.id || venueSeatingPlans[0]?.id || null)
+      : null;
+    if (payload.show_seating_plan && !payload.seating_plan_id) {
+      toast.error('Upload a seating plan first, or choose one from your library');
+      return;
+    }
     saveMutation.mutate(payload);
   };
 
@@ -1053,6 +1077,66 @@ export default function BusinessEvents() {
                 >
                   <Plus size={14} className="mr-1" /> Add ticket tier
                 </Button>
+              </div>
+            ) : null}
+            {createMode === 'tables' ? (
+              <div
+                className="space-y-3 rounded-xl border p-4 mb-4"
+                style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-elevated)' }}
+              >
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--sec-text-primary)' }}>
+                  Seating & floor plan
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Let guests preview where they&apos;ll be seated before they book a table for this event.
+                </p>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={Boolean(form.show_seating_plan)}
+                    disabled={venueSeatingPlans.length === 0}
+                    onCheckedChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        show_seating_plan: Boolean(v),
+                        seating_plan_id:
+                          v && !p.seating_plan_id
+                            ? (venueSeatingPlans.find((pl) => pl.is_default)?.id || venueSeatingPlans[0]?.id || '')
+                            : p.seating_plan_id,
+                      }))
+                    }
+                  />
+                  Show seating plan for this event
+                </label>
+                {venueSeatingPlans.length === 0 ? (
+                  <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
+                    Upload plans in{' '}
+                    <Link to={createPageUrl('BusinessVenueSeatingPlans')} className="sec-link" style={{ color: 'var(--sec-accent)' }}>
+                      Seating plans
+                    </Link>{' '}
+                    first.
+                  </p>
+                ) : null}
+                {form.show_seating_plan && venueSeatingPlans.length > 0 ? (
+                  <div>
+                    <Label className="text-xs text-gray-400">Plan for this event</Label>
+                    <select
+                      className="mt-1 w-full h-10 rounded-xl px-3 text-sm"
+                      style={{
+                        background: 'var(--sec-bg-card)',
+                        border: '1px solid var(--sec-border)',
+                        color: 'var(--sec-text-primary)',
+                      }}
+                      value={form.seating_plan_id || venueSeatingPlans.find((p) => p.is_default)?.id || venueSeatingPlans[0]?.id || ''}
+                      onChange={(e) => setForm((p) => ({ ...p, seating_plan_id: e.target.value }))}
+                    >
+                      {venueSeatingPlans.map((plan) => (
+                        <option key={plan.id} value={plan.id}>
+                          {plan.name}{plan.is_default ? ' (default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {createMode === 'tables' && (['general', 'vip']).map((cat) => {

@@ -7,6 +7,8 @@ import { ChevronLeft, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import EventTableTierCard from '@/components/events/EventTableTierCard';
 import EventTableTierSheet from '@/components/events/EventTableTierSheet';
+import SeatingPlanCTA from '@/components/seating/SeatingPlanCTA';
+import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
 import { formatWindowLabel, isOvernightWindow } from '@/lib/dayBookingSlotUtils';
 import { venueWindowFromSchedule } from '@/lib/resolveDayBookingContext';
 
@@ -16,6 +18,7 @@ export default function VenueBook() {
   const venueId = params.get('venueId');
   const [selectedTier, setSelectedTier] = useState(null);
   const [ensuring, setEnsuring] = useState(false);
+  const [seatingViewerOpen, setSeatingViewerOpen] = useState(false);
 
   const { data: venue } = useQuery({
     queryKey: ['venue', venueId],
@@ -45,6 +48,7 @@ export default function VenueBook() {
     : false;
   const customListingId = tierData?.customListingId ?? null;
   const allowsCustomRequests = Boolean(tierData?.allowsCustomRequests);
+  const seatingPlan = tierData?.seatingPlan ?? null;
   const dayBookingsOn = Boolean(venue?.accepts_day_bookings ?? venue?.acceptsDayBookings);
 
   const goCustomRequest = async () => {
@@ -108,6 +112,13 @@ export default function VenueBook() {
         </div>
       ) : (
         <>
+          {seatingPlan ? (
+            <SeatingPlanCTA
+              plan={seatingPlan}
+              onView={() => setSeatingViewerOpen(true)}
+              className="mb-4"
+            />
+          ) : null}
           {tiers.length === 0 ? (
             <div className="sec-card p-8 text-center text-sm text-[var(--sec-text-muted)] mb-4">
               No day tables are open for booking today. Check back on another day, or request a custom table below.
@@ -146,6 +157,11 @@ export default function VenueBook() {
         customListingId={customListingId}
         allowsCustomRequests={allowsCustomRequests}
         venueWindow={venueWindow}
+      />
+      <SeatingPlanViewer
+        open={seatingViewerOpen}
+        onClose={() => setSeatingViewerOpen(false)}
+        plan={seatingPlan}
       />
     </div>
   );

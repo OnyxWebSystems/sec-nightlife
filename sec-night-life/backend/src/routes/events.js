@@ -17,6 +17,7 @@ import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingC
 import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
 import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
 import { buildEventTableTiers, statsFromEventTableTiers } from '../lib/eventTableTiers.js';
+import { resolveEventSeatingPlan, getVenueDefaultSeatingPlan } from '../lib/seatingPlanHelpers.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
 import {
   assertEventCodeUniqueForVenue,
@@ -188,10 +189,30 @@ const eventFields = {
     (v) => (v === '' || v === undefined ? null : v),
     z.string().max(32).nullable().optional(),
   ),
+  show_seating_plan: z.boolean().optional(),
+  seating_plan_id: z.string().uuid().nullable().optional(),
 };
 
 const eventSchema = z.object(eventFields);
 const eventCreateSchema = eventSchema.extend({ venue_id: z.string().uuid().optional() });
+
+async function resolveEventSeatingPlanFields(venueId, showSeatingPlan, seatingPlanId) {
+  if (!showSeatingPlan) {
+    return { showSeatingPlan: false, seatingPlanId: null };
+  }
+  if (seatingPlanId) {
+    const plan = await prisma.venueSeatingPlan.findFirst({
+      where: { id: seatingPlanId, venueId },
+    });
+    if (!plan) return { error: 'Seating plan not found for this venue' };
+    return { showSeatingPlan: true, seatingPlanId: plan.id };
+  }
+  const defaultPlan = await getVenueDefaultSeatingPlan(venueId);
+  if (!defaultPlan) {
+    return { error: 'Upload at least one seating plan for this venue before enabling this option.' };
+  }
+  return { showSeatingPlan: true, seatingPlanId: defaultPlan.id };
+}
 
 function mapEventRow(e) {
   const resolvedLocationCity = e.locationCity || e.city;
@@ -218,6 +239,8 @@ function mapEventRow(e) {
     event_format: e.eventFormat || 'TABLE_HOSTING',
     allows_ticket_menu_addons: Boolean(e.allowsTicketMenuAddons),
     event_code: e.eventCode || null,
+    show_seating_plan: Boolean(e.showSeatingPlan),
+    seating_plan_id: e.seatingPlanId || null,
   };
 }
 
@@ -591,7 +614,8 @@ router.get('/:id/table-tiers', optionalAuth, async (req, res, next) => {
   try {
     const result = await buildEventTableTiers(req.params.id);
     if (!result) return res.status(404).json({ error: 'Event not found' });
-    res.json(result);
+    const seatingPlan = await resolveEventSeatingPlan(req.params.id);
+    res.json({ ...result, seatingPlan });
   } catch (err) {
     next(err);
   }
@@ -1078,6 +1102,17 @@ router.post('/', authenticateToken, async (req, res, next) => {
     });
     if (!codeUnique.ok) return res.status(400).json({ error: codeUnique.error });
 
+    let seatingFields = { showSeatingPlan: false, seatingPlanId: null };
+    if (d.show_seating_plan && eventFormat === 'TABLE_HOSTING') {
+      const resolved = await resolveEventSeatingPlanFields(
+        resolvedVenueId,
+        true,
+        d.seating_plan_id ?? null,
+      );
+      if (resolved.error) return res.status(400).json({ error: resolved.error });
+      seatingFields = resolved;
+    }
+
     const event = await prisma.event.create({
       data: {
         venueId: resolvedVenueId,
@@ -1103,6 +1138,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
         allowsTicketMenuAddons:
           eventFormat === 'TICKETING_ONLY' ? Boolean(d.allows_ticket_menu_addons) : false,
         eventCode: codeFmt.code,
+        showSeatingPlan: seatingFields.showSeatingPlan,
+        seatingPlanId: seatingFields.seatingPlanId,
       },
     });
     if (d.status === 'published' && eventFormat === 'TABLE_HOSTING') {
@@ -1228,6 +1265,29 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       });
       if (!codeUnique.ok) return res.status(400).json({ error: codeUnique.error });
       updates.eventCode = codeFmt.code;
+    }
+
+    if (d.show_seating_plan !== undefined || d.seating_plan_id !== undefined) {
+      if (nextFormat === 'TICKETING_ONLY') {
+        updates.showSeatingPlan = false;
+        updates.seatingPlanId = null;
+      } else {
+        const nextShow = d.show_seating_plan !== undefined ? d.show_seating_plan : event.showSeatingPlan;
+        const nextPlanId =
+          d.seating_plan_id !== undefined ? d.seating_plan_id : event.seatingPlanId;
+        if (nextShow) {
+          const resolved = await resolveEventSeatingPlanFields(event.venueId, true, nextPlanId);
+          if (resolved.error) return res.status(400).json({ error: resolved.error });
+          updates.showSeatingPlan = resolved.showSeatingPlan;
+          updates.seatingPlanId = resolved.seatingPlanId;
+        } else {
+          updates.showSeatingPlan = false;
+          updates.seatingPlanId = null;
+        }
+      }
+    } else if (nextFormat === 'TICKETING_ONLY' && d.event_format != null) {
+      updates.showSeatingPlan = false;
+      updates.seatingPlanId = null;
     }
 
     const mergedDate = updates.date ?? event.date;

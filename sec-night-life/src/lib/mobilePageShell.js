@@ -47,6 +47,7 @@ export const MOBILE_OWN_BACK_HEADER = new Set([
   'BusinessMenu',
   'BusinessPromotions',
   'BusinessVenueTables',
+  'BusinessVenueSeatingPlans',
   'VenueAnalytics',
   'FeedbackInsights',
   'StaffDashboard',
@@ -70,6 +71,7 @@ export const MOBILE_OWN_BACK_HEADER = new Set([
   'CelebrationRequest',
   'AgeVerificationDeclaration',
   'AdminDashboard',
+  'Notifications',
 ]);
 
 const AUTH_FLOW_PAGES = new Set([

@@ -22,6 +22,7 @@ import { isStaff, getStaffAssignmentsForUser } from '../lib/access.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 import { sendEmail } from '../lib/email.js';
 import { buildVenueDayTableTiers } from '../lib/buildVenueDayTableTiers.js';
+import { resolveDayBookingSeatingPlan } from '../lib/seatingPlanHelpers.js';
 
 const router = Router();
 
@@ -272,7 +273,8 @@ router.get('/:id/day-table-tiers', optionalAuth, async (req, res, next) => {
     const windowEnd = req.query.windowEnd || req.query.window_end || null;
     const result = await buildVenueDayTableTiers(req.params.id, { windowStart, windowEnd });
     if (!result) return res.status(404).json({ error: 'Venue not found' });
-    res.json(result);
+    const seatingPlan = await resolveDayBookingSeatingPlan(req.params.id);
+    res.json({ ...result, seatingPlan });
   } catch (err) {
     next(err);
   }
@@ -316,6 +318,7 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       review_count: s?.review_count ?? 0,
       follower_count: venue._count.follows,
       accepts_day_bookings: venue.acceptsDayBookings,
+      show_seating_plan_for_day_bookings: venue.showSeatingPlanForDayBookings,
       host_table_fee_zar: venue.hostTableFeeZar,
       custom_table_booking_fee_zar: venue.customTableBookingFeeZar,
     });
@@ -393,6 +396,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     const extra = z
       .object({
         accepts_day_bookings: z.boolean().optional(),
+        show_seating_plan_for_day_bookings: z.boolean().optional(),
         host_table_fee_zar: z.number().min(0).optional(),
         custom_table_booking_fee_zar: z.number().min(0).optional(),
         external_booking_links: z.any().optional(),
@@ -420,6 +424,15 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.logo_url !== undefined) updates.logoUrl = data.logo_url;
     if (data.cover_image_url !== undefined) updates.coverImageUrl = data.cover_image_url;
     if (extraData.accepts_day_bookings != null) updates.acceptsDayBookings = extraData.accepts_day_bookings;
+    if (extraData.show_seating_plan_for_day_bookings != null) {
+      if (extraData.show_seating_plan_for_day_bookings) {
+        const planCount = await prisma.venueSeatingPlan.count({ where: { venueId: venue.id } });
+        if (planCount === 0) {
+          return res.status(400).json({ error: 'Upload at least one seating plan before enabling this option.' });
+        }
+      }
+      updates.showSeatingPlanForDayBookings = extraData.show_seating_plan_for_day_bookings;
+    }
     if (extra.success && 'host_table_fee_zar' in extra.data) {
       updates.hostTableFeeZar = extra.data.host_table_fee_zar;
     }

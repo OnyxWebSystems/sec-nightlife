@@ -16,6 +16,7 @@ import {
   CreditCard,
   X,
   UtensilsCrossed,
+  Map,
 } from 'lucide-react';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
@@ -98,6 +99,10 @@ const INITIAL_FORM_DATA = {
   age_limit: 18,
   logo_url: '',
   cover_image_url: '',
+  seating_plan_name: '',
+  seating_plan_url: '',
+  seating_plan_public_id: '',
+  seating_plan_skipped: false,
   cipc_document_url: '',
   director_id_url: '',
   sars_document_url: '',
@@ -270,6 +275,49 @@ export default function VenueOnboarding() {
   const [menuDraftItems, setMenuDraftItems] = useState([]);
   const [ensuringVenueForMenu, setEnsuringVenueForMenu] = useState(false);
   const [brandingPreviewKey, setBrandingPreviewKey] = useState(0);
+  const [seatingPlanUploading, setSeatingPlanUploading] = useState(false);
+
+  async function syncOnboardingSeatingPlan(resolvedVenueId) {
+    if (!resolvedVenueId || formData.seating_plan_skipped) return;
+    if (!formData.seating_plan_url) return;
+    try {
+      await apiPost('/api/business/venue-seating-plans', {
+        venue_id: resolvedVenueId,
+        name: formData.seating_plan_name?.trim() || 'Main floor',
+        image_url: formData.seating_plan_url,
+        image_public_id: formData.seating_plan_public_id || null,
+        is_default: true,
+      });
+    } catch (e) {
+      toast.error(e?.data?.error || e.message || 'Venue saved but seating plan could not be saved.');
+    }
+  }
+
+  const handleSeatingPlanUpload = async (file) => {
+    if (!file) return;
+    if (!formData.seating_plan_name?.trim()) {
+      toast.error('Enter a name for this plan (e.g. Main floor)');
+      return;
+    }
+    setSeatingPlanUploading(true);
+    try {
+      const data = await uploadToCloudinary(file, {
+        folder: 'sec-nightlife/seating-plans',
+        resourceType: 'image',
+      });
+      setFormData((prev) => ({
+        ...prev,
+        seating_plan_url: data.url,
+        seating_plan_public_id: data.publicId || '',
+        seating_plan_skipped: false,
+      }));
+      toast.success('Seating plan uploaded');
+    } catch (e) {
+      toast.error(e?.message || 'Upload failed');
+    } finally {
+      setSeatingPlanUploading(false);
+    }
+  };
 
   const persistBrandingField = useCallback(
     async (field, url) => {
@@ -370,7 +418,10 @@ export default function VenueOnboarding() {
         if (formData.logo_url) payload.logo_url = formData.logo_url;
         if (formData.cover_image_url) payload.cover_image_url = formData.cover_image_url;
         const v = await upsertVenue(payload);
-        if (!cancelled && v?.id) setVenueId(v.id);
+        if (!cancelled && v?.id) {
+          setVenueId(v.id);
+          await syncOnboardingSeatingPlan(v.id);
+        }
       } catch (e) {
         if (!cancelled) toast.error(e?.message || 'Complete venue info before adding menu items.');
       } finally {
@@ -589,6 +640,8 @@ export default function VenueOnboarding() {
 
       const createdVenue = await upsertVenue(venueData);
       const resolvedVenueId = createdVenue?.id || venueId;
+
+      await syncOnboardingSeatingPlan(resolvedVenueId);
 
       if (resolvedVenueId && menuDraftItems.length > 0) {
         try {
@@ -1076,6 +1129,92 @@ export default function VenueOnboarding() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                <div
+                  className="rounded-2xl p-5 space-y-4"
+                  style={{
+                    border: '1px solid rgba(192, 192, 192, 0.25)',
+                    background:
+                      'linear-gradient(145deg, rgba(192, 192, 192, 0.06) 0%, var(--sec-bg-card) 100%)',
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ background: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}
+                    >
+                      <Map size={18} />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold">Seating & floor plans (optional)</h2>
+                      <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--sec-text-muted)' }}>
+                        Help guests see where they&apos;ll sit before booking. You can add or update plans anytime from the dashboard.
+                      </p>
+                    </div>
+                  </div>
+                  {!formData.seating_plan_skipped && !formData.seating_plan_url ? (
+                    <>
+                      <div>
+                        <Label className="text-gray-400 text-sm">Plan name</Label>
+                        <Input
+                          placeholder="e.g. Main floor"
+                          value={formData.seating_plan_name}
+                          onChange={(e) =>
+                            setFormData((prev) => ({ ...prev, seating_plan_name: e.target.value }))
+                          }
+                          className="mt-2 h-11 bg-[#141416] border-[#262629] rounded-xl"
+                        />
+                      </div>
+                      <label className="cursor-pointer block">
+                        <div
+                          className="h-32 rounded-xl border border-dashed flex flex-col items-center justify-center gap-2"
+                          style={{ borderColor: 'var(--sec-border)', background: 'var(--sec-bg-elevated)' }}
+                        >
+                          {seatingPlanUploading ? (
+                            <span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>Uploading…</span>
+                          ) : (
+                            <>
+                              <Upload className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
+                              <span className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                                Upload floor or seating plan image
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          disabled={seatingPlanUploading}
+                          onChange={(e) => handleSeatingPlanUpload(e.target.files?.[0])}
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  {formData.seating_plan_url ? (
+                    <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'var(--sec-border)' }}>
+                      <img src={formData.seating_plan_url} alt="" className="w-full max-h-40 object-contain bg-black/40" />
+                      <p className="text-xs p-2" style={{ color: 'var(--sec-success)' }}>
+                        {formData.seating_plan_name || 'Seating plan'} ready — saved when you finish onboarding
+                      </p>
+                    </div>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full min-h-[44px] sec-btn-ghost"
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        seating_plan_skipped: true,
+                        seating_plan_url: '',
+                        seating_plan_public_id: '',
+                      }))
+                    }
+                  >
+                    Skip for now
+                  </Button>
                 </div>
 </div>
             </motion.div>

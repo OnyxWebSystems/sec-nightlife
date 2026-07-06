@@ -12,6 +12,7 @@ import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import HostedTableJoinWizard from '@/components/tables/HostedTableJoinWizard';
+import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -85,6 +86,7 @@ export default function HostedTableExperience({
   onBack,
   autoOpenJoin = false,
   autoOpenCheckout = false,
+  seatingPlan = null,
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -95,6 +97,7 @@ export default function HostedTableExperience({
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [hostedMenuSelected, setHostedMenuSelected] = useState({});
+  const [seatingViewerOpen, setSeatingViewerOpen] = useState(false);
 
   const checkout = hostedTable.checkout || {};
   const entranceZ = Number(checkout.entrance_zar ?? 0);
@@ -347,6 +350,17 @@ export default function HostedTableExperience({
         <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--sec-text-primary)' }}>
           {hostedTable.tableName}
         </h1>
+        {seatingPlan ? (
+          <button
+            type="button"
+            onClick={() => setSeatingViewerOpen(true)}
+            className="sec-link mt-2 text-sm inline-flex items-center gap-1"
+            style={{ color: 'var(--sec-accent)' }}
+          >
+            <MapPin size={14} />
+            View seating plan
+          </button>
+        ) : null}
         {hostedTable.venueSlotName &&
         hostedTable.venueSlotName !== hostedTable.tableName ? (
           <p style={{ fontSize: 13, color: 'var(--sec-accent)', marginTop: 8, lineHeight: 1.5 }}>
@@ -677,6 +691,11 @@ export default function HostedTableExperience({
         }}
         maxInvites={hostedTable.invite_slots_remaining ?? hostedTable.stats?.invite_slots_remaining}
         source="hosted"
+      />
+      <SeatingPlanViewer
+        open={seatingViewerOpen}
+        onClose={() => setSeatingViewerOpen(false)}
+        plan={seatingPlan}
       />
     </div>
   );
