@@ -105,10 +105,19 @@ async function unsignedUpload(config, file, options = {}) {
   }
   if (!data?.secure_url) throw new Error('Cloudinary returned no secure_url');
 
+  return normalizeUploadResult(data);
+}
+
+function normalizeUploadResult(data) {
+  const url = data?.secure_url || data?.file_url || data?.url || null;
+  const publicId = data?.public_id ?? data?.publicId ?? null;
   return {
-    file_url: data.secure_url,
-    secure_url: data.secure_url,
-    public_id: data.public_id,
+    ...data,
+    url,
+    publicId,
+    file_url: url,
+    secure_url: url,
+    public_id: publicId,
   };
 }
 
@@ -139,11 +148,7 @@ async function signedUpload(file, options = {}) {
   if (!res.ok) throw new Error(data?.error?.message || 'Cloudinary upload failed');
   if (!data?.secure_url) throw new Error('Cloudinary returned no secure_url');
 
-  return {
-    file_url: data.secure_url,
-    secure_url: data.secure_url,
-    public_id: data.public_id,
-  };
+  return normalizeUploadResult(data);
 }
 
 async function serverMultipartUpload(file) {
@@ -157,7 +162,7 @@ async function serverMultipartUpload(file) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error || 'Upload failed');
-  return data;
+  return normalizeUploadResult(data);
 }
 
 /**

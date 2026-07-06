@@ -97,8 +97,8 @@ export default function BusinessVenueSeatingPlans() {
         venue_id: venueId,
         name: draftName.trim(),
         caption: draftCaption.trim() || null,
-        image_url: uploaded.url,
-        image_public_id: uploaded.publicId || null,
+        image_url: uploaded.url || uploaded.secure_url || uploaded.file_url,
+        image_public_id: uploaded.publicId || uploaded.public_id || null,
         is_default: plans.length === 0,
       });
     } catch (e) {

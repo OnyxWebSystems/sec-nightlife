@@ -48,6 +48,7 @@ import businessBookingsRoutes from './routes/businessBookings.js';
 import businessInboxRoutes from './routes/businessInbox.js';
 import venueTableMessageRoutes from './routes/venueTableMessages.js';
 import promoterVenueThreadRoutes from './routes/promoterVenueThreads.js';
+import businessMenuRoutes from './routes/businessMenu.js';
 import venueSeatingPlansRoutes from './routes/venueSeatingPlans.js';
 import venueMessageGroupRoutes from './routes/venueMessageGroups.js';
 import staffContextGroupRoutes from './routes/staffContextGroups.js';
