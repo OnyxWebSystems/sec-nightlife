@@ -14,6 +14,16 @@ export function basePaymentReference(ref) {
   return idx >= 0 ? s.slice(0, idx) : s;
 }
 
+/** Suffix on payout ledger paymentReference: join / menu / entrance. */
+export function ledgerPaymentComponent(ref) {
+  const s = String(ref || '');
+  const idx = s.indexOf(':');
+  if (idx < 0) return null;
+  const suffix = s.slice(idx + 1);
+  if (suffix === 'join' || suffix === 'menu' || suffix === 'entrance') return suffix;
+  return null;
+}
+
 export function isTicketPaymentMeta(meta, paymentType = null) {
   const m = meta && typeof meta === 'object' ? meta : {};
   const t = String(m.type || paymentType || '');
@@ -25,7 +35,13 @@ export function isTicketPaymentMeta(meta, paymentType = null) {
   return Boolean(eventId && tier);
 }
 
-const TABLE_PAYMENT_TYPES = new Set(['TABLE_CHECKOUT', 'VENUE_TABLE_JOIN', 'table', 'HOSTED_TABLE_MENU']);
+const TABLE_PAYMENT_TYPES = new Set([
+  'TABLE_CHECKOUT',
+  'VENUE_TABLE_JOIN',
+  'table',
+  'HOSTED_TABLE_MENU',
+  'HOSTED_TABLE_JOIN',
+]);
 
 /** Day booking payment (venue table with no linked event). */
 export function isDayBookingPayment(meta) {
@@ -53,10 +69,22 @@ export function isDayBookingHostPayment(meta) {
   return t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN' || t === 'table';
 }
 
+/** Hosted-table guest join at a day-booking or event table. */
+export function isHostedTableGuestJoinPayment(meta) {
+  if (!isObjectRecord(meta)) return false;
+  if (String(meta.type || '') !== 'HOSTED_TABLE_JOIN') return false;
+  if (isDayBookingHostPayment(meta)) return false;
+  const bookingMode = meta.booking_mode || meta.bookingMode;
+  const memberRole = meta.member_role || meta.memberRole;
+  if (bookingMode === 'join' || memberRole === 'GUEST') return true;
+  return true;
+}
+
 /** Day-booking guest join (no event). */
 export function isDayBookingGuestPayment(meta) {
   if (!isDayBookingPayment(meta)) return false;
   if (isDayBookingHostPayment(meta)) return false;
+  if (isHostedTableGuestJoinPayment(meta)) return true;
   const bookingMode = meta.booking_mode || meta.bookingMode;
   const memberRole = meta.member_role || meta.memberRole;
   if (bookingMode === 'join' || memberRole === 'GUEST') return true;
@@ -84,6 +112,9 @@ export function createEmptyRevenueCounters() {
     dayBookingHostPaymentNetZar: 0,
     dayBookingGuestPaymentZar: 0,
     dayBookingGuestPaymentNetZar: 0,
+    dayBookingMenuPaymentZar: 0,
+    dayBookingMenuPaymentNetZar: 0,
+    dayBookingJoinFeeVolumeZar: 0,
     dayBookingOtherPaymentZar: 0,
     dayBookingOtherPaymentNetZar: 0,
     venueTablePaymentZar: 0,
@@ -117,9 +148,17 @@ function bumpCounter(counters, grossKey, netKey, gross, net) {
   counters[netKey] = (counters[netKey] || 0) + (Number(net) || 0);
 }
 
+function isDayBookingMenuPayment(meta, mtype, ledgerRef) {
+  const component = ledgerPaymentComponent(ledgerRef);
+  if (component === 'menu') return isDayBookingPayment(meta);
+  const t = String(mtype || meta?.type || '');
+  return t === 'HOSTED_TABLE_MENU' && isDayBookingPayment(meta);
+}
+
 /**
  * Classify revenue into buckets with gross + net amounts.
  * @param {'all'|'events'|'day_bookings'} revenueScope
+ * @param {string|null} [ledgerRef] - full payout ledger paymentReference (may include :menu suffix)
  */
 export function classifyVenuePaymentRevenueScoped(
   mtype,
@@ -129,6 +168,7 @@ export function classifyVenuePaymentRevenueScoped(
   counters,
   metadata = null,
   revenueScope = 'all',
+  ledgerRef = null,
 ) {
   const meta = isObjectRecord(metadata) ? metadata : {};
   if (!paymentMatchesRevenueScope(meta, revenueScope)) return;
@@ -140,6 +180,8 @@ export function classifyVenuePaymentRevenueScoped(
   if (revenueScope === 'day_bookings') {
     if (isDayBookingHostPayment(meta)) {
       bumpCounter(counters, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', g, n);
+    } else if (isDayBookingMenuPayment(meta, t, ledgerRef)) {
+      bumpCounter(counters, 'dayBookingMenuPaymentZar', 'dayBookingMenuPaymentNetZar', g, n);
     } else if (isDayBookingGuestPayment(meta)) {
       bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
     } else {

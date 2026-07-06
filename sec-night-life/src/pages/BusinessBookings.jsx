@@ -141,6 +141,33 @@ function sessionStatusLabel(status) {
   return 'Ended';
 }
 
+function formatSessionWindow(sessionWindow) {
+  if (!sessionWindow) return null;
+  const { bookingDate, windowStartTime, windowEndTime } = sessionWindow;
+  if (!bookingDate && !windowStartTime) return null;
+  const datePart = bookingDate || '';
+  const timePart =
+    windowStartTime && windowEndTime
+      ? `${windowStartTime} – ${windowEndTime}`
+      : windowStartTime || windowEndTime || '';
+  return [datePart, timePart].filter(Boolean).join(' · ');
+}
+
+function PaymentBreakdown({ participant }) {
+  if (!participant) return null;
+  const lines = [];
+  if (Number(participant.joinFeeZar) > 0) lines.push(`Join fee R${Number(participant.joinFeeZar).toFixed(0)}`);
+  if (Number(participant.menuZar) > 0) lines.push(`Menu R${Number(participant.menuZar).toFixed(0)}`);
+  if (Number(participant.entranceZar) > 0) lines.push(`Entrance R${Number(participant.entranceZar).toFixed(0)}`);
+  if (participant.settlementMode) lines.push(participant.settlementMode.replace(/_/g, ' '));
+  if (!lines.length) return null;
+  return (
+    <p style={{ fontSize: 10, color: 'var(--sec-text-muted)', marginTop: 6 }}>
+      {lines.join(' · ')}
+    </p>
+  );
+}
+
 function MenuItemsBlock({ items }) {
   if (!Array.isArray(items) || !items.length) return null;
   return (
@@ -266,6 +293,8 @@ export default function BusinessBookings() {
       if (q.venue_table_id) {
         params.set('venue_table_id', q.venue_table_id);
         params.set('session', String(q.session || 1));
+      } else if (q.session) {
+        params.set('session', String(q.session || 1));
       }
       if (venueScope.venueQuery) {
         const extra = new URLSearchParams(venueScope.venueQuery);
@@ -381,6 +410,7 @@ export default function BusinessBookings() {
     setSessionView({
       query: {
         venue_table_id: row.table?.id,
+        hosted_table_id: row.table?.hostedTableId || undefined,
         session: row.sessionNumber ?? row.table?.tableSessionNumber ?? 1,
       },
       title: row.table?.tableName || 'Day table',
@@ -809,6 +839,16 @@ export default function BusinessBookings() {
                   <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0 }}>
                     {sessionDetail?.eventTitle || sessionView.subtitle}
                   </p>
+                  {sessionDetail?.venueSlotName && sessionDetail.venueSlotName !== sessionDetail?.tableName ? (
+                    <p style={{ fontSize: 12, color: 'var(--sec-accent)', margin: '6px 0 0' }}>
+                      Venue table: {sessionDetail.venueSlotName}
+                    </p>
+                  ) : null}
+                  {formatSessionWindow(sessionDetail?.sessionWindow) ? (
+                    <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: '6px 0 0' }}>
+                      {formatSessionWindow(sessionDetail.sessionWindow)}
+                    </p>
+                  ) : null}
                   {sessionDetail?.sessionNumber ? (
                     <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', margin: '6px 0 0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       Session {sessionDetail.sessionNumber}
@@ -843,6 +883,7 @@ export default function BusinessBookings() {
                         </p>
                       </div>
                       <MenuItemsBlock items={sessionDetail.host.menuItems} />
+                      <PaymentBreakdown participant={sessionDetail.host} />
                     </div>
                   </div>
                 ) : null}
@@ -866,6 +907,7 @@ export default function BusinessBookings() {
                             </p>
                           </div>
                           <MenuItemsBlock items={member.menuItems} />
+                          <PaymentBreakdown participant={member} />
                         </div>
                       ))}
                     </div>
@@ -899,6 +941,13 @@ export default function BusinessBookings() {
                             </p>
                           ) : null}
                           <MenuItemsBlock items={tx.menuItems} />
+                          {(Number(tx.joinFeeZar) > 0 || Number(tx.menuZar) > 0) ? (
+                            <p style={{ fontSize: 10, color: 'var(--sec-text-muted)', marginTop: 6 }}>
+                              {Number(tx.joinFeeZar) > 0 ? `Join R${Number(tx.joinFeeZar).toFixed(0)}` : ''}
+                              {Number(tx.joinFeeZar) > 0 && Number(tx.menuZar) > 0 ? ' · ' : ''}
+                              {Number(tx.menuZar) > 0 ? `Menu R${Number(tx.menuZar).toFixed(0)}` : ''}
+                            </p>
+                          ) : null}
                         </div>
                         <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)', flexShrink: 0 }}>
                           R{Number(tx.lineTotalZar || 0).toFixed(0)}

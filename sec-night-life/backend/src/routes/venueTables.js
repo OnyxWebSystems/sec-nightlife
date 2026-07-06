@@ -40,6 +40,7 @@ import {
   windowsOverlap,
 } from '../lib/dayBookingWindows.js';
 import { WEEKDAY_FULL, weekdayKeyFromDate } from '../lib/serviceSchedule.js';
+import { recordTableHistory } from '../lib/tableHistory.js';
 
 const router = Router();
 
@@ -1153,6 +1154,16 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
         eventStartsAt,
         eventEndsAt,
       });
+      if (isHost) {
+        recordTableHistory({
+          userId: req.userId,
+          role: 'HOST',
+          venueTableId: table.id,
+          eventId: table.eventId || null,
+          tableName: table.tableName,
+          eventTitle: table.event?.title || null,
+        });
+      }
       if (isHost) {
         await notifyPaymentSuccess({
           userId: req.userId,

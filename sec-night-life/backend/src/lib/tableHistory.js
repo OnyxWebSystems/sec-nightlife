@@ -129,19 +129,47 @@ function rowParticipationKey(row) {
 
 function tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row) {
   const canon = canonicalHistoryKey(row);
-  if (byCanonical.has(canon)) return false;
-
   const key = rowParticipationKey(row);
-  if (hiddenKeys.has(key) || byKey.has(key)) return false;
+  if (hiddenKeys.has(key)) return false;
+
+  const roleNorm =
+    row.role === 'HOST' || row.role === 'host'
+      ? 'host'
+      : row.role === 'ATTENDED' || row.role === 'attended'
+        ? 'attended'
+        : 'joined';
+
+  if (roleNorm === 'joined') {
+    const hostKey = participationKey('HOST', row);
+    if (byKey.has(hostKey)) return false;
+  }
+
+  if (roleNorm === 'host') {
+    const joinedKey = participationKey('JOINED', row);
+    if (byKey.has(joinedKey)) {
+      byKey.delete(joinedKey);
+      for (const c of [...byCanonical]) {
+        if (c.startsWith('joined:')) byCanonical.delete(c);
+      }
+    }
+  }
+
+  if (byCanonical.has(canon) && roleNorm !== 'host') return false;
+
+  if (byKey.has(key)) return false;
 
   byKey.set(key, row);
   byCanonical.add(canon);
   return true;
 }
 
-function ticketRoleFromKind(kind) {
+function ticketRoleFromKind(kind, ticket = null) {
   if (kind === 'EVENT_TICKET') return 'ATTENDED';
   if (kind === 'TABLE_HOST_FEE') return 'HOST';
+  if (kind === 'VENUE_TABLE_JOIN') {
+    const title = String(ticket?.title || '');
+    if (title.includes('Host pass')) return 'HOST';
+  }
   return 'JOINED';
 }
 
@@ -149,7 +177,7 @@ function ticketHistoryKey(ticket) {
   if (ticket.kind === 'EVENT_TICKET' && ticket.eventId) {
     return `ATTENDED:${ticket.eventId}`;
   }
-  const role = ticketRoleFromKind(ticket.kind);
+  const role = ticketRoleFromKind(ticket.kind, ticket);
   return participationKey(role, {
     tableId: ticket.tableId,
     hostedTableId: ticket.hostedTableId,
@@ -158,7 +186,7 @@ function ticketHistoryKey(ticket) {
 }
 
 function ticketToHistoryRow(ticket, userId) {
-  const role = ticketRoleFromKind(ticket.kind);
+  const role = ticketRoleFromKind(ticket.kind, ticket);
   const isEventTicket = ticket.kind === 'EVENT_TICKET';
   return {
     id: `ticket-${ticket.id}`,

@@ -1398,7 +1398,6 @@ async function applyReferenceSideEffects(reference, paystackData) {
               metadata.venueId ||
               linkedVenueTable?.venueId ||
               null;
-            const hostCode = joinZar > 0 ? await resolveRecipientCodeForUser(htFinal.hostUserId) : null;
             if (entranceZar > 0 && htVenueId) {
               const venueCode = await resolveRecipientCodeForVenue(htVenueId);
               const { secAmount: sEnt, recipientAmount: rEnt } = splitSecPlatform(entranceZar);
@@ -1413,7 +1412,8 @@ async function applyReferenceSideEffects(reference, paystackData) {
                 paystackRecipientCode: venueCode,
               });
             }
-            if (joinZar > 0 && hostCode) {
+            if (joinZar > 0) {
+              const hostCode = await resolveRecipientCodeForUser(htFinal.hostUserId);
               const { secAmount: sAmt, recipientAmount: rAmt } = splitSecPlatform(joinZar);
               await recordPayoutAndMaybeTransfer({
                 paymentReference: `${reference}:join`,

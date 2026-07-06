@@ -264,3 +264,64 @@ export async function repairMissingVenueTablePayouts({ sinceDays = 60, limit = 8
 
   return { repaired, skipped, scanned: payments.length };
 }
+
+/**
+ * Backfill missing host join-fee payout ledgers for successful HOSTED_TABLE_JOIN payments.
+ */
+export async function repairMissingHostedTableJoinPayouts({ sinceDays = 90, limit = 100 } = {}) {
+  const since = new Date(Date.now() - sinceDays * 86400000);
+  const payments = await prisma.payment.findMany({
+    where: { status: 'success', createdAt: { gte: since } },
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(limit * 5, 800),
+    select: { reference: true, amount: true, metadata: true },
+  });
+
+  let repaired = 0;
+  let skipped = 0;
+
+  for (const pay of payments) {
+    if (repaired + skipped >= limit) break;
+    const meta = flattenPaymentMetadata(pay.metadata);
+    if (String(meta.type || '') !== 'HOSTED_TABLE_JOIN') continue;
+
+    const joinZar = Number(meta.join_zar ?? meta.joinZar ?? 0) || 0;
+    if (joinZar <= 0) {
+      skipped += 1;
+      continue;
+    }
+
+    const joinRef = `${pay.reference}:join`;
+    const ledger = await prisma.payoutLedger.findFirst({ where: { paymentReference: joinRef } });
+    if (ledger) {
+      skipped += 1;
+      continue;
+    }
+
+    const hostedTableId = meta.hosted_table_id ?? meta.hostedTableId;
+    if (!hostedTableId) continue;
+
+    const ht = await prisma.hostedTable.findUnique({
+      where: { id: String(hostedTableId) },
+      select: { hostUserId: true },
+    });
+    if (!ht?.hostUserId) continue;
+
+    const hostCode = await resolveRecipientCodeForUser(ht.hostUserId);
+    const { secAmount, recipientAmount } = splitPlatformGross(joinZar);
+    const result = await recordPayoutAndMaybeTransfer({
+      paymentReference: joinRef,
+      grossZar: joinZar,
+      secAmount,
+      recipientAmount,
+      recipientType: 'USER',
+      recipientUserId: ht.hostUserId,
+      recipientVenueId: null,
+      paystackRecipientCode: hostCode,
+    });
+    if (!result.skipped) repaired += 1;
+    else skipped += 1;
+  }
+
+  return { repaired, skipped, scanned: payments.length };
+}

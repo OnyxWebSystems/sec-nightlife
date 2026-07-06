@@ -438,7 +438,7 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
     });
     if (!t) return res.status(404).json({ error: 'Not found' });
     const uid = req.userId;
-    const { venueId, venueOwnerUserId } = await resolveVenueContextForHostedTable(prisma, t);
+    const { venueId, venueOwnerUserId, linkedVenueTable } = await resolveVenueContextForHostedTable(prisma, t);
     const isVenueOwner = Boolean(uid && venueOwnerUserId && uid === venueOwnerUserId);
     const hasBookingsStaff =
       venueId && uid ? await staffHasVenuePermission(uid, venueId, 'bookings') : false;
@@ -518,6 +518,8 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       kind: 'hosted',
       id: t.id,
       tableName: t.tableName,
+      venueSlotName: linkedVenueTable?.tableName || null,
+      venueSlotLabel: linkedVenueTable?.tierLabel || null,
       tableDescription: t.tableDescription,
       photo: t.photo,
       photoPublicId: t.photoPublicId,
@@ -665,6 +667,7 @@ router.post('/tables/:tableId/menu-order', authenticateToken, requireVerified, a
         hosted_table_member_id: mem.id,
         event_id: ht.event?.id || null,
         venue_id: menuVenueId,
+        is_day_booking: !ht.event?.id,
         menu_zar: menuResolved.totalZar,
         amount_total_zar: menuResolved.totalZar,
         selected_menu_items: menuResolved.items,
@@ -2010,6 +2013,9 @@ router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified
         hosted_table_member_id: member.id,
         event_id: joinEvent?.id || null,
         venue_id: joinVenueId,
+        is_day_booking: !joinEvent?.id,
+        booking_mode: 'join',
+        member_role: 'GUEST',
         entrance_zar: entranceZar,
         join_zar: joinZar,
         menu_zar: menuZar,
@@ -2161,6 +2167,9 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           hosted_table_member_id: memberId,
           event_id: joinEvent?.id || null,
           venue_id: joinVenueId,
+          is_day_booking: !joinEvent?.id,
+          booking_mode: 'join',
+          member_role: 'GUEST',
           entrance_zar: entranceZarJoin,
           join_zar: joinZarJoin,
           menu_zar: menuZarJoin,
@@ -2473,6 +2482,9 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
           hosted_table_member_id: member.id,
           event_id: inviteEvent?.id || null,
           venue_id: inviteEvent?.venueId || null,
+          is_day_booking: !inviteEvent?.id,
+          booking_mode: 'join',
+          member_role: 'GUEST',
           entrance_zar: entranceZarInv,
           join_zar: joinZarInv,
           amount_total_zar: entranceZarInv + joinZarInv,

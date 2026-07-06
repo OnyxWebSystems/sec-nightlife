@@ -9,6 +9,7 @@ import {
   classifyVenuePaymentRevenueScoped,
   createEmptyRevenueCounters,
   isTicketPaymentMeta,
+  isDayBookingPayment,
   paymentMatchesRevenueScope,
 } from '../lib/paymentMetadata.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
@@ -29,6 +30,12 @@ import {
 } from '../lib/refunds.js';
 import { releaseVenueTableSlot, computeCanReleaseTable } from '../lib/venueTableSlotRelease.js';
 import { resolveDailySessionNumber } from '../lib/dailyTableSession.js';
+import { repairMissingHostedTableJoinPayouts } from '../lib/paystackPayout.js';
+import {
+  buildTableSessionReceipt,
+  memberBelongsToTodaySast,
+  inferMemberSessionNumber as inferMemberSessionFromReceipt,
+} from '../lib/tableSessionReceipt.js';
 
 const router = Router();
 
@@ -400,8 +407,7 @@ function isSyntheticHostedId(id) {
 }
 
 function inferMemberSessionNumber(member, venueTable) {
-  if (member.tableSessionNumber != null) return Number(member.tableSessionNumber) || 1;
-  return resolveDailySessionNumber(venueTable);
+  return inferMemberSessionFromReceipt(member, venueTable);
 }
 
 function mapUserBrief(u) {
@@ -848,6 +854,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const revenueMode = String(req.query.revenue_mode || 'gross').toLowerCase() === 'net' ? 'net' : 'gross';
 
     await repairTicketPaymentsForVenues([venueId]);
+    await repairMissingHostedTableJoinPayouts({ sinceDays: 120, limit: 50 }).catch(() => null);
 
     const cutoff = new Date(Date.now() - days * 86400000);
 
@@ -924,7 +931,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         matchedPaymentRefs.add(basePaymentReference(ref));
       }
       bumpRevenueDay(revenueByDay, dayKey, gross, net);
-      classifyVenuePaymentRevenueScoped(mtype, pType, gross, net, revenueCounters, meta, revenueScope);
+      classifyVenuePaymentRevenueScoped(mtype, pType, gross, net, revenueCounters, meta, revenueScope, ref);
       return true;
     };
 
@@ -1019,9 +1026,15 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     let ticketSalesFromPayments = 0;
 
+    let dayBookingJoinFeeVolumeZar = 0;
+
     for (const p of payments) {
       const meta = flattenPaymentMetadata(p.metadata);
       if (!paymentMatchesVenueScope(meta, venueId, eventIdSet)) continue;
+      if (isDayBookingPayment(meta)) {
+        const joinZar = Number(meta.join_zar ?? meta.joinZar ?? 0) || 0;
+        if (joinZar > 0) dayBookingJoinFeeVolumeZar += joinZar;
+      }
       if (p.reference && matchedPaymentRefs.has(p.reference)) continue;
       if (isRefundedPaymentRef(p.reference, refundedRefs)) continue;
       const amt = Number(p.amount) || 0;
@@ -1108,6 +1121,9 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       dayBookingGuestPaymentNetZar: roundZar(revenueCounters.dayBookingGuestPaymentNetZar),
       dayBookingOtherPaymentZar: roundZar(revenueCounters.dayBookingOtherPaymentZar),
       dayBookingOtherPaymentNetZar: roundZar(revenueCounters.dayBookingOtherPaymentNetZar),
+      dayBookingMenuPaymentZar: roundZar(revenueCounters.dayBookingMenuPaymentZar),
+      dayBookingMenuPaymentNetZar: roundZar(revenueCounters.dayBookingMenuPaymentNetZar),
+      dayBookingJoinFeeVolumeZar: roundZar(dayBookingJoinFeeVolumeZar),
       venueTablePaymentZar: roundZar(revenueCounters.venueTablePaymentZar),
       venueTablePaymentNetZar: roundZar(revenueCounters.venueTablePaymentNetZar),
       otherPaymentZar: roundZar(revenueCounters.otherPaymentZar),
@@ -1586,9 +1602,12 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
     }
 
     const refundedRefs = await loadRefundedPaymentRefs(venueIds);
+    const includePast = String(req.query.include_past || '') === '1';
 
     res.json({
-      items: members.map((m) => {
+      items: members
+        .filter((m) => includePast || memberBelongsToTodaySast(m, m.venueTable))
+        .map((m) => {
         const sessionNumber = inferMemberSessionNumber(m, m.venueTable);
         const hostedTable = m.venueTable.hostedTableId
           ? hostedById.get(m.venueTable.hostedTableId) || null
@@ -1651,251 +1670,17 @@ router.get('/table-booking-detail', authenticateToken, async (req, res, next) =>
       return res.status(400).json({ error: 'hosted_table_id or venue_table_id is required' });
     }
 
-    let venueId = null;
-    let tableName = 'Table';
-    let eventTitle = null;
-    let eventId = null;
-    let status = 'ENDED';
-    let canManageLive = false;
-    let host = null;
-    const members = [];
-    const transactions = [];
-
-    if (hostedTableId) {
-      const ht = await prisma.hostedTable.findUnique({
-        where: { id: hostedTableId },
-        include: {
-          event: { select: { id: true, title: true, venueId: true, date: true, endsAt: true } },
-          members: {
-            include: {
-              user: {
-                select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } },
-              },
-            },
-          },
-        },
-      });
-      if (!ht) return res.status(404).json({ error: 'Table not found' });
-      venueId = ht.event?.venueId;
-      if (!venueId) return res.status(404).json({ error: 'Table not found' });
-      const canManage = await staffHasVenuePermission(req.userId, venueId, 'bookings');
-      if (!canManage) return res.status(403).json({ error: 'Forbidden' });
-
-      tableName = ht.tableName;
-      eventTitle = ht.event?.title || null;
-      eventId = ht.eventId;
-      status = ht.status === 'ACTIVE' || ht.status === 'FULL' ? 'ACTIVE' : 'ENDED';
-      canManageLive = status === 'ACTIVE' && !isSyntheticHostedId(ht.id);
-
-      const hostUser = ht.members.find((m) => m.userId === ht.hostUserId);
-      if (hostUser) {
-        host = {
-          ...mapUserBrief(hostUser.user),
-          role: 'HOST',
-          amountPaid: Number(hostUser.menuSpendPaid || 0),
-          menuItems: await resolveMenuLinesForVenue(hostUser.selectedMenuItems, venueId),
-        };
-      }
-
-      const ledgerRows = await prisma.eventVenueTableBooking.findMany({
-        where: { hostedTableId: ht.id },
-        include: {
-          user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      for (const row of ledgerRows) {
-        const lineTotal = bookingDisplayTotalZar(row);
-        const menuItems = await resolveMenuLinesForVenue(row.selectedMenuItems, venueId);
-        transactions.push({
-          id: row.id,
-          role: row.role,
-          user: mapUserBrief(row.user),
-          lineTotalZar: lineTotal,
-          createdAt: row.createdAt,
-          settlementMode: row.settlementMode,
-          menuItems,
-          hostingTierName: row.hostingTierName,
-        });
-        if (row.role !== 'HOST') {
-          members.push({
-            role: 'GUEST',
-            user: mapUserBrief(row.user),
-            amountPaid: lineTotal,
-            settlementMode: row.settlementMode,
-            menuItems,
-            paidAt: row.createdAt,
-          });
-        }
-      }
-
-      for (const m of ht.members.filter((x) => x.status === 'GOING' || x.status === 'CANCELLED')) {
-        const already = transactions.some((t) => t.user?.id === m.userId);
-        if (already || m.userId === ht.hostUserId) continue;
-        const menuItems = await resolveMenuLinesForVenue(m.selectedMenuItems, venueId);
-        const amt = Number(m.menuSpendPaid || m.joinFeePaid || 0);
-        members.push({
-          role: 'GUEST',
-          user: mapUserBrief(m.user),
-          amountPaid: amt,
-          settlementMode: null,
-          menuItems,
-          paidAt: m.joinedAt,
-          memberStatus: m.status,
-        });
-      }
-    } else {
-      const vt = await prisma.venueTable.findUnique({
-        where: { id: venueTableId },
-        include: {
-          venue: { select: { id: true, name: true } },
-          event: { select: { id: true, title: true } },
-        },
-      });
-      if (!vt) return res.status(404).json({ error: 'Table not found' });
-      venueId = vt.venueId;
-      const canManage = await staffHasVenuePermission(req.userId, venueId, 'bookings');
-      if (!canManage) return res.status(403).json({ error: 'Forbidden' });
-
-      tableName = vt.tableName;
-      eventTitle = vt.event?.title || null;
-      eventId = vt.eventId;
-      const currentSession = resolveDailySessionNumber(vt);
-      const isPastSession = sessionNumber < currentSession;
-      status = isPastSession ? 'RESET' : vt.currentOccupancy > 0 || vt.hostUserId ? 'ACTIVE' : 'ENDED';
-      canManageLive = false;
-
-      const ledgerRows = vt.eventId
-        ? await prisma.eventVenueTableBooking.findMany({
-            where: { venueTableId: vt.id, tableSessionNumber: sessionNumber },
-            include: {
-              user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
-            },
-            orderBy: { createdAt: 'desc' },
-          })
-        : [];
-
-      for (const row of ledgerRows) {
-        const lineTotal = bookingDisplayTotalZar(row);
-        const menuItems = await resolveMenuLinesForVenue(row.selectedMenuItems, venueId);
-        transactions.push({
-          id: row.id,
-          role: row.role,
-          user: mapUserBrief(row.user),
-          lineTotalZar: lineTotal,
-          createdAt: row.createdAt,
-          settlementMode: row.settlementMode,
-          menuItems,
-          hostingTierName: row.hostingTierName,
-        });
-        if (row.role === 'HOST' && !host) {
-          host = {
-            ...mapUserBrief(row.user),
-            role: 'HOST',
-            amountPaid: lineTotal,
-            menuItems,
-          };
-        } else if (row.role === 'GUEST') {
-          members.push({
-            role: 'GUEST',
-            user: mapUserBrief(row.user),
-            amountPaid: lineTotal,
-            settlementMode: row.settlementMode,
-            menuItems,
-            paidAt: row.createdAt,
-          });
-        }
-      }
-
-      const vtMembers = await prisma.venueTableMember.findMany({
-        where: {
-          venueTableId: vt.id,
-          paystackReference: { not: null },
-          status: { in: ['CONFIRMED', 'LEFT'] },
-        },
-        include: {
-          user: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
-        },
-        orderBy: { paidAt: 'desc' },
-      });
-
-      for (const m of vtMembers) {
-        const memberSession = inferMemberSessionNumber(m, vt);
-        if (memberSession !== sessionNumber) continue;
-        const menuItems = await resolveMenuLinesForVenue(m.selectedMenuItems, venueId);
-        const amt = Number(m.amountPaid || 0);
-        const entry = {
-          role: m.memberRole === 'HOST' ? 'HOST' : 'GUEST',
-          user: mapUserBrief(m.user),
-          amountPaid: amt,
-          settlementMode: m.settlementMode,
-          menuItems,
-          paidAt: m.paidAt || m.joinedAt,
-          memberStatus: m.status,
-        };
-        if (m.memberRole === 'HOST') {
-          if (!host) host = entry;
-        } else {
-          const dup = members.some((x) => x.user?.id === m.userId);
-          if (!dup) members.push(entry);
-        }
-        if (!transactions.some((t) => t.user?.id === m.userId)) {
-          transactions.push({
-            id: `vtm-${m.id}`,
-            role: m.memberRole === 'HOST' ? 'HOST' : 'GUEST',
-            user: mapUserBrief(m.user),
-            lineTotalZar: amt,
-            createdAt: m.paidAt || m.joinedAt,
-            settlementMode: m.settlementMode,
-            menuItems,
-          });
-        }
-      }
-
-      if (vt.hostedTableId && !host) {
-        const ht = await prisma.hostedTable.findUnique({
-          where: { id: vt.hostedTableId },
-          include: {
-            members: {
-              include: {
-                user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
-              },
-            },
-          },
-        });
-        if (ht?.hostUserId) {
-          const hostMem = ht.members.find((x) => x.userId === ht.hostUserId);
-          if (hostMem) {
-            host = {
-              ...mapUserBrief(hostMem.user),
-              role: 'HOST',
-              amountPaid: Number(hostMem.menuSpendPaid || 0),
-              menuItems: await resolveMenuLinesForVenue(hostMem.selectedMenuItems, venueId),
-            };
-          }
-        }
-      }
-    }
-
-    totalPaidZar = Math.round(
-      transactions.reduce((s, t) => s + Number(t.lineTotalZar || 0), 0) * 100,
-    ) / 100;
-
-    res.json({
-      tableName,
-      eventTitle,
-      eventId,
-      sessionNumber: hostedTableId ? null : sessionNumber,
-      status,
-      host,
-      members,
-      transactions: transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-      totalPaidZar,
-      canManageLive,
+    const receipt = await buildTableSessionReceipt({
       hostedTableId: hostedTableId || null,
       venueTableId: venueTableId || null,
+      sessionNumber,
     });
+    if (!receipt) return res.status(404).json({ error: 'Table not found' });
+
+    const canManage = await staffHasVenuePermission(req.userId, receipt.venueId, 'bookings');
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+
+    res.json(receipt);
   } catch (e) {
     next(e);
   }

@@ -222,6 +222,8 @@ export default function VenueAnalytics() {
       hostedTablePaymentZar: pickRevenueAmount(analytics, 'hostedTablePaymentZar', 'hostedTablePaymentNetZar', revenueMode),
       dayBookingHostPaymentZar: pickRevenueAmount(analytics, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', revenueMode),
       dayBookingGuestPaymentZar: pickRevenueAmount(analytics, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', revenueMode),
+      dayBookingMenuPaymentZar: pickRevenueAmount(analytics, 'dayBookingMenuPaymentZar', 'dayBookingMenuPaymentNetZar', revenueMode),
+      dayBookingJoinFeeVolumeZar: Number(analytics?.dayBookingJoinFeeVolumeZar || 0),
       dayBookingOtherPaymentZar: pickRevenueAmount(analytics, 'dayBookingOtherPaymentZar', 'dayBookingOtherPaymentNetZar', revenueMode),
       venueTablePaymentZar: pickRevenueAmount(analytics, 'venueTablePaymentZar', 'venueTablePaymentNetZar', revenueMode),
       otherPaymentZar: pickRevenueAmount(analytics, 'otherPaymentZar', 'otherPaymentNetZar', revenueMode),
@@ -483,7 +485,7 @@ export default function VenueAnalytics() {
               </Card>
             </div>
 
-            <div className={`grid gap-4 ${revenueScope === 'day_bookings' ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-5'}`}>
+            <div className={`grid gap-4 ${revenueScope === 'day_bookings' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-5'}`}>
               {revenueScope === 'day_bookings' ? (
                 <>
                   <Card className="glass-card border-[#262629]">
@@ -496,16 +498,26 @@ export default function VenueAnalytics() {
                   </Card>
                   <Card className="glass-card border-[#262629]">
                     <CardContent className="pt-6">
-                      <p className="text-gray-500 text-sm" title="Guest joins on day-booking tables">
-                        Table joins
+                      <p className="text-gray-500 text-sm" title="Guest join checkouts (venue share)">
+                        Guest checkouts
                       </p>
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingGuestPaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
                   <Card className="glass-card border-[#262629]">
                     <CardContent className="pt-6">
-                      <p className="text-gray-500 text-sm">Other</p>
-                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingOtherPaymentZar.toLocaleString()}</p>
+                      <p className="text-gray-500 text-sm" title="Menu pre-orders and add-ons (venue revenue)">
+                        Menu payments
+                      </p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingMenuPaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[#262629]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm" title="Join fees paid by guests (paid to hosts, not venue revenue)">
+                        Join fees (to hosts)
+                      </p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingJoinFeeVolumeZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
                 </>

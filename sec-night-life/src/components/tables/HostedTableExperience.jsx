@@ -347,6 +347,15 @@ export default function HostedTableExperience({
         <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--sec-text-primary)' }}>
           {hostedTable.tableName}
         </h1>
+        {hostedTable.venueSlotName &&
+        hostedTable.venueSlotName !== hostedTable.tableName ? (
+          <p style={{ fontSize: 13, color: 'var(--sec-accent)', marginTop: 8, lineHeight: 1.5 }}>
+            Venue table: {hostedTable.venueSlotName}
+            <span style={{ display: 'block', fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+              Show this to venue staff for seating
+            </span>
+          </p>
+        ) : null}
         {hostedTable.tableDescription && (
           <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginTop: 8, lineHeight: 1.5 }}>
             {hostedTable.tableDescription}
