@@ -1,5 +1,10 @@
 import { toast } from 'sonner';
+import { apiGet } from '@/api/client';
 import { verifyPaystackReference, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
+
+export function fetchPaymentFulfillment(reference) {
+  return apiGet(`/api/payments/${encodeURIComponent(reference)}/fulfillment`);
+}
 
 export function invalidatePostPaymentQueries(queryClient, { eventId } = {}) {
   if (!queryClient) return;
@@ -29,16 +34,18 @@ function isFulfilledResult(result) {
 }
 
 /**
- * Poll verify until fulfillment completes, fails, or timeout.
+ * Poll fulfillment status (DB-only) until complete, fails, or timeout.
  */
-export async function pollPaymentFulfillment(reference, { maxMs = 120000, intervalMs = 5000 } = {}) {
+export async function pollPaymentFulfillment(reference, { maxMs = 120000 } = {}) {
   const started = Date.now();
   let lastResult = null;
   while (Date.now() - started < maxMs) {
-    lastResult = await verifyPaystackReference(reference);
+    lastResult = await fetchPaymentFulfillment(reference);
     if (isFulfilledResult(lastResult)) return { ...lastResult, fulfilled: true };
     if (lastResult?.status === 'failed') return { ...lastResult, fulfilled: false };
     if (lastResult?.fulfillment?.error) return { ...lastResult, fulfilled: false };
+    const elapsed = Date.now() - started;
+    const intervalMs = elapsed < 30000 ? 1500 : 4000;
     await new Promise((resolve) => {
       window.setTimeout(resolve, intervalMs);
     });

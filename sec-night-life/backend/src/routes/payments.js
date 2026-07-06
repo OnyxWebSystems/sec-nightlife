@@ -1851,6 +1851,41 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
   return Boolean(paidMeta.side_effects_applied);
 }
 
+async function buildFulfillmentStatusResponse(reference) {
+  const pay = await prisma.payment.findUnique({
+    where: { reference },
+    select: { status: true, metadata: true, type: true },
+  });
+  if (!pay) return null;
+
+  const paidMeta = flattenPaymentMetadata(pay.metadata);
+  const fulfillmentApplied = await isPaymentFulfillmentComplete(reference, {
+    ...paidMeta,
+    type: paidMeta.type || pay.type,
+  });
+
+  const paystackOk = pay.status === 'success';
+  const bookingMode = paidMeta.booking_mode || paidMeta.bookingMode;
+  const isHostCheckout =
+    bookingMode === 'host' ||
+    bookingMode === 'custom_host' ||
+    paidMeta.member_role === 'HOST';
+
+  return {
+    status: paystackOk ? (fulfillmentApplied ? 'paid' : 'processing') : pay.status,
+    paystack_status: paystackOk ? 'success' : pay.status === 'failed' ? 'failed' : 'pending',
+    paystack_reference: reference,
+    fulfillment: {
+      applied: fulfillmentApplied,
+      pending: paystackOk && !fulfillmentApplied,
+      error: paidMeta.side_effects_error || null,
+    },
+    payment_type: paidMeta.type || pay.type || null,
+    booking_mode: bookingMode || null,
+    is_host_checkout: isHostCheckout,
+  };
+}
+
 async function buildPaymentVerifyResponse(reference, paystackStatus) {
   const mapped =
     paystackStatus === 'success' ? 'paid' : paystackStatus === 'failed' ? 'failed' : 'pending';
@@ -2299,6 +2334,20 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
       }),
     });
     res.json({ reference, authorization_url: paystackResp.data.authorization_url, access_code: paystackResp.data.access_code });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/payments/:reference/fulfillment — DB-only fulfillment status (for fast polling)
+router.get('/:reference/fulfillment', authenticateToken, async (req, res, next) => {
+  try {
+    const reference = req.params.reference;
+    const ownership = await assertPaymentOwnership(reference, req.userId);
+    if (!ownership.ok) return res.status(ownership.code).json({ error: ownership.error });
+    const result = await buildFulfillmentStatusResponse(reference);
+    if (!result) return res.status(404).json({ error: 'Payment reference not found' });
+    res.json(result);
   } catch (err) {
     next(err);
   }

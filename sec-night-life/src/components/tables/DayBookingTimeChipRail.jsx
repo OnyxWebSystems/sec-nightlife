@@ -33,7 +33,7 @@ export default function DayBookingTimeChipRail({
       ) : null}
       <div
         ref={scrollRef}
-        className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1"
+        className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-4 px-4 sm:mx-0 sm:px-0"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {options.map((time) => {

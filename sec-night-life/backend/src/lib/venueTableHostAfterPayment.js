@@ -240,7 +240,7 @@ export async function ensureHostedTableFromVenueHostPayment({
     });
   }
 
-  if (isDay && member) {
+  if (isDay && member && !paystackReference) {
     const windowFromMember = resolveBookingWindowFromMember(member, venueTable);
     if (windowFromMember.windowStartTime && windowFromMember.windowEndTime) {
       const hostCheck = await canHostInWindow(
@@ -259,6 +259,12 @@ export async function ensureHostedTableFromVenueHostPayment({
         return { ok: false, error: hostCheck.error || 'window_blocked' };
       }
     }
+  } else if (isDay && member && paystackReference) {
+    // Paid fulfillment: window was validated at checkout — do not re-block after Paystack success.
+    logger.info('ensureHostedTableFromVenueHostPayment: skipping window re-check for paid reference', {
+      venueTableId: venueTable.id,
+      paystackReference,
+    });
   } else if (venueTable?.hostedTableId) {
     return { ok: false, error: 'slot_already_hosted' };
   }

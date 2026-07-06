@@ -390,3 +390,61 @@ export function buildTimelineSegments(venueWindow, occupancy, selectedWindow, la
 
   return { segments, ticks, bookableStart, bookableEnd, total, nowPct, nowTime: nowClock };
 }
+
+/** Thin timeline labels for narrow viewports — avoids overlapping absolute-position ticks. */
+export function selectTimelineTicks(ticks, { isMobile = false, totalMinutes = 0 } = {}) {
+  if (!ticks?.length) return [];
+
+  const dedupeByTime = (list) => {
+    const seen = new Set();
+    return list.filter((t) => {
+      if (seen.has(t.time)) return false;
+      seen.add(t.time);
+      return true;
+    });
+  };
+
+  const pickByTargetPcts = (targetPcts) => {
+    const picked = [];
+    for (const pct of targetPcts) {
+      let best = ticks[0];
+      let bestDist = Infinity;
+      for (const tick of ticks) {
+        const dist = Math.abs(tick.pct - pct);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = tick;
+        }
+      }
+      picked.push(best);
+    }
+    return dedupeByTime(picked).sort((a, b) => a.pct - b.pct);
+  };
+
+  if (!isMobile) {
+    if (totalMinutes > 480) {
+      return dedupeByTime(ticks.filter((_, i) => i % 2 === 0 || i === ticks.length - 1));
+    }
+    return ticks;
+  }
+
+  if (totalMinutes > 480) {
+    return pickByTargetPcts([0, 25, 50, 75, 100]);
+  }
+
+  if (totalMinutes > 240) {
+    const n = ticks.length;
+    const indices = [
+      0,
+      Math.floor(n * 0.25),
+      Math.floor(n * 0.5),
+      Math.floor(n * 0.75),
+      n - 1,
+    ];
+    return dedupeByTime([...new Set(indices)].map((i) => ticks[i]).filter(Boolean)).sort(
+      (a, b) => a.pct - b.pct,
+    );
+  }
+
+  return dedupeByTime(ticks.filter((_, i) => i % 2 === 0 || i === ticks.length - 1));
+}

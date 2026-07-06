@@ -419,11 +419,10 @@ export default function TableDetails() {
     queryClient,
   ]);
 
-  const retryRepairFulfillment = async () => {
-    const ref = activePayReference;
-    if (!ref || !tableId) return;
-    setRepairingFulfillment(true);
-    setFulfillmentError(null);
+  const runRepairFulfillment = async (ref, { silent = false, showRepairing = false } = {}) => {
+    if (!ref || !tableId) return null;
+    if (showRepairing) setRepairingFulfillment(true);
+    if (!silent) setFulfillmentError(null);
     try {
       const res = await apiPost(`/api/venue-tables/${tableId}/repair-fulfillment`, {
         paystackReference: ref,
@@ -434,19 +433,34 @@ export default function TableDetails() {
       if (res?.fulfilled) {
         setPaymentComplete(true);
         setHostPaySuccess(true);
-        toast.success('Table pass ready — check your QR below');
-      } else {
+        setFulfillmentError(null);
+        setAwaitingFulfillment(false);
+        if (!silent) toast.success('Table pass ready — check your QR below');
+      } else if (!silent) {
         setFulfillmentError(res?.hostError || res?.reason || 'Could not complete table setup');
         toast.error('Table setup still incomplete', {
           description: `Reference ${ref}. Contact support if this persists.`,
         });
+      } else if (res?.hostError) {
+        setFulfillmentError(res.hostError);
       }
+      return res;
     } catch (e) {
-      setFulfillmentError(e?.data?.error || e?.message || 'Repair failed');
-      toast.error(e?.data?.error || e?.message || 'Repair failed');
+      const msg = e?.data?.error || e?.message || 'Repair failed';
+      if (!silent) {
+        setFulfillmentError(msg);
+        toast.error(msg);
+      }
+      return null;
     } finally {
-      setRepairingFulfillment(false);
+      if (showRepairing) setRepairingFulfillment(false);
     }
+  };
+
+  const retryRepairFulfillment = async () => {
+    const ref = activePayReference;
+    if (!ref || !tableId) return;
+    await runRepairFulfillment(ref, { showRepairing: true });
   };
 
   useEffect(() => {
@@ -556,6 +570,9 @@ export default function TableDetails() {
             setLastPaymentReference(pay.reference);
             setAwaitingFulfillment(true);
             setFulfillmentError(null);
+
+            void runRepairFulfillment(pay.reference, { silent: true });
+
             void completePaystackCheckout({
               reference: pay.reference,
               payload,
@@ -576,6 +593,12 @@ export default function TableDetails() {
               }
               setAwaitingFulfillment(false);
             });
+
+            window.setTimeout(() => {
+              void runRepairFulfillment(pay.reference, { silent: true }).then((res) => {
+                if (res?.fulfilled) refreshBookingQueries();
+              });
+            }, 15000);
           },
         });
       } else {

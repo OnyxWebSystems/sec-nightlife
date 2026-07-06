@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Clock, Users } from 'lucide-react';
 import DayBookingTimeChipRail from '@/components/tables/DayBookingTimeChipRail';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   MIN_WINDOW_MINUTES,
   SLOT_STEP_MINUTES,
@@ -14,6 +15,7 @@ import {
   hasSlotsRemainingToday,
   latestBookableEndTime,
   listTimeOptionsInGap,
+  selectTimelineTicks,
   toServiceMinutes,
   validateBookingWindow,
   findGapContainingWindow,
@@ -115,6 +117,7 @@ export default function DayBookingTimeSlotPicker({
   closedToday = false,
   openDaysSummary = null,
 }) {
+  const isMobile = useIsMobile();
   const now = useNowTick();
   const latestBookableEnd = latestBookableEndProp || latestBookableEndTime(venueWindow);
   const earliestStart = earliestBookableStartTime(venueWindow, now);
@@ -160,9 +163,14 @@ export default function DayBookingTimeSlotPicker({
     [value, venueWindow, occupancy, mode, now.getTime()],
   );
 
-  const { segments, ticks, nowPct, nowTime } = useMemo(
+  const { segments, ticks, nowPct, nowTime, total } = useMemo(
     () => buildTimelineSegments(venueWindow, occupancy, value, latestBookableEnd, now),
     [venueWindow, occupancy, value, latestBookableEnd, now.getTime()],
+  );
+
+  const visibleTicks = useMemo(
+    () => selectTimelineTicks(ticks, { isMobile, totalMinutes: total || 0 }),
+    [ticks, isMobile, total],
   );
 
   const startOptions = useMemo(() => {
@@ -275,13 +283,6 @@ export default function DayBookingTimeSlotPicker({
     if (initial) onChange?.(initial);
   };
 
-  const visibleTicks = ticks.filter((_, i) => {
-    if (typeof window !== 'undefined' && window.innerWidth < 640) {
-      return i % 2 === 0;
-    }
-    return true;
-  });
-
   return (
     <div
       className={`rounded-xl border space-y-4 ${compact ? 'p-3' : 'p-4 sm:p-5'}`}
@@ -363,6 +364,20 @@ export default function DayBookingTimeSlotPicker({
 
       {slotsRemaining || occupancy.length > 0 ? (
         <div className="space-y-2">
+          {nowPct != null && nowTime ? (
+            <div className="flex justify-center sm:justify-start">
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-medium"
+                style={{
+                  color: 'var(--sec-accent-bright)',
+                  background: 'var(--sec-accent-muted)',
+                  border: '1px solid var(--sec-accent-border)',
+                }}
+              >
+                Now · {nowTime}
+              </span>
+            </div>
+          ) : null}
           <div
             className="relative h-12 sm:h-14 rounded-xl overflow-hidden"
             style={{ background: 'var(--sec-bg-base)', border: '1px solid var(--sec-border)' }}
@@ -422,25 +437,30 @@ export default function DayBookingTimeSlotPicker({
               </div>
             ) : null}
           </div>
-          <div className="relative h-5 text-[10px] sm:text-[11px] text-[var(--sec-text-muted)]">
-            {visibleTicks.map((tick) => (
-              <span
-                key={tick.time}
-                className="absolute -translate-x-1/2 whitespace-nowrap"
-                style={{ left: `${tick.pct}%` }}
-              >
-                {tick.time}
-              </span>
-            ))}
-            {nowPct != null && nowTime ? (
-              <span
-                className="absolute -translate-x-1/2 text-[9px] font-medium whitespace-nowrap"
-                style={{ left: `${nowPct}%`, top: -2, color: 'var(--sec-accent-bright)' }}
-              >
-                Now
-              </span>
-            ) : null}
-          </div>
+          {isMobile ? (
+            <div
+              className="grid text-[10px] text-[var(--sec-text-muted)]"
+              style={{ gridTemplateColumns: `repeat(${Math.max(visibleTicks.length, 1)}, minmax(0, 1fr))` }}
+            >
+              {visibleTicks.map((tick) => (
+                <span key={tick.time} className="text-center whitespace-nowrap truncate px-0.5">
+                  {tick.time}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="relative h-5 text-[11px] text-[var(--sec-text-muted)]">
+              {visibleTicks.map((tick) => (
+                <span
+                  key={tick.time}
+                  className="absolute -translate-x-1/2 whitespace-nowrap"
+                  style={{ left: `${tick.pct}%` }}
+                >
+                  {tick.time}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap gap-3 text-[10px] text-[var(--sec-text-muted)]">
             <span className="flex items-center gap-1">
               <span
@@ -487,7 +507,7 @@ export default function DayBookingTimeSlotPicker({
       ) : null}
 
       {activeGap && slotsRemaining ? (
-        <div className="space-y-4">
+        <div className="space-y-4 -mx-1 sm:mx-0">
           <DayBookingTimeChipRail
             label="Arrive from"
             options={startOptions}
