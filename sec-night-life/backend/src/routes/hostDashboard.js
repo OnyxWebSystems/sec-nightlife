@@ -21,7 +21,11 @@ import {
   isExternalMeetupInFuture,
   shouldShowHostedTableOnHostDashboard,
 } from '../lib/eventWallClock.js';
-import { normalizeBookingDateSast, windowEndInstant } from '../lib/dayBookingWindows.js';
+import {
+  normalizeBookingDateSast,
+  resolveHostMemberForHostedTable,
+  windowEndInstant,
+} from '../lib/dayBookingWindows.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from '../lib/hostedTableSecFees.js';
 import { addUserToHostedTableGroupChat, removeUserFromHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
@@ -1510,17 +1514,17 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             },
             select: {
               venueTableId: true,
+              paystackReference: true,
               bookingDate: true,
               windowStartTime: true,
               windowEndTime: true,
             },
           })
         : [];
-    const hostMemberByVenueTable = Object.fromEntries(hostMembers.map((m) => [m.venueTableId, m]));
     const out = tables.map((t) => {
       let row = t;
       if (t.venueTableId && !t.eventId) {
-        const member = hostMemberByVenueTable[t.venueTableId];
+        const member = resolveHostMemberForHostedTable(t, hostMembers);
         if (member?.windowStartTime && member?.windowEndTime) {
           const effectiveEnd = windowEndInstant(
             normalizeBookingDateSast(member.bookingDate || t.eventDate),

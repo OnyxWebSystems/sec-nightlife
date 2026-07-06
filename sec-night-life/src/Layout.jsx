@@ -295,8 +295,10 @@ export default function Layout({ children, currentPageName }) {
 
   const { hideBottomNav: pageHidesNav } = getMobileNavState({ pageName: currentPageName, searchParams });
   const formHidesNav = useMobileNavFormHide();
-  const hideBottomNav = pageHidesNav || formHidesNav;
-  const navScrollCompact = useScrollDirection({ enabled: !hideBottomNav });
+  const hideBottomNav = pageHidesNav || (currentPageName !== 'HostDashboard' && formHidesNav);
+  const navScrollCompact = useScrollDirection({
+    enabled: !hideBottomNav && currentPageName !== 'HostDashboard',
+  });
   const isMobile = useIsMobile();
   const showLayoutBackHeader = isMobile && shouldShowMobileBackHeader(currentPageName);
 

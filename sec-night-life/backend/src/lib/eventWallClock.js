@@ -3,7 +3,7 @@
  * Uses the same UTC convention as {@link eventStartsAtFromEvent} / {@link eventStartsAtFromHostedTable} in ticketHelpers.
  */
 import { eventStartsAtFromEvent, eventStartsAtFromHostedTable, eventEndsAtFromEvent } from './ticketHelpers.js';
-import { isDayVenueHostedTable, dayBookingHideAfterUtc } from './dayBookingWindows.js';
+import { isDayVenueHostedTable, dayBookingHideAfterUtc, formatYmdSast } from './dayBookingWindows.js';
 
 const MS_24H = 24 * 60 * 60 * 1000;
 
@@ -55,6 +55,14 @@ export function hostDashboardHideAfterUtc(hostedRow, eventRow, now = new Date())
 
 export function shouldShowHostedTableOnHostDashboard(hostedRow, eventRow, now = new Date()) {
   const hideAfter = hostDashboardHideAfterUtc(hostedRow, eventRow);
-  if (!hideAfter) return true;
+  if (!hideAfter) {
+    if (isDayVenueHostedTable(hostedRow)) {
+      if (hostedRow?.eventDate) {
+        return formatYmdSast(hostedRow.eventDate) >= formatYmdSast(now);
+      }
+      return hostedRow?.status !== 'CLOSED';
+    }
+    return true;
+  }
   return now.getTime() < hideAfter.getTime();
 }

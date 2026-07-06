@@ -599,4 +599,24 @@ export function venueWindowFromTables(venueTables, refDate = new Date()) {
   return null;
 }
 
+/** Match the host venueTableMember row for a specific day-booking hostedTable session. */
+export function resolveHostMemberForHostedTable(hostedTable, hostMembers = []) {
+  if (!hostedTable?.venueTableId) return null;
+  const candidates = hostMembers.filter((m) => m.venueTableId === hostedTable.venueTableId);
+  if (hostedTable.hostFeePaystackRef) {
+    const byRef = candidates.find((m) => m.paystackReference === hostedTable.hostFeePaystackRef);
+    if (byRef) return byRef;
+  }
+  const ymd = hostedTable.eventDate ? formatYmdSast(hostedTable.eventDate) : null;
+  const start = hostedTable.eventTime ? String(hostedTable.eventTime) : null;
+  if (ymd) {
+    const byWindow = candidates.find((m) => {
+      const bd = m.bookingDate ? formatYmdSast(m.bookingDate) : null;
+      return bd === ymd && (!start || m.windowStartTime === start);
+    });
+    if (byWindow) return byWindow;
+  }
+  return null;
+}
+
 export { serviceScheduleFromTable, MIN_WINDOW_MINUTES, END_BUFFER_MINUTES };

@@ -58,9 +58,9 @@ export function useMobileNavFormHide() {
       if (!vv) return;
       const keyboardLikelyOpen = baselineHeight - vv.height > KEYBOARD_HEIGHT_DELTA;
       keyboardOpenRef.current = keyboardLikelyOpen;
-      if (keyboardLikelyOpen) {
+      if (keyboardLikelyOpen && isFocusableElement(document.activeElement)) {
         setHidden(true);
-      } else if (!isFocusableElement(document.activeElement)) {
+      } else if (!keyboardLikelyOpen && !isFocusableElement(document.activeElement)) {
         setHidden(false);
         baselineHeight = vv.height;
       }

@@ -560,7 +560,7 @@ export default function HostDashboard() {
                         )}
                         {pr.user?.id && (
                           <Link
-                            to={createPageUrl(`Profile?id=${pr.user.id}`)}
+                            to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(pr.user.id)}`}
                             className="text-[10px] text-[var(--sec-accent)] underline mt-1 inline-block"
                           >
                             View profile
