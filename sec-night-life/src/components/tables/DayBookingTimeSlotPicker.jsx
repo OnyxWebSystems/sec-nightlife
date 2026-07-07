@@ -112,6 +112,7 @@ export default function DayBookingTimeSlotPicker({
   latestBookableEnd: latestBookableEndProp,
   isOvernight = false,
   mode = 'host',
+  autoSelectDefault = true,
   readOnly = false,
   compact = false,
   closedToday = false,
@@ -133,14 +134,14 @@ export default function DayBookingTimeSlotPicker({
   const [activeGap, setActiveGap] = useState(null);
 
   useEffect(() => {
-    if (!venueWindow || readOnly || value?.startTime) return;
+    if (!autoSelectDefault || !venueWindow || readOnly || value?.startTime) return;
     const initial = defaultWindowFromGaps(gaps, venueWindow, { now });
     if (initial) {
       onChange?.(initial);
       const gap = findGapContainingWindow(gaps, initial.startTime, initial.endTime, venueWindow);
       if (gap) setActiveGap(gap);
     }
-  }, [venueWindow?.startTime, venueWindow?.endTime, gaps.length, now.getTime()]);
+  }, [autoSelectDefault, venueWindow?.startTime, venueWindow?.endTime, gaps.length, now.getTime()]);
 
   useEffect(() => {
     if (!value?.startTime || !value?.endTime || !venueWindow) return;

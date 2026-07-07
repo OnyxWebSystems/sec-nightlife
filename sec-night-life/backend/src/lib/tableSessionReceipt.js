@@ -21,6 +21,43 @@ export function memberBelongsToTodaySast(member, venueTable, now = new Date()) {
   return false;
 }
 
+/** Whether a user's venue-table membership row belongs to today (member dates only). */
+export function isVenueMembershipForToday(member, now = new Date()) {
+  if (!member) return false;
+  const todayYmd = formatYmdSast(now);
+  if (member.bookingDate) return formatYmdSast(member.bookingDate) === todayYmd;
+  if (member.paidAt) return formatYmdSast(member.paidAt) === todayYmd;
+  if (member.joinedAt) return formatYmdSast(member.joinedAt) === todayYmd;
+  return false;
+}
+
+/** Draft checkout fields (menu/window) may be restored for today's in-progress bookings only. */
+export function canRestoreVenueCheckoutDraft(member, { isHostCheckout = false } = {}, now = new Date()) {
+  if (!member || !isVenueMembershipForToday(member, now)) return false;
+  if (member.status === 'PENDING_PAYMENT' || member.status === 'APPROVED' || member.status === 'PENDING_VENUE_REVIEW') {
+    return true;
+  }
+  if (isHostCheckout) return false;
+  return member.status === 'CONFIRMED' || member.status === 'LEFT';
+}
+
+/** Clear a prior-day day-booking member row so the user can start a fresh checkout. */
+export async function clearStaleDayBookingMember(prismaClient, member) {
+  if (!member) return null;
+  await prismaClient.venueTableMember.update({
+    where: { id: member.id },
+    data: {
+      status: 'LEFT',
+      selectedMenuItems: null,
+      windowStartTime: null,
+      windowEndTime: null,
+      bookingDate: null,
+      tableSessionNumber: null,
+    },
+  });
+  return null;
+}
+
 export function resolveMemberSessionEndAt(member, venueTable, hostedTable) {
   if (hostedTable?.windowEndsAt) {
     const end =

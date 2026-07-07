@@ -42,6 +42,37 @@ export function weekdayKeySast(date = new Date()) {
   return String(label || '').toLowerCase();
 }
 
+function formatYmdSast(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Johannesburg',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date instanceof Date ? date : new Date(date));
+}
+
+export function isVenueMembershipForToday(member, now = new Date()) {
+  if (!member) return false;
+  const todayYmd = formatYmdSast(now);
+  const bookingDate = member.bookingDate || member.booking_date;
+  const paidAt = member.paidAt || member.paid_at;
+  const joinedAt = member.joinedAt || member.joined_at;
+  if (bookingDate) return formatYmdSast(bookingDate) === todayYmd;
+  if (paidAt) return formatYmdSast(paidAt) === todayYmd;
+  if (joinedAt) return formatYmdSast(joinedAt) === todayYmd;
+  return false;
+}
+
+export function canRestoreVenueCheckoutDraft(member, { isHostCheckout = false } = {}, now = new Date()) {
+  if (!member || !isVenueMembershipForToday(member, now)) return false;
+  const status = member.status;
+  if (status === 'PENDING_PAYMENT' || status === 'APPROVED' || status === 'PENDING_VENUE_REVIEW') {
+    return true;
+  }
+  if (isHostCheckout) return false;
+  return status === 'CONFIRMED' || status === 'LEFT';
+}
+
 export function isDayBookingVenueTable(table) {
   if (!table || table.eventId) return false;
   if (table.isDayBooking === true) return true;

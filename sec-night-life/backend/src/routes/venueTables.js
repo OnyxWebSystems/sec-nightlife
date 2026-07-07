@@ -41,6 +41,10 @@ import {
 } from '../lib/dayBookingWindows.js';
 import { WEEKDAY_FULL, weekdayKeyFromDate } from '../lib/serviceSchedule.js';
 import { recordTableHistory } from '../lib/tableHistory.js';
+import {
+  isVenueMembershipForToday,
+  clearStaleDayBookingMember,
+} from '../lib/tableSessionReceipt.js';
 
 const router = Router();
 
@@ -54,6 +58,16 @@ function requireVenueOwner(req, res) {
 
 async function assertVenueOwnedByUser(venueId, userId) {
   return prisma.venue.findFirst({ where: { id: venueId, ownerUserId: userId, deletedAt: null } });
+}
+
+async function loadMyMembershipForTable(tableId, userId, { isDayBooking = false } = {}) {
+  if (!userId) return null;
+  const raw = await prisma.venueTableMember.findUnique({
+    where: { venueTableId_userId: { venueTableId: tableId, userId } },
+  });
+  if (!raw) return null;
+  if (isDayBooking && !isVenueMembershipForToday(raw)) return null;
+  return raw;
 }
 
 async function initializePaystackPayment({ userId, amountZar, metadata }) {
@@ -660,12 +674,9 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
     const menuItems = await hydrateTableMenu(table);
-    let myMembership = null;
-    if (req.userId) {
-      myMembership = await prisma.venueTableMember.findUnique({
-        where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
-      });
-    }
+    const myMembership = await loadMyMembershipForTable(table.id, req.userId, {
+      isDayBooking: isDayVenueTable(table),
+    });
     const result = await buildVenueCheckoutForTable(table, table.venue, menuItems, payload, myMembership);
     if (result.error) return res.status(400).json({ error: result.error });
     if (result.checkout.error) return res.status(400).json({ error: result.checkout.error });
@@ -713,12 +724,7 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
         availableGaps: buildAvailableGaps(venueWindow, occupancy, { now: bookingDate }),
       };
     }
-    let myMembership = null;
-    if (req.userId) {
-      myMembership = await prisma.venueTableMember.findUnique({
-        where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
-      });
-    }
+    let myMembership = await loadMyMembershipForTable(table.id, req.userId, { isDayBooking });
     const seatingPlans = await resolveVenueTableSeatingPlans(table);
     res.json(attachGuestSeatingPlans({
       ...table,
@@ -995,9 +1001,12 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
         code: 'VENUE_OWNER_SELF_JOIN',
       });
     }
-    const existing = await prisma.venueTableMember.findUnique({
+    let existing = await prisma.venueTableMember.findUnique({
       where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
     });
+    if (existing && isDay && !isVenueMembershipForToday(existing)) {
+      existing = await clearStaleDayBookingMember(prisma, existing);
+    }
     if (existing?.status === 'CONFIRMED') {
       const needsFulfillment = await hostFulfillmentIncomplete(table, existing);
       if (needsFulfillment) {

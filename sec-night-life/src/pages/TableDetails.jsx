@@ -37,10 +37,10 @@ import { mobileFooterPadding, MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConst
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
 import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
 import DayBookingTimeSlotPicker, { isWindowValid } from '@/components/tables/DayBookingTimeSlotPicker';
-import { defaultWindowFromGaps } from '@/lib/dayBookingSlotUtils';
 import {
   isDayBookingVenueTable,
   resolveDayBookingContext,
+  canRestoreVenueCheckoutDraft,
 } from '@/lib/resolveDayBookingContext';
 
 /* ── small shared helpers ─────────────────────────────────────── */
@@ -172,6 +172,11 @@ export default function TableDetails() {
     }
   }, [isVenueSource, user?.id]);
 
+  useEffect(() => {
+    setSelectedMenuItems({});
+    setDayBookingWindow(null);
+  }, [tableId, bookingModeParam]);
+
   const loadUser = async () => {
     try {
       const currentUser = await authService.getCurrentUser();
@@ -291,22 +296,23 @@ export default function TableDetails() {
         ? { startTime: windowStartParam, endTime: windowEndParam }
         : null;
     const membership = venueTable?.myMembership;
+    const canRestore = canRestoreVenueCheckoutDraft(membership, { isHostCheckout });
     const fromMember =
-      membership?.windowStartTime && membership?.windowEndTime
+      canRestore && membership?.windowStartTime && membership?.windowEndTime
         ? { startTime: membership.windowStartTime, endTime: membership.windowEndTime }
         : null;
-    const fromGaps = defaultWindowFromGaps(availableGaps, venueDayWindow);
-    setDayBookingWindow(fromUrl || fromMember || fromGaps);
+    setDayBookingWindow(fromUrl || fromMember || null);
   }, [
     isDayBookingTable,
     venueTable?.id,
     venueTable?.myMembership?.windowStartTime,
     venueTable?.myMembership?.windowEndTime,
-    venueDayWindow?.startTime,
-    venueDayWindow?.endTime,
+    venueTable?.myMembership?.status,
+    venueTable?.myMembership?.paidAt,
+    venueTable?.myMembership?.bookingDate,
+    isHostCheckout,
     windowStartParam,
     windowEndParam,
-    availableGaps,
     dayOpenToday,
   ]);
 
@@ -489,13 +495,11 @@ export default function TableDetails() {
 
   useEffect(() => {
     if (!isVenueSource || !venueTable) return;
+    const membership = venueTable.myMembership;
+    const canRestore = canRestoreVenueCheckoutDraft(membership, { isHostCheckout });
+    if (!canRestore) return;
     setSelectedMenuItems((prev) => {
       const next = { ...prev };
-      for (const inc of venueTable.includedItems || []) {
-        const id = inc.menu_item_id || inc.menuItemId;
-        if (id && !next[id]) next[id] = String(inc.quantity || 1);
-      }
-      const membership = venueTable.myMembership;
       const stored = membership?.selectedMenuItems || membership?.userSpecs?.selectedMenuItems;
       if (Array.isArray(stored)) {
         for (const s of stored) {
@@ -505,7 +509,6 @@ export default function TableDetails() {
       }
       return next;
     });
-    const membership = venueTable.myMembership;
     const specs = membership?.userSpecs;
     if (membership?.status === 'APPROVED' || checkoutParam === '1') {
       if (specs?.minSpendMode === 'manual' && specs?.proposedMinimumSpend != null) {
@@ -515,7 +518,7 @@ export default function TableDetails() {
       }
       setVenueCheckoutStep('checkout');
     }
-  }, [isVenueSource, venueTable?.id, venueTable?.myMembership?.status, checkoutParam]);
+  }, [isVenueSource, venueTable?.id, venueTable?.myMembership, isHostCheckout, checkoutParam]);
 
   const joinVenueTable = async () => {
     if (!user?.id) {
@@ -1096,6 +1099,7 @@ export default function TableDetails() {
                   latestBookableEnd={dayBookingCtx?.latestBookableEnd}
                   isOvernight={dayBookingCtx?.isOvernight}
                   mode={isHostCheckout ? 'host' : 'join'}
+                  autoSelectDefault={!isHostCheckout}
                   closedToday={!dayOpenToday}
                   openDaysSummary={dayBookingCtx?.openDaysSummary}
                 />
