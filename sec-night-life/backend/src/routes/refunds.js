@@ -9,6 +9,7 @@ import {
   notifyRefundApproved,
   notifyRefundRejected,
   notifyRefundSubmitted,
+  resolvePaymentForRefund,
   validateRefundEligibility,
 } from '../lib/refunds.js';
 import {
@@ -48,6 +49,39 @@ function eligiblePaymentLabel(meta, check) {
   return meta.event_title || meta.eventTitle || meta.ticket_tier_name || 'Booking payment';
 }
 
+async function appendEligiblePaymentItem(items, seenRefs, payment, userId) {
+  const baseRef = basePaymentReference(payment.reference);
+  if (seenRefs.has(baseRef)) return;
+
+  const check = await validateRefundEligibility({
+    payment: { ...payment, userId, refundStatus: payment.refundStatus },
+    userId,
+    userWalletCode: 'SKIP',
+  });
+  if (!check.ok && check.error !== 'Invalid Sec Wallet ID — use your wallet code from Profile') {
+    return;
+  }
+
+  seenRefs.add(baseRef);
+  const grossZar =
+    check.grossAmountZar != null ? Number(check.grossAmountZar) : Number(payment.amount) || 0;
+  const amounts = computeRefundAmounts(grossZar);
+  const meta = payment.metadata && typeof payment.metadata === 'object' ? payment.metadata : {};
+  items.push({
+    reference: baseRef,
+    amount: payment.amount,
+    type: payment.type,
+    metaType: meta.type || null,
+    createdAt: payment.createdAt,
+    refundStatus: payment.refundStatus,
+    refundType: check.refundType || null,
+    venueRefundDueZar: amounts.venueRefundDueZar,
+    platformFeeKeptZar: amounts.platformFeeKeptZar,
+    refundableGrossZar: grossZar,
+    label: eligiblePaymentLabel(meta, check),
+  });
+}
+
 /** POST /api/refunds/request — party-goer submits refund request */
 router.post('/request', authenticateToken, async (req, res, next) => {
   try {
@@ -59,13 +93,13 @@ router.post('/request', authenticateToken, async (req, res, next) => {
       })
       .parse(req.body ?? {});
 
-    const baseRef = basePaymentReference(body.payment_reference.trim());
-    const payment = await prisma.payment.findFirst({
-      where: {
-        OR: [{ reference: baseRef }, { reference: body.payment_reference.trim() }],
-        status: 'success',
-      },
+    const payment = await resolvePaymentForRefund({
+      userId: req.userId,
+      reference: body.payment_reference.trim(),
     });
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment not found or not eligible for refund' });
+    }
 
     const eligibility = await validateRefundEligibility({
       payment,
@@ -157,7 +191,7 @@ router.get('/eligible-payments', authenticateToken, async (req, res, next) => {
     const payments = await prisma.payment.findMany({
       where: {
         userId: req.userId,
-        status: 'success',
+        status: { in: ['success', 'pending'] },
         refundStatus: { in: ['NONE', 'PENDING'] },
       },
       orderBy: { createdAt: 'desc' },
@@ -173,31 +207,40 @@ router.get('/eligible-payments', authenticateToken, async (req, res, next) => {
     });
 
     const items = [];
+    const seenRefs = new Set();
+
     for (const p of payments) {
-      const check = await validateRefundEligibility({
-        payment: { ...p, userId: req.userId, refundStatus: p.refundStatus },
+      const resolved = await resolvePaymentForRefund({ userId: req.userId, reference: p.reference });
+      if (!resolved) continue;
+      await appendEligiblePaymentItem(
+        items,
+        seenRefs,
+        { ...resolved, refundStatus: p.refundStatus ?? resolved.refundStatus },
+        req.userId,
+      );
+    }
+
+    const tickets = await prisma.ticket.findMany({
+      where: {
         userId: req.userId,
-        userWalletCode: 'SKIP',
+        refundedAt: null,
+        hiddenFromHistoryAt: null,
+        NOT: { paystackReference: { startsWith: 'free_' } },
+      },
+      select: { paystackReference: true },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    for (const ticket of tickets) {
+      const baseRef = basePaymentReference(ticket.paystackReference);
+      if (seenRefs.has(baseRef)) continue;
+      const resolved = await resolvePaymentForRefund({
+        userId: req.userId,
+        reference: ticket.paystackReference,
       });
-      if (check.ok || check.error === 'Invalid Sec Wallet ID — use your wallet code from Profile') {
-        const grossZar =
-          check.grossAmountZar != null ? Number(check.grossAmountZar) : Number(p.amount) || 0;
-        const amounts = computeRefundAmounts(grossZar);
-        const meta = p.metadata && typeof p.metadata === 'object' ? p.metadata : {};
-        items.push({
-          reference: basePaymentReference(p.reference),
-          amount: p.amount,
-          type: p.type,
-          metaType: meta.type || null,
-          createdAt: p.createdAt,
-          refundStatus: p.refundStatus,
-          refundType: check.refundType || null,
-          venueRefundDueZar: amounts.venueRefundDueZar,
-          platformFeeKeptZar: amounts.platformFeeKeptZar,
-          refundableGrossZar: grossZar,
-          label: eligiblePaymentLabel(meta, check),
-        });
-      }
+      if (!resolved) continue;
+      await appendEligiblePaymentItem(items, seenRefs, resolved, req.userId);
     }
 
     res.json({ items });

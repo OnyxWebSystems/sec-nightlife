@@ -360,5 +360,22 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
   });
   if (payoutResult && !payoutResult.skipped) repaired = true;
 
+  if (pay.status !== 'success') {
+    const latestMember = await prisma.venueTableMember.findFirst({
+      where: { id: String(venueTableMemberId) },
+      select: { status: true, paystackReference: true },
+    });
+    const paystackOk = paystackData?.status === 'success';
+    const memberOk =
+      latestMember?.status === 'CONFIRMED' &&
+      Boolean(latestMember.paystackReference || reference);
+    if (paystackOk || memberOk) {
+      await prisma.payment.update({
+        where: { reference },
+        data: { status: 'success' },
+      });
+    }
+  }
+
   return { repaired, reason: repaired ? 'ok' : 'already_complete', payout: payoutResult };
 }

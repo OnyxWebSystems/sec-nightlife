@@ -1244,6 +1244,8 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
     if (!table.eventId) {
       metadata.is_day_booking = true;
     }
+    metadata.table_name = table.tableName;
+    metadata.venue_name = table.venue?.name ?? null;
 
     const pay = await initializePaystackPayment({
       userId: req.userId,

@@ -164,6 +164,63 @@ async function resolveVenueTableMemberForRefund({ userId, payment, baseRef, meta
   return venueTableMember;
 }
 
+function isFreePaymentReference(ref) {
+  return !ref || String(ref).startsWith('free_');
+}
+
+async function paymentHasFulfillmentProof({ userId, reference, baseRef }) {
+  if (isFreePaymentReference(reference)) return false;
+  const refs = [...new Set([reference, baseRef].filter(Boolean))];
+  const member = await prisma.venueTableMember.findFirst({
+    where: {
+      userId,
+      paystackReference: { in: refs },
+      status: 'CONFIRMED',
+    },
+  });
+  if (member) return true;
+  const ticket = await prisma.ticket.findFirst({
+    where: {
+      userId,
+      paystackReference: { in: refs },
+      refundedAt: null,
+      hiddenFromHistoryAt: null,
+    },
+  });
+  return Boolean(ticket);
+}
+
+/**
+ * Load a payment for refund flows; promote fulfilled pending Paystack rows to success.
+ * @param {{ userId: string, reference: string }} opts
+ */
+export async function resolvePaymentForRefund({ userId, reference }) {
+  const trimmed = String(reference || '').trim();
+  if (!trimmed || isFreePaymentReference(trimmed)) return null;
+
+  const baseRef = basePaymentReference(trimmed);
+  const payment = await prisma.payment.findFirst({
+    where: {
+      userId,
+      OR: [{ reference: trimmed }, { reference: baseRef }],
+    },
+  });
+  if (!payment) return null;
+  if (payment.status === 'success') return payment;
+
+  const hasProof = await paymentHasFulfillmentProof({
+    userId,
+    reference: payment.reference,
+    baseRef,
+  });
+  if (!hasProof) return null;
+
+  return prisma.payment.update({
+    where: { id: payment.id },
+    data: { status: 'success' },
+  });
+}
+
 function subtractMenuItems(existingItems, removeItems) {
   const existing = Array.isArray(existingItems) ? existingItems : [];
   const remove = Array.isArray(removeItems) ? removeItems : [];

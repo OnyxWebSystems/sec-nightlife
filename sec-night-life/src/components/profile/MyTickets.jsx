@@ -124,6 +124,19 @@ export default function MyTickets({ userId }) {
   const isTicketRefundable = (ticketRef) =>
     eligibleRefundItems.some((item) => paymentRefMatchesEligible(ticketRef, item.reference));
 
+  const isHostOrTableTicket = (ticket) => {
+    const title = String(ticket.title || '');
+    const kind = String(ticket.kind || ticket.ticket_kind || '');
+    return title.includes('Host pass') || kind === 'VENUE_TABLE_JOIN';
+  };
+
+  const ticketCanRequestRefund = (ticket) => {
+    if (ticket.refund_status || ticket.refunded_at) return false;
+    const ref = normalizePaymentRef(ticket.paystack_reference);
+    if (!ref || ref.startsWith('free_')) return false;
+    return isTicketRefundable(ref) || isHostOrTableTicket(ticket);
+  };
+
   useEffect(() => {
     if (!userId) return;
     const prev = loadMyTicketsSnapshot(userId) || { active: [], inactive: [], expired: [] };
@@ -256,8 +269,7 @@ export default function MyTickets({ userId }) {
                   <Link to={ticketDetailHref(ticket)}>View details</Link>
                 </Button>
                 {!isRefunded &&
-                  ticket.paystack_reference &&
-                  isTicketRefundable(ticket.paystack_reference) &&
+                  ticketCanRequestRefund(ticket) &&
                   (!isInactiveTab || phase === 'expired') && (
                   <Button
                     variant="outline"
@@ -323,19 +335,33 @@ export default function MyTickets({ userId }) {
     hint: 'Tickets move here after the event ends.',
   };
 
+  const ticketRefundFallbackCount = useMemo(() => {
+    const seen = new Set();
+    for (const ticket of [...activeTickets, ...inactiveTickets]) {
+      if (ticketCanRequestRefund(ticket)) {
+        const ref = normalizePaymentRef(ticket.paystack_reference);
+        if (ref) seen.add(ref);
+      }
+    }
+    return seen.size;
+  }, [activeTickets, inactiveTickets, eligibleRefundItems]);
+
+  const showRefundBanner = eligibleRefundCount > 0 || ticketRefundFallbackCount > 0;
+  const refundBannerCount = Math.max(eligibleRefundCount, ticketRefundFallbackCount);
+
   return (
     <div className="space-y-4">
-      {eligibleRefundCount > 0 && (
+      {showRefundBanner && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between rounded-lg border border-[#262629] bg-[#0A0A0B] px-3 py-2.5">
           <p className="text-xs text-gray-400">
             {activeTickets.length === 0
               ? 'You have an eligible payment you can request a refund for.'
-              : `You have ${eligibleRefundCount} eligible payment${eligibleRefundCount === 1 ? '' : 's'} for refund.`}
+              : `You have ${refundBannerCount} eligible payment${refundBannerCount === 1 ? '' : 's'} for refund.`}
           </p>
           <Button variant="outline" size="sm" className="border-[#262629] shrink-0" onClick={openGeneralRefund}>
             <RotateCcw className="w-3.5 h-3.5 mr-1" />
             Request refund
-            {eligibleRefundCount > 1 ? ` (${eligibleRefundCount})` : ''}
+            {refundBannerCount > 1 ? ` (${refundBannerCount})` : ''}
           </Button>
         </div>
       )}
