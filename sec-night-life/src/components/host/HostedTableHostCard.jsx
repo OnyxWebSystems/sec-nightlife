@@ -21,6 +21,7 @@ const TABLE_HOST_STATUS_BADGE = {
   ACTIVE: { label: 'Live', bg: 'var(--sec-success-muted)', color: 'var(--sec-text-primary)' },
   FULL: { label: 'Full', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
   CLOSED: { label: 'Closed', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
+  REFUNDED: { label: 'Refunded', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' },
 };
 
 const PROMOTED_BORDER = 'var(--sec-accent-border)';
@@ -60,11 +61,13 @@ export default function HostedTableHostCard({
   isPast = false,
 }) {
   const [deleting, setDeleting] = useState(false);
-  const badge = isPast
-    ? { label: 'Past', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' }
-    : hostStatusBadge || TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
-  const isManaging = !isPast && manageTableId === t.id;
-  const canDelete = isPast || t.status === 'CLOSED';
+  const badge = t.hostRefundStatus === 'REFUNDED'
+    ? TABLE_HOST_STATUS_BADGE.REFUNDED
+    : isPast
+      ? { label: 'Past', bg: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' }
+      : hostStatusBadge || TABLE_HOST_STATUS_BADGE[t.status] || TABLE_HOST_STATUS_BADGE.DRAFT;
+  const isManaging = !isPast && t.hostRefundStatus !== 'REFUNDED' && manageTableId === t.id;
+  const canDelete = isPast || t.status === 'CLOSED' || t.hostRefundStatus === 'REFUNDED';
 
   const handleDelete = async () => {
     if (!onDelete) return;

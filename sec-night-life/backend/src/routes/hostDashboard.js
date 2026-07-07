@@ -1507,6 +1507,7 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
       inviterUserId: req.userId,
     });
     const dayVenueTableIds = tables.filter((t) => t.venueTableId && !t.eventId).map((t) => t.venueTableId);
+    const allVenueTableIds = [...new Set(tables.map((t) => t.venueTableId).filter(Boolean))];
     const hostMembers =
       dayVenueTableIds.length > 0
         ? await prisma.venueTableMember.findMany({
@@ -1524,6 +1525,35 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             },
           })
         : [];
+    const refundedHostVenueTableIds = new Set();
+    if (allVenueTableIds.length) {
+      const [refundedMembers, refundedRequests] = await Promise.all([
+        prisma.venueTableMember.findMany({
+          where: {
+            venueTableId: { in: allVenueTableIds },
+            userId: req.userId,
+            memberRole: 'HOST',
+            status: 'REFUNDED',
+          },
+          select: { venueTableId: true },
+        }),
+        prisma.refundRequest.findMany({
+          where: {
+            userId: req.userId,
+            refundType: 'TABLE_HOST',
+            status: { in: ['APPROVED', 'PAID_BY_VENUE'] },
+            venueTableId: { in: allVenueTableIds },
+          },
+          select: { venueTableId: true },
+        }),
+      ]);
+      for (const row of refundedMembers) {
+        if (row.venueTableId) refundedHostVenueTableIds.add(row.venueTableId);
+      }
+      for (const row of refundedRequests) {
+        if (row.venueTableId) refundedHostVenueTableIds.add(row.venueTableId);
+      }
+    }
     const out = tables.map((t) => {
       let row = t;
       if (t.venueTableId && !t.eventId) {
@@ -1537,13 +1567,19 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
           if (effectiveEnd) row = { ...t, windowEndsAt: effectiveEnd };
         }
       }
+      const hostRefundStatus =
+        t.venueTableId && refundedHostVenueTableIds.has(t.venueTableId) ? 'REFUNDED' : null;
+      const rowWithRefund = hostRefundStatus ? { ...row, hostRefundStatus } : row;
+      const isPast =
+        hostRefundStatus === 'REFUNDED' ||
+        !shouldShowHostedTableOnHostDashboard(rowWithRefund, rowWithRefund.event);
       return {
-      ...row,
-      memberCount: row._count?.members ?? 0,
-      isPast: !shouldShowHostedTableOnHostDashboard(row, row.event),
-      eventLocation: row.tableType === 'IN_APP_EVENT' && row.event ? buildEventLocationPayload(row.event) : null,
-      pendingJoinCount: pendingByTable[row.id] ?? 0,
-      pendingInviteCount: pendingInvitesByTable[row.id] ?? 0,
+      ...rowWithRefund,
+      memberCount: rowWithRefund._count?.members ?? 0,
+      isPast,
+      eventLocation: rowWithRefund.tableType === 'IN_APP_EVENT' && rowWithRefund.event ? buildEventLocationPayload(rowWithRefund.event) : null,
+      pendingJoinCount: pendingByTable[rowWithRefund.id] ?? 0,
+      pendingInviteCount: pendingInvitesByTable[rowWithRefund.id] ?? 0,
     };
     });
     res.json(out);

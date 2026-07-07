@@ -15,6 +15,7 @@ import { createNotification } from './notifications.js';
 import { sendEmail } from './email.js';
 import { logger } from './logger.js';
 import { hideParticipationForRefund } from './tableHistory.js';
+import { appendVenueTableRefundNotice } from './venueTableRefundNotice.js';
 
 const ELIGIBLE_META_TYPES = new Set(['TABLE_CHECKOUT', 'VENUE_TABLE_JOIN', 'ticket', 'event', 'table']);
 const EXCLUDED_META_TYPES = new Set([
@@ -548,6 +549,85 @@ export async function restoreJoinSpot(tx, member, table) {
   }
 }
 
+const ZERO_BOOKING_AMOUNTS = {
+  amountTotal: 0,
+  entranceZar: 0,
+  componentZar: 0,
+  menuTotalZar: 0,
+};
+
+function paymentRefWhere(baseRef) {
+  return {
+    OR: [
+      { paystackReference: baseRef },
+      { paystackReference: { startsWith: `${baseRef}-` } },
+    ],
+  };
+}
+
+/**
+ * Zero EventVenueTableBooking revenue for refunded payments.
+ * Host refund with retained guests only clears the host row — guest rows stay.
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ */
+export async function cancelBookingsForRefund(tx, { req, baseRef, guestsRetained = false }) {
+  if (!req?.userId || !baseRef) return;
+
+  if (req.refundType === 'HOSTED_TABLE_MENU' || req.refundType === 'TICKET') return;
+
+  if (req.refundType === 'TABLE_HOST') {
+    const hostWhere = {
+      userId: req.userId,
+      role: 'HOST',
+      ...paymentRefWhere(baseRef),
+    };
+    await tx.eventVenueTableBooking.updateMany({ where: hostWhere, data: ZERO_BOOKING_AMOUNTS });
+
+    if (req.venueTableId) {
+      await tx.eventVenueTableBooking.updateMany({
+        where: { venueTableId: req.venueTableId, userId: req.userId, role: 'HOST' },
+        data: ZERO_BOOKING_AMOUNTS,
+      });
+      if (!guestsRetained) {
+        const vt = await tx.venueTable.findUnique({
+          where: { id: req.venueTableId },
+          select: { hostedTableId: true },
+        });
+        if (vt?.hostedTableId) {
+          await tx.eventVenueTableBooking.updateMany({
+            where: { hostedTableId: vt.hostedTableId, userId: req.userId, role: 'HOST' },
+            data: ZERO_BOOKING_AMOUNTS,
+          });
+        }
+      }
+    }
+    return;
+  }
+
+  if (req.refundType === 'TABLE_JOIN') {
+    await tx.eventVenueTableBooking.updateMany({
+      where: { userId: req.userId, role: 'GUEST', ...paymentRefWhere(baseRef) },
+      data: ZERO_BOOKING_AMOUNTS,
+    });
+    if (req.venueTableMemberId) {
+      const member = await tx.venueTableMember.findUnique({
+        where: { id: req.venueTableMemberId },
+        select: { venueTableId: true },
+      });
+      if (member?.venueTableId) {
+        await tx.eventVenueTableBooking.updateMany({
+          where: {
+            venueTableId: member.venueTableId,
+            userId: req.userId,
+            role: 'GUEST',
+          },
+          data: ZERO_BOOKING_AMOUNTS,
+        });
+      }
+    }
+  }
+}
+
 /**
  * Apply all side effects when a venue approves a refund.
  * @param {import('@prisma/client').Prisma.TransactionClient} tx
@@ -618,6 +698,7 @@ export async function applyRefundApproval(tx, refundRequest) {
     }
   }
 
+  let tableHostGuestsRetained = false;
   if (req.refundType === 'TABLE_HOST' && req.venueTableId) {
     const venueTable = await tx.venueTable.findUnique({
       where: { id: req.venueTableId },
@@ -633,6 +714,7 @@ export async function applyRefundApproval(tx, refundRequest) {
             },
           })
         : 0;
+    tableHostGuestsRetained = hostedGuests > 0;
 
     if (req.venueTableMemberId) {
       await tx.venueTableMember.update({
@@ -710,6 +792,23 @@ export async function applyRefundApproval(tx, refundRequest) {
   if (!hostedTableIdForHistory && payment) {
     const payMeta = flattenPaymentMetadata(payment.metadata);
     hostedTableIdForHistory = payMeta.hosted_table_id ?? payMeta.hostedTableId ?? null;
+  }
+
+  await cancelBookingsForRefund(tx, {
+    req,
+    baseRef,
+    guestsRetained: tableHostGuestsRetained,
+  });
+
+  if (
+    req.venueTableMemberId &&
+    (req.refundType === 'TABLE_HOST' || req.refundType === 'TABLE_JOIN')
+  ) {
+    await appendVenueTableRefundNotice(tx, {
+      venueTableMemberId: req.venueTableMemberId,
+      refundType: req.refundType,
+      guestsRetained: tableHostGuestsRetained,
+    });
   }
 
   await hideParticipationForRefund(tx, {

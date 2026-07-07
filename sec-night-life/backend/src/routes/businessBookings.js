@@ -108,9 +108,25 @@ function syntheticHostedTableFromVenueRow(vt, sessionNumber = 1) {
   };
 }
 
-function groupEventTableBookingsByTable(mapped) {
+function annotateEventBookingRow(row, refundedRefs) {
+  const isRefunded =
+    row.refundStatus === 'APPROVED' ||
+    (row.paystackReference && isRefundedPaymentRef(row.paystackReference, refundedRefs));
+  const lineTotal = isRefunded ? 0 : Number(row.lineTotalZar ?? bookingDisplayTotalZar(row));
+  return {
+    ...row,
+    refundStatus: isRefunded ? 'APPROVED' : row.refundStatus ?? null,
+    lineTotalZar: lineTotal,
+    amountTotal: isRefunded ? 0 : row.amountTotal,
+    entranceZar: isRefunded ? 0 : row.entranceZar,
+    componentZar: isRefunded ? 0 : row.componentZar,
+  };
+}
+
+function groupEventTableBookingsByTable(mapped, refundedRefs = null) {
   const groups = new Map();
-  for (const row of mapped) {
+  for (const raw of mapped) {
+    const row = refundedRefs ? annotateEventBookingRow(raw, refundedRefs) : raw;
     const tableId = bookingGroupKey(row);
     if (!tableId) continue;
     if (!groups.has(tableId)) {
@@ -138,6 +154,10 @@ function groupEventTableBookingsByTable(mapped) {
   }
   for (const g of groups.values()) {
     g.transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const hostRefunded = g.transactions.some(
+      (t) => t.role === 'HOST' && t.refundStatus === 'APPROVED',
+    );
+    if (hostRefunded) g.hostRefundStatus = 'REFUNDED';
   }
   return [...groups.values()].sort(
     (a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime(),
@@ -659,28 +679,6 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       where: { eventId: { in: eventIds }, tableType: 'IN_APP_EVENT' },
       select: { id: true, status: true },
     });
-    const activeHostedIds = hostedInScope
-      .filter((h) => h.status === 'ACTIVE' || h.status === 'FULL')
-      .map((h) => h.id);
-    const hostedTablesOpen = hostedInScope.filter((h) => h.status === 'ACTIVE').length;
-    const hostedTablesFull = hostedInScope.filter((h) => h.status === 'FULL').length;
-
-    let totalGoingHeadcount = 0;
-    let pendingJoinRequests = 0;
-    if (activeHostedIds.length) {
-      const goingRows = await prisma.hostedTableMember.groupBy({
-        by: ['hostedTableId'],
-        where: { hostedTableId: { in: activeHostedIds }, status: 'GOING' },
-        _count: true,
-      });
-      totalGoingHeadcount = goingRows.reduce((s, r) => s + r._count, 0);
-      const pendRows = await prisma.hostedTableMember.groupBy({
-        by: ['hostedTableId'],
-        where: { hostedTableId: { in: activeHostedIds }, status: 'PENDING' },
-        _count: true,
-      });
-      pendingJoinRequests = pendRows.reduce((s, r) => s + r._count, 0);
-    }
 
     const rows = await prisma.eventVenueTableBooking.findMany({
       where: {
@@ -722,6 +720,46 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       take: 500,
     });
 
+    const refundedHostedTableIds = new Set(
+      rows
+        .filter(
+          (r) =>
+            r.role === 'HOST' &&
+            r.hostedTableId &&
+            r.paystackReference &&
+            isRefundedPaymentRef(r.paystackReference, refundedRefs),
+        )
+        .map((r) => r.hostedTableId),
+    );
+
+    const activeHostedIds = hostedInScope
+      .filter((h) => h.status === 'ACTIVE' || h.status === 'FULL')
+      .map((h) => h.id);
+    const hostedTablesOpen = hostedInScope.filter(
+      (h) => h.status === 'ACTIVE' && !refundedHostedTableIds.has(h.id),
+    ).length;
+    const hostedTablesFull = hostedInScope.filter(
+      (h) => h.status === 'FULL' && !refundedHostedTableIds.has(h.id),
+    ).length;
+
+    let totalGoingHeadcount = 0;
+    let pendingJoinRequests = 0;
+    const activeHostedIdsExRefunded = activeHostedIds.filter((id) => !refundedHostedTableIds.has(id));
+    if (activeHostedIdsExRefunded.length) {
+      const goingRows = await prisma.hostedTableMember.groupBy({
+        by: ['hostedTableId'],
+        where: { hostedTableId: { in: activeHostedIdsExRefunded }, status: 'GOING' },
+        _count: true,
+      });
+      totalGoingHeadcount = goingRows.reduce((s, r) => s + r._count, 0);
+      const pendRows = await prisma.hostedTableMember.groupBy({
+        by: ['hostedTableId'],
+        where: { hostedTableId: { in: activeHostedIdsExRefunded }, status: 'PENDING' },
+        _count: true,
+      });
+      pendingJoinRequests = pendRows.reduce((s, r) => s + r._count, 0);
+    }
+
     const mapped = rows.map((r) => {
       const sessionNumber = r.tableSessionNumber || resolveDailySessionNumber(r.venueTable);
       const hostedTable =
@@ -729,30 +767,33 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
         (r.venueTableId && r.venueTable
           ? syntheticHostedTableFromVenueRow(r.venueTable, sessionNumber)
           : null);
-      return {
-      id: r.id,
-      role: r.role,
-      paystackReference: r.paystackReference,
-      amountTotal: r.amountTotal,
-      entranceZar: r.entranceZar,
-      componentZar: r.componentZar,
-      lineTotalZar: bookingDisplayTotalZar(r),
-      createdAt: r.createdAt,
-      venue: r.venue,
-      event: r.event,
-      hostedTable,
-      venueTableId: r.venueTableId,
-      tableSessionNumber: r.venueTableId ? sessionNumber : null,
-      isDirectVenueSlot: Boolean(r.venueTableId && !r.hostedTableId),
-      user: {
-        id: r.user.id,
-        username: r.user.userProfile?.username || r.user.username || r.user.fullName || 'User',
-      },
-      selectedMenuItems: r.selectedMenuItems,
-      hostingTierName: r.hostingTierName,
-      hostingCategory: r.hostingCategory,
-      menuTotalZar: r.menuTotalZar,
-    };
+      return annotateEventBookingRow(
+        {
+          id: r.id,
+          role: r.role,
+          paystackReference: r.paystackReference,
+          amountTotal: r.amountTotal,
+          entranceZar: r.entranceZar,
+          componentZar: r.componentZar,
+          lineTotalZar: bookingDisplayTotalZar(r),
+          createdAt: r.createdAt,
+          venue: r.venue,
+          event: r.event,
+          hostedTable,
+          venueTableId: r.venueTableId,
+          tableSessionNumber: r.venueTableId ? sessionNumber : null,
+          isDirectVenueSlot: Boolean(r.venueTableId && !r.hostedTableId),
+          user: {
+            id: r.user.id,
+            username: r.user.userProfile?.username || r.user.username || r.user.fullName || 'User',
+          },
+          selectedMenuItems: r.selectedMenuItems,
+          hostingTierName: r.hostingTierName,
+          hostingCategory: r.hostingCategory,
+          menuTotalZar: r.menuTotalZar,
+        },
+        refundedRefs,
+      );
     });
 
     const mappedWithVenueGuests = await supplementEventTableBookingsFromVenueMembers({
@@ -762,24 +803,14 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       refundedRefs,
     });
 
-    const rawForStats = [
-      ...rows.map((r) => ({
-        role: r.role,
-        amountTotal: r.amountTotal,
-        entranceZar: r.entranceZar,
-        componentZar: r.componentZar,
-      })),
-      ...mappedWithVenueGuests
-        .filter((r) => String(r.id).startsWith('vtm-'))
-        .map((r) => ({
-          role: r.role,
-          amountTotal: r.amountTotal,
-          entranceZar: r.entranceZar,
-          componentZar: r.componentZar,
-        })),
-    ];
+    const rawForStats = mappedWithVenueGuests.map((r) => ({
+      role: r.role,
+      amountTotal: r.amountTotal,
+      entranceZar: r.entranceZar,
+      componentZar: r.componentZar,
+    }));
 
-    const groupedItems = groupEventTableBookingsByTable(mappedWithVenueGuests);
+    const groupedItems = groupEventTableBookingsByTable(mappedWithVenueGuests, refundedRefs);
 
     const summary = {
       configuredTableSlots,
@@ -1233,6 +1264,8 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
     let recentEventBookings = [];
 
     if (eventIds.length) {
+      const refundedRefs = await loadRefundedPaymentRefs(venueIds);
+
       const hostedInScope = await prisma.hostedTable.findMany({
         where: { eventId: { in: eventIds }, tableType: 'IN_APP_EVENT' },
         select: { id: true, status: true, tableName: true, guestQuantity: true, spotsRemaining: true },
@@ -1240,14 +1273,38 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
       const hostedIds = hostedInScope.map((h) => h.id);
       const hostedById = new Map(hostedInScope.map((h) => [h.id, h]));
 
-      eventActiveBookings = hostedInScope.filter((h) => h.status === 'ACTIVE' || h.status === 'FULL').length;
+      const hostBookingRows = await prisma.eventVenueTableBooking.findMany({
+        where: {
+          venueId: { in: venueIds },
+          eventId: { in: eventIds },
+          role: 'HOST',
+        },
+        select: { hostedTableId: true, paystackReference: true },
+      });
+      const refundedHostedTableIds = new Set(
+        hostBookingRows
+          .filter(
+            (r) =>
+              r.hostedTableId &&
+              r.paystackReference &&
+              isRefundedPaymentRef(r.paystackReference, refundedRefs),
+          )
+          .map((r) => r.hostedTableId),
+      );
 
-      if (hostedIds.length) {
+      eventActiveBookings = hostedInScope.filter(
+        (h) =>
+          (h.status === 'ACTIVE' || h.status === 'FULL') &&
+          !refundedHostedTableIds.has(h.id),
+      ).length;
+
+      const activeHostedIdsExRefunded = hostedIds.filter((id) => !refundedHostedTableIds.has(id));
+      if (activeHostedIdsExRefunded.length) {
         eventGoingHeadcount = await prisma.hostedTableMember.count({
-          where: { hostedTableId: { in: hostedIds }, status: 'GOING' },
+          where: { hostedTableId: { in: activeHostedIdsExRefunded }, status: 'GOING' },
         });
         const pendingJoin = await prisma.hostedTableMember.count({
-          where: { hostedTableId: { in: hostedIds }, status: 'PENDING' },
+          where: { hostedTableId: { in: activeHostedIdsExRefunded }, status: 'PENDING' },
         });
         eventActiveBookings += pendingJoin;
       }
@@ -1295,7 +1352,7 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
         tableName: g.hostedTable?.tableName || 'Event table',
         guestCount: (g.rolesSummary?.hosts || 0) + (g.rolesSummary?.guests || 0),
         capacity: g.hostedTable?.guestQuantity || null,
-        status: g.hostedTable?.status || 'ACTIVE',
+        status: g.hostRefundStatus === 'REFUNDED' ? 'REFUNDED' : g.hostedTable?.status || 'ACTIVE',
         subLabel: g.event?.title || 'Event',
         sortAt: g.lastActivityAt,
       }));

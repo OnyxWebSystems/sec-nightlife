@@ -599,12 +599,23 @@ export default function BusinessBookings() {
                           </div>
                           <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 w-full sm:w-auto shrink-0">
                           <div className="text-left sm:text-right">
-                            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-accent)' }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: group.hostRefundStatus === 'REFUNDED' ? 'var(--sec-text-muted)' : 'var(--sec-accent)' }}>
                               R{Number(group.totalPaidZar || 0).toFixed(0)}
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>Paid</div>
+                            <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>
+                              {group.hostRefundStatus === 'REFUNDED' ? 'Refunded' : 'Paid'}
+                            </div>
                           </div>
-                          <StatusBadge status={(group.hostedTable?.status || '').toLowerCase()} />
+                          {group.hostRefundStatus === 'REFUNDED' ? (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                              style={{ background: 'var(--sec-bg-hover)', color: 'var(--sec-text-muted)' }}
+                            >
+                              Refunded
+                            </span>
+                          ) : (
+                            <StatusBadge status={(group.hostedTable?.status || '').toLowerCase()} />
+                          )}
                           <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
                           </div>
                         </div>

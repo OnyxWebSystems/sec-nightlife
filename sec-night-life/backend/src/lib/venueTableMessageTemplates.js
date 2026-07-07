@@ -16,6 +16,7 @@ export const VENUE_TABLE_MESSAGE_TEMPLATES = {
   guest_will_change_datetime: 'I can change the date or time — please review again.',
   guest_will_add_menu_items: 'I will add more menu items to my request.',
   guest_cancel_request: 'Please cancel my table request.',
+  refund_approved: 'Refund approved.',
 };
 
 export const VENUE_DECLINE_TEMPLATE_KEYS = [

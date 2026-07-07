@@ -13,6 +13,7 @@ function formatYmdSast(date) {
 
 export function isHostedTablePast(table) {
   if (Boolean(table?.isPast)) return true;
+  if (table?.hostRefundStatus === 'REFUNDED') return true;
 
   const now = Date.now();
   if (table?.windowEndsAt) {
@@ -20,10 +21,13 @@ export function isHostedTablePast(table) {
     if (!Number.isNaN(end.getTime()) && end.getTime() <= now) return true;
   }
 
-  if (table?.status === 'CLOSED' && table?.eventDate) {
-    const todayYmd = formatYmdSast(new Date());
-    const eventYmd = formatYmdSast(table.eventDate);
-    if (eventYmd < todayYmd) return true;
+  if (table?.status === 'CLOSED') {
+    if (table?.eventDate) {
+      const todayYmd = formatYmdSast(new Date());
+      const eventYmd = formatYmdSast(table.eventDate);
+      if (eventYmd < todayYmd) return true;
+    }
+    return true;
   }
 
   return false;

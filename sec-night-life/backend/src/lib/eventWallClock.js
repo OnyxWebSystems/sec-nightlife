@@ -54,6 +54,9 @@ export function hostDashboardHideAfterUtc(hostedRow, eventRow, now = new Date())
 }
 
 export function shouldShowHostedTableOnHostDashboard(hostedRow, eventRow, now = new Date()) {
+  if (hostedRow?.hostRefundStatus === 'REFUNDED') return false;
+  if (hostedRow?.status === 'CLOSED') return false;
+
   const hideAfter = hostDashboardHideAfterUtc(hostedRow, eventRow);
   if (!hideAfter) {
     if (isDayVenueHostedTable(hostedRow)) {

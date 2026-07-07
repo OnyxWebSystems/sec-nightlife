@@ -56,6 +56,8 @@ export default function BusinessRefundRequests() {
     queryClient.invalidateQueries({ queryKey: ['biz-venue-table-bookings'] });
     queryClient.invalidateQueries({ queryKey: ['biz-dashboard-booking-stats'] });
     queryClient.invalidateQueries({ queryKey: ['biz-dashboard-monthly-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+    queryClient.invalidateQueries({ queryKey: ['host-activity'] });
   };
 
   const approveMutation = useMutation({
