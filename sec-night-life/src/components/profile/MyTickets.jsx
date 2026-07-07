@@ -16,6 +16,7 @@ import {
   saveMyTicketsSnapshot,
 } from '@/lib/ticketOfflineCache';
 import RefundRequestDialog from '@/components/refunds/RefundRequestDialog';
+import { normalizePaymentRef, paymentRefMatchesEligible } from '@/lib/paymentRef';
 
 function TicketQrBlock({ verifyUrl, eventCode }) {
   const [dataUrl, setDataUrl] = useState(null);
@@ -117,13 +118,11 @@ export default function MyTickets({ userId }) {
     enabled: !!userId,
   });
 
-  const refundableRefs = useMemo(() => {
-    const set = new Set();
-    for (const item of eligibleRefunds?.items || []) {
-      if (item.reference) set.add(item.reference);
-    }
-    return set;
-  }, [eligibleRefunds?.items]);
+  const eligibleRefundItems = eligibleRefunds?.items || [];
+  const eligibleRefundCount = eligibleRefundItems.length;
+
+  const isTicketRefundable = (ticketRef) =>
+    eligibleRefundItems.some((item) => paymentRefMatchesEligible(ticketRef, item.reference));
 
   useEffect(() => {
     if (!userId) return;
@@ -256,13 +255,13 @@ export default function MyTickets({ userId }) {
                 <Button variant="outline" size="sm" className="border-[#262629] h-8" asChild>
                   <Link to={ticketDetailHref(ticket)}>View details</Link>
                 </Button>
-                {!isInactiveTab && !isRefunded && ticket.paystack_reference && refundableRefs.has(ticket.paystack_reference) && (
+                {!isInactiveTab && !isRefunded && ticket.paystack_reference && isTicketRefundable(ticket.paystack_reference) && (
                   <Button
                     variant="outline"
                     size="sm"
                     className="border-[#262629] h-8"
                     onClick={() => {
-                      setRefundRef(ticket.paystack_reference);
+                      setRefundRef(normalizePaymentRef(ticket.paystack_reference));
                       setRefundLabel(ticket.title);
                       setRefundOpen(true);
                     }}
@@ -348,7 +347,7 @@ export default function MyTickets({ userId }) {
         </p>
       )}
 
-      {tab === 'active' && activeTickets.length > 0 && (
+      {tab === 'active' && eligibleRefundCount > 0 && (
         <Button
           variant="outline"
           size="sm"
@@ -360,7 +359,8 @@ export default function MyTickets({ userId }) {
           }}
         >
           <RotateCcw className="w-3.5 h-3.5 mr-1" />
-          Request refund for a payment
+          Request refund
+          {eligibleRefundCount > 1 ? ` (${eligibleRefundCount} eligible)` : ''}
         </Button>
       )}
 
