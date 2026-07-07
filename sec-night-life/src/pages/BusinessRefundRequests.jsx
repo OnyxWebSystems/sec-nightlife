@@ -3,11 +3,15 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost } from '@/api/client';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Loader2, RotateCcw, Copy, CheckCircle, XCircle, Wallet } from 'lucide-react';
+import { Loader2, RotateCcw, Wallet } from 'lucide-react';
+import {
+  VenueRefundRequestDialog,
+  VenueRefundDeclineDialog,
+  StatusBadge,
+  formatZar,
+} from '@/components/refunds/VenueRefundRequestDialog';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
@@ -21,24 +25,6 @@ const REJECT_TEMPLATES = [
   { key: 'refund_already_used_qr', label: 'QR already used for entry' },
   { key: 'refund_partial_service_delivered', label: 'Partial service was delivered' },
 ];
-
-function formatZar(n) {
-  return `R ${Number(n || 0).toFixed(2)}`;
-}
-
-function StatusBadge({ status }) {
-  const map = {
-    PENDING: 'sec-badge-gold',
-    APPROVED: 'sec-badge-success',
-    REJECTED: 'sec-badge-muted',
-    PAID_BY_VENUE: 'sec-badge-success',
-  };
-  return (
-    <span className={`sec-badge ${map[status] || 'sec-badge-muted'}`}>
-      {status === 'PAID_BY_VENUE' ? 'Paid' : status.charAt(0) + status.slice(1).toLowerCase()}
-    </span>
-  );
-}
 
 export default function BusinessRefundRequests() {
   const venueScope = useBusinessVenueScope();
@@ -175,136 +161,30 @@ export default function BusinessRefundRequests() {
         </div>
       )}
 
-      <Dialog open={Boolean(selected)} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent className="max-w-lg bg-[var(--sec-bg-card)] border-[var(--sec-border)]">
-          {selected ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>Refund request</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 text-sm">
-                <div className="flex justify-between items-center">
-                  <StatusBadge status={selected.status} />
-                  <span className="text-[var(--sec-text-muted)]">
-                    {format(parseISO(selected.createdAt), 'd MMM yyyy HH:mm')}
-                  </span>
-                </div>
+      <VenueRefundRequestDialog
+        selected={selected}
+        open={Boolean(selected)}
+        onOpenChange={(o) => !o && setSelected(null)}
+        onCopyWallet={copyWallet}
+        onApprove={(id) => approveMutation.mutate(id)}
+        onDecline={() => setRejectOpen(true)}
+        onMarkPaid={(id) => markPaidMutation.mutate(id)}
+        approvePending={approveMutation.isPending}
+        markPaidPending={markPaidMutation.isPending}
+      />
 
-                <div>
-                  <p className="text-xs text-[var(--sec-text-muted)]">Guest</p>
-                  <p className="font-medium">{selected.user?.fullName || selected.user?.username}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-[var(--sec-text-muted)]">Reason</p>
-                  <p className="whitespace-pre-wrap">{selected.userReason}</p>
-                </div>
-
-                <div className="rounded-lg border border-[var(--sec-border)] p-3 space-y-2">
-                  <div className="flex justify-between">
-                    <span>Gross paid</span>
-                    <span>{formatZar(selected.grossAmountZar)}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold text-[var(--sec-accent)]">
-                    <span>You refund (85%)</span>
-                    <span>{formatZar(selected.venueRefundDueZar)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-[var(--sec-text-muted)]">
-                    <span>SEC keeps (15%)</span>
-                    <span>{formatZar(selected.platformFeeKeptZar)}</span>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs text-[var(--sec-text-muted)] mb-1">Guest Sec Wallet ID</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] font-mono text-sm">
-                      {selected.userWalletCode}
-                    </code>
-                    <Button type="button" variant="outline" size="icon" onClick={() => copyWallet(selected.userWalletCode)}>
-                      <Copy className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-[var(--sec-text-muted)] mt-1">
-                    Look up this ID in Sec Wallet and pay the guest from your bank off-app.
-                  </p>
-                </div>
-
-                {selected.status === 'PENDING' ? (
-                  <div className="flex gap-2 pt-2">
-                    <Button
-                      className="flex-1 sec-btn-primary"
-                      disabled={approveMutation.isPending}
-                      onClick={() => approveMutation.mutate(selected.id)}
-                    >
-                      {approveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
-                      Approve
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        setRejectOpen(true);
-                      }}
-                    >
-                      <XCircle className="w-4 h-4 mr-1" />
-                      Decline
-                    </Button>
-                  </div>
-                ) : null}
-
-                {selected.status === 'APPROVED' ? (
-                  <Button
-                    className="w-full"
-                    variant="outline"
-                    disabled={markPaidMutation.isPending}
-                    onClick={() => markPaidMutation.mutate(selected.id)}
-                  >
-                    Mark paid off-app
-                  </Button>
-                ) : null}
-
-                {selected.status === 'REJECTED' && selected.rejectTemplateKeys ? (
-                  <div className="text-xs text-[var(--sec-text-muted)]">
-                    Decline reason: {(Array.isArray(selected.rejectTemplateKeys) ? selected.rejectTemplateKeys : []).join(', ')}
-                  </div>
-                ) : null}
-              </div>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
-        <DialogContent className="max-w-md bg-[var(--sec-bg-card)]">
-          <DialogHeader>
-            <DialogTitle>Decline refund</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-[var(--sec-text-muted)] mb-3">
-            Select a reason — guests only see approved template messages (no free text).
-          </p>
-          <Select value={rejectKey} onValueChange={setRejectKey}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {REJECT_TEMPLATES.map((t) => (
-                <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            className="w-full mt-4"
-            variant="destructive"
-            disabled={rejectMutation.isPending || !selected}
-            onClick={() =>
-              rejectMutation.mutate({ id: selected.id, template_keys: [rejectKey] })
-            }
-          >
-            {rejectMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm decline'}
-          </Button>
-        </DialogContent>
-      </Dialog>
+      <VenueRefundDeclineDialog
+        open={rejectOpen}
+        onOpenChange={setRejectOpen}
+        rejectKey={rejectKey}
+        onRejectKeyChange={setRejectKey}
+        rejectTemplates={REJECT_TEMPLATES}
+        confirmPending={rejectMutation.isPending}
+        disabled={!selected}
+        onConfirm={() =>
+          rejectMutation.mutate({ id: selected.id, template_keys: [rejectKey] })
+        }
+      />
     </div>
   );
 }

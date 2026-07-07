@@ -721,8 +721,25 @@ export async function applyRefundApproval(tx, refundRequest) {
   return req;
 }
 
-export async function notifyRefundSubmitted({ refundRequest, venueName, userEmail, venueOwnerId }) {
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export async function notifyRefundSubmitted({
+  refundRequest,
+  venueName,
+  userEmail,
+  venueOwnerId,
+  venueOwnerEmail,
+  guestName,
+}) {
   const amount = Number(refundRequest.venueRefundDueZar || 0).toFixed(2);
+  const userReason = refundRequest.userReason || '';
   await createNotification({
     userId: venueOwnerId,
     type: 'refund_request',
@@ -735,8 +752,22 @@ export async function notifyRefundSubmitted({ refundRequest, venueName, userEmai
     sendEmail({
       to: userEmail,
       subject: 'Refund request submitted — SEC Nightlife',
-      html: `<p>Your refund request has been sent to ${venueName || 'the venue'}. They will review it shortly.</p>`,
-    }).catch((e) => logger.warn('refund submit email failed', { err: e?.message }));
+      html: `<p>Your refund request has been sent to ${escapeHtml(venueName || 'the venue')}. They will review it shortly.</p>`,
+    }).catch((e) => logger.warn('refund submit guest email failed', { err: e?.message }));
+  }
+
+  if (venueOwnerEmail) {
+    const appBase = (process.env.APP_URL || 'https://secnightlife.com').replace(/\/+$/, '');
+    const reviewUrl = `${appBase}/BusinessRefundRequests`;
+    const guestLabel = guestName ? ` (<strong>${escapeHtml(guestName)}</strong>)` : '';
+    sendEmail({
+      to: venueOwnerEmail,
+      subject: `New refund request — ${venueName || 'your venue'}`,
+      html: `<p>A guest${guestLabel} requested a refund of <strong>R${amount}</strong> for ${escapeHtml(venueName || 'your venue')}.</p>
+             <p><strong>Reason:</strong> ${escapeHtml(userReason)}</p>
+             <p><a href="${reviewUrl}" style="color:#C0C0C0;font-weight:600;">Review refund request in SEC</a></p>`,
+      text: `A guest${guestName ? ` (${guestName})` : ''} requested a refund of R${amount} for ${venueName || 'your venue'}.\n\nReason: ${userReason}\n\nReview: ${reviewUrl}`,
+    }).catch((e) => logger.warn('refund submit venue email failed', { err: e?.message }));
   }
 }
 

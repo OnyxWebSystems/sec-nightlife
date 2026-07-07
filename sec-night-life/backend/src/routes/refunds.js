@@ -146,12 +146,16 @@ router.post('/request', authenticateToken, async (req, res, next) => {
 
     const venue = await prisma.venue.findUnique({
       where: { id: eligibility.venueId },
-      select: { name: true, ownerUserId: true },
+      select: {
+        name: true,
+        ownerUserId: true,
+        owner: { select: { email: true } },
+      },
     });
 
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
-      select: { email: true },
+      select: { email: true, fullName: true, username: true },
     });
 
     await notifyRefundSubmitted({
@@ -159,6 +163,8 @@ router.post('/request', authenticateToken, async (req, res, next) => {
       venueName: venue?.name,
       userEmail: user?.email,
       venueOwnerId: venue?.ownerUserId,
+      venueOwnerEmail: venue?.owner?.email,
+      guestName: user?.fullName || user?.username || null,
     });
 
     res.status(201).json({ request: mapRefundRequestRow(refundRequest) });
