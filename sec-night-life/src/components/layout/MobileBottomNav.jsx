@@ -6,7 +6,7 @@ import { MOBILE_NAV_FLOATING_MARGIN } from '@/lib/layoutConstants';
 export default function MobileBottomNav({
   items,
   isActive,
-  compact = false,
+  hidden = false,
   availableModes = [],
   onOpenModeSwitcher,
   onPrefetch,
@@ -19,31 +19,31 @@ export default function MobileBottomNav({
       className="lg:hidden"
       style={{
         position: 'fixed',
-        left: compact ? 24 : 16,
-        right: compact ? 24 : 16,
+        left: 16,
+        right: 16,
         bottom: `calc(${MOBILE_NAV_FLOATING_MARGIN}px + env(safe-area-inset-bottom))`,
         zIndex: 50,
-        transform: compact ? 'scale(0.92)' : 'scale(1)',
-        transformOrigin: 'center bottom',
-        transition: 'transform 0.22s ease, left 0.22s ease, right 0.22s ease',
-        pointerEvents: 'auto',
+        transform: hidden ? 'translateY(calc(120% + env(safe-area-inset-bottom)))' : 'translateY(0)',
+        opacity: hidden ? 0 : 1,
+        transition: 'transform 0.25s ease, opacity 0.25s ease',
+        pointerEvents: hidden ? 'none' : 'auto',
       }}
       aria-label="Main navigation"
+      aria-hidden={hidden}
     >
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-around',
-          height: compact ? 48 : 56,
+          height: 56,
           borderRadius: 9999,
           backgroundColor: 'rgba(10, 10, 11, 0.94)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           border: '1px solid var(--sec-border)',
-          boxShadow: compact ? '0 4px 20px rgba(0,0,0,0.35)' : '0 8px 32px rgba(0,0,0,0.45)',
-          padding: compact ? '0 4px' : '0 6px',
-          transition: 'height 0.22s ease, padding 0.22s ease, box-shadow 0.22s ease',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+          padding: '0 6px',
         }}
       >
         {items.map((item) => {
@@ -51,13 +51,13 @@ export default function MobileBottomNav({
           const isCreateTab = item.isCreate || (item.name === 'Create' && item.query === '?create=table');
           const isProfile = item.page === 'Profile';
           const to = item.navTo || (item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page));
-          const iconSize = compact ? 20 : 22;
+          const iconSize = 22;
 
           const iconEl = isCreateTab ? (
             <div
               style={{
-                width: compact ? 36 : 40,
-                height: compact ? 36 : 40,
+                width: 40,
+                height: 40,
                 borderRadius: 12,
                 background: 'var(--sec-gradient-silver)',
                 display: 'flex',
@@ -65,10 +65,9 @@ export default function MobileBottomNav({
                 justifyContent: 'center',
                 boxShadow: '0 2px 10px rgba(192,192,192,0.2)',
                 color: 'var(--sec-bg-base)',
-                transition: 'width 0.22s ease, height 0.22s ease',
               }}
             >
-              <item.icon size={compact ? 18 : 20} strokeWidth={2} />
+              <item.icon size={20} strokeWidth={2} />
             </div>
           ) : (
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -99,7 +98,7 @@ export default function MobileBottomNav({
             </div>
           );
 
-          const inner = active && !isCreateTab && !compact ? (
+          const inner = active && !isCreateTab ? (
             <div
               style={{
                 display: 'flex',
@@ -117,7 +116,7 @@ export default function MobileBottomNav({
               </span>
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isCreateTab ? 0 : compact ? '6px 8px' : '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isCreateTab ? 0 : '8px 10px' }}>
               {iconEl}
             </div>
           );

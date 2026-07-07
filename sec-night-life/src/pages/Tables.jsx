@@ -67,6 +67,7 @@ export default function Tables() {
       <header
         style={{
           padding: '20px 20px 12px',
+          paddingTop: 'calc(20px + env(safe-area-inset-top))',
           maxWidth: 900,
           margin: '0 auto',
           position: 'sticky',

@@ -17,7 +17,7 @@ import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingC
 import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
 import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
 import { buildEventTableTiers, statsFromEventTableTiers } from '../lib/eventTableTiers.js';
-import { resolveEventSeatingPlan, getVenueDefaultSeatingPlan } from '../lib/seatingPlanHelpers.js';
+import { resolveEventSeatingPlans, getVenueDefaultSeatingPlan, attachGuestSeatingPlans } from '../lib/seatingPlanHelpers.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
 import {
   assertEventCodeUniqueForVenue,
@@ -614,8 +614,8 @@ router.get('/:id/table-tiers', optionalAuth, async (req, res, next) => {
   try {
     const result = await buildEventTableTiers(req.params.id);
     if (!result) return res.status(404).json({ error: 'Event not found' });
-    const seatingPlan = await resolveEventSeatingPlan(req.params.id);
-    res.json({ ...result, seatingPlan });
+    const seatingPlans = await resolveEventSeatingPlans(req.params.id);
+    res.json(attachGuestSeatingPlans(result, seatingPlans));
   } catch (err) {
     next(err);
   }

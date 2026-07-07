@@ -56,7 +56,7 @@ export default function Explore() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)' }}>
-      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
+      <header style={{ position: 'sticky', top: 0, zIndex: 40, paddingTop: 'env(safe-area-inset-top)', backgroundColor: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--sec-border)' }}>
         <div style={{ padding: 'var(--space-4) var(--space-6)' }}>
           <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 16, color: 'var(--sec-text-primary)' }}>Explore</h1>
           <div style={{ display: 'flex', gap: 12 }}>

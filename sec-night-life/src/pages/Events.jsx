@@ -209,6 +209,7 @@ export default function Events() {
       {/* ── Sticky header ── */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 40,
+        paddingTop: 'env(safe-area-inset-top)',
         backgroundColor: 'rgba(0,0,0,0.94)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',

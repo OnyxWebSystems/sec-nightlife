@@ -18,6 +18,7 @@ import EventTableTierCard from '@/components/events/EventTableTierCard';
 import EventTableTierSheet from '@/components/events/EventTableTierSheet';
 import SeatingPlanCTA from '@/components/seating/SeatingPlanCTA';
 import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
+import { normalizeGuestSeatingPlans } from '@/lib/seatingPlanUtils';
 import TicketPurchaseButton from '@/components/events/TicketPurchaseButton';
 import EventShareModal from '@/components/events/EventShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
@@ -117,7 +118,8 @@ export default function EventDetails() {
   const tableTiers = tableTiersData?.tiers ?? [];
   const customListingId = tableTiersData?.customListingId ?? null;
   const allowsCustomRequests = tableTiersData?.allowsCustomRequests ?? false;
-  const seatingPlan = tableTiersData?.seatingPlan ?? null;
+  const seatingPlans = normalizeGuestSeatingPlans(tableTiersData);
+  const seatingPlan = seatingPlans[0] ?? null;
 
   const toggleInterestMutation = useMutation({
     mutationFn: async () => {
@@ -558,7 +560,11 @@ export default function EventDetails() {
 
           {seatingPlan ? (
             <div style={{ marginBottom: 12 }}>
-              <SeatingPlanCTA plan={seatingPlan} onView={() => setSeatingViewerOpen(true)} />
+              <SeatingPlanCTA
+                plan={seatingPlan}
+                planCount={seatingPlans.length}
+                onView={() => setSeatingViewerOpen(true)}
+              />
             </div>
           ) : null}
 
@@ -768,7 +774,7 @@ export default function EventDetails() {
       <SeatingPlanViewer
         open={seatingViewerOpen}
         onClose={() => setSeatingViewerOpen(false)}
-        plan={seatingPlan}
+        plans={seatingPlans}
       />
     </div>
   );

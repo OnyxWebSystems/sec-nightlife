@@ -22,7 +22,7 @@ import { isStaff, getStaffAssignmentsForUser } from '../lib/access.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 import { sendEmail } from '../lib/email.js';
 import { buildVenueDayTableTiers } from '../lib/buildVenueDayTableTiers.js';
-import { resolveDayBookingSeatingPlan } from '../lib/seatingPlanHelpers.js';
+import { resolveDayBookingSeatingPlans, attachGuestSeatingPlans } from '../lib/seatingPlanHelpers.js';
 
 const router = Router();
 
@@ -273,8 +273,8 @@ router.get('/:id/day-table-tiers', optionalAuth, async (req, res, next) => {
     const windowEnd = req.query.windowEnd || req.query.window_end || null;
     const result = await buildVenueDayTableTiers(req.params.id, { windowStart, windowEnd });
     if (!result) return res.status(404).json({ error: 'Venue not found' });
-    const seatingPlan = await resolveDayBookingSeatingPlan(req.params.id);
-    res.json({ ...result, seatingPlan });
+    const seatingPlans = await resolveDayBookingSeatingPlans(req.params.id);
+    res.json(attachGuestSeatingPlans(result, seatingPlans));
   } catch (err) {
     next(err);
   }

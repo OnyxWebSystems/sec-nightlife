@@ -13,6 +13,7 @@ import MenuPicker, { menuSelectionToPayload } from '@/components/menu/MenuPicker
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import HostedTableJoinWizard from '@/components/tables/HostedTableJoinWizard';
 import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
+import { normalizeGuestSeatingPlans } from '@/lib/seatingPlanUtils';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -87,6 +88,7 @@ export default function HostedTableExperience({
   autoOpenJoin = false,
   autoOpenCheckout = false,
   seatingPlan = null,
+  seatingPlans = null,
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -98,6 +100,12 @@ export default function HostedTableExperience({
   const [isLeaving, setIsLeaving] = useState(false);
   const [hostedMenuSelected, setHostedMenuSelected] = useState({});
   const [seatingViewerOpen, setSeatingViewerOpen] = useState(false);
+
+  const resolvedSeatingPlans =
+    Array.isArray(seatingPlans) && seatingPlans.length > 0
+      ? seatingPlans
+      : normalizeGuestSeatingPlans(seatingPlan);
+  const resolvedSeatingPlan = resolvedSeatingPlans[0] ?? null;
 
   const checkout = hostedTable.checkout || {};
   const entranceZ = Number(checkout.entrance_zar ?? 0);
@@ -350,7 +358,7 @@ export default function HostedTableExperience({
         <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--sec-text-primary)' }}>
           {hostedTable.tableName}
         </h1>
-        {seatingPlan ? (
+        {resolvedSeatingPlan ? (
           <button
             type="button"
             onClick={() => setSeatingViewerOpen(true)}
@@ -358,7 +366,7 @@ export default function HostedTableExperience({
             style={{ color: 'var(--sec-accent)' }}
           >
             <MapPin size={14} />
-            View seating plan
+            View seating plan{resolvedSeatingPlans.length > 1 ? ` (${resolvedSeatingPlans.length} floors)` : ''}
           </button>
         ) : null}
         {hostedTable.venueSlotName &&
@@ -695,7 +703,7 @@ export default function HostedTableExperience({
       <SeatingPlanViewer
         open={seatingViewerOpen}
         onClose={() => setSeatingViewerOpen(false)}
-        plan={seatingPlan}
+        plans={resolvedSeatingPlans}
       />
     </div>
   );

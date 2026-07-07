@@ -1,8 +1,11 @@
 import React from 'react';
 import { Map, ChevronRight } from 'lucide-react';
 
-export default function SeatingPlanCTA({ plan, onView, className = '' }) {
+export default function SeatingPlanCTA({ plan, planCount = 1, onView, className = '' }) {
   if (!plan?.imageUrl) return null;
+
+  const total = Math.max(planCount, 1);
+  const showCount = total > 1;
 
   return (
     <button
@@ -18,7 +21,7 @@ export default function SeatingPlanCTA({ plan, onView, className = '' }) {
     >
       <div className="flex items-center gap-4 p-4">
         <div
-          className="w-14 h-14 rounded-xl shrink-0 overflow-hidden flex items-center justify-center"
+          className="w-14 h-14 rounded-xl shrink-0 overflow-hidden flex items-center justify-center relative"
           style={{
             border: '1px solid var(--sec-accent-border)',
             background: 'var(--sec-bg-elevated)',
@@ -29,12 +32,20 @@ export default function SeatingPlanCTA({ plan, onView, className = '' }) {
             alt=""
             className="w-full h-full object-cover"
           />
+          {showCount ? (
+            <span
+              className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center"
+              style={{ background: 'var(--sec-accent)', color: 'var(--sec-bg-base)' }}
+            >
+              {total}
+            </span>
+          ) : null}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <Map size={14} style={{ color: 'var(--sec-accent)' }} />
             <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--sec-accent)' }}>
-              Seating plan
+              Seating plan{showCount ? 's' : ''}
             </span>
           </div>
           <p className="font-semibold truncate" style={{ color: 'var(--sec-text-primary)' }}>
@@ -46,7 +57,9 @@ export default function SeatingPlanCTA({ plan, onView, className = '' }) {
             </p>
           ) : (
             <p className="text-xs mt-0.5" style={{ color: 'var(--sec-text-muted)' }}>
-              See where you&apos;ll be seated before you book
+              {showCount
+                ? `${total} floor plans — swipe to browse before you book`
+                : 'See where you\'ll be seated before you book'}
             </p>
           )}
         </div>

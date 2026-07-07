@@ -25,7 +25,7 @@ import {
   holderDisplayNameFromUser,
   venueTableTicketTitle,
 } from '../lib/ticketHelpers.js';
-import { resolveVenueTableSeatingPlan } from '../lib/seatingPlanHelpers.js';
+import { resolveVenueTableSeatingPlans, attachGuestSeatingPlans } from '../lib/seatingPlanHelpers.js';
 import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
 import {
   buildAvailableGaps,
@@ -719,19 +719,18 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
         where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },
       });
     }
-    const seatingPlan = await resolveVenueTableSeatingPlan(table);
-    res.json({
+    const seatingPlans = await resolveVenueTableSeatingPlans(table);
+    res.json(attachGuestSeatingPlans({
       ...table,
       menuItems,
       myMembership,
-      seatingPlan,
       isDayBooking,
       venueWindow,
       ...dayBookingMeta,
       spotsRemaining: Math.max(0, table.guestCapacity - table.currentOccupancy),
       progressPercentage: table.minimumSpend > 0 ? Number(((table.amountContributed / table.minimumSpend) * 100).toFixed(1)) : 0,
       members: table.members.map((m) => ({ id: m.id, userId: m.userId, avatarUrl: m.user.userProfile?.avatarUrl || null, username: m.user.userProfile?.username || m.user.fullName || 'member' })),
-    });
+    }, seatingPlans));
   } catch (e) {
     next(e);
   }

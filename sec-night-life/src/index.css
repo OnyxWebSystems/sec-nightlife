@@ -43,11 +43,14 @@
   html {
     color-scheme: dark;
     overflow-x: clip;
+    overscroll-behavior-y: none;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
   body {
     overflow-x: clip;
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
     min-width: 0;
     background-color: var(--sec-bg-base);
     color: var(--sec-text-primary);
@@ -418,10 +421,6 @@
     .sec-bottom-bar {
       bottom: calc(68px + env(safe-area-inset-bottom));
       z-index: 40;
-    }
-    [data-mobile-nav-visible='false'] .sec-bottom-bar {
-      bottom: 0;
-      padding-bottom: max(14px, env(safe-area-inset-bottom));
     }
   }
 

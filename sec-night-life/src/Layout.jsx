@@ -16,7 +16,6 @@ import { useIsMobile } from '@/hooks/useIsDesktop';
 import { shouldShowMobileBackHeader, getMobilePageTitle } from '@/lib/mobilePageShell';
 import { BUSINESS_PAGE_PERMISSIONS, useVenueStaffAccess } from '@/hooks/useVenueStaffAccess';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
-import { useScrollDirection } from '@/hooks/useScrollDirection';
 import { getMobileNavState } from '@/lib/mobileNavVisibility';
 import { MOBILE_MAIN_PADDING_BOTTOM } from '@/lib/layoutConstants';
 import { useMobileNavFormHide } from '@/hooks/useMobileNavFormHide';
@@ -295,10 +294,7 @@ export default function Layout({ children, currentPageName }) {
 
   const { hideBottomNav: pageHidesNav } = getMobileNavState({ pageName: currentPageName, searchParams });
   const formHidesNav = useMobileNavFormHide();
-  const hideBottomNav = pageHidesNav || (currentPageName !== 'HostDashboard' && formHidesNav);
-  const navScrollCompact = useScrollDirection({
-    enabled: !hideBottomNav && currentPageName !== 'HostDashboard',
-  });
+  const navOverlayHidden = !pageHidesNav && currentPageName !== 'HostDashboard' && formHidesNav;
   const isMobile = useIsMobile();
   const showLayoutBackHeader = isMobile && shouldShowMobileBackHeader(currentPageName);
 
@@ -437,9 +433,9 @@ export default function Layout({ children, currentPageName }) {
 
   return (
     <div
-      className="min-h-screen"
+      className="min-h-[100dvh] min-h-screen"
       style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}
-      data-mobile-nav-visible={hideBottomNav ? 'false' : 'true'}
+      data-mobile-nav-visible={pageHidesNav || navOverlayHidden ? 'false' : 'true'}
     >
 
       {/* ── Desktop Sidebar ── */}
@@ -555,11 +551,15 @@ export default function Layout({ children, currentPageName }) {
 
       {/* ── Main Content ── */}
       <main
-        className={`lg:ml-[240px] min-h-screen w-full lg:w-[calc(100%-240px)] max-w-app md:max-w-app-md lg:max-w-none mx-auto lg:mx-0 px-4 sm:px-6 box-border min-w-0 lg:pb-10 ${
-          hideBottomNav ? 'pb-[env(safe-area-inset-bottom)]' : 'pb-[calc(84px+env(safe-area-inset-bottom))]'
+        className={`lg:ml-[240px] min-h-[100dvh] min-h-screen w-full lg:w-[calc(100%-240px)] max-w-app md:max-w-app-md lg:max-w-none mx-auto lg:mx-0 px-4 sm:px-6 box-border min-w-0 lg:pb-10 ${
+          isMobile && pageHidesNav
+            ? 'pb-[env(safe-area-inset-bottom)]'
+            : isMobile
+              ? 'pb-[calc(84px+env(safe-area-inset-bottom))]'
+              : ''
         }`}
         style={
-          isMobile && !hideBottomNav
+          isMobile && !pageHidesNav
             ? { scrollPaddingBottom: MOBILE_MAIN_PADDING_BOTTOM }
             : undefined
         }
@@ -657,11 +657,11 @@ export default function Layout({ children, currentPageName }) {
         </DialogContent>
       </Dialog>
 
-      {!hideBottomNav ? (
+      {!pageHidesNav ? (
         <MobileBottomNav
           items={mobileNav}
           isActive={isActive}
-          compact={navScrollCompact}
+          hidden={navOverlayHidden}
           availableModes={availableModes}
           onOpenModeSwitcher={() => setShowModeSwitcher(true)}
           onPrefetch={prefetchNav}

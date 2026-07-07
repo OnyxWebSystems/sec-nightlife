@@ -72,6 +72,12 @@ export const MOBILE_OWN_BACK_HEADER = new Set([
   'AgeVerificationDeclaration',
   'AdminDashboard',
   'Notifications',
+  'Events',
+  'Jobs',
+  'Explore',
+  'Tables',
+  'Map',
+  'Leaderboard',
 ]);
 
 const AUTH_FLOW_PAGES = new Set([

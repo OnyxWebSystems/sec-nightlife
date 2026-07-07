@@ -9,6 +9,7 @@ import EventTableTierCard from '@/components/events/EventTableTierCard';
 import EventTableTierSheet from '@/components/events/EventTableTierSheet';
 import SeatingPlanCTA from '@/components/seating/SeatingPlanCTA';
 import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
+import { normalizeGuestSeatingPlans } from '@/lib/seatingPlanUtils';
 import { formatWindowLabel, isOvernightWindow } from '@/lib/dayBookingSlotUtils';
 import { venueWindowFromSchedule } from '@/lib/resolveDayBookingContext';
 
@@ -48,7 +49,8 @@ export default function VenueBook() {
     : false;
   const customListingId = tierData?.customListingId ?? null;
   const allowsCustomRequests = Boolean(tierData?.allowsCustomRequests);
-  const seatingPlan = tierData?.seatingPlan ?? null;
+  const seatingPlans = normalizeGuestSeatingPlans(tierData);
+  const seatingPlan = seatingPlans[0] ?? null;
   const dayBookingsOn = Boolean(venue?.accepts_day_bookings ?? venue?.acceptsDayBookings);
 
   const goCustomRequest = async () => {
@@ -115,6 +117,7 @@ export default function VenueBook() {
           {seatingPlan ? (
             <SeatingPlanCTA
               plan={seatingPlan}
+              planCount={seatingPlans.length}
               onView={() => setSeatingViewerOpen(true)}
               className="mb-4"
             />
@@ -161,7 +164,7 @@ export default function VenueBook() {
       <SeatingPlanViewer
         open={seatingViewerOpen}
         onClose={() => setSeatingViewerOpen(false)}
-        plan={seatingPlan}
+        plans={seatingPlans}
       />
     </div>
   );

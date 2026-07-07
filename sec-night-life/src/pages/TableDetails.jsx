@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import HostedTableExperience from '@/components/tables/HostedTableExperience';
 import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
+import { normalizeGuestSeatingPlans } from '@/lib/seatingPlanUtils';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
@@ -223,14 +224,19 @@ export default function TableDetails() {
     venueTable?.event?.id ||
     null;
 
+  const venueTableSeatingPlans = normalizeGuestSeatingPlans(venueTable);
+
   const { data: hostedEventTiers } = useQuery({
     queryKey: ['event-table-tiers', hostedEventId],
     queryFn: () => apiGet(`/api/events/${encodeURIComponent(hostedEventId)}/table-tiers`),
-    enabled: !!hostedEventId && !venueTable?.seatingPlan,
+    enabled: !!hostedEventId && venueTableSeatingPlans.length === 0,
   });
 
-  const seatingPlan =
-    venueTable?.seatingPlan ?? hostedEventTiers?.seatingPlan ?? null;
+  const seatingPlans =
+    venueTableSeatingPlans.length > 0
+      ? venueTableSeatingPlans
+      : normalizeGuestSeatingPlans(hostedEventTiers);
+  const seatingPlan = seatingPlans[0] ?? null;
 
   const venueBookingMode = useMemo(() => {
     if (bookingModeParam === 'host') return 'host';
@@ -820,6 +826,7 @@ export default function TableDetails() {
             autoOpenCheckout={checkoutParam === '1'}
             onBack={() => navigate(-1)}
             seatingPlan={seatingPlan}
+            seatingPlans={seatingPlans}
           />
         );
       }
@@ -921,7 +928,7 @@ export default function TableDetails() {
               style={{ color: 'var(--sec-accent)' }}
             >
               <MapPin size={14} />
-              View seating plan
+              View seating plan{seatingPlans.length > 1 ? ` (${seatingPlans.length} floors)` : ''}
             </button>
           ) : null}
           <p style={{ marginTop: 8, fontSize: 12, color: 'var(--sec-accent)', fontWeight: 600 }}>
@@ -1321,7 +1328,7 @@ export default function TableDetails() {
       <SeatingPlanViewer
         open={seatingViewerOpen}
         onClose={() => setSeatingViewerOpen(false)}
-        plan={seatingPlan}
+        plans={seatingPlans}
       />
       </>
     );
@@ -1346,6 +1353,7 @@ export default function TableDetails() {
         autoOpenCheckout={checkoutParam === '1'}
         onBack={() => navigate(-1)}
         seatingPlan={seatingPlan}
+        seatingPlans={seatingPlans}
       />
     );
   }

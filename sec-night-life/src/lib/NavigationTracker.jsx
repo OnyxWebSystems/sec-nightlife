@@ -12,6 +12,10 @@ export default function NavigationTracker() {
 
     // Log user activity when navigating to a page
     useEffect(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    }, [location.pathname]);
+
+    useEffect(() => {
         // Extract page name from pathname
         const pathname = location.pathname ?? '';
         let pageName;
