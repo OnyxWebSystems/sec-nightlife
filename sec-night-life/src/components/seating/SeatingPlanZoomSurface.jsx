@@ -3,26 +3,24 @@ import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 
-const MIN_SCALE = 0.5;
+const SLIDER_MIN_SCALE = 0.5;
+const PINCH_MIN_SCALE = 0.15;
 const MAX_SCALE = 10;
 const SLIDER_STEP = 1;
 const BUTTON_STEP_PERCENT = 5;
 const SLIDER_PRESETS = [0, 25, 50, 75, 100];
 
-function clampScale(scale) {
-  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-}
-
-/** Map pinch/button scale (0.5–10×) to slider position 0–100%. */
+/** Map scale to slider 0–100% (slider floor = SLIDER_MIN_SCALE; pinch can go lower). */
 function scaleToSliderPercent(scale) {
-  const s = clampScale(scale);
-  return Math.round(((s - MIN_SCALE) / (MAX_SCALE - MIN_SCALE)) * 100);
+  const s = Math.min(MAX_SCALE, Math.max(PINCH_MIN_SCALE, scale));
+  if (s <= SLIDER_MIN_SCALE) return 0;
+  return Math.round(((s - SLIDER_MIN_SCALE) / (MAX_SCALE - SLIDER_MIN_SCALE)) * 100);
 }
 
-/** Map slider 0–100% to pinch scale. */
+/** Map slider 0–100% to scale (does not include extra pinch-only zoom-out range). */
 function sliderPercentToScale(percent) {
   const p = Math.min(100, Math.max(0, percent));
-  return MIN_SCALE + (p / 100) * (MAX_SCALE - MIN_SCALE);
+  return SLIDER_MIN_SCALE + (p / 100) * (MAX_SCALE - SLIDER_MIN_SCALE);
 }
 
 export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
@@ -38,7 +36,7 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
     <TransformWrapper
       key={resetKey}
       initialScale={1}
-      minScale={MIN_SCALE}
+      minScale={PINCH_MIN_SCALE}
       maxScale={MAX_SCALE}
       centerOnInit
       smooth
@@ -59,6 +57,10 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
         };
 
         const nudgeSlider = (delta) => {
+          if (delta < 0 && sliderPercent <= 0) {
+            zoomOut(0.12, 120);
+            return;
+          }
           applySliderPercent(
             Math.min(100, Math.max(0, sliderPercent + delta)),
             120,
@@ -154,7 +156,7 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
               </div>
 
               <p className="text-[10px] leading-snug" style={{ color: 'var(--sec-text-muted)' }}>
-                Pinch with two fingers to zoom · drag to pan · slider sets zoom from 0% (wide) to 100% (close)
+                Pinch to zoom in or out (past 0% on the slider) · drag to pan · slider runs 0% (wide) to 100% (close)
               </p>
             </div>
 
