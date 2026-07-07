@@ -133,6 +133,29 @@ export default function DayBookingTimeSlotPicker({
 
   const [activeGap, setActiveGap] = useState(null);
 
+  // Select a gap so chip rails render; does not pre-fill checkout times unless autoSelectDefault.
+  useEffect(() => {
+    if (!venueWindow || readOnly || gaps.length === 0) return;
+
+    if (value?.startTime && value?.endTime) {
+      const gap = findGapContainingWindow(gaps, value.startTime, value.endTime, venueWindow);
+      if (gap) setActiveGap(gap);
+      return;
+    }
+
+    if (gaps.length === 1) {
+      setActiveGap(gaps[0]);
+      return;
+    }
+
+    setActiveGap((prev) => {
+      if (prev && gaps.some((g) => g.startTime === prev.startTime && g.endTime === prev.endTime)) {
+        return prev;
+      }
+      return null;
+    });
+  }, [venueWindow, gaps, readOnly, value?.startTime, value?.endTime, now.getTime()]);
+
   useEffect(() => {
     if (!autoSelectDefault || !venueWindow || readOnly || value?.startTime) return;
     const initial = defaultWindowFromGaps(gaps, venueWindow, { now });
@@ -142,12 +165,6 @@ export default function DayBookingTimeSlotPicker({
       if (gap) setActiveGap(gap);
     }
   }, [autoSelectDefault, venueWindow?.startTime, venueWindow?.endTime, gaps.length, now.getTime()]);
-
-  useEffect(() => {
-    if (!value?.startTime || !value?.endTime || !venueWindow) return;
-    const gap = findGapContainingWindow(gaps, value.startTime, value.endTime, venueWindow);
-    if (gap) setActiveGap(gap);
-  }, [value?.startTime, value?.endTime, gaps, venueWindow]);
 
   // Bump selection if it becomes invalid (page left open)
   useEffect(() => {
@@ -280,8 +297,12 @@ export default function DayBookingTimeSlotPicker({
 
   const handleGapSelect = (gap) => {
     setActiveGap(gap);
-    const initial = defaultWindowFromGaps([gap], venueWindow, { defaultDurationMinutes: 120, now });
-    if (initial) onChange?.(initial);
+    if (autoSelectDefault) {
+      const initial = defaultWindowFromGaps([gap], venueWindow, { defaultDurationMinutes: 120, now });
+      if (initial) onChange?.(initial);
+    } else {
+      onChange?.(null);
+    }
   };
 
   return (
