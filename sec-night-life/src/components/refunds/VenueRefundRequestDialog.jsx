@@ -24,10 +24,13 @@ function StatusBadge({ status }) {
   );
 }
 
-function LuxuryDialogShell({ children, className = 'max-w-lg' }) {
+const FOOTER_CLASS =
+  'relative z-10 shrink-0 border-t border-[var(--sec-accent-border)]/50 bg-[#0f1011]/95 backdrop-blur-sm px-5 sm:px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]';
+
+function LuxuryDialogShell({ header, footer, children, className = 'sm:max-w-lg' }) {
   return (
     <DialogContent
-      className={`${className} relative overflow-x-hidden overflow-y-auto max-h-[min(92vh,820px)] border-[var(--sec-accent-border)] p-0 gap-0 shadow-2xl`}
+      className={`${className} relative flex flex-col max-h-[90dvh] overflow-hidden w-[calc(100vw-1.5rem)] sm:w-full border-[var(--sec-accent-border)] p-0 gap-0 shadow-2xl top-[50%] translate-y-[-50%] max-sm:top-auto max-sm:bottom-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-2xl`}
       style={{
         background: 'linear-gradient(160deg, rgba(192,192,192,0.14) 0%, #141418 38%, #0f1011 100%)',
       }}
@@ -36,12 +39,16 @@ function LuxuryDialogShell({ children, className = 'max-w-lg' }) {
         src="/Logo/sec-email-logo-transparent.png"
         alt=""
         aria-hidden
-        className="pointer-events-none absolute -top-6 right-2 w-40 h-40 opacity-[0.1] select-none"
+        className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-44 sm:w-48 h-44 sm:h-48 opacity-[0.07] select-none"
         onError={(e) => {
           e.currentTarget.src = '/sec-logo.png';
         }}
       />
-      <div className="relative z-10 p-5 sm:p-6 space-y-4">{children}</div>
+      {header ? <div className="relative z-10 shrink-0 px-5 sm:px-6 pt-5 sm:pt-6">{header}</div> : null}
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y px-5 sm:px-6 py-4">
+        {children}
+      </div>
+      {footer ? <div className={FOOTER_CLASS}>{footer}</div> : null}
     </DialogContent>
   );
 }
@@ -69,27 +76,75 @@ export function VenueRefundRequestDialog({
 
   const guestName = selected.user?.fullName || selected.user?.username || 'Guest';
 
+  const header = (
+    <DialogHeader className="space-y-3 p-0">
+      <div className="flex items-center justify-between gap-3 pr-8">
+        <div className="flex items-center gap-3 min-w-0 sm:gap-3.5">
+          <SecLogo size={42} variant="icon" asset="transparent" />
+          <DialogTitle className="text-lg sm:text-xl font-semibold tracking-tight text-white">
+            Refund request
+          </DialogTitle>
+        </div>
+      </div>
+      <div className="flex justify-between items-center gap-2">
+        <StatusBadge status={selected.status} />
+        <span className="text-xs text-[var(--sec-text-muted)] shrink-0">
+          {format(parseISO(selected.createdAt), 'd MMM yyyy HH:mm')}
+        </span>
+      </div>
+    </DialogHeader>
+  );
+
+  let footer = null;
+  if (selected.status === 'PENDING') {
+    footer = (
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Button
+          className="flex-1 sec-btn-primary h-11"
+          disabled={approvePending}
+          onClick={() => onApprove(selected.id)}
+        >
+          {approvePending ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <CheckCircle className="w-4 h-4 mr-1.5" />
+          )}
+          Approve
+        </Button>
+        <Button
+          variant="outline"
+          className="flex-1 h-11 border-[var(--sec-accent-border)] bg-black/20 hover:bg-black/30 hover:border-[var(--sec-accent-bright)]/40"
+          onClick={onDecline}
+        >
+          <XCircle className="w-4 h-4 mr-1.5" />
+          Decline
+        </Button>
+      </div>
+    );
+  } else if (selected.status === 'APPROVED') {
+    footer = (
+      <Button
+        className="w-full h-11 border-[var(--sec-accent-border)]"
+        variant="outline"
+        disabled={markPaidPending}
+        onClick={() => onMarkPaid(selected.id)}
+      >
+        {markPaidPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Mark paid off-app'}
+      </Button>
+    );
+  } else if (selected.status === 'REJECTED' && selected.rejectTemplateKeys) {
+    footer = (
+      <div className="text-xs text-[var(--sec-text-muted)] rounded-lg border border-[var(--sec-border)] bg-black/20 px-3 py-2">
+        Decline reason:{' '}
+        {(Array.isArray(selected.rejectTemplateKeys) ? selected.rejectTemplateKeys : []).join(', ')}
+      </div>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <LuxuryDialogShell>
-        <DialogHeader className="space-y-3 p-0">
-          <div className="flex items-center justify-between gap-3 pr-8">
-            <div className="flex items-center gap-3.5 min-w-0">
-              <SecLogo size={44} variant="icon" asset="transparent" />
-              <DialogTitle className="text-xl font-semibold tracking-tight text-white">
-                Refund request
-              </DialogTitle>
-            </div>
-          </div>
-          <div className="flex justify-between items-center">
-            <StatusBadge status={selected.status} />
-            <span className="text-xs text-[var(--sec-text-muted)]">
-              {format(parseISO(selected.createdAt), 'd MMM yyyy HH:mm')}
-            </span>
-          </div>
-        </DialogHeader>
-
-        <div className="space-y-4 text-sm pb-1">
+      <LuxuryDialogShell header={header} footer={footer}>
+        <div className="space-y-4 text-sm pb-2">
           <div className="rounded-xl border border-[var(--sec-accent-border)]/60 bg-black/25 px-4 py-3">
             <FieldLabel>Guest</FieldLabel>
             <p className="font-semibold text-white text-base">{guestName}</p>
@@ -121,15 +176,15 @@ export function VenueRefundRequestDialog({
 
           <div>
             <FieldLabel>Guest Sec Wallet ID</FieldLabel>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 px-3 py-2.5 rounded-xl bg-black/40 border border-[var(--sec-accent-border)] font-mono text-sm text-white">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <code className="flex-1 px-3 py-2.5 rounded-xl bg-black/40 border border-[var(--sec-accent-border)] font-mono text-sm text-white break-all">
                 {selected.userWalletCode}
               </code>
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="border-[var(--sec-accent-border)] hover:border-[var(--sec-accent-bright)]/50 shrink-0"
+                className="border-[var(--sec-accent-border)] hover:border-[var(--sec-accent-bright)]/50 shrink-0 h-11 w-full sm:w-11"
                 onClick={() => onCopyWallet(selected.userWalletCode)}
               >
                 <Copy className="w-4 h-4" />
@@ -139,49 +194,6 @@ export function VenueRefundRequestDialog({
               Look up this ID in Sec Wallet and pay the guest from your bank off-app.
             </p>
           </div>
-
-          {selected.status === 'PENDING' ? (
-            <div className="flex flex-col sm:flex-row gap-2 pt-1">
-              <Button
-                className="flex-1 sec-btn-primary h-11"
-                disabled={approvePending}
-                onClick={() => onApprove(selected.id)}
-              >
-                {approvePending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <CheckCircle className="w-4 h-4 mr-1.5" />
-                )}
-                Approve
-              </Button>
-              <Button
-                variant="outline"
-                className="flex-1 h-11 border-[var(--sec-accent-border)] bg-black/20 hover:bg-black/30 hover:border-[var(--sec-accent-bright)]/40"
-                onClick={onDecline}
-              >
-                <XCircle className="w-4 h-4 mr-1.5" />
-                Decline
-              </Button>
-            </div>
-          ) : null}
-
-          {selected.status === 'APPROVED' ? (
-            <Button
-              className="w-full h-11 border-[var(--sec-accent-border)]"
-              variant="outline"
-              disabled={markPaidPending}
-              onClick={() => onMarkPaid(selected.id)}
-            >
-              {markPaidPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Mark paid off-app'}
-            </Button>
-          ) : null}
-
-          {selected.status === 'REJECTED' && selected.rejectTemplateKeys ? (
-            <div className="text-xs text-[var(--sec-text-muted)] rounded-lg border border-[var(--sec-border)] bg-black/20 px-3 py-2">
-              Decline reason:{' '}
-              {(Array.isArray(selected.rejectTemplateKeys) ? selected.rejectTemplateKeys : []).join(', ')}
-            </div>
-          ) : null}
         </div>
       </LuxuryDialogShell>
     </Dialog>
@@ -198,40 +210,48 @@ export function VenueRefundDeclineDialog({
   confirmPending,
   disabled,
 }) {
+  const header = (
+    <DialogHeader className="p-0">
+      <div className="flex items-center gap-3 pr-8 sm:gap-3.5">
+        <SecLogo size={40} variant="icon" asset="transparent" />
+        <DialogTitle className="text-lg sm:text-xl font-semibold tracking-tight text-white">
+          Decline refund
+        </DialogTitle>
+      </div>
+    </DialogHeader>
+  );
+
+  const footer = (
+    <Button
+      className="w-full h-11"
+      variant="destructive"
+      disabled={confirmPending || disabled}
+      onClick={onConfirm}
+    >
+      {confirmPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm decline'}
+    </Button>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <LuxuryDialogShell className="max-w-md">
-        <DialogHeader className="p-0">
-          <div className="flex items-center gap-3.5 pr-8">
-            <SecLogo size={40} variant="icon" asset="transparent" />
-            <DialogTitle className="text-xl font-semibold tracking-tight text-white">
-              Decline refund
-            </DialogTitle>
-          </div>
-        </DialogHeader>
-        <p className="text-sm text-[var(--sec-text-muted)] leading-relaxed">
-          Select a reason — guests only see approved template messages (no free text).
-        </p>
-        <Select value={rejectKey} onValueChange={onRejectKeyChange}>
-          <SelectTrigger className="bg-black/30 border-[var(--sec-accent-border)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {rejectTemplates.map((t) => (
-              <SelectItem key={t.key} value={t.key}>
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          className="w-full h-11 mt-2"
-          variant="destructive"
-          disabled={confirmPending || disabled}
-          onClick={onConfirm}
-        >
-          {confirmPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm decline'}
-        </Button>
+      <LuxuryDialogShell className="sm:max-w-md" header={header} footer={footer}>
+        <div className="space-y-4 pb-2">
+          <p className="text-sm text-[var(--sec-text-muted)] leading-relaxed">
+            Select a reason — guests only see approved template messages (no free text).
+          </p>
+          <Select value={rejectKey} onValueChange={onRejectKeyChange}>
+            <SelectTrigger className="bg-black/30 border-[var(--sec-accent-border)] h-11">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {rejectTemplates.map((t) => (
+                <SelectItem key={t.key} value={t.key}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </LuxuryDialogShell>
     </Dialog>
   );
