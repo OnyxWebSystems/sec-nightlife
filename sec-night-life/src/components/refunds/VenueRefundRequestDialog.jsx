@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import SecLogo from '@/components/ui/SecLogo';
+import { cn } from '@/lib/utils';
 
 function formatZar(n) {
   return `R ${Number(n || 0).toFixed(2)}`;
@@ -27,10 +28,18 @@ function StatusBadge({ status }) {
 const FOOTER_CLASS =
   'relative z-10 shrink-0 border-t border-[var(--sec-accent-border)]/50 bg-[#0f1011]/95 backdrop-blur-sm px-5 sm:px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]';
 
-function LuxuryDialogShell({ header, footer, children, className = 'sm:max-w-lg' }) {
+function LuxuryDialogShell({ header, footer, children, className }) {
   return (
     <DialogContent
-      className={`${className} relative flex flex-col max-h-[90dvh] overflow-hidden w-[calc(100vw-1.5rem)] sm:w-full border-[var(--sec-accent-border)] p-0 gap-0 shadow-2xl top-[50%] translate-y-[-50%] max-sm:top-auto max-sm:bottom-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-2xl`}
+      className={cn(
+        '!left-0 !right-0 !top-0 !bottom-0 !translate-x-0 !translate-y-0',
+        'data-[state=open]:!translate-x-0 data-[state=open]:!translate-y-0',
+        'data-[state=closed]:!translate-x-0 data-[state=closed]:!translate-y-0',
+        'fixed z-50 m-auto h-fit w-[calc(100vw-2rem)] max-w-lg',
+        'flex flex-col max-h-[90vh] overflow-hidden p-0 gap-0',
+        'border-[var(--sec-accent-border)] shadow-2xl rounded-[10px]',
+        className,
+      )}
       style={{
         background: 'linear-gradient(160deg, rgba(192,192,192,0.14) 0%, #141418 38%, #0f1011 100%)',
       }}
@@ -234,7 +243,7 @@ export function VenueRefundDeclineDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <LuxuryDialogShell className="sm:max-w-md" header={header} footer={footer}>
+      <LuxuryDialogShell className="max-w-md" header={header} footer={footer}>
         <div className="space-y-4 pb-2">
           <p className="text-sm text-[var(--sec-text-muted)] leading-relaxed">
             Select a reason — guests only see approved template messages (no free text).
