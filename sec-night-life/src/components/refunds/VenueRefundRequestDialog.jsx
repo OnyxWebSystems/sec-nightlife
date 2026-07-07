@@ -27,28 +27,28 @@ function StatusBadge({ status }) {
 function LuxuryDialogShell({ children, className = 'max-w-lg' }) {
   return (
     <DialogContent
-      className={`${className} relative overflow-hidden border-[var(--sec-accent-border)] p-0 gap-0`}
+      className={`${className} relative overflow-x-hidden overflow-y-auto max-h-[min(92vh,820px)] border-[var(--sec-accent-border)] p-0 gap-0 shadow-2xl`}
       style={{
-        background: 'linear-gradient(135deg, var(--sec-accent-muted) 0%, var(--sec-bg-card) 52%)',
+        background: 'linear-gradient(160deg, rgba(192,192,192,0.14) 0%, #141418 38%, #0f1011 100%)',
       }}
     >
       <img
         src="/Logo/sec-email-logo-transparent.png"
         alt=""
         aria-hidden
-        className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 opacity-[0.07] select-none"
+        className="pointer-events-none absolute -top-6 right-2 w-40 h-40 opacity-[0.1] select-none"
         onError={(e) => {
           e.currentTarget.src = '/sec-logo.png';
         }}
       />
-      <div className="relative z-10 p-6 space-y-4">{children}</div>
+      <div className="relative z-10 p-5 sm:p-6 space-y-4">{children}</div>
     </DialogContent>
   );
 }
 
 function FieldLabel({ children }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--sec-text-muted)] mb-1">
+    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--sec-accent-bright)]/80 mb-1.5">
       {children}
     </p>
   );
@@ -72,11 +72,11 @@ export function VenueRefundRequestDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <LuxuryDialogShell>
-        <DialogHeader className="space-y-3">
+        <DialogHeader className="space-y-3 p-0">
           <div className="flex items-center justify-between gap-3 pr-8">
-            <div className="flex items-center gap-3 min-w-0">
-              <SecLogo size={28} variant="icon" asset="transparent" />
-              <DialogTitle className="text-lg font-semibold tracking-tight text-white">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <SecLogo size={44} variant="icon" asset="transparent" />
+              <DialogTitle className="text-xl font-semibold tracking-tight text-white">
                 Refund request
               </DialogTitle>
             </div>
@@ -89,15 +89,15 @@ export function VenueRefundRequestDialog({
           </div>
         </DialogHeader>
 
-        <div className="space-y-4 text-sm">
-          <div>
+        <div className="space-y-4 text-sm pb-1">
+          <div className="rounded-xl border border-[var(--sec-accent-border)]/60 bg-black/25 px-4 py-3">
             <FieldLabel>Guest</FieldLabel>
             <p className="font-semibold text-white text-base">{guestName}</p>
           </div>
 
-          <div>
+          <div className="rounded-xl border border-[var(--sec-accent-border)]/60 bg-black/25 px-4 py-3">
             <FieldLabel>Reason</FieldLabel>
-            <p className="whitespace-pre-wrap text-[var(--sec-text-primary)] leading-relaxed">
+            <p className="whitespace-pre-wrap text-[#F0F0F4] leading-relaxed">
               {selected.userReason}
             </p>
           </div>
@@ -201,10 +201,10 @@ export function VenueRefundDeclineDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <LuxuryDialogShell className="max-w-md">
-        <DialogHeader>
-          <div className="flex items-center gap-3 pr-8">
-            <SecLogo size={24} variant="icon" asset="transparent" />
-            <DialogTitle className="text-lg font-semibold tracking-tight text-white">
+        <DialogHeader className="p-0">
+          <div className="flex items-center gap-3.5 pr-8">
+            <SecLogo size={40} variant="icon" asset="transparent" />
+            <DialogTitle className="text-xl font-semibold tracking-tight text-white">
               Decline refund
             </DialogTitle>
           </div>

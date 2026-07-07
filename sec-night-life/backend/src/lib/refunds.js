@@ -730,6 +730,18 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+async function sendRefundEmail(params, context) {
+  try {
+    await sendEmail(params);
+  } catch (e) {
+    logger.warn(`refund email failed (${context})`, {
+      err: e?.message,
+      to: params?.to,
+      code: e?.code,
+    });
+  }
+}
+
 export async function notifyRefundSubmitted({
   refundRequest,
   venueName,
@@ -748,27 +760,60 @@ export async function notifyRefundSubmitted({
     actionUrl: '/BusinessRefundRequests',
   });
 
-  if (userEmail) {
-    sendEmail({
-      to: userEmail,
-      subject: 'Refund request submitted — SEC Nightlife',
-      html: `<p>Your refund request has been sent to ${escapeHtml(venueName || 'the venue')}. They will review it shortly.</p>`,
-    }).catch((e) => logger.warn('refund submit guest email failed', { err: e?.message }));
+  let resolvedVenueEmail = venueOwnerEmail;
+  if (!resolvedVenueEmail && venueOwnerId) {
+    const owner = await prisma.user.findUnique({
+      where: { id: venueOwnerId },
+      select: { email: true },
+    });
+    resolvedVenueEmail = owner?.email || null;
   }
 
-  if (venueOwnerEmail) {
+  const emailJobs = [];
+
+  if (userEmail) {
+    emailJobs.push(
+      sendRefundEmail(
+        {
+          to: userEmail,
+          subject: 'Refund request submitted — SEC Nightlife',
+          html: `<p>Your refund request has been sent to ${escapeHtml(venueName || 'the venue')}. They will review it shortly.</p>`,
+          text: `Your refund request has been sent to ${venueName || 'the venue'}. They will review it shortly.`,
+        },
+        'guest-submit',
+      ),
+    );
+  } else {
+    logger.warn('refund submit guest email skipped — no user email', {
+      refundRequestId: refundRequest.id,
+    });
+  }
+
+  if (resolvedVenueEmail) {
     const appBase = (process.env.APP_URL || 'https://secnightlife.com').replace(/\/+$/, '');
     const reviewUrl = `${appBase}/BusinessRefundRequests`;
     const guestLabel = guestName ? ` (<strong>${escapeHtml(guestName)}</strong>)` : '';
-    sendEmail({
-      to: venueOwnerEmail,
-      subject: `New refund request — ${venueName || 'your venue'}`,
-      html: `<p>A guest${guestLabel} requested a refund of <strong>R${amount}</strong> for ${escapeHtml(venueName || 'your venue')}.</p>
-             <p><strong>Reason:</strong> ${escapeHtml(userReason)}</p>
-             <p><a href="${reviewUrl}" style="color:#C0C0C0;font-weight:600;">Review refund request in SEC</a></p>`,
-      text: `A guest${guestName ? ` (${guestName})` : ''} requested a refund of R${amount} for ${venueName || 'your venue'}.\n\nReason: ${userReason}\n\nReview: ${reviewUrl}`,
-    }).catch((e) => logger.warn('refund submit venue email failed', { err: e?.message }));
+    emailJobs.push(
+      sendRefundEmail(
+        {
+          to: resolvedVenueEmail,
+          subject: `New refund request — ${venueName || 'your venue'}`,
+          html: `<p>A guest${guestLabel} requested a refund of <strong>R${amount}</strong> for ${escapeHtml(venueName || 'your venue')}.</p>
+                 <p><strong>Reason:</strong> ${escapeHtml(userReason)}</p>
+                 <p><a href="${reviewUrl}" style="color:#C0C0C0;font-weight:600;">Review refund request in SEC</a></p>`,
+          text: `A guest${guestName ? ` (${guestName})` : ''} requested a refund of R${amount} for ${venueName || 'your venue'}.\n\nReason: ${userReason}\n\nReview: ${reviewUrl}`,
+        },
+        'venue-submit',
+      ),
+    );
+  } else {
+    logger.warn('refund submit venue email skipped — no owner email', {
+      refundRequestId: refundRequest.id,
+      venueOwnerId,
+    });
   }
+
+  await Promise.all(emailJobs);
 }
 
 export async function notifyRefundApproved({ refundRequest, userId, userEmail, venueName }) {
@@ -782,15 +827,18 @@ export async function notifyRefundApproved({ refundRequest, userId, userEmail, v
   });
 
   if (userEmail) {
-    sendEmail({
-      to: userEmail,
-      subject: 'Refund approved — SEC Nightlife',
-      html: `<p>Your refund was approved. The venue will pay R${amount} to your Sec Wallet off-app.${
-        refundRequest.refundType === 'HOSTED_TABLE_MENU'
-          ? ' Refunded menu items are removed from your table; your join pass stays valid when only menu was refunded.'
-          : ' Your ticket/QR access for this purchase has been revoked.'
-      }</p>`,
-    }).catch((e) => logger.warn('refund approved email failed', { err: e?.message }));
+    await sendRefundEmail(
+      {
+        to: userEmail,
+        subject: 'Refund approved — SEC Nightlife',
+        html: `<p>Your refund was approved. The venue will pay R${amount} to your Sec Wallet off-app.${
+          refundRequest.refundType === 'HOSTED_TABLE_MENU'
+            ? ' Refunded menu items are removed from your table; your join pass stays valid when only menu was refunded.'
+            : ' Your ticket/QR access for this purchase has been revoked.'
+        }</p>`,
+      },
+      'guest-approved',
+    );
   }
 }
 
@@ -805,11 +853,14 @@ export async function notifyRefundRejected({ refundRequest, userId, userEmail, v
   });
 
   if (userEmail) {
-    sendEmail({
-      to: userEmail,
-      subject: 'Refund declined — SEC Nightlife',
-      html: `<p>${venueName || 'The venue'} declined your refund request.</p><p>${body}</p><p>You may submit a new request if your situation changes.</p>`,
-    }).catch((e) => logger.warn('refund rejected email failed', { err: e?.message }));
+    await sendRefundEmail(
+      {
+        to: userEmail,
+        subject: 'Refund declined — SEC Nightlife',
+        html: `<p>${escapeHtml(venueName || 'The venue')} declined your refund request.</p><p>${escapeHtml(body)}</p><p>You may submit a new request if your situation changes.</p>`,
+      },
+      'guest-rejected',
+    );
   }
 }
 
