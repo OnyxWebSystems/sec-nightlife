@@ -40,7 +40,7 @@ import {
   windowsOverlap,
 } from '../lib/dayBookingWindows.js';
 import { WEEKDAY_FULL, weekdayKeyFromDate } from '../lib/serviceSchedule.js';
-import { recordTableHistory } from '../lib/tableHistory.js';
+import { recordVenueHostParticipation } from '../lib/tableHistory.js';
 import {
   isVenueMembershipForToday,
   clearStaleDayBookingMember,
@@ -1165,12 +1165,15 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
         eventEndsAt,
       });
       if (isHost) {
-        recordTableHistory({
+        const refreshedTable = await prisma.venueTable.findUnique({
+          where: { id: table.id },
+          select: { id: true, tableName: true, eventId: true, hostedTableId: true },
+        });
+        recordVenueHostParticipation({
           userId: req.userId,
-          role: 'HOST',
-          venueTableId: table.id,
-          eventId: table.eventId || null,
-          tableName: table.tableName,
+          venueTable: refreshedTable || table,
+          hostedTableId: refreshedTable?.hostedTableId ?? null,
+          member: confirmedMember,
           eventTitle: table.event?.title || null,
         });
       }

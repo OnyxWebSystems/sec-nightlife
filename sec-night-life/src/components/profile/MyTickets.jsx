@@ -255,7 +255,10 @@ export default function MyTickets({ userId }) {
                 <Button variant="outline" size="sm" className="border-[#262629] h-8" asChild>
                   <Link to={ticketDetailHref(ticket)}>View details</Link>
                 </Button>
-                {!isInactiveTab && !isRefunded && ticket.paystack_reference && isTicketRefundable(ticket.paystack_reference) && (
+                {!isRefunded &&
+                  ticket.paystack_reference &&
+                  isTicketRefundable(ticket.paystack_reference) &&
+                  (!isInactiveTab || phase === 'expired') && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -305,6 +308,12 @@ export default function MyTickets({ userId }) {
     );
   };
 
+  const openGeneralRefund = () => {
+    setRefundRef(null);
+    setRefundLabel('');
+    setRefundOpen(true);
+  };
+
   const emptyCopyActive = {
     title: 'No active tickets',
     hint: 'Book a table or buy an event ticket to see it here.',
@@ -316,6 +325,21 @@ export default function MyTickets({ userId }) {
 
   return (
     <div className="space-y-4">
+      {eligibleRefundCount > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between rounded-lg border border-[#262629] bg-[#0A0A0B] px-3 py-2.5">
+          <p className="text-xs text-gray-400">
+            {activeTickets.length === 0
+              ? 'You have an eligible payment you can request a refund for.'
+              : `You have ${eligibleRefundCount} eligible payment${eligibleRefundCount === 1 ? '' : 's'} for refund.`}
+          </p>
+          <Button variant="outline" size="sm" className="border-[#262629] shrink-0" onClick={openGeneralRefund}>
+            <RotateCcw className="w-3.5 h-3.5 mr-1" />
+            Request refund
+            {eligibleRefundCount > 1 ? ` (${eligibleRefundCount})` : ''}
+          </Button>
+        </div>
+      )}
+
       <div className="flex w-full rounded-lg border border-[#262629] bg-[#0A0A0B] p-1">
         <button
           type="button"
@@ -345,23 +369,6 @@ export default function MyTickets({ userId }) {
         <p className="text-xs text-amber-200/90 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2">
           You have tickets under Inactive (expired or refunded). Switch to the Inactive tab to view them.
         </p>
-      )}
-
-      {tab === 'active' && eligibleRefundCount > 0 && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="border-[#262629]"
-          onClick={() => {
-            setRefundRef(null);
-            setRefundLabel('');
-            setRefundOpen(true);
-          }}
-        >
-          <RotateCcw className="w-3.5 h-3.5 mr-1" />
-          Request refund
-          {eligibleRefundCount > 1 ? ` (${eligibleRefundCount} eligible)` : ''}
-        </Button>
       )}
 
       {(activeFromCache || inactiveFromCache) && (
@@ -411,7 +418,11 @@ export default function MyTickets({ userId }) {
         onOpenChange={setRefundOpen}
         paymentReference={refundRef}
         label={refundLabel}
-        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['my-tickets', userId] })}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['my-tickets', userId] });
+          queryClient.invalidateQueries({ queryKey: ['profile-social'] });
+          queryClient.invalidateQueries({ queryKey: ['table-history', userId] });
+        }}
       />
     </div>
   );

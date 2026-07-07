@@ -14,6 +14,7 @@ import {
 import { createNotification } from './notifications.js';
 import { sendEmail } from './email.js';
 import { logger } from './logger.js';
+import { hideParticipationForRefund } from './tableHistory.js';
 
 const ELIGIBLE_META_TYPES = new Set(['TABLE_CHECKOUT', 'VENUE_TABLE_JOIN', 'ticket', 'event', 'table']);
 const EXCLUDED_META_TYPES = new Set([
@@ -120,6 +121,47 @@ function resolveRefundType(meta, paymentType, memberRole) {
     return 'TABLE_HOST';
   }
   return 'TABLE_JOIN';
+}
+
+async function resolveVenueTableMemberForRefund({ userId, payment, baseRef, meta }) {
+  const memberInclude = { venueTable: { select: { id: true, eventId: true, venueId: true } } };
+  let venueTableMember = await prisma.venueTableMember.findFirst({
+    where: {
+      userId,
+      paystackReference: { in: [payment.reference, baseRef] },
+    },
+    include: memberInclude,
+  });
+
+  if (!venueTableMember) {
+    const memberId = meta.venue_table_member_id ?? meta.venueTableMemberId;
+    if (memberId) {
+      venueTableMember = await prisma.venueTableMember.findFirst({
+        where: { id: String(memberId), userId },
+        include: memberInclude,
+      });
+    }
+  }
+
+  if (!venueTableMember) {
+    const venueTableId = meta.venue_table_id ?? meta.venueTableId;
+    const bookingMode = meta.booking_mode ?? meta.bookingMode;
+    const isHost = bookingMode === 'host' || bookingMode === 'custom_host' || meta.member_role === 'HOST';
+    if (venueTableId && isHost) {
+      venueTableMember = await prisma.venueTableMember.findFirst({
+        where: {
+          userId,
+          venueTableId: String(venueTableId),
+          memberRole: 'HOST',
+          status: { in: ['CONFIRMED', 'LEFT', 'REFUNDED'] },
+        },
+        orderBy: { paidAt: 'desc' },
+        include: memberInclude,
+      });
+    }
+  }
+
+  return venueTableMember;
 }
 
 function subtractMenuItems(existingItems, removeItems) {
@@ -330,12 +372,11 @@ export async function validateRefundEligibility({ payment, userId, userWalletCod
 
   const resolvedWalletCode = walletCodeInput !== 'SKIP' ? walletCodeInput : null;
 
-  const venueTableMember = await prisma.venueTableMember.findFirst({
-    where: {
-      userId,
-      paystackReference: { in: [payment.reference, baseRef] },
-    },
-    include: { venueTable: { select: { id: true, eventId: true, venueId: true } } },
+  const venueTableMember = await resolveVenueTableMemberForRefund({
+    userId,
+    payment,
+    baseRef,
+    meta,
   });
 
   const refundType = resolveRefundType(meta, payment.type, venueTableMember?.memberRole);
@@ -600,6 +641,25 @@ export async function applyRefundApproval(tx, refundRequest) {
       });
     }
   }
+
+  let hostedTableIdForHistory = null;
+  if (req.venueTableId) {
+    const vt = await tx.venueTable.findUnique({
+      where: { id: req.venueTableId },
+      select: { hostedTableId: true },
+    });
+    hostedTableIdForHistory = vt?.hostedTableId ?? null;
+  }
+  if (!hostedTableIdForHistory && payment) {
+    const payMeta = flattenPaymentMetadata(payment.metadata);
+    hostedTableIdForHistory = payMeta.hosted_table_id ?? payMeta.hostedTableId ?? null;
+  }
+
+  await hideParticipationForRefund(tx, {
+    userId: req.userId,
+    venueTableId: req.venueTableId,
+    hostedTableId: hostedTableIdForHistory,
+  });
 
   return req;
 }

@@ -25,6 +25,29 @@ import {
 
 const router = Router();
 
+function eligiblePaymentLabel(meta, check) {
+  if (check.refundType === 'HOSTED_TABLE_MENU' && check.partialMenuOnly) {
+    return 'Menu items only (join fee not refundable)';
+  }
+  const tableName = meta.table_name || meta.tableName;
+  const venueName = meta.venue_name || meta.venueName;
+  const isDayBooking =
+    meta.is_day_booking === true ||
+    ((!meta.event_id && !meta.eventId) && String(meta.type || '') === 'TABLE_CHECKOUT');
+  const isHost =
+    check.refundType === 'TABLE_HOST' ||
+    meta.booking_mode === 'host' ||
+    meta.booking_mode === 'custom_host' ||
+    meta.member_role === 'HOST';
+
+  if (isHost && tableName) {
+    return isDayBooking ? `${tableName} — Day booking host` : `${tableName} — Host booking`;
+  }
+  if (tableName && venueName) return `${tableName} · ${venueName}`;
+  if (tableName) return tableName;
+  return meta.event_title || meta.eventTitle || meta.ticket_tier_name || 'Booking payment';
+}
+
 /** POST /api/refunds/request — party-goer submits refund request */
 router.post('/request', authenticateToken, async (req, res, next) => {
   try {
@@ -172,10 +195,7 @@ router.get('/eligible-payments', authenticateToken, async (req, res, next) => {
           venueRefundDueZar: amounts.venueRefundDueZar,
           platformFeeKeptZar: amounts.platformFeeKeptZar,
           refundableGrossZar: grossZar,
-          label:
-            check.refundType === 'HOSTED_TABLE_MENU' && check.partialMenuOnly
-              ? 'Menu items only (join fee not refundable)'
-              : meta.event_title || meta.eventTitle || meta.ticket_tier_name || 'Booking payment',
+          label: eligiblePaymentLabel(meta, check),
         });
       }
     }

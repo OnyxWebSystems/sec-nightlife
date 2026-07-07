@@ -11,7 +11,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { userHasIdentityVerified } from '../middleware/requireIdentityVerified.js';
 import { createNotification, createNotifications } from '../lib/notifications.js';
 import { logFriendActivity } from '../lib/friendActivity.js';
-import { recordTableHistory } from '../lib/tableHistory.js';
+import { recordTableHistory, recordVenueHostParticipation, hostParticipationOccurredAt } from '../lib/tableHistory.js';
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { sendEmail } from '../lib/email.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
@@ -784,14 +784,25 @@ async function applyReferenceSideEffects(reference, paystackData) {
         (metadata.booking_mode || metadata.bookingMode) === 'host' ||
         (metadata.booking_mode || metadata.bookingMode) === 'custom_host' ||
         vtMember.memberRole === 'HOST';
-      recordTableHistory({
-        userId: String(userId),
-        role: isHostRole ? 'HOST' : 'JOINED',
-        venueTableId: vtMember.venueTable.id,
-        eventId: vtMember.venueTable.eventId || null,
-        tableName: vtMember.venueTable.tableName,
-        eventTitle: vtEv?.title || null,
-      });
+      if (isHostRole) {
+        recordVenueHostParticipation({
+          userId: String(userId),
+          venueTable: vtMember.venueTable,
+          hostedTableId: vtAfterHost?.hostedTableId ?? null,
+          member: vtMember,
+          eventTitle: vtEv?.title || null,
+        });
+      } else {
+        recordTableHistory({
+          userId: String(userId),
+          role: 'JOINED',
+          venueTableId: vtMember.venueTable.id,
+          eventId: vtMember.venueTable.eventId || null,
+          tableName: vtMember.venueTable.tableName,
+          eventTitle: vtEv?.title || null,
+          occurredAt: hostParticipationOccurredAt(vtMember, vtMember.venueTable),
+        });
+      }
     }
     const bookingModePaid = metadata.booking_mode || metadata.bookingMode;
     const isHostPaymentPaid = isVenueTableHostPayment(metadata, vtMember);

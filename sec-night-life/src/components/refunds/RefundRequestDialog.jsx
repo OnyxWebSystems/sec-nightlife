@@ -165,6 +165,8 @@ export default function RefundRequestDialog({ open, onOpenChange, paymentReferen
       queryClient.invalidateQueries({ queryKey: ['refund-my'] });
       queryClient.invalidateQueries({ queryKey: ['refund-eligible-payments'] });
       queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['profile-social'] });
+      queryClient.invalidateQueries({ queryKey: ['table-history'] });
       setReason('');
       onOpenChange(false);
       onSuccess?.();

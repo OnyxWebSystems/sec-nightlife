@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
+import { dayEventStartsAtFromMember } from './ticketHelpers.js';
 
 /**
  * Record or refresh a table participation row (awaitable).
@@ -79,6 +80,53 @@ export function recordTableHistory(opts) {
   });
 }
 
+/** Occurred-at for venue host/join rows — prefer booked window start for day bookings. */
+export function hostParticipationOccurredAt(member, venueTable) {
+  if (member) {
+    const fromWindow = dayEventStartsAtFromMember(member, venueTable || null);
+    if (fromWindow && !Number.isNaN(fromWindow.getTime())) return fromWindow;
+    if (member.paidAt) return member.paidAt;
+    if (member.joinedAt) return member.joinedAt;
+  }
+  return new Date();
+}
+
+/**
+ * Record venue-table HOST participation with hostedTableId + booking window occurredAt.
+ * @param {{ userId: string, venueTable: object, hostedTableId?: string|null, member?: object|null, eventTitle?: string|null, awaitable?: boolean }} opts
+ */
+export function recordVenueHostParticipation(opts) {
+  const { userId, venueTable, hostedTableId, member, eventTitle, awaitable = false } = opts;
+  if (!userId || !venueTable?.tableName) return awaitable ? Promise.resolve() : undefined;
+
+  const payload = {
+    userId,
+    role: 'HOST',
+    venueTableId: venueTable.id ?? null,
+    hostedTableId: hostedTableId ?? venueTable.hostedTableId ?? null,
+    eventId: venueTable.eventId ?? null,
+    tableName: venueTable.tableName,
+    eventTitle: eventTitle ?? null,
+    occurredAt: hostParticipationOccurredAt(member, venueTable),
+  };
+
+  if (awaitable) return recordTableHistoryAwait(payload);
+  return recordTableHistory(payload);
+}
+
+/** Soft-hide persisted history rows when a refund is approved. */
+export async function hideParticipationForRefund(tx, { userId, venueTableId, hostedTableId }) {
+  if (!userId) return;
+  const or = [];
+  if (venueTableId) or.push({ venueTableId });
+  if (hostedTableId) or.push({ hostedTableId });
+  if (!or.length) return;
+  await tx.userTableHistory.updateMany({
+    where: { userId, hiddenAt: null, OR: or },
+    data: { hiddenAt: new Date() },
+  });
+}
+
 export function mapTableHistoryRow(row) {
   const role =
     row.role === 'HOST' || row.role === 'host'
@@ -111,9 +159,9 @@ export function participationKey(role, ids = {}) {
 export function canonicalHostSessionKey(row, hostedToVenue = null) {
   const isHost = row.role === 'HOST' || row.role === 'host';
   if (!isHost) return null;
+  if (row.hostedTableId) return `HOST:hosted:${row.hostedTableId}`;
   const venueTableId = row.venueTableId || (row.hostedTableId && hostedToVenue?.get(row.hostedTableId)) || null;
   if (venueTableId) return `HOST:venue-session:${venueTableId}`;
-  if (row.hostedTableId) return `HOST:hosted:${row.hostedTableId}`;
   if (row.tableId) return `HOST:legacy:${row.tableId}`;
   return null;
 }
@@ -279,6 +327,7 @@ export async function gatherTicketEventHistory(userId, hostedToVenue = null) {
     where: {
       userId,
       hiddenFromHistoryAt: null,
+      refundedAt: null,
     },
     orderBy: { createdAt: 'desc' },
     select: {
@@ -359,6 +408,8 @@ export async function gatherLiveTableParticipation(userId) {
     venueHosted,
     hostedJoins,
     venueJoins,
+    venueHostMembers,
+    refundedHostMembers,
     legacyJoinRows,
   ] = await Promise.all([
     prisma.table.findMany({
@@ -418,9 +469,36 @@ export async function gatherLiveTableParticipation(userId) {
         },
       },
     }),
+    prisma.venueTableMember.findMany({
+      where: {
+        userId,
+        memberRole: 'HOST',
+        status: { in: ['CONFIRMED', 'LEFT'] },
+      },
+      select: {
+        joinedAt: true,
+        paidAt: true,
+        bookingDate: true,
+        windowStartTime: true,
+        venueTable: {
+          select: {
+            id: true,
+            tableName: true,
+            eventId: true,
+            hostedTableId: true,
+            event: { select: { title: true } },
+          },
+        },
+      },
+    }),
+    prisma.venueTableMember.findMany({
+      where: { userId, memberRole: 'HOST', status: 'REFUNDED' },
+      select: { venueTableId: true },
+    }),
     fetchLegacyJoinRows(userId),
   ]);
 
+  const refundedVenueIds = new Set(refundedHostMembers.map((m) => m.venueTableId).filter(Boolean));
   const items = [];
 
   for (const t of legacyHosted) {
@@ -434,6 +512,9 @@ export async function gatherLiveTableParticipation(userId) {
     }));
   }
   for (const ht of hostedTables) {
+    if (ht.status === 'CLOSED' && ht.venueTableId && refundedVenueIds.has(ht.venueTableId)) {
+      continue;
+    }
     items.push(synthRow('HOST', {
       userId,
       hostedTableId: ht.id,
@@ -475,6 +556,19 @@ export async function gatherLiveTableParticipation(userId) {
       tableName: vt.tableName,
       eventTitle: vt.event?.title || null,
       occurredAt: m.paidAt || m.joinedAt,
+    }));
+  }
+  for (const m of venueHostMembers) {
+    const vt = m.venueTable;
+    if (!vt) continue;
+    items.push(synthRow('HOST', {
+      userId,
+      venueTableId: vt.id,
+      hostedTableId: vt.hostedTableId || null,
+      eventId: vt.eventId,
+      tableName: vt.tableName,
+      eventTitle: vt.event?.title || null,
+      occurredAt: hostParticipationOccurredAt(m, vt),
     }));
   }
   for (const row of legacyJoinRows || []) {

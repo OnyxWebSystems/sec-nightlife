@@ -4,7 +4,7 @@
  */
 import 'dotenv/config';
 import { prisma } from '../src/lib/prisma.js';
-import { recordTableHistoryAwait } from '../src/lib/tableHistory.js';
+import { recordTableHistoryAwait, hostParticipationOccurredAt } from '../src/lib/tableHistory.js';
 import { ensureSecWallet } from '../src/lib/secWallet.js';
 
 async function backfillWallets() {
@@ -19,9 +19,10 @@ async function backfillWallets() {
   console.log(`Wallets: ${users.length} users, ${venues.length} venues`);
 }
 
-function ticketHistoryRole(kind) {
+function ticketHistoryRole(kind, title = '') {
   if (kind === 'EVENT_TICKET') return null;
   if (kind === 'TABLE_HOST_FEE') return 'HOST';
+  if (kind === 'VENUE_TABLE_JOIN' && String(title).includes('Host pass')) return 'HOST';
   if (['VENUE_TABLE_JOIN', 'HOSTED_TABLE_JOIN', 'TABLE_JOIN'].includes(kind)) return 'JOINED';
   return null;
 }
@@ -57,10 +58,35 @@ async function backfillTableHistory() {
         userId: ht.hostUserId,
         role: 'HOST',
         hostedTableId: ht.id,
+        venueTableId: ht.venueTableId || null,
         eventId: ht.eventId,
         tableName: ht.tableName,
         eventTitle: ht.event?.title || null,
         occurredAt: ht.createdAt,
+      })
+    );
+  }
+
+  const venueHostMembers = await prisma.venueTableMember.findMany({
+    where: {
+      memberRole: 'HOST',
+      status: { in: ['CONFIRMED', 'LEFT'] },
+    },
+    include: { venueTable: { include: { event: { select: { title: true } } } } },
+  });
+  for (const m of venueHostMembers) {
+    const vt = m.venueTable;
+    if (!vt) continue;
+    tasks.push(
+      recordTableHistoryAwait({
+        userId: m.userId,
+        role: 'HOST',
+        venueTableId: vt.id,
+        hostedTableId: vt.hostedTableId || null,
+        eventId: vt.eventId,
+        tableName: vt.tableName,
+        eventTitle: vt.event?.title || null,
+        occurredAt: hostParticipationOccurredAt(m, vt),
       })
     );
   }
@@ -161,7 +187,7 @@ async function backfillTableHistory() {
     },
   });
   for (const ticket of tickets) {
-    const role = ticketHistoryRole(ticket.kind);
+    const role = ticketHistoryRole(ticket.kind, ticket.title);
     if (!role || !ticket.title) continue;
     tasks.push(
       recordTableHistoryAwait({

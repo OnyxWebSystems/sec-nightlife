@@ -14,6 +14,7 @@ import {
   holderDisplayNameFromUser,
   venueTableTicketTitle,
 } from './ticketHelpers.js';
+import { recordVenueHostParticipation } from './tableHistory.js';
 import { windowEndInstant } from './dayBookingWindows.js';
 import { splitSecPlatform, ensureVenueTablePayoutLedger } from './paystackPayout.js';
 import { logger } from './logger.js';
@@ -336,6 +337,16 @@ export async function ensureVenueTableFulfillmentForPayment(reference, paystackD
       eventStartsAt,
       eventEndsAt,
     });
+    if (isHostMode) {
+      await recordVenueHostParticipation({
+        userId: String(userId),
+        venueTable: refreshedVt,
+        hostedTableId: refreshedVt.hostedTableId || null,
+        member,
+        eventTitle: refreshedVt.event?.title || null,
+        awaitable: true,
+      });
+    }
     repaired = true;
   }
 
