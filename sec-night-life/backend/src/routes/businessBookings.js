@@ -858,7 +858,16 @@ function parseRevenueScope(raw) {
   return 'all';
 }
 
-function matchesAnalyticsFilter(meta, { revenueScope, eventId }) {
+function matchesAnalyticsFilter(meta, { revenueScope, eventId }, { fromVenueLedger = false } = {}) {
+  // Venue payout-ledger rows are already scoped to this venue. If payment metadata is
+  // missing, still include them for "all" scope so analytics do not go blank.
+  if (fromVenueLedger && revenueScope === 'all') {
+    if (eventId) {
+      const eid = meta?.event_id ?? meta?.eventId;
+      if (eid == null || String(eid) !== eventId) return false;
+    }
+    return true;
+  }
   if (!paymentMatchesRevenueScope(meta, revenueScope)) return false;
   if (eventId && revenueScope !== 'day_bookings') {
     const eid = meta?.event_id ?? meta?.eventId;
@@ -888,45 +897,73 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const revenueScope = parseRevenueScope(req.query.revenue_scope);
     const revenueMode = String(req.query.revenue_mode || 'gross').toLowerCase() === 'net' ? 'net' : 'gross';
 
-    await repairTicketPaymentsForVenues([venueId]);
-    await repairMissingHostedTableJoinPayouts({ sinceDays: 120, limit: 50 }).catch(() => null);
+    // Do not await heavy repair jobs on the analytics hot path — they made the page very slow.
+    // Ticket repair still runs on the ticket-bookings endpoint where it belongs.
+    repairMissingHostedTableJoinPayouts({ sinceDays: 90, limit: 20 }).catch(() => null);
 
     const cutoff = new Date(Date.now() - days * 86400000);
 
-    const refundedRefs = await loadRefundedPaymentRefs([venueId]);
-    const refundedMetrics = await loadRefundedMetricsForPeriod([venueId], cutoff);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
 
-    const events = await prisma.event.findMany({
-      where: { venueId, deletedAt: null, ...(eventId ? { id: eventId } : {}) },
-      select: { id: true, date: true, startTime: true, eventFormat: true },
-    });
+    const [refundedRefs, refundedMetrics, events, ledgerRows, splitLogs, paidTx] = await Promise.all([
+      loadRefundedPaymentRefs([venueId]),
+      loadRefundedMetricsForPeriod([venueId], cutoff),
+      prisma.event.findMany({
+        where: { venueId, deletedAt: null, ...(eventId ? { id: eventId } : {}) },
+        select: { id: true, date: true, startTime: true, eventFormat: true },
+      }),
+      prisma.payoutLedger.findMany({
+        where: {
+          recipientVenueId: venueId,
+          recipientType: 'VENUE',
+          createdAt: { gte: cutoff },
+        },
+        select: {
+          paymentReference: true,
+          grossAmount: true,
+          recipientAmount: true,
+          createdAt: true,
+        },
+        take: 15000,
+      }),
+      prisma.splitPaymentLog.findMany({
+        where: {
+          createdAt: { gte: cutoff },
+          venueTable: { venueId },
+        },
+        select: {
+          reference: true,
+          totalAmount: true,
+          venueAmount: true,
+          createdAt: true,
+        },
+        take: 15000,
+      }),
+      prisma.transaction.findMany({
+        where: {
+          venueId,
+          status: 'paid',
+          createdAt: { gte: cutoff },
+          ...(eventId ? { eventId } : {}),
+        },
+        select: { amount: true, createdAt: true, stripeId: true, metadata: true },
+        take: 8000,
+      }),
+    ]);
+
     const eventIds = events.map((e) => e.id);
     if (eventId && eventIds.length === 0) return res.status(400).json({ error: 'Event not found for this venue' });
     const eventById = new Map(events.map((e) => [String(e.id), e]));
+    const eventIdSet = new Set(eventIds.map(String));
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
     const eventsInPeriod = events.filter((e) => e.date && new Date(e.date) >= cutoff).length;
     const upcomingEventsCount = events.filter((e) => e.date && new Date(e.date) >= todayStart).length;
 
-    const ledgerRows = await prisma.payoutLedger.findMany({
-      where: {
-        recipientVenueId: venueId,
-        recipientType: 'VENUE',
-        createdAt: { gte: cutoff },
-      },
-      select: {
-        paymentReference: true,
-        grossAmount: true,
-        recipientAmount: true,
-        createdAt: true,
-      },
-      take: 15000,
-    });
-
     const ledgerRefs = [...new Set(ledgerRows.map((r) => r.paymentReference).filter(Boolean))];
     const ledgerBaseRefs = [...new Set(ledgerRefs.map((r) => basePaymentReference(r)).filter(Boolean))];
-    const ledgerLookupRefs = [...new Set([...ledgerRefs, ...ledgerBaseRefs])];
+    const splitRefs = [...new Set(splitLogs.map((s) => s.reference).filter(Boolean))];
+    const ledgerLookupRefs = [...new Set([...ledgerRefs, ...ledgerBaseRefs, ...splitRefs])];
     const ledgerPayments =
       ledgerLookupRefs.length > 0
         ? await prisma.payment.findMany({
@@ -959,8 +996,8 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const matchedPaymentRefs = new Set();
     const eventIdsWithRevenue = new Set();
 
-    const addRevenueRow = (meta, mtype, pType, gross, net, dayKey, ref) => {
-      if (!matchesAnalyticsFilter(meta, scopeFilter)) return false;
+    const addRevenueRow = (meta, mtype, pType, gross, net, dayKey, ref, opts = {}) => {
+      if (!matchesAnalyticsFilter(meta, scopeFilter, opts)) return false;
       if (isExcludedFromVenueAnalytics(mtype, pType)) return false;
       const counted = classifyVenuePaymentRevenueScoped(
         mtype,
@@ -991,65 +1028,16 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       const gross = Number(row.grossAmount) || 0;
       const net = Number(row.recipientAmount) || 0;
       const dayKey = row.createdAt.toISOString().slice(0, 10);
-      addRevenueRow(meta, meta?.type, resolveLedgerPaymentType(row.paymentReference), gross, net, dayKey, row.paymentReference);
-    }
-
-    const platformLedgerRows = await prisma.payoutLedger.findMany({
-      where: {
-        recipientType: 'PLATFORM',
-        createdAt: { gte: cutoff },
-      },
-      select: {
-        paymentReference: true,
-        grossAmount: true,
-        recipientAmount: true,
-        createdAt: true,
-      },
-      take: 5000,
-    });
-
-    for (const row of platformLedgerRows) {
-      if (!row.paymentReference || matchedPaymentRefs.has(row.paymentReference)) continue;
-      const meta = resolveLedgerPaymentMeta(row.paymentReference);
-      const metaVenueId = meta.venue_id ?? meta.venueId;
-      if (metaVenueId == null || String(metaVenueId) !== String(venueId)) continue;
-      if (isRefundedPaymentRef(row.paymentReference, refundedRefs)) continue;
-      const gross = Number(row.grossAmount) || 0;
-      const net = Number(row.recipientAmount) || 0;
-      const dayKey = row.createdAt.toISOString().slice(0, 10);
-      addRevenueRow(meta, meta?.type, resolveLedgerPaymentType(row.paymentReference), gross, net, dayKey, row.paymentReference);
-    }
-
-    const splitLogs = await prisma.splitPaymentLog.findMany({
-      where: {
-        createdAt: { gte: cutoff },
-        venueTable: { venueId },
-      },
-      select: {
-        reference: true,
-        totalAmount: true,
-        venueAmount: true,
-        createdAt: true,
-      },
-      take: 15000,
-    });
-
-    const splitRefsToLoad = [
-      ...new Set(
-        splitLogs
-          .map((s) => s.reference)
-          .filter((ref) => ref && !paymentMetaByRef.has(ref) && !matchedPaymentRefs.has(ref)),
-      ),
-    ];
-    if (splitRefsToLoad.length > 0) {
-      const splitPayments = await prisma.payment.findMany({
-        where: { reference: { in: splitRefsToLoad } },
-        select: { reference: true, metadata: true, type: true },
-      });
-      for (const p of splitPayments) {
-        paymentMetaByRef.set(p.reference, flattenPaymentMetadata(p.metadata));
-        paymentTypeByRef.set(p.reference, p.type);
-      }
+      addRevenueRow(
+        meta,
+        meta?.type,
+        resolveLedgerPaymentType(row.paymentReference),
+        gross,
+        net,
+        dayKey,
+        row.paymentReference,
+        { fromVenueLedger: true },
+      );
     }
 
     for (const log of splitLogs) {
@@ -1062,20 +1050,30 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       addRevenueRow(meta, meta?.type, resolveLedgerPaymentType(log.reference), gross, net, dayKey, log.reference);
     }
 
-    const eventIdSet = new Set(eventIds.map(String));
+    // Venue-scoped payment fallback only (avoid scanning all platform payments).
+    const venuePaymentOr = [
+      { metadata: { path: ['venue_id'], equals: venueId } },
+      { metadata: { path: ['venueId'], equals: venueId } },
+    ];
+    if (eventId) {
+      venuePaymentOr.push(
+        { metadata: { path: ['event_id'], equals: eventId } },
+        { metadata: { path: ['eventId'], equals: eventId } },
+      );
+    }
 
     const payments = await prisma.payment.findMany({
       where: {
         status: 'success',
         createdAt: { gte: cutoff },
+        OR: venuePaymentOr,
       },
       select: { amount: true, type: true, metadata: true, createdAt: true, reference: true },
       orderBy: { createdAt: 'desc' },
-      take: 2500,
+      take: 3000,
     });
 
     let ticketSalesFromPayments = 0;
-
     let dayBookingVenueJoinFeeVolumeZar = 0;
 
     for (const p of payments) {
@@ -1098,17 +1096,6 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         ticketSalesFromPayments += ticketQuantityFromMeta(meta);
       }
     }
-
-    const paidTx = await prisma.transaction.findMany({
-      where: {
-        venueId,
-        status: 'paid',
-        createdAt: { gte: cutoff },
-        ...(eventId ? { eventId } : {}),
-      },
-      select: { amount: true, createdAt: true, stripeId: true, metadata: true },
-      take: 8000,
-    });
 
     for (const t of paidTx) {
       const ref = t.stripeId || (t.metadata && typeof t.metadata === 'object' ? t.metadata.reference : null);

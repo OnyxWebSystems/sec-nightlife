@@ -279,8 +279,34 @@ export function classifyVenuePaymentRevenueScoped(
     return true;
   }
 
-  // Unknown / unclassified payment types are excluded from analytics.
-  return false;
+  // Ledger component fallbacks when metadata type is missing/unknown.
+  const component = ledgerPaymentComponent(ledgerRef);
+  if (component === 'join') {
+    if (isDayBookingPayment(meta)) {
+      bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
+    } else {
+      bumpCounter(counters, 'venueTablePaymentZar', 'venueTablePaymentNetZar', g, n);
+    }
+    return true;
+  }
+  if (component === 'entrance') {
+    bumpCounter(counters, 'ticketPaymentZar', 'ticketPaymentNetZar', g, n);
+    return true;
+  }
+
+  // Keep legitimate venue-scoped revenue in totals even when type metadata is sparse.
+  // Boosts/promos already returned false above.
+  const hasEvent = Boolean(meta.event_id ?? meta.eventId);
+  if (hasEvent || isTicketPaymentMeta(meta, pType)) {
+    bumpCounter(counters, 'ticketPaymentZar', 'ticketPaymentNetZar', g, n);
+    return true;
+  }
+  if (isDayBookingPayment(meta)) {
+    bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
+    return true;
+  }
+  bumpCounter(counters, 'hostedTablePaymentZar', 'hostedTablePaymentNetZar', g, n);
+  return true;
 }
 
 /** @deprecated use classifyVenuePaymentRevenueScoped — gross-only wrapper */

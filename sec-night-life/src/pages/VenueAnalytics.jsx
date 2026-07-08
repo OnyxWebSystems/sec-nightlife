@@ -316,6 +316,7 @@ export default function VenueAnalytics() {
       return apiGet(`/api/business/venue-analytics?${params.toString()}`);
     },
     enabled: !!user && !!venueScope.venueQuery && (revenueScope !== 'per_event' || !!selectedEventId),
+    staleTime: 60_000,
   });
 
   // Prefetch first page so Single Event has a default selection without opening the picker
@@ -535,7 +536,7 @@ export default function VenueAnalytics() {
           </CardContent>
         </Card>
 
-        {selectedVenue && chartsLoading && !metrics ? (
+        {selectedVenue && chartsLoading && !analytics ? (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -553,18 +554,6 @@ export default function VenueAnalytics() {
               </CardContent>
             </Card>
           </div>
-        ) : null}
-
-        {selectedVenue && metrics && !hasAnalyticsData && !chartsLoading ? (
-          <Card className="glass-card border-[var(--sec-border)]">
-            <CardContent className="py-16 text-center">
-              <TrendingUp className="w-10 h-10 mx-auto mb-3 text-gray-600" />
-              <p className="text-white font-medium">No revenue data yet</p>
-              <p className="text-sm text-gray-500 mt-1">
-                Analytics will appear after ticket sales or table payments in the last {dateRange} days.
-              </p>
-            </CardContent>
-          </Card>
         ) : null}
 
         {metrics && (
@@ -791,8 +780,16 @@ export default function VenueAnalytics() {
               <CardContent>
                 {chartsLoading ? (
                   <Skeleton className="h-48 sm:h-64 w-full bg-[var(--sec-border)]" />
-                ) : salesTrend.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-12 text-center">No revenue in this period.</p>
+                ) : !hasAnalyticsData ? (
+                  <div className="py-12 text-center">
+                    <TrendingUp className="w-8 h-8 mx-auto mb-3 text-gray-600" />
+                    <p className="text-white font-medium">No revenue in this period</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {revenueScope === 'per_event'
+                        ? 'Try All Events Combined, or pick another event with sales in this date range.'
+                        : `Ticket sales and table payments in the last ${dateRange} days will appear here.`}
+                    </p>
+                  </div>
                 ) : (
                   <ChartContainer config={REVENUE_CHART_CONFIG} className="h-48 sm:h-64 w-full aspect-auto overflow-x-auto">
                     <AreaChart data={salesTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
