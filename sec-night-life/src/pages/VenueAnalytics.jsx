@@ -1,33 +1,49 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
 import { dataService } from '@/services/dataService';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { 
-  TrendingUp, 
-  DollarSign, 
-  Users, 
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  TrendingUp,
+  DollarSign,
+  Users,
   Calendar,
   Star,
   Clock,
-  PieChart as PieChartIcon
+  PieChart as PieChartIcon,
+  ChevronsUpDown,
+  Check,
+  Loader2,
 } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from 'recharts';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
-import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
 const REVENUE_CHART_CONFIG = {
   sales: { label: 'Revenue', color: '#d4af37' },
 };
 
-const EVENT_TYPE_COLORS = ['#d4af37', '#c0c0c0', '#a78bfa', '#64748b', '#22c55e'];
+const EVENT_TYPE_COLORS = ['#d4af37', '#94a3b8', '#22c55e', '#64748b'];
+const REVENUE_STREAM_COLORS = ['#d4af37', '#60a5fa', '#34d399', '#f472b6', '#a78bfa', '#fb923c'];
+
+const EVENT_PAGE_SIZE = 30;
 
 function isTicketingEvent(event) {
   const tiers = event?.ticket_tiers;
@@ -46,6 +62,185 @@ function revenueScopeLabel(revenueScope) {
   return 'All hosted events';
 }
 
+function eventLabel(event) {
+  if (!event) return 'Select an event';
+  const title =
+    event.title ||
+    (event.date ? `Untitled event (${format(new Date(event.date), 'MMM dd')})` : 'Untitled event');
+  return isTicketingEvent(event) ? `${title} · Tickets` : title;
+}
+
+function useDebouncedValue(value, delayMs = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+function AnalyticsEventPicker({
+  enabled,
+  venueScope,
+  selectedVenue,
+  selectedEventId,
+  onSelectEvent,
+  selectedEvent,
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['venue-events-picker', venueScope.staffContextToken || venueScope.venueId || selectedVenue, debouncedSearch],
+    queryFn: async ({ pageParam = 0 }) => {
+      const params = new URLSearchParams({
+        paginated: '1',
+        skip: String(pageParam),
+        limit: String(EVENT_PAGE_SIZE),
+        sort: '-date',
+      });
+      if (debouncedSearch) params.set('q', debouncedSearch);
+      if (venueScope.inStaffSession) {
+        params.set('staff_ctx', venueScope.staffContextToken);
+        return apiGet(`/api/events?${params.toString()}`);
+      }
+      params.set('venue_id', selectedVenue);
+      return apiGet(`/api/events/filter?${params.toString()}`);
+    },
+    getNextPageParam: (lastPage) => {
+      if (!lastPage?.hasMore) return undefined;
+      return (lastPage.skip || 0) + (lastPage.items?.length || 0);
+    },
+    enabled: enabled && !!venueScope.venueQuery && open,
+    initialPageParam: 0,
+  });
+
+  const items = useMemo(() => {
+    const pages = data?.pages || [];
+    const seen = new Set();
+    const out = [];
+    for (const page of pages) {
+      for (const event of page.items || []) {
+        if (seen.has(event.id)) continue;
+        seen.add(event.id);
+        out.push(event);
+      }
+    }
+    if (selectedEvent && !seen.has(selectedEvent.id)) {
+      out.unshift(selectedEvent);
+    }
+    return out;
+  }, [data?.pages, selectedEvent]);
+
+  const total = data?.pages?.[0]?.total ?? null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={!enabled}
+          className="w-full justify-between bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white hover:bg-[var(--sec-bg-elevated)] hover:text-white disabled:opacity-50"
+        >
+          <span className="truncate text-left">
+            {!enabled
+              ? 'Available for Single Event scope'
+              : selectedEvent
+                ? eventLabel(selectedEvent)
+                : 'Search and select an event'}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0 bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white"
+        align="start"
+      >
+        <Command shouldFilter={false} className="bg-transparent">
+          <CommandInput
+            placeholder="Search events by title…"
+            value={search}
+            onValueChange={setSearch}
+            className="text-white"
+          />
+          <CommandList>
+            {isLoading ? (
+              <div className="flex items-center justify-center gap-2 py-6 text-sm text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading events…
+              </div>
+            ) : (
+              <>
+                <CommandEmpty>No events found.</CommandEmpty>
+                <CommandGroup
+                  heading={total != null ? `${total} event${total === 1 ? '' : 's'}` : undefined}
+                >
+                  {items.map((event) => (
+                    <CommandItem
+                      key={event.id}
+                      value={event.id}
+                      onSelect={() => {
+                        onSelectEvent(event);
+                        setOpen(false);
+                      }}
+                      className="text-white data-[selected=true]:bg-[var(--sec-border)] data-[selected=true]:text-white"
+                    >
+                      <Check
+                        className={cn(
+                          'mr-2 h-4 w-4 shrink-0',
+                          selectedEventId === event.id ? 'opacity-100' : 'opacity-0',
+                        )}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm">{event.title || 'Untitled event'}</p>
+                        <p className="text-xs text-gray-500">
+                          {event.date ? format(new Date(event.date), 'MMM dd, yyyy') : 'No date'}
+                          {isTicketingEvent(event) ? ' · Tickets' : ' · Tables'}
+                        </p>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+                {hasNextPage ? (
+                  <div className="p-2 border-t border-[var(--sec-border)]">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="w-full text-gray-300 hover:text-white"
+                      disabled={isFetchingNextPage}
+                      onClick={() => fetchNextPage()}
+                    >
+                      {isFetchingNextPage ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading…
+                        </>
+                      ) : (
+                        'Load more events'
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function VenueAnalytics() {
   const [user, setUser] = useState(null);
   const [selectedVenue, setSelectedVenue] = useState('');
@@ -53,6 +248,7 @@ export default function VenueAnalytics() {
   const [revenueMode, setRevenueMode] = useState('gross');
   const [revenueScope, setRevenueScope] = useState('all_events');
   const [selectedEventId, setSelectedEventId] = useState('');
+  const [selectedEventCache, setSelectedEventCache] = useState(null);
 
   useEffect(() => {
     loadUser();
@@ -119,15 +315,26 @@ export default function VenueAnalytics() {
       }
       return apiGet(`/api/business/venue-analytics?${params.toString()}`);
     },
-    enabled: !!user && !!venueScope.venueQuery,
+    enabled: !!user && !!venueScope.venueQuery && (revenueScope !== 'per_event' || !!selectedEventId),
   });
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['venue-events', scopeKey],
-    queryFn: () =>
-      venueScope.inStaffSession
-        ? apiGet(`/api/events?staff_ctx=${encodeURIComponent(venueScope.staffContextToken)}`)
-        : dataService.Event.filter({ venue_id: selectedVenue }),
+  // Prefetch first page so Single Event has a default selection without opening the picker
+  const { data: initialEventsPage } = useQuery({
+    queryKey: ['venue-events-initial', scopeKey],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        paginated: '1',
+        skip: '0',
+        limit: String(EVENT_PAGE_SIZE),
+        sort: '-date',
+      });
+      if (venueScope.inStaffSession) {
+        params.set('staff_ctx', venueScope.staffContextToken);
+        return apiGet(`/api/events?${params.toString()}`);
+      }
+      params.set('venue_id', selectedVenue);
+      return apiGet(`/api/events/filter?${params.toString()}`);
+    },
     enabled: !!venueScope.venueQuery,
   });
 
@@ -140,42 +347,34 @@ export default function VenueAnalytics() {
   useEffect(() => {
     setRevenueScope('all_events');
     setSelectedEventId('');
+    setSelectedEventCache(null);
   }, [selectedVenue]);
 
-  const ticketingEvents = useMemo(
-    () => events.filter(isTicketingEvent),
-    [events],
-  );
-
-  const eventSelectionOptions = useMemo(() => {
-    const ticketingIds = new Set(ticketingEvents.map((e) => e.id));
-    const nonTicketing = events.filter((e) => !ticketingIds.has(e.id));
-    return [...ticketingEvents, ...nonTicketing];
-  }, [events, ticketingEvents]);
-
   useEffect(() => {
-    if (!events.length) {
-      setSelectedEventId('');
+    const items = initialEventsPage?.items || [];
+    if (!items.length) return;
+    if (selectedEventId && items.some((e) => e.id === selectedEventId)) {
+      const match = items.find((e) => e.id === selectedEventId);
+      if (match) setSelectedEventCache(match);
       return;
     }
-    const preferredPool = ticketingEvents.length ? ticketingEvents : events;
-    if (!selectedEventId || !events.some((event) => event.id === selectedEventId)) {
-      setSelectedEventId(preferredPool[0].id);
+    if (!selectedEventId) {
+      const preferred = items.find(isTicketingEvent) || items[0];
+      if (preferred) {
+        setSelectedEventId(preferred.id);
+        setSelectedEventCache(preferred);
+      }
     }
-  }, [events, ticketingEvents, selectedEventId]);
+  }, [initialEventsPage, selectedEventId]);
+
+  const handleSelectEvent = useCallback((event) => {
+    if (!event?.id) return;
+    setSelectedEventId(event.id);
+    setSelectedEventCache(event);
+  }, []);
 
   const periodDays = Math.min(366, Math.max(1, parseInt(dateRange, 10) || 30));
-  const periodCutoff = useMemo(() => subDays(new Date(), periodDays), [periodDays]);
 
-  const scopedEvents = useMemo(() => {
-    let list = events.filter((e) => e.date && new Date(e.date) >= periodCutoff);
-    if (revenueScope === 'per_event' && selectedEventId) {
-      list = list.filter((e) => e.id === selectedEventId);
-    }
-    return list;
-  }, [events, periodCutoff, revenueScope, selectedEventId]);
-
-  // Calculate metrics (revenue + tickets from server-side Payment / Transaction aggregation)
   const calculateMetrics = () => {
     const gross = Number(analytics?.grossRevenueZar || 0);
     const net = Number(analytics?.netRevenueZar ?? 0);
@@ -185,32 +384,23 @@ export default function VenueAnalytics() {
     const avgRating =
       reviews.length > 0 ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length : 0;
 
-    const eventTypeCounts = scopedEvents.reduce((acc, event) => {
-      const title = (event.title || '').toLowerCase();
-      const type = title.includes('concert')
-        ? 'Concert'
-        : title.includes('party')
-          ? 'Party'
-          : title.includes('festival')
-            ? 'Festival'
-            : 'Other';
-      acc[type] = (acc[type] || 0) + 1;
-      return acc;
-    }, {});
-
-    const hourCounts = scopedEvents.reduce((acc, event) => {
-      if (event.start_time) {
-        const hour = parseInt(String(event.start_time).split(':')[0], 10);
-        if (!Number.isNaN(hour)) acc[hour] = (acc[hour] || 0) + 1;
-      }
-      return acc;
-    }, {});
-
-    const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
-
-    const eventsInPeriod = Number(analytics?.eventsInPeriod ?? scopedEvents.length);
-    const eventRevenueCount = revenueScope === 'per_event' ? 1 : Math.max(1, eventsInPeriod);
+    const eventsInPeriod = Number(analytics?.eventsInPeriod ?? 0);
+    const eventsWithRevenueCount = Number(analytics?.eventsWithRevenueCount ?? 0);
+    const eventRevenueCount =
+      revenueScope === 'per_event'
+        ? activeRevenue > 0
+          ? 1
+          : 0
+        : eventsWithRevenueCount;
     const avgRevenuePerEvent = eventRevenueCount > 0 ? activeRevenue / eventRevenueCount : 0;
+
+    const menuPaymentZar = pickRevenueAmount(analytics, 'menuPaymentZar', 'menuPaymentNetZar', revenueMode);
+    const dayBookingMenuPaymentZar = pickRevenueAmount(
+      analytics,
+      'dayBookingMenuPaymentZar',
+      'dayBookingMenuPaymentNetZar',
+      revenueMode,
+    );
 
     return {
       totalRevenue: activeRevenue,
@@ -222,15 +412,14 @@ export default function VenueAnalytics() {
       hostedTablePaymentZar: pickRevenueAmount(analytics, 'hostedTablePaymentZar', 'hostedTablePaymentNetZar', revenueMode),
       dayBookingHostPaymentZar: pickRevenueAmount(analytics, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', revenueMode),
       dayBookingGuestPaymentZar: pickRevenueAmount(analytics, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', revenueMode),
-      dayBookingMenuPaymentZar: pickRevenueAmount(analytics, 'dayBookingMenuPaymentZar', 'dayBookingMenuPaymentNetZar', revenueMode),
+      dayBookingMenuPaymentZar: dayBookingMenuPaymentZar || menuPaymentZar,
+      menuPaymentZar: menuPaymentZar || dayBookingMenuPaymentZar,
       dayBookingVenueJoinFeeVolumeZar: Number(analytics?.dayBookingVenueJoinFeeVolumeZar || 0),
-      dayBookingOtherPaymentZar: pickRevenueAmount(analytics, 'dayBookingOtherPaymentZar', 'dayBookingOtherPaymentNetZar', revenueMode),
       venueTablePaymentZar: pickRevenueAmount(analytics, 'venueTablePaymentZar', 'venueTablePaymentNetZar', revenueMode),
-      otherPaymentZar: pickRevenueAmount(analytics, 'otherPaymentZar', 'otherPaymentNetZar', revenueMode),
       refundedVenueShareZar: Number(analytics?.refundedVenueShareZar || 0),
       refundedGrossZar: Number(analytics?.refundedGrossZar || 0),
-      eventTypeCounts,
-      peakHour: peakHour ? `${peakHour[0]}:00` : 'N/A',
+      successfulEventTypeCounts: analytics?.successfulEventTypeCounts || {},
+      peakHour: analytics?.peakHour || 'N/A',
       avgRevenuePerEvent,
       eventRevenueCount,
     };
@@ -254,10 +443,31 @@ export default function VenueAnalytics() {
     });
   }, [analytics?.revenueByDay, periodDays, revenueMode]);
 
-  const eventTypeChartData = useMemo(() => {
-    if (!metrics?.eventTypeCounts) return [];
-    return Object.entries(metrics.eventTypeCounts).map(([name, value]) => ({ name, value }));
-  }, [metrics?.eventTypeCounts]);
+  const successfulEventTypeChartData = useMemo(() => {
+    const counts = metrics?.successfulEventTypeCounts || {};
+    return Object.entries(counts)
+      .filter(([, value]) => Number(value) > 0)
+      .map(([name, value]) => ({ name, value: Number(value) }));
+  }, [metrics?.successfulEventTypeCounts]);
+
+  const revenueStreamChartData = useMemo(() => {
+    if (!metrics) return [];
+    if (revenueScope === 'day_bookings') {
+      return [
+        { name: 'Host fees', value: metrics.dayBookingHostPaymentZar },
+        { name: 'Guest checkouts', value: metrics.dayBookingGuestPaymentZar },
+        { name: 'Menu payments', value: metrics.dayBookingMenuPaymentZar },
+        { name: 'Join fees (to venue)', value: metrics.dayBookingVenueJoinFeeVolumeZar },
+      ].filter((d) => d.value > 0);
+    }
+    return [
+      { name: 'Ticket revenue', value: metrics.ticketPaymentZar },
+      { name: 'Hosted table fees', value: metrics.hostedTablePaymentZar },
+      { name: 'Day-booking hosts', value: metrics.dayBookingHostPaymentZar },
+      { name: 'Table joins (guests)', value: metrics.venueTablePaymentZar },
+      { name: 'Menu payments', value: metrics.menuPaymentZar },
+    ].filter((d) => d.value > 0);
+  }, [metrics, revenueScope]);
 
   const hasAnalyticsData =
     Boolean(analytics) &&
@@ -266,6 +476,17 @@ export default function VenueAnalytics() {
       salesTrend.some((d) => d.sales > 0));
 
   const chartsLoading = analyticsLoading || analyticsFetching;
+  const eventPickerEnabled = revenueScope === 'per_event';
+  const selectedEvent =
+    selectedEventCache?.id === selectedEventId
+      ? selectedEventCache
+      : (initialEventsPage?.items || []).find((e) => e.id === selectedEventId) || selectedEventCache;
+
+  useEffect(() => {
+    if (!selectedEventId) return;
+    const fromInitial = (initialEventsPage?.items || []).find((e) => e.id === selectedEventId);
+    if (fromInitial) setSelectedEventCache(fromInitial);
+  }, [selectedEventId, initialEventsPage]);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg)' }}>
@@ -284,7 +505,6 @@ export default function VenueAnalytics() {
           </Select>
         </div>
 
-        {/* Venue Selector */}
         <Card className="glass-card border-[var(--sec-border)]">
           <CardContent className="pt-6">
             {venueScope.inStaffSession && selectedVenueRecord ? (
@@ -349,7 +569,6 @@ export default function VenueAnalytics() {
 
         {metrics && (
           <>
-            {/* Revenue Controls */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="glass-card border-[var(--sec-border)]">
                 <CardContent className="pt-6 space-y-2">
@@ -385,30 +604,18 @@ export default function VenueAnalytics() {
               <Card className="glass-card border-[var(--sec-border)]">
                 <CardContent className="pt-6 space-y-2">
                   <p className="text-gray-500 text-sm">Event Selection</p>
-                  <Select
-                    value={selectedEventId}
-                    onValueChange={setSelectedEventId}
-                    disabled={revenueScope !== 'per_event' || revenueScope === 'day_bookings' || events.length === 0}
-                  >
-                    <SelectTrigger className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] disabled:opacity-50">
-                      <SelectValue
-                        placeholder={events.length === 0 ? 'No events available' : 'Select an event'}
-                      />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white">
-                      {eventSelectionOptions.map((event) => (
-                        <SelectItem key={event.id} value={event.id}>
-                          {event.title || (event.date ? `Untitled event (${format(new Date(event.date), 'MMM dd')})` : 'Untitled event')}
-                          {isTicketingEvent(event) ? ' · Tickets' : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <AnalyticsEventPicker
+                    enabled={eventPickerEnabled}
+                    venueScope={venueScope}
+                    selectedVenue={selectedVenue}
+                    selectedEventId={selectedEventId}
+                    selectedEvent={selectedEvent}
+                    onSelectEvent={handleSelectEvent}
+                  />
                 </CardContent>
               </Card>
             </div>
 
-            {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="glass-card border-[var(--sec-border)] border-l-2 border-l-[var(--sec-success)]">
                 <CardContent className="pt-6">
@@ -506,7 +713,7 @@ export default function VenueAnalytics() {
                   </Card>
                   <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
-                      <p className="text-gray-500 text-sm" title="Menu pre-orders and add-ons (venue revenue)">
+                      <p className="text-gray-500 text-sm" title="Menu items guests choose and pay for">
                         Menu payments
                       </p>
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.dayBookingMenuPaymentZar.toLocaleString()}</p>
@@ -555,8 +762,10 @@ export default function VenueAnalytics() {
                   </Card>
                   <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
-                      <p className="text-gray-500 text-sm">Other</p>
-                      <p className="text-2xl font-bold text-white mt-1">R{metrics.otherPaymentZar.toLocaleString()}</p>
+                      <p className="text-gray-500 text-sm" title="Menu items guests choose and pay for">
+                        Menu payments
+                      </p>
+                      <p className="text-2xl font-bold text-white mt-1">R{metrics.menuPaymentZar.toLocaleString()}</p>
                     </CardContent>
                   </Card>
                 </>
@@ -572,7 +781,6 @@ export default function VenueAnalytics() {
               ) : null}
             </div>
 
-            {/* Sales Trend — days match header selector; amounts match gross vs net mode */}
             <Card className="glass-card border-[var(--sec-border)]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
@@ -612,7 +820,11 @@ export default function VenueAnalytics() {
                       <ChartTooltip
                         content={
                           <ChartTooltipContent
-                            formatter={(value) => [`R${Math.round(Number(value)).toLocaleString()}`, 'Revenue']}
+                            formatter={(value) => (
+                              <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
+                                {`R${Math.round(Number(value)).toLocaleString()}`}
+                              </span>
+                            )}
                           />
                         }
                       />
@@ -629,61 +841,134 @@ export default function VenueAnalytics() {
               </CardContent>
             </Card>
 
-            {/* Event Types & Peak Times */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="glass-card border-[var(--sec-border)]">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card className="glass-card border-[var(--sec-border)] lg:col-span-2">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">
                     <PieChartIcon className="w-5 h-5" style={{ color: 'var(--sec-accent)' }} />
-                    Popular Event Types (last {dateRange} days)
+                    Event mix & revenue streams (last {dateRange} days)
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {eventTypeChartData.length === 0 ? (
-                    <p className="text-sm text-gray-500 py-8 text-center">No events in this period yet.</p>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
-                      <ChartContainer
-                        config={Object.fromEntries(
-                          eventTypeChartData.map((d, i) => [
-                            d.name,
-                            { label: d.name, color: EVENT_TYPE_COLORS[i % EVENT_TYPE_COLORS.length] },
-                          ]),
-                        )}
-                        className="h-48 w-full aspect-auto mx-auto max-w-[220px]"
-                      >
-                        <PieChart>
-                          <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                          <Pie
-                            data={eventTypeChartData}
-                            dataKey="value"
-                            nameKey="name"
-                            innerRadius={42}
-                            outerRadius={72}
-                            paddingAngle={2}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <p className="text-sm text-gray-400 mb-3">Successful event types</p>
+                      <p className="text-xs text-gray-500 mb-4">Events in this period that generated venue revenue</p>
+                      {successfulEventTypeChartData.length === 0 ? (
+                        <p className="text-sm text-gray-500 py-8 text-center">No successful events in this period.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                          <ChartContainer
+                            config={Object.fromEntries(
+                              successfulEventTypeChartData.map((d, i) => [
+                                d.name,
+                                { label: d.name, color: EVENT_TYPE_COLORS[i % EVENT_TYPE_COLORS.length] },
+                              ]),
+                            )}
+                            className="h-44 w-full aspect-auto mx-auto max-w-[200px]"
                           >
-                            {eventTypeChartData.map((entry, index) => (
-                              <Cell key={entry.name} fill={EVENT_TYPE_COLORS[index % EVENT_TYPE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                        </PieChart>
-                      </ChartContainer>
-                      <div className="space-y-2">
-                        {eventTypeChartData.map((entry, index) => (
-                          <div key={entry.name} className="flex items-center justify-between text-sm">
-                            <span className="flex items-center gap-2 text-gray-400">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: EVENT_TYPE_COLORS[index % EVENT_TYPE_COLORS.length] }}
+                            <PieChart>
+                              <ChartTooltip
+                                content={
+                                  <ChartTooltipContent
+                                    hideLabel
+                                    formatter={(value) => String(Math.round(Number(value)))}
+                                  />
+                                }
                               />
-                              {entry.name}
-                            </span>
-                            <span className="text-white font-semibold">{entry.value}</span>
+                              <Pie
+                                data={successfulEventTypeChartData}
+                                dataKey="value"
+                                nameKey="name"
+                                innerRadius={38}
+                                outerRadius={68}
+                                paddingAngle={2}
+                              >
+                                {successfulEventTypeChartData.map((entry, index) => (
+                                  <Cell key={entry.name} fill={EVENT_TYPE_COLORS[index % EVENT_TYPE_COLORS.length]} />
+                                ))}
+                              </Pie>
+                            </PieChart>
+                          </ChartContainer>
+                          <div className="space-y-2">
+                            {successfulEventTypeChartData.map((entry, index) => (
+                              <div key={entry.name} className="flex items-center justify-between text-sm">
+                                <span className="flex items-center gap-2 text-gray-400">
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                                    style={{ backgroundColor: EVENT_TYPE_COLORS[index % EVENT_TYPE_COLORS.length] }}
+                                  />
+                                  {entry.name}
+                                </span>
+                                <span className="text-white font-semibold">{entry.value}</span>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+
+                    <div>
+                      <p className="text-sm text-gray-400 mb-3">Revenue streams</p>
+                      <p className="text-xs text-gray-500 mb-4">
+                        {revenueMode === 'net' ? 'Net venue share' : 'Gross'} by payment type
+                      </p>
+                      {revenueStreamChartData.length === 0 ? (
+                        <p className="text-sm text-gray-500 py-8 text-center">No revenue streams in this period.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                          <ChartContainer
+                            config={Object.fromEntries(
+                              revenueStreamChartData.map((d, i) => [
+                                d.name,
+                                { label: d.name, color: REVENUE_STREAM_COLORS[i % REVENUE_STREAM_COLORS.length] },
+                              ]),
+                            )}
+                            className="h-44 w-full aspect-auto mx-auto max-w-[200px]"
+                          >
+                            <PieChart>
+                              <ChartTooltip
+                                content={
+                                  <ChartTooltipContent
+                                    hideLabel
+                                    formatter={(value) => `R${Math.round(Number(value)).toLocaleString()}`}
+                                  />
+                                }
+                              />
+                              <Pie
+                                data={revenueStreamChartData}
+                                dataKey="value"
+                                nameKey="name"
+                                innerRadius={38}
+                                outerRadius={68}
+                                paddingAngle={2}
+                              >
+                                {revenueStreamChartData.map((entry, index) => (
+                                  <Cell key={entry.name} fill={REVENUE_STREAM_COLORS[index % REVENUE_STREAM_COLORS.length]} />
+                                ))}
+                              </Pie>
+                            </PieChart>
+                          </ChartContainer>
+                          <div className="space-y-2">
+                            {revenueStreamChartData.map((entry, index) => (
+                              <div key={entry.name} className="flex items-center justify-between text-sm gap-2">
+                                <span className="flex items-center gap-2 text-gray-400 min-w-0">
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                                    style={{ backgroundColor: REVENUE_STREAM_COLORS[index % REVENUE_STREAM_COLORS.length] }}
+                                  />
+                                  <span className="truncate">{entry.name}</span>
+                                </span>
+                                <span className="text-white font-semibold shrink-0">
+                                  R{Math.round(entry.value).toLocaleString()}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -698,6 +983,11 @@ export default function VenueAnalytics() {
                   <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                     <p className="text-sm text-gray-400 mb-1">Peak Event Time</p>
                     <p className="text-xl font-bold text-white">{metrics.peakHour}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {metrics.peakHour === 'N/A'
+                        ? 'No revenue-generating events with start times'
+                        : 'Most common start time among successful events'}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                     <p className="text-sm text-gray-400 mb-1">Avg. Revenue per Event</p>
@@ -705,7 +995,9 @@ export default function VenueAnalytics() {
                       R{Math.round(metrics.avgRevenuePerEvent).toLocaleString()}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      {revenueScope === 'per_event' ? 'Selected event view' : `${metrics.eventRevenueCount} events with revenue`}
+                      {revenueScope === 'per_event'
+                        ? 'Selected event view'
+                        : `${metrics.eventRevenueCount} event${metrics.eventRevenueCount === 1 ? '' : 's'} with revenue`}
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
@@ -736,7 +1028,6 @@ export default function VenueAnalytics() {
               </Card>
             </div>
 
-            {/* Recent Reviews Summary */}
             {reviews.length > 0 && (
               <Card className="glass-card border-[var(--sec-border)]">
                 <CardHeader>

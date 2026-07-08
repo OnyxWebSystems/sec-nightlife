@@ -13,6 +13,7 @@ import {
   isVenueDirectDayBookingJoinPayment,
   venueDirectJoinFeeZar,
   paymentMatchesRevenueScope,
+  isExcludedFromVenueAnalytics,
 } from '../lib/paymentMetadata.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
 import {
@@ -897,10 +898,11 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     const events = await prisma.event.findMany({
       where: { venueId, deletedAt: null, ...(eventId ? { id: eventId } : {}) },
-      select: { id: true, date: true },
+      select: { id: true, date: true, startTime: true, eventFormat: true },
     });
     const eventIds = events.map((e) => e.id);
     if (eventId && eventIds.length === 0) return res.status(400).json({ error: 'Event not found for this venue' });
+    const eventById = new Map(events.map((e) => [String(e.id), e]));
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -955,9 +957,22 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const revenueCounters = createEmptyRevenueCounters();
     const revenueByDay = {};
     const matchedPaymentRefs = new Set();
+    const eventIdsWithRevenue = new Set();
 
     const addRevenueRow = (meta, mtype, pType, gross, net, dayKey, ref) => {
       if (!matchesAnalyticsFilter(meta, scopeFilter)) return false;
+      if (isExcludedFromVenueAnalytics(mtype, pType)) return false;
+      const counted = classifyVenuePaymentRevenueScoped(
+        mtype,
+        pType,
+        gross,
+        net,
+        revenueCounters,
+        meta,
+        revenueScope,
+        ref,
+      );
+      if (!counted) return false;
       grossTotal += gross;
       netTotal += net;
       if (ref) {
@@ -965,7 +980,8 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         matchedPaymentRefs.add(basePaymentReference(ref));
       }
       bumpRevenueDay(revenueByDay, dayKey, gross, net);
-      classifyVenuePaymentRevenueScoped(mtype, pType, gross, net, revenueCounters, meta, revenueScope, ref);
+      const eid = meta?.event_id ?? meta?.eventId;
+      if (eid != null) eventIdsWithRevenue.add(String(eid));
       return true;
     };
 
@@ -1138,6 +1154,26 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     const ticketSalesCount = Math.max(ticketSalesCountFromRows, ticketSalesFromPayments);
 
+    const successfulEventTypeCounts = { Ticketing: 0, 'Table hosting': 0 };
+    const successfulEventPeakHours = {};
+    for (const eid of eventIdsWithRevenue) {
+      const ev = eventById.get(eid);
+      if (!ev) continue;
+      if (eventId && String(ev.id) !== eventId) continue;
+      if (revenueScope === 'day_bookings') continue;
+      const formatLabel = ev.eventFormat === 'TICKETING_ONLY' ? 'Ticketing' : 'Table hosting';
+      successfulEventTypeCounts[formatLabel] = (successfulEventTypeCounts[formatLabel] || 0) + 1;
+      if (ev.startTime) {
+        const hour = parseInt(String(ev.startTime).split(':')[0], 10);
+        if (!Number.isNaN(hour)) {
+          successfulEventPeakHours[hour] = (successfulEventPeakHours[hour] || 0) + 1;
+        }
+      }
+    }
+    const peakHourEntry = Object.entries(successfulEventPeakHours).sort((a, b) => b[1] - a[1])[0];
+    const peakHour = peakHourEntry ? `${peakHourEntry[0]}:00` : null;
+    const eventsWithRevenueCount = eventIdsWithRevenue.size;
+
     res.json({
       venueId,
       days,
@@ -1155,19 +1191,25 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       dayBookingHostPaymentNetZar: roundZar(revenueCounters.dayBookingHostPaymentNetZar),
       dayBookingGuestPaymentZar: roundZar(revenueCounters.dayBookingGuestPaymentZar),
       dayBookingGuestPaymentNetZar: roundZar(revenueCounters.dayBookingGuestPaymentNetZar),
-      dayBookingOtherPaymentZar: roundZar(revenueCounters.dayBookingOtherPaymentZar),
-      dayBookingOtherPaymentNetZar: roundZar(revenueCounters.dayBookingOtherPaymentNetZar),
+      dayBookingOtherPaymentZar: 0,
+      dayBookingOtherPaymentNetZar: 0,
       dayBookingMenuPaymentZar: roundZar(revenueCounters.dayBookingMenuPaymentZar),
       dayBookingMenuPaymentNetZar: roundZar(revenueCounters.dayBookingMenuPaymentNetZar),
+      menuPaymentZar: roundZar(revenueCounters.menuPaymentZar),
+      menuPaymentNetZar: roundZar(revenueCounters.menuPaymentNetZar),
       dayBookingVenueJoinFeeVolumeZar: roundZar(dayBookingVenueJoinFeeVolumeZar),
       venueTablePaymentZar: roundZar(revenueCounters.venueTablePaymentZar),
       venueTablePaymentNetZar: roundZar(revenueCounters.venueTablePaymentNetZar),
-      otherPaymentZar: roundZar(revenueCounters.otherPaymentZar),
-      otherPaymentNetZar: roundZar(revenueCounters.otherPaymentNetZar),
+      otherPaymentZar: 0,
+      otherPaymentNetZar: 0,
       refundedGrossZar: roundZar(refundedMetrics.refundedGrossZar),
       refundedVenueShareZar: roundZar(refundedMetrics.refundedVenueShareZar),
       eventsInPeriod,
       upcomingEventsCount,
+      eventsWithRevenueCount,
+      successfulEventTypeCounts,
+      peakHour,
+      eventIdsWithRevenue: [...eventIdsWithRevenue],
       revenueByDay: revenueByDaySorted,
     });
   } catch (e) {

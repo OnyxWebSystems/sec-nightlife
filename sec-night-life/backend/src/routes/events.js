@@ -586,14 +586,49 @@ router.get('/', optionalAuth, async (req, res, next) => {
     if (req.query.status) where.status = req.query.status;
     if (req.query.venue_id) where.venueId = req.query.venue_id;
     if (req.query.city) where.city = String(req.query.city);
+    if (req.query.id) where.id = req.query.id;
+    const searchQ = String(req.query.q || req.query.search || '').trim();
+    if (searchQ) {
+      where.title = { contains: searchQ, mode: 'insensitive' };
+    }
+    const eventScope = String(req.query.event_scope || 'all').toLowerCase();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    if (eventScope === 'active') {
+      where.date = { gte: todayStart };
+    } else if (eventScope === 'past') {
+      where.date = { lt: todayStart };
+    }
     if (req.userId) {
       await applyOwnedOrStaffEventIsolation(req, where);
     }
-    const take = Math.min(parseInt(req.query.limit) || 50, 100);
+    const take = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
     const sortDesc = req.query.sort === '-date';
+    const paginated = String(req.query.paginated || '') === '1' || req.query.skip != null;
     const followedSet = await followedVenueIdSet(req.userId);
-    const fetchCap = req.userId && followedSet.size > 0 ? Math.min(take * 15, 500) : take;
     const whereMerged = mergePublishedNotEnded(where, now);
+
+    if (paginated) {
+      const [total, events] = await Promise.all([
+        prisma.event.count({ where: whereMerged }),
+        prisma.event.findMany({
+          where: whereMerged,
+          orderBy: { date: sortDesc ? 'desc' : 'asc' },
+          skip,
+          take,
+        }),
+      ]);
+      return res.json({
+        items: events.map(mapEventRow),
+        total,
+        hasMore: skip + events.length < total,
+        skip,
+        limit: take,
+      });
+    }
+
+    const fetchCap = req.userId && followedSet.size > 0 ? Math.min(take * 15, 500) : take;
     const events = await prisma.event.findMany({
       where: whereMerged,
       orderBy: { date: sortDesc ? 'desc' : 'asc' },
@@ -674,15 +709,49 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     if (req.query.id) where.id = req.query.id;
     if (req.query.venue_id) where.venueId = req.query.venue_id;
     if (req.query.status) where.status = req.query.status;
+    const searchQ = String(req.query.q || req.query.search || '').trim();
+    if (searchQ) {
+      where.title = { contains: searchQ, mode: 'insensitive' };
+    }
+    const eventScope = String(req.query.event_scope || 'all').toLowerCase();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    if (eventScope === 'active') {
+      where.date = { gte: todayStart };
+    } else if (eventScope === 'past') {
+      where.date = { lt: todayStart };
+    }
     if (req.userId) {
       await applyOwnedOrStaffEventIsolation(req, where);
     }
     const sort = String(req.query.sort || 'date');
     const sortDesc = sort === '-date';
-    const take = Math.min(parseInt(req.query.limit) || 100, 100);
+    const take = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 100);
+    const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
+    const paginated = String(req.query.paginated || '') === '1' || req.query.skip != null;
     const followedSet = await followedVenueIdSet(req.userId);
-    const fetchCap = req.userId && followedSet.size > 0 ? Math.min(take * 15, 500) : take;
     const whereMerged = mergePublishedNotEnded(where, now);
+
+    if (paginated) {
+      const [total, events] = await Promise.all([
+        prisma.event.count({ where: whereMerged }),
+        prisma.event.findMany({
+          where: whereMerged,
+          orderBy: { date: sortDesc ? 'desc' : 'asc' },
+          skip,
+          take,
+        }),
+      ]);
+      return res.json({
+        items: events.map(mapEventRow),
+        total,
+        hasMore: skip + events.length < total,
+        skip,
+        limit: take,
+      });
+    }
+
+    const fetchCap = req.userId && followedSet.size > 0 ? Math.min(take * 15, 500) : take;
     const events = await prisma.event.findMany({
       where: whereMerged,
       orderBy: { date: sortDesc ? 'desc' : 'asc' },

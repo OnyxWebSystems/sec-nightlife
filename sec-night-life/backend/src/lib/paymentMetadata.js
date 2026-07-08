@@ -124,6 +124,33 @@ export function isHostedTableVenuePayment(meta) {
   return memberRole === 'HOST';
 }
 
+const EXCLUDED_ANALYTICS_TYPES = new Set([
+  'TABLE_BOOST',
+  'HOUSE_PARTY_ENTRANCE',
+  'HOUSE_PARTY_PUBLISH',
+  'HOUSE_PARTY_BOOST',
+  'promotion',
+  'BOOST',
+]);
+
+/** Boosts, promotions, and house-party fees are excluded from venue analytics. */
+export function isExcludedFromVenueAnalytics(mtype, paymentType = null) {
+  const t = String(mtype || paymentType || '');
+  if (!t) return false;
+  if (EXCLUDED_ANALYTICS_TYPES.has(t)) return true;
+  const upper = t.toUpperCase();
+  if (upper.includes('BOOST') || upper.includes('PROMOTION') || upper.includes('HOUSE_PARTY')) return true;
+  return false;
+}
+
+/** Menu item purchases from the venue menu (HOSTED_TABLE_MENU or ledger :menu). */
+export function isMenuPayment(meta, mtype, ledgerRef = null) {
+  const component = ledgerPaymentComponent(ledgerRef);
+  if (component === 'menu') return true;
+  const t = String(mtype || meta?.type || '');
+  return t === 'HOSTED_TABLE_MENU';
+}
+
 export function createEmptyRevenueCounters() {
   return {
     ticketPaymentZar: 0,
@@ -136,6 +163,8 @@ export function createEmptyRevenueCounters() {
     dayBookingGuestPaymentNetZar: 0,
     dayBookingMenuPaymentZar: 0,
     dayBookingMenuPaymentNetZar: 0,
+    menuPaymentZar: 0,
+    menuPaymentNetZar: 0,
     dayBookingVenueJoinFeeVolumeZar: 0,
     dayBookingOtherPaymentZar: 0,
     dayBookingOtherPaymentNetZar: 0,
@@ -170,15 +199,10 @@ function bumpCounter(counters, grossKey, netKey, gross, net) {
   counters[netKey] = (counters[netKey] || 0) + (Number(net) || 0);
 }
 
-function isDayBookingMenuPayment(meta, mtype, ledgerRef) {
-  const component = ledgerPaymentComponent(ledgerRef);
-  if (component === 'menu') return isDayBookingPayment(meta);
-  const t = String(mtype || meta?.type || '');
-  return t === 'HOSTED_TABLE_MENU' && isDayBookingPayment(meta);
-}
-
 /**
  * Classify revenue into buckets with gross + net amounts.
+ * Returns true when the row was counted toward analytics totals.
+ * Boosts, promotions, and house-party fees are never counted.
  * @param {'all'|'events'|'day_bookings'} revenueScope
  * @param {string|null} [ledgerRef] - full payout ledger paymentReference (may include :menu suffix)
  */
@@ -193,35 +217,50 @@ export function classifyVenuePaymentRevenueScoped(
   ledgerRef = null,
 ) {
   const meta = isObjectRecord(metadata) ? metadata : {};
-  if (!paymentMatchesRevenueScope(meta, revenueScope)) return;
+  if (!paymentMatchesRevenueScope(meta, revenueScope)) return false;
+  if (isExcludedFromVenueAnalytics(mtype, pType)) return false;
 
   const g = Number(gross) || 0;
   const n = net != null ? Number(net) || 0 : g;
   const t = String(mtype || '');
 
   if (revenueScope === 'day_bookings') {
+    if (isMenuPayment(meta, t, ledgerRef)) {
+      bumpCounter(counters, 'dayBookingMenuPaymentZar', 'dayBookingMenuPaymentNetZar', g, n);
+      bumpCounter(counters, 'menuPaymentZar', 'menuPaymentNetZar', g, n);
+      return true;
+    }
     if (isDayBookingHostPayment(meta)) {
       bumpCounter(counters, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', g, n);
-    } else if (isDayBookingMenuPayment(meta, t, ledgerRef)) {
-      bumpCounter(counters, 'dayBookingMenuPaymentZar', 'dayBookingMenuPaymentNetZar', g, n);
-    } else if (isDayBookingGuestPayment(meta)) {
-      bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
-    } else {
-      bumpCounter(counters, 'dayBookingOtherPaymentZar', 'dayBookingOtherPaymentNetZar', g, n);
+      return true;
     }
-    return;
+    if (isDayBookingGuestPayment(meta)) {
+      bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
+      return true;
+    }
+    // Unclassified day-booking rows are ignored (not boosts — those already returned false).
+    return false;
+  }
+
+  if (isMenuPayment(meta, t, ledgerRef)) {
+    bumpCounter(counters, 'menuPaymentZar', 'menuPaymentNetZar', g, n);
+    if (isDayBookingPayment(meta)) {
+      bumpCounter(counters, 'dayBookingMenuPaymentZar', 'dayBookingMenuPaymentNetZar', g, n);
+    }
+    return true;
   }
 
   if (isDayBookingHostPayment(meta)) {
     bumpCounter(counters, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', g, n);
-  } else if (
-    t === 'TABLE_HOST_FEE' ||
-    t === 'HOSTED_TABLE_EXTERNAL_LISTING' ||
-    t === 'HOSTED_TABLE_MENU' ||
-    isHostedTableVenuePayment(meta)
-  ) {
+    return true;
+  }
+
+  if (t === 'TABLE_HOST_FEE' || t === 'HOSTED_TABLE_EXTERNAL_LISTING' || isHostedTableVenuePayment(meta)) {
     bumpCounter(counters, 'hostedTablePaymentZar', 'hostedTablePaymentNetZar', g, n);
-  } else if (
+    return true;
+  }
+
+  if (
     t === 'HOSTED_TABLE_JOIN' ||
     t === 'TABLE_CHECKOUT' ||
     t === 'VENUE_TABLE_JOIN' ||
@@ -232,20 +271,16 @@ export function classifyVenuePaymentRevenueScoped(
     } else {
       bumpCounter(counters, 'venueTablePaymentZar', 'venueTablePaymentNetZar', g, n);
     }
-  } else if (isTicketPaymentMeta({ type: t }, pType)) {
-    bumpCounter(counters, 'ticketPaymentZar', 'ticketPaymentNetZar', g, n);
-  } else if (
-    t === 'TABLE_BOOST' ||
-    t === 'HOUSE_PARTY_ENTRANCE' ||
-    t === 'HOUSE_PARTY_PUBLISH' ||
-    t === 'HOUSE_PARTY_BOOST' ||
-    t === 'promotion' ||
-    t === 'BOOST'
-  ) {
-    bumpCounter(counters, 'otherPaymentZar', 'otherPaymentNetZar', g, n);
-  } else {
-    bumpCounter(counters, 'otherPaymentZar', 'otherPaymentNetZar', g, n);
+    return true;
   }
+
+  if (isTicketPaymentMeta({ type: t }, pType) || isTicketPaymentMeta(meta, pType)) {
+    bumpCounter(counters, 'ticketPaymentZar', 'ticketPaymentNetZar', g, n);
+    return true;
+  }
+
+  // Unknown / unclassified payment types are excluded from analytics.
+  return false;
 }
 
 /** @deprecated use classifyVenuePaymentRevenueScoped — gross-only wrapper */
