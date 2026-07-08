@@ -1157,9 +1157,80 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         }
       }
     }
-    const peakHourEntry = Object.entries(successfulEventPeakHours).sort((a, b) => b[1] - a[1])[0];
-    const peakHour = peakHourEntry ? `${peakHourEntry[0]}:00` : null;
-    const eventsWithRevenueCount = eventIdsWithRevenue.size;
+
+    let peakHour = null;
+    let eventsWithRevenueCount = eventIdsWithRevenue.size;
+    let tablesWithRevenueCount = 0;
+    let dayBookingTierWithActivity = 0;
+
+    if (revenueScope === 'day_bookings') {
+      const dayMembers = await prisma.venueTableMember.findMany({
+        where: {
+          status: { in: ['CONFIRMED', 'APPROVED', 'PENDING_PAYMENT'] },
+          OR: [
+            { paidAt: { gte: cutoff } },
+            { paidAt: null, joinedAt: { gte: cutoff } },
+          ],
+          venueTable: {
+            venueId,
+            eventId: null,
+          },
+          amountPaid: { gt: 0 },
+        },
+        select: {
+          windowStartTime: true,
+          joinedAt: true,
+          paidAt: true,
+          venueTableId: true,
+          venueTable: {
+            select: {
+              id: true,
+              tierLabel: true,
+              hostingTiersKey: true,
+              tableName: true,
+            },
+          },
+        },
+        take: 8000,
+      });
+
+      const bookingHourCounts = {};
+      const tableIds = new Set();
+      const tierKeys = new Set();
+
+      for (const m of dayMembers) {
+        tableIds.add(m.venueTableId);
+        const tierKey =
+          m.venueTable?.hostingTiersKey ||
+          m.venueTable?.tierLabel ||
+          m.venueTable?.tableName ||
+          m.venueTableId;
+        if (tierKey) tierKeys.add(String(tierKey));
+
+        const clock = m.windowStartTime || null;
+        let hour = null;
+        if (clock) {
+          const parsed = parseInt(String(clock).split(':')[0], 10);
+          if (!Number.isNaN(parsed)) hour = parsed;
+        }
+        if (hour == null) {
+          const when = m.paidAt || m.joinedAt;
+          if (when) hour = when.getHours();
+        }
+        if (hour != null) {
+          bookingHourCounts[hour] = (bookingHourCounts[hour] || 0) + 1;
+        }
+      }
+
+      const peakBookingEntry = Object.entries(bookingHourCounts).sort((a, b) => b[1] - a[1])[0];
+      peakHour = peakBookingEntry ? `${peakBookingEntry[0]}:00` : null;
+      tablesWithRevenueCount = tableIds.size;
+      dayBookingTierWithActivity = tierKeys.size;
+      eventsWithRevenueCount = 0;
+    } else {
+      const peakHourEntry = Object.entries(successfulEventPeakHours).sort((a, b) => b[1] - a[1])[0];
+      peakHour = peakHourEntry ? `${peakHourEntry[0]}:00` : null;
+    }
 
     res.json({
       venueId,
@@ -1194,6 +1265,8 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       eventsInPeriod,
       upcomingEventsCount,
       eventsWithRevenueCount,
+      tablesWithRevenueCount,
+      dayBookingTierWithActivity,
       successfulEventTypeCounts,
       peakHour,
       eventIdsWithRevenue: [...eventIdsWithRevenue],

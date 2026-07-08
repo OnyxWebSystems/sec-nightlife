@@ -387,6 +387,8 @@ export default function VenueAnalytics() {
 
     const eventsInPeriod = Number(analytics?.eventsInPeriod ?? 0);
     const eventsWithRevenueCount = Number(analytics?.eventsWithRevenueCount ?? 0);
+    const tablesWithRevenueCount = Number(analytics?.tablesWithRevenueCount ?? 0);
+    const dayBookingTierWithActivity = Number(analytics?.dayBookingTierWithActivity ?? 0);
     const eventRevenueCount =
       revenueScope === 'per_event'
         ? activeRevenue > 0
@@ -394,6 +396,8 @@ export default function VenueAnalytics() {
           : 0
         : eventsWithRevenueCount;
     const avgRevenuePerEvent = eventRevenueCount > 0 ? activeRevenue / eventRevenueCount : 0;
+    const avgRevenuePerTable =
+      tablesWithRevenueCount > 0 ? activeRevenue / tablesWithRevenueCount : 0;
 
     const menuPaymentZar = pickRevenueAmount(analytics, 'menuPaymentZar', 'menuPaymentNetZar', revenueMode);
     const dayBookingMenuPaymentZar = pickRevenueAmount(
@@ -422,7 +426,10 @@ export default function VenueAnalytics() {
       successfulEventTypeCounts: analytics?.successfulEventTypeCounts || {},
       peakHour: analytics?.peakHour || 'N/A',
       avgRevenuePerEvent,
+      avgRevenuePerTable,
       eventRevenueCount,
+      tablesWithRevenueCount,
+      dayBookingTierWithActivity,
     };
   };
 
@@ -978,23 +985,39 @@ export default function VenueAnalytics() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
-                    <p className="text-sm text-gray-400 mb-1">Peak Event Time</p>
+                    <p className="text-sm text-gray-400 mb-1">
+                      {revenueScope === 'day_bookings' ? 'Peak table booking time' : 'Peak Event Time'}
+                    </p>
                     <p className="text-xl font-bold text-white">{metrics.peakHour}</p>
                     <p className="text-xs text-gray-500 mt-1">
                       {metrics.peakHour === 'N/A'
-                        ? 'No revenue-generating events with start times'
-                        : 'Most common start time among successful events'}
+                        ? revenueScope === 'day_bookings'
+                          ? 'No host/join bookings with times in this period'
+                          : 'No revenue-generating events with start times'
+                        : revenueScope === 'day_bookings'
+                          ? 'Most common host/join booking start time'
+                          : 'Most common start time among successful events'}
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
-                    <p className="text-sm text-gray-400 mb-1">Avg. Revenue per Event</p>
+                    <p className="text-sm text-gray-400 mb-1">
+                      {revenueScope === 'day_bookings' ? 'Avg. Revenue per table' : 'Avg. Revenue per Event'}
+                    </p>
                     <p className="text-xl font-bold text-white">
-                      R{Math.round(metrics.avgRevenuePerEvent).toLocaleString()}
+                      R{Math.round(
+                        revenueScope === 'day_bookings'
+                          ? metrics.avgRevenuePerTable
+                          : metrics.avgRevenuePerEvent,
+                      ).toLocaleString()}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      {revenueScope === 'per_event'
-                        ? 'Selected event view'
-                        : `${metrics.eventRevenueCount} event${metrics.eventRevenueCount === 1 ? '' : 's'} with revenue`}
+                      {revenueScope === 'day_bookings'
+                        ? metrics.tablesWithRevenueCount > 0
+                          ? `${metrics.tablesWithRevenueCount} table${metrics.tablesWithRevenueCount === 1 ? '' : 's'} across ${metrics.dayBookingTierWithActivity || 1} tier${(metrics.dayBookingTierWithActivity || 1) === 1 ? '' : 's'}`
+                          : 'No booked tables with revenue in this period'
+                        : revenueScope === 'per_event'
+                          ? 'Selected event view'
+                          : `${metrics.eventRevenueCount} event${metrics.eventRevenueCount === 1 ? '' : 's'} with revenue`}
                     </p>
                   </div>
                   <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
