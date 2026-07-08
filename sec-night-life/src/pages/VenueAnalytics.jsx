@@ -62,6 +62,13 @@ function revenueScopeLabel(revenueScope) {
   return 'All hosted events';
 }
 
+/** Map UI revenueScope to API revenueScope for cache safety. */
+function apiRevenueScope(uiScope) {
+  if (uiScope === 'per_event') return 'events';
+  if (uiScope === 'day_bookings') return 'day_bookings';
+  return 'all';
+}
+
 function eventLabel(event) {
   if (!event) return 'Select an event';
   const title =
@@ -293,8 +300,14 @@ export default function VenueAnalytics() {
     return venues.find((v) => v.id === selectedVenue) || null;
   }, [venues, selectedVenue, venueScope.inStaffSession, scopeKey, venueScope.venueName]);
 
-  const { data: analytics, isLoading: analyticsLoading, isFetching: analyticsFetching } = useQuery({
-    queryKey: ['venue-analytics', scopeKey, dateRange, revenueScope, revenueMode, selectedEventId],
+  const analyticsEventKey = revenueScope === 'per_event' ? selectedEventId : null;
+  const {
+    data: analytics,
+    isLoading: analyticsLoading,
+    isFetching: analyticsFetching,
+    isPlaceholderData: analyticsIsPlaceholder,
+  } = useQuery({
+    queryKey: ['venue-analytics', scopeKey, dateRange, revenueScope, revenueMode, analyticsEventKey],
     queryFn: () => {
       const days = parseInt(dateRange, 10) || 30;
       const params = new URLSearchParams({
@@ -317,7 +330,12 @@ export default function VenueAnalytics() {
     },
     enabled: !!user && !!venueScope.venueQuery && (revenueScope !== 'per_event' || !!selectedEventId),
     staleTime: 120_000,
-    placeholderData: (prev) => prev,
+    // Only keep previous data when it matches the same API revenue scope (prevents All→Day flash).
+    placeholderData: (prev) => {
+      if (!prev) return undefined;
+      if (prev.revenueScope !== apiRevenueScope(revenueScope)) return undefined;
+      return prev;
+    },
   });
 
   // Prefetch first page so Single Event has a default selection without opening the picker
@@ -397,8 +415,6 @@ export default function VenueAnalytics() {
           : 0
         : eventsWithRevenueCount;
     const avgRevenuePerEvent = eventRevenueCount > 0 ? activeRevenue / eventRevenueCount : 0;
-    const avgRevenuePerTable =
-      tablesWithRevenueCount > 0 ? activeRevenue / tablesWithRevenueCount : 0;
 
     const menuPaymentZar = pickRevenueAmount(analytics, 'menuPaymentZar', 'menuPaymentNetZar', revenueMode);
     const dayBookingMenuPaymentZar = pickRevenueAmount(
@@ -407,6 +423,20 @@ export default function VenueAnalytics() {
       'dayBookingMenuPaymentNetZar',
       revenueMode,
     );
+
+    // Mean of per-tier averages from API (preferred); fall back only if missing.
+    const avgFromApi = pickRevenueAmount(
+      analytics,
+      'avgRevenuePerTableZar',
+      'avgRevenuePerTableNetZar',
+      revenueMode,
+    );
+    const avgRevenuePerTable =
+      avgFromApi > 0
+        ? avgFromApi
+        : tablesWithRevenueCount > 0
+          ? activeRevenue / tablesWithRevenueCount
+          : 0;
 
     return {
       totalRevenue: activeRevenue,
@@ -418,8 +448,9 @@ export default function VenueAnalytics() {
       hostedTablePaymentZar: pickRevenueAmount(analytics, 'hostedTablePaymentZar', 'hostedTablePaymentNetZar', revenueMode),
       dayBookingHostPaymentZar: pickRevenueAmount(analytics, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', revenueMode),
       dayBookingGuestPaymentZar: pickRevenueAmount(analytics, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', revenueMode),
-      dayBookingMenuPaymentZar: dayBookingMenuPaymentZar || menuPaymentZar,
-      menuPaymentZar: menuPaymentZar || dayBookingMenuPaymentZar,
+      dayBookingMenuPaymentZar:
+        revenueScope === 'day_bookings' ? dayBookingMenuPaymentZar : dayBookingMenuPaymentZar || menuPaymentZar,
+      menuPaymentZar: revenueScope === 'day_bookings' ? menuPaymentZar || dayBookingMenuPaymentZar : menuPaymentZar || dayBookingMenuPaymentZar,
       dayBookingVenueJoinFeeVolumeZar: Number(analytics?.dayBookingVenueJoinFeeVolumeZar || 0),
       venueTablePaymentZar: pickRevenueAmount(analytics, 'venueTablePaymentZar', 'venueTablePaymentNetZar', revenueMode),
       refundedVenueShareZar: Number(analytics?.refundedVenueShareZar || 0),
@@ -431,6 +462,7 @@ export default function VenueAnalytics() {
       eventRevenueCount,
       tablesWithRevenueCount,
       dayBookingTierWithActivity,
+      revenueByTier: Array.isArray(analytics?.revenueByTier) ? analytics.revenueByTier : [],
     };
   };
 
@@ -480,11 +512,19 @@ export default function VenueAnalytics() {
 
   const hasAnalyticsData =
     Boolean(analytics) &&
+    !analyticsIsPlaceholder &&
     (Number(analytics?.grossRevenueZar || 0) > 0 ||
       Number(analytics?.ticketSalesCount || 0) > 0 ||
-      salesTrend.some((d) => d.sales > 0));
+      salesTrend.some((d) => d.sales > 0) ||
+      (revenueScope === 'day_bookings' &&
+        (Number(analytics?.dayBookingHostPaymentZar || 0) > 0 ||
+          Number(analytics?.dayBookingGuestPaymentZar || 0) > 0 ||
+          Number(analytics?.dayBookingMenuPaymentZar || 0) > 0 ||
+          Number(analytics?.dayBookingVenueJoinFeeVolumeZar || 0) > 0 ||
+          Number(analytics?.menuPaymentZar || 0) > 0)));
 
-  const chartsLoading = analyticsLoading || analyticsFetching;
+  // Initial load / scope change: show skeletons. Background refetch: keep values visible.
+  const chartsLoading = analyticsLoading || (analyticsFetching && analyticsIsPlaceholder);
   const eventPickerEnabled = revenueScope === 'per_event';
   const selectedEvent =
     selectedEventCache?.id === selectedEventId
@@ -1013,8 +1053,8 @@ export default function VenueAnalytics() {
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       {revenueScope === 'day_bookings'
-                        ? metrics.tablesWithRevenueCount > 0
-                          ? `${metrics.tablesWithRevenueCount} table${metrics.tablesWithRevenueCount === 1 ? '' : 's'} across ${metrics.dayBookingTierWithActivity || 1} tier${(metrics.dayBookingTierWithActivity || 1) === 1 ? '' : 's'}`
+                        ? metrics.dayBookingTierWithActivity > 0
+                          ? `Mean of ${metrics.dayBookingTierWithActivity} tier average${metrics.dayBookingTierWithActivity === 1 ? '' : 's'} · ${metrics.tablesWithRevenueCount} table${metrics.tablesWithRevenueCount === 1 ? '' : 's'}`
                           : 'No booked tables with revenue in this period'
                         : revenueScope === 'per_event'
                           ? 'Selected event view'

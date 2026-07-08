@@ -46,6 +46,7 @@ const TABLE_PAYMENT_TYPES = new Set([
 /** Day booking payment (venue table with no linked event). */
 export function isDayBookingPayment(meta) {
   if (!isObjectRecord(meta)) return false;
+  // Explicit day-booking flag wins even if a stray event_id is present.
   if (meta.is_day_booking === true || meta.isDayBooking === true) return true;
   const eventId = meta.event_id ?? meta.eventId;
   if (eventId) return false;
@@ -59,8 +60,7 @@ export function isDayBookingPayment(meta) {
 /** Day-booking host checkout (venue slot, no event). */
 export function isDayBookingHostPayment(meta) {
   if (!isObjectRecord(meta)) return false;
-  const eventId = meta.event_id ?? meta.eventId;
-  if (eventId) return false;
+  if (!isDayBookingPayment(meta)) return false;
   const bookingMode = meta.booking_mode || meta.bookingMode;
   const memberRole = meta.member_role || meta.memberRole;
   const isHost =
@@ -69,7 +69,13 @@ export function isDayBookingHostPayment(meta) {
     memberRole === 'HOST';
   if (!isHost) return false;
   const t = String(meta.type || '');
-  return t === 'TABLE_CHECKOUT' || t === 'VENUE_TABLE_JOIN' || t === 'table';
+  return (
+    t === 'TABLE_CHECKOUT' ||
+    t === 'VENUE_TABLE_JOIN' ||
+    t === 'table' ||
+    t === '' ||
+    isHostedTableVenuePayment(meta)
+  );
 }
 
 /** Hosted-table guest join at a day-booking or event table. */
@@ -220,9 +226,9 @@ export function classifyVenuePaymentRevenueScoped(
   ledgerRef = null,
 ) {
   const meta = isObjectRecord(metadata) ? metadata : {};
-  // Day-booking scope: allow sparse non-event rows through (ledger often lacks type flags).
+  // Day-booking scope: is_day_booking / day-booking heuristics win over stray event_id.
   if (revenueScope === 'day_bookings') {
-    if (meta.event_id ?? meta.eventId) return false;
+    if ((meta.event_id ?? meta.eventId) && !isDayBookingPayment(meta)) return false;
   } else if (!paymentMatchesRevenueScope(meta, revenueScope)) {
     return false;
   }
@@ -258,7 +264,7 @@ export function classifyVenuePaymentRevenueScoped(
     }
     // Sparse day-booking ledger rows (common when payment metadata is incomplete).
     // Venue recipient without :join/:menu is usually the host/table fee; guest joins use :join.
-    if (!isTicketPaymentMeta(meta, pType) && !(meta.event_id ?? meta.eventId)) {
+    if (!isTicketPaymentMeta(meta, pType)) {
       const bookingMode = meta.booking_mode || meta.bookingMode;
       const memberRole = meta.member_role || meta.memberRole;
       if (bookingMode === 'join' || memberRole === 'GUEST') {
