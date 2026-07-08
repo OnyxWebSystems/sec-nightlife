@@ -319,6 +319,7 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       follower_count: venue._count.follows,
       accepts_day_bookings: venue.acceptsDayBookings,
       show_seating_plan_for_day_bookings: venue.showSeatingPlanForDayBookings,
+      max_booking_duration_hours: venue.maxBookingDurationHours,
       host_table_fee_zar: venue.hostTableFeeZar,
       custom_table_booking_fee_zar: venue.customTableBookingFeeZar,
     });
@@ -397,6 +398,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       .object({
         accepts_day_bookings: z.boolean().optional(),
         show_seating_plan_for_day_bookings: z.boolean().optional(),
+        max_booking_duration_hours: z.number().int().min(1).nullable().optional(),
         host_table_fee_zar: z.number().min(0).optional(),
         custom_table_booking_fee_zar: z.number().min(0).optional(),
         external_booking_links: z.any().optional(),
@@ -424,6 +426,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.logo_url !== undefined) updates.logoUrl = data.logo_url;
     if (data.cover_image_url !== undefined) updates.coverImageUrl = data.cover_image_url;
     if (extraData.accepts_day_bookings != null) updates.acceptsDayBookings = extraData.accepts_day_bookings;
+    if (extra.success && 'max_booking_duration_hours' in extra.data) {
+      updates.maxBookingDurationHours = extra.data.max_booking_duration_hours;
+    }
     if (extraData.show_seating_plan_for_day_bookings != null) {
       if (extraData.show_seating_plan_for_day_bookings) {
         const planCount = await prisma.venueSeatingPlan.count({ where: { venueId: venue.id } });
@@ -465,6 +470,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       compliance_status: updated.complianceStatus,
       host_table_fee_zar: updated.hostTableFeeZar,
       custom_table_booking_fee_zar: updated.customTableBookingFeeZar,
+      max_booking_duration_hours: updated.maxBookingDurationHours,
     });
   } catch (err) {
     next(err);
@@ -481,9 +487,6 @@ router.post('/:id/custom-table-request', authenticateToken, async (req, res, nex
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
     if (!venue.acceptsDayBookings) {
       return res.status(400).json({ error: 'This venue has not enabled day table bookings' });
-    }
-    if (venue.ownerUserId === req.userId) {
-      return res.status(403).json({ error: 'Cannot request a table at your own venue' });
     }
     const listing = await ensureDayCustomVenueTable(venue.id);
     if (!listing?.id) {

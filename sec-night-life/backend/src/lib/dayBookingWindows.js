@@ -347,7 +347,7 @@ export function isTimeWithinWindow(time, windowStart, windowEnd) {
   return t.minutes >= s.minutes || t.minutes <= e.minutes;
 }
 
-export function validateUserWindow(userStart, userEnd, venueWindow, now = new Date()) {
+export function validateUserWindow(userStart, userEnd, venueWindow, now = new Date(), options = {}) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) {
     return { ok: false, error: 'No service window configured for this day' };
   }
@@ -363,6 +363,14 @@ export function validateUserWindow(userStart, userEnd, venueWindow, now = new Da
   if (duration == null || duration < MIN_WINDOW_MINUTES) {
     return { ok: false, error: `Minimum booking duration is ${MIN_WINDOW_MINUTES} minutes` };
   }
+
+  const maxDurationMinutes = options.maxDurationMinutes ?? null;
+  if (maxDurationMinutes != null && duration > maxDurationMinutes) {
+    const hours = maxDurationMinutes / 60;
+    const label = Number.isInteger(hours) ? `${hours} hour${hours === 1 ? '' : 's'}` : `${maxDurationMinutes} minutes`;
+    return { ok: false, error: `Maximum booking duration is ${label}` };
+  }
+
   if (!isTimeWithinWindow(userStart, venueWindow.startTime, venueWindow.endTime)) {
     return { ok: false, error: 'Start time must be within the venue service window' };
   }
@@ -432,7 +440,15 @@ export function validateDayBookingWindow(table, payload, existing, bookingDate =
     return { ok: false, error: 'Select a start and end time for your booking' };
   }
   const venueWindow = venueWindowForDate(table, date);
-  const check = validateUserWindow(windowStart, windowEnd, venueWindow, new Date());
+  const maxHours =
+    table?.venue?.maxBookingDurationHours ??
+    table?.venue?.max_booking_duration_hours ??
+    null;
+  const maxDurationMinutes =
+    maxHours != null && Number(maxHours) > 0 ? Number(maxHours) * 60 : null;
+  const check = validateUserWindow(windowStart, windowEnd, venueWindow, new Date(), {
+    maxDurationMinutes,
+  });
   if (!check.ok) return check;
   return { ok: true, bookingDate: date, windowStart, windowEnd, windowEndsAt: windowEndInstant(date, windowStart, windowEnd) };
 }
@@ -617,6 +633,34 @@ export function resolveHostMemberForHostedTable(hostedTable, hostMembers = []) {
     if (byWindow) return byWindow;
   }
   return null;
+}
+
+/** True when this specific hosted-table session (not just venueTableId) was refunded. */
+export function isHostedTableSessionRefunded(hostedTable, {
+  refundedMembers = [],
+  refundedRequests = [],
+  hostMembers = [],
+} = {}) {
+  if (!hostedTable?.venueTableId) return false;
+
+  const members = refundedMembers.filter((m) => m.venueTableId === hostedTable.venueTableId);
+  const requests = refundedRequests.filter((r) => r.venueTableId === hostedTable.venueTableId);
+
+  const ref = hostedTable.hostFeePaystackRef ? String(hostedTable.hostFeePaystackRef) : null;
+  if (ref) {
+    if (members.some((m) => m.paystackReference === ref)) return true;
+    if (requests.some((r) => r.paymentReference === ref)) return true;
+  }
+
+  if (resolveHostMemberForHostedTable(hostedTable, members)) return true;
+
+  const matchedHost = resolveHostMemberForHostedTable(hostedTable, hostMembers);
+  if (matchedHost?.id) {
+    if (members.some((m) => m.id === matchedHost.id)) return true;
+    if (requests.some((r) => r.venueTableMemberId === matchedHost.id)) return true;
+  }
+
+  return false;
 }
 
 export { serviceScheduleFromTable, MIN_WINDOW_MINUTES, END_BUFFER_MINUTES };

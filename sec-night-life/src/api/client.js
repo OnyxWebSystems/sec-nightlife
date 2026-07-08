@@ -3,6 +3,8 @@
  * All requests go to VITE_API_URL (default http://localhost:4000).
  */
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+/** Default timeout for API requests (ms). Prevents hung requests on slow mobile networks. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 
 const REFRESH_LOCK_KEY = 'sec_refresh_lock';
 const REFRESH_CHANNEL = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('sec-auth-refresh') : null;
@@ -215,10 +217,12 @@ export async function api(method, path, body = null, opts = {}) {
   if (opts.skipAuth !== true && p !== '/api/auth/refresh' && getRefreshToken() && accessTokenExpiresWithinMs(10 * 60 * 1000)) {
     await refreshAccessToken();
   }
-  const timeoutMs = Number(opts.timeoutMs) || 0;
-  const controller = timeoutMs > 0 ? new AbortController() : null;
-  const timeoutId =
-    controller && timeoutMs > 0 ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+  const timeoutMs =
+    opts.timeoutMs != null && Number(opts.timeoutMs) > 0
+      ? Number(opts.timeoutMs)
+      : DEFAULT_REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
   const { timeoutMs: _t, skipAuth: _s, _retriedAfterRefresh: _r, ...fetchOpts } = opts;
   const options = {
@@ -227,9 +231,7 @@ export async function api(method, path, body = null, opts = {}) {
     credentials: 'include',
     ...fetchOpts,
   };
-  if (controller) {
-    options.signal = controller.signal;
-  }
+  options.signal = controller.signal;
   if (body && method !== 'GET') {
     options.body = typeof body === 'string' ? body : JSON.stringify(body);
   }

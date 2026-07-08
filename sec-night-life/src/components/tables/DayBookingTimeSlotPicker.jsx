@@ -39,10 +39,20 @@ function useNowTick(intervalMs = 60000) {
   return now;
 }
 
-function DurationPills({ startTime, endTime, activeGap, venueWindow, latestBookableEnd, onSelect, disabled }) {
+function DurationPills({
+  startTime,
+  endTime,
+  activeGap,
+  venueWindow,
+  latestBookableEnd,
+  onSelect,
+  disabled,
+  durationPresets = DURATION_PRESETS,
+  maxDurationMinutes = null,
+}) {
   const activeKey = useMemo(() => {
     if (!startTime || !endTime || !venueWindow) return null;
-    for (const preset of DURATION_PRESETS) {
+    for (const preset of durationPresets) {
       if (preset.minutes == null) {
         const gapEnd = activeGap?.endTime;
         if (gapEnd === endTime) return preset.key;
@@ -54,11 +64,11 @@ function DurationPills({ startTime, endTime, activeGap, venueWindow, latestBooka
       if (computed === endTime) return preset.key;
     }
     return null;
-  }, [startTime, endTime, venueWindow, activeGap, latestBookableEnd]);
+  }, [startTime, endTime, venueWindow, activeGap, latestBookableEnd, durationPresets]);
 
   return (
     <div className="flex flex-wrap gap-2">
-      {DURATION_PRESETS.map((preset) => {
+      {durationPresets.map((preset) => {
         const isActive = activeKey === preset.key;
         return (
           <button
@@ -69,16 +79,10 @@ function DurationPills({ startTime, endTime, activeGap, venueWindow, latestBooka
               if (!startTime) return;
               let end;
               if (preset.minutes == null) {
-                end = latestBookableEnd || activeGap?.endTime;
-                if (activeGap && venueWindow) {
-                  const fromDuration = endTimeFromDuration(
-                    startTime,
-                    9999,
-                    venueWindow,
-                    activeGap,
-                    latestBookableEnd,
-                  );
-                  end = fromDuration || end;
+                const capMinutes = maxDurationMinutes ?? 9999;
+                end = endTimeFromDuration(startTime, capMinutes, venueWindow, activeGap, latestBookableEnd);
+                if (!end) {
+                  end = latestBookableEnd || activeGap?.endTime;
                 }
               } else {
                 end = endTimeFromDuration(startTime, preset.minutes, venueWindow, activeGap, latestBookableEnd);
@@ -117,9 +121,18 @@ export default function DayBookingTimeSlotPicker({
   compact = false,
   closedToday = false,
   openDaysSummary = null,
+  maxBookingDurationHours = null,
 }) {
   const isMobile = useIsMobile();
   const now = useNowTick();
+  const maxDurationMinutes =
+    maxBookingDurationHours != null && Number(maxBookingDurationHours) > 0
+      ? Number(maxBookingDurationHours) * 60
+      : null;
+  const durationPresets = useMemo(() => {
+    if (!maxDurationMinutes) return DURATION_PRESETS;
+    return DURATION_PRESETS.filter((preset) => preset.minutes == null || preset.minutes <= maxDurationMinutes);
+  }, [maxDurationMinutes]);
   const latestBookableEnd = latestBookableEndProp || latestBookableEndTime(venueWindow);
   const earliestStart = earliestBookableStartTime(venueWindow, now);
 
@@ -158,7 +171,10 @@ export default function DayBookingTimeSlotPicker({
 
   useEffect(() => {
     if (!autoSelectDefault || !venueWindow || readOnly || value?.startTime) return;
-    const initial = defaultWindowFromGaps(gaps, venueWindow, { now });
+    const initial = defaultWindowFromGaps(gaps, venueWindow, {
+      now,
+      defaultDurationMinutes: maxDurationMinutes ? Math.min(120, maxDurationMinutes) : 120,
+    });
     if (initial) {
       onChange?.(initial);
       const gap = findGapContainingWindow(gaps, initial.startTime, initial.endTime, venueWindow);
@@ -169,16 +185,19 @@ export default function DayBookingTimeSlotPicker({
   // Bump selection if it becomes invalid (page left open)
   useEffect(() => {
     if (!venueWindow || readOnly || !value?.startTime) return;
-    const err = validateBookingWindow(value, venueWindow, occupancy, { mode, now });
+    const err = validateBookingWindow(value, venueWindow, occupancy, { mode, now, maxDurationMinutes });
     if (err === 'This time has already passed') {
-      const initial = defaultWindowFromGaps(gaps, venueWindow, { now });
+      const initial = defaultWindowFromGaps(gaps, venueWindow, {
+      now,
+      defaultDurationMinutes: maxDurationMinutes ? Math.min(120, maxDurationMinutes) : 120,
+    });
       if (initial) onChange?.(initial);
     }
   }, [now.getTime()]);
 
   const validation = useMemo(
-    () => validateBookingWindow(value, venueWindow, occupancy, { mode, now }),
-    [value, venueWindow, occupancy, mode, now.getTime()],
+    () => validateBookingWindow(value, venueWindow, occupancy, { mode, now, maxDurationMinutes }),
+    [value, venueWindow, occupancy, mode, now.getTime(), maxDurationMinutes],
   );
 
   const { segments, ticks, nowPct, nowTime, total } = useMemo(
@@ -221,9 +240,10 @@ export default function DayBookingTimeSlotPicker({
       let em = tm;
       let sm = startM;
       if (em <= sm) em += 1440;
+      if (maxDurationMinutes != null && em - sm > maxDurationMinutes) return false;
       return em - sm >= MIN_WINDOW_MINUTES;
     });
-  }, [activeGap, value?.startTime, venueWindow, now.getTime()]);
+  }, [activeGap, value?.startTime, venueWindow, now.getTime(), maxDurationMinutes]);
 
   const slotsRemaining = hasSlotsRemainingToday(venueWindow, occupancy, now);
   const showEarliestHint = earliestStart && venueWindow?.startTime && earliestStart !== venueWindow.startTime;
@@ -545,8 +565,16 @@ export default function DayBookingTimeSlotPicker({
               activeGap={activeGap}
               venueWindow={venueWindow}
               latestBookableEnd={latestBookableEnd}
+              durationPresets={durationPresets}
+              maxDurationMinutes={maxDurationMinutes}
+              disabled={readOnly}
               onSelect={(endTime) => onChange?.({ startTime: value?.startTime || activeGap.startTime, endTime })}
             />
+            {maxBookingDurationHours ? (
+              <p className="text-[11px] text-[var(--sec-text-muted)]">
+                Maximum stay: {maxBookingDurationHours} hour{maxBookingDurationHours === 1 ? '' : 's'}
+              </p>
+            ) : null}
           </div>
 
           <DayBookingTimeChipRail

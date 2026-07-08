@@ -260,7 +260,7 @@ export default function Layout({ children, currentPageName }) {
 
   useEffect(() => {
     if (!user?.id) return undefined;
-    const pages = ['Notifications', 'Friends', 'Profile', 'Messages', 'HostDashboard', 'Events', 'Home'];
+    const pages = ['Notifications', 'Friends', 'Profile', 'Messages', 'HostDashboard', 'Events', 'Home', 'Tables'];
     const run = () => {
       pages.forEach((p) => prefetchPage(p));
     };

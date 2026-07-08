@@ -562,6 +562,7 @@ model Venue {
   transparencyScore           Float                 @default(0) @map("transparency_score")
   acceptsDayBookings          Boolean               @default(false) @map("accepts_day_bookings")
   showSeatingPlanForDayBookings Boolean             @default(false) @map("show_seating_plan_for_day_bookings")
+  maxBookingDurationHours     Int?                  @map("max_booking_duration_hours")
   hostTableFeeZar             Float                 @default(0) @map("host_table_fee_zar")
   customTableBookingFeeZar  Float                 @default(0) @map("custom_table_booking_fee_zar")
   bookingPolicies             Json?                 @map("booking_policies")

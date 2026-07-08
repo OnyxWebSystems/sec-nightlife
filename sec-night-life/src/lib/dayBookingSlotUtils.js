@@ -298,6 +298,13 @@ export function validateBookingWindow(
     return `Minimum booking is ${MIN_WINDOW_MINUTES} minutes`;
   }
 
+  const maxDurationMinutes = options.maxDurationMinutes ?? null;
+  if (maxDurationMinutes != null && duration > maxDurationMinutes) {
+    const hours = maxDurationMinutes / 60;
+    const label = Number.isInteger(hours) ? `${hours} hour${hours === 1 ? '' : 's'}` : `${maxDurationMinutes} minutes`;
+    return `Maximum booking duration is ${label}`;
+  }
+
   const latestEnd = latestBookableEndTime(venueWindow);
   const userEndM = toServiceMinutes(endTime, venueWindow);
   const latestEndM = toServiceMinutes(latestEnd, venueWindow);

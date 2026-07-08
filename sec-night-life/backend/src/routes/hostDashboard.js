@@ -24,6 +24,7 @@ import {
 import {
   normalizeBookingDateSast,
   resolveHostMemberForHostedTable,
+  isHostedTableSessionRefunded,
   windowEndInstant,
 } from '../lib/dayBookingWindows.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
@@ -1517,6 +1518,7 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
               memberRole: 'HOST',
             },
             select: {
+              id: true,
               venueTableId: true,
               paystackReference: true,
               bookingDate: true,
@@ -1525,9 +1527,10 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             },
           })
         : [];
-    const refundedHostVenueTableIds = new Set();
+    let refundedMembers = [];
+    let refundedRequests = [];
     if (allVenueTableIds.length) {
-      const [refundedMembers, refundedRequests] = await Promise.all([
+      [refundedMembers, refundedRequests] = await Promise.all([
         prisma.venueTableMember.findMany({
           where: {
             venueTableId: { in: allVenueTableIds },
@@ -1535,7 +1538,14 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             memberRole: 'HOST',
             status: 'REFUNDED',
           },
-          select: { venueTableId: true },
+          select: {
+            id: true,
+            venueTableId: true,
+            paystackReference: true,
+            bookingDate: true,
+            windowStartTime: true,
+            windowEndTime: true,
+          },
         }),
         prisma.refundRequest.findMany({
           where: {
@@ -1544,15 +1554,13 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
             status: { in: ['APPROVED', 'PAID_BY_VENUE'] },
             venueTableId: { in: allVenueTableIds },
           },
-          select: { venueTableId: true },
+          select: {
+            venueTableId: true,
+            paymentReference: true,
+            venueTableMemberId: true,
+          },
         }),
       ]);
-      for (const row of refundedMembers) {
-        if (row.venueTableId) refundedHostVenueTableIds.add(row.venueTableId);
-      }
-      for (const row of refundedRequests) {
-        if (row.venueTableId) refundedHostVenueTableIds.add(row.venueTableId);
-      }
     }
     const out = tables.map((t) => {
       let row = t;
@@ -1567,8 +1575,13 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
           if (effectiveEnd) row = { ...t, windowEndsAt: effectiveEnd };
         }
       }
-      const hostRefundStatus =
-        t.venueTableId && refundedHostVenueTableIds.has(t.venueTableId) ? 'REFUNDED' : null;
+      const hostRefundStatus = isHostedTableSessionRefunded(t, {
+        refundedMembers,
+        refundedRequests,
+        hostMembers,
+      })
+        ? 'REFUNDED'
+        : null;
       const rowWithRefund = hostRefundStatus ? { ...row, hostRefundStatus } : row;
       const isPast =
         hostRefundStatus === 'REFUNDED' ||

@@ -692,7 +692,7 @@ router.get('/:tableId', optionalAuth, async (req, res, next) => {
     const table = await prisma.venueTable.findUnique({
       where: { id: req.params.tableId },
       include: {
-        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true, logoUrl: true } },
+        venue: { select: { id: true, name: true, city: true, venueType: true, coverImageUrl: true, logoUrl: true, maxBookingDurationHours: true } },
         event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
         menuItems: true,
         members: {
@@ -767,7 +767,6 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
     if (!table.isActive) return res.status(400).json({ error: 'Table not available' });
-    if (table.venue.ownerUserId === req.userId) return res.status(403).json({ error: 'Cannot request your own venue table' });
     if (payload.isCustom && !table.allowsCustomRequests && !table.isCustomListing) {
       return res.status(400).json({ error: 'Custom requests are not enabled for this listing' });
     }
@@ -994,12 +993,6 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       if (table.currentOccupancy >= table.guestCapacity) return res.status(400).json({ error: 'Table is full' });
     } else if (!table.isActive) {
       return res.status(400).json({ error: 'Table not available' });
-    }
-    if (table.venue.ownerUserId === req.userId) {
-      return res.status(403).json({
-        error: 'Venue owners cannot join or pay for tables at their own venue. Use a guest account to test checkout.',
-        code: 'VENUE_OWNER_SELF_JOIN',
-      });
     }
     let existing = await prisma.venueTableMember.findUnique({
       where: { venueTableId_userId: { venueTableId: table.id, userId: req.userId } },

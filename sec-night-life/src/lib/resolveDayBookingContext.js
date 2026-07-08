@@ -172,6 +172,7 @@ export function resolveDayBookingContext(venueTable, { tierSlot = null, tierData
       dayOccupancy: [],
       availableGaps: [],
       openDaysSummary: null,
+      maxBookingDurationHours: null,
     };
   }
 
@@ -202,6 +203,15 @@ export function resolveDayBookingContext(venueTable, { tierSlot = null, tierData
     venueTable?.isOvernight ??
     (venueWindow ? isOvernightWindow(venueWindow.startTime, venueWindow.endTime) : false);
 
+  const rawMaxHours =
+    venueTable?.venue?.maxBookingDurationHours ??
+    venueTable?.venue?.max_booking_duration_hours ??
+    tierData?.venue?.max_booking_duration_hours ??
+    tierData?.venue?.maxBookingDurationHours ??
+    null;
+  const maxBookingDurationHours =
+    rawMaxHours != null && Number(rawMaxHours) > 0 ? Number(rawMaxHours) : null;
+
   return {
     isDayBooking: true,
     isOpenToday: Boolean(venueWindow),
@@ -212,6 +222,7 @@ export function resolveDayBookingContext(venueTable, { tierSlot = null, tierData
     dayOccupancy,
     availableGaps,
     openDaysSummary: formatOpenDaysSummary(venueTable),
+    maxBookingDurationHours,
   };
 }
 

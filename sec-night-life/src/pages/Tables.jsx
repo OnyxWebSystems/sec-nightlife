@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { apiGet } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Search, Plus, ChevronDown, ChevronUp, Sparkles, Crown } from 'lucide-react';
+import { Users, Search, Plus, ChevronDown, ChevronUp, Sparkles, Crown, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TableOfferingCard from '@/components/home/TableOfferingCard';
 
@@ -39,7 +39,7 @@ export default function Tables() {
   const [filter, setFilter] = useState('all');
   const [sessionId] = useState(() => getOrCreateSessionId());
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['home-table-offerings', 'browse', sessionId],
     queryFn: () =>
       apiGet(`/api/home/table-offerings?limit=60&sessionId=${encodeURIComponent(sessionId)}`, {
@@ -138,7 +138,46 @@ export default function Tables() {
 
       <main style={{ maxWidth: 900, margin: '0 auto', padding: '0 20px' }}>
         {isLoading ? (
-          <p style={{ textAlign: 'center', color: 'var(--sec-text-muted)', padding: 40 }}>Loading tables…</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="sec-card animate-pulse"
+                style={{
+                  height: 88,
+                  borderRadius: 16,
+                  background: 'var(--sec-bg-card)',
+                  border: '1px solid var(--sec-border)',
+                }}
+              />
+            ))}
+          </div>
+        ) : isError ? (
+          <div
+            className="sec-card"
+            style={{
+              textAlign: 'center',
+              padding: 48,
+              border: '1px solid var(--sec-border)',
+              background: 'var(--sec-bg-card)',
+            }}
+          >
+            <p style={{ color: 'var(--sec-text-primary)', fontSize: 15, fontWeight: 600 }}>
+              Couldn&apos;t load tables
+            </p>
+            <p style={{ color: 'var(--sec-text-muted)', fontSize: 13, marginTop: 8 }}>
+              {error?.message || 'Check your connection and try again.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="sec-btn sec-btn-primary mt-5 inline-flex items-center gap-2"
+            >
+              <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />
+              {isFetching ? 'Retrying…' : 'Try again'}
+            </button>
+          </div>
         ) : offerings.length === 0 ? (
           <div
             className="sec-card"

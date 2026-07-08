@@ -398,14 +398,14 @@ export default function VenueProfile() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {(venue.accepts_day_bookings || venue.acceptsDayBookings) && (
               <Link
                 to={createPageUrl(`VenueBook?venueId=${resolvedVenueId}`)}
                 className="sec-btn sec-btn-primary"
                 style={{ display: 'inline-flex', alignItems: 'center', padding: '8px 16px', textDecoration: 'none', fontSize: 14 }}
               >
-                Book on Sec
+                {isOwner ? 'Host a table here' : 'Book on Sec'}
               </Link>
             )}
             <Button

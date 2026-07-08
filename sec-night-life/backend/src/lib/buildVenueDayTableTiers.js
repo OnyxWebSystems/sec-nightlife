@@ -28,7 +28,7 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
 
   const venue = await prisma.venue.findFirst({
     where: { id: venueId, deletedAt: null },
-    select: { id: true, name: true, acceptsDayBookings: true },
+    select: { id: true, name: true, acceptsDayBookings: true, maxBookingDurationHours: true },
   });
   if (!venue) return null;
 
@@ -172,7 +172,11 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
   });
 
   return {
-    venue: { id: venue.id, name: venue.name },
+    venue: {
+      id: venue.id,
+      name: venue.name,
+      max_booking_duration_hours: venue.maxBookingDurationHours,
+    },
     venueWindow,
     tiers,
     customListingId: customRow?.id ?? null,

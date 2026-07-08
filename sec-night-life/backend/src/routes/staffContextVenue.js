@@ -67,6 +67,7 @@ function mapVenueRow(venue) {
     capacity: venue.capacity,
     age_limit: venue.ageLimit,
     accepts_day_bookings: venue.acceptsDayBookings,
+    max_booking_duration_hours: venue.maxBookingDurationHours,
     host_table_fee_zar: venue.hostTableFeeZar,
     custom_table_booking_fee_zar: venue.customTableBookingFeeZar,
   };
@@ -99,6 +100,7 @@ router.patch('/', authenticateToken, requireStaffVenuePage, async (req, res, nex
     const extra = z
       .object({
         accepts_day_bookings: z.boolean().optional(),
+        max_booking_duration_hours: z.number().int().min(1).nullable().optional(),
         host_table_fee_zar: z.number().min(0).optional(),
         custom_table_booking_fee_zar: z.number().min(0).optional(),
         external_booking_links: z.any().optional(),
@@ -126,6 +128,9 @@ router.patch('/', authenticateToken, requireStaffVenuePage, async (req, res, nex
     if (data.logo_url !== undefined) updates.logoUrl = data.logo_url;
     if (data.cover_image_url !== undefined) updates.coverImageUrl = data.cover_image_url;
     if (extraData.accepts_day_bookings != null) updates.acceptsDayBookings = extraData.accepts_day_bookings;
+    if (extra.success && 'max_booking_duration_hours' in extra.data) {
+      updates.maxBookingDurationHours = extra.data.max_booking_duration_hours;
+    }
     if (extra.success && 'host_table_fee_zar' in extra.data) {
       updates.hostTableFeeZar = extra.data.host_table_fee_zar;
     }

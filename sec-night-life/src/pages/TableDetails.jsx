@@ -317,11 +317,17 @@ export default function TableDetails() {
   ]);
 
   const bookingWindow = isDayBookingTable && dayOpenToday ? dayBookingWindow : null;
+  const maxBookingDurationHours = dayBookingCtx?.maxBookingDurationHours ?? null;
+  const maxDurationMinutes =
+    maxBookingDurationHours != null && Number(maxBookingDurationHours) > 0
+      ? Number(maxBookingDurationHours) * 60
+      : null;
   const dayWindowReady =
     !isDayBookingTable ||
     !dayOpenToday ||
     isWindowValid(venueDayWindow, bookingWindow, dayOccupancy, {
       mode: isHostCheckout ? 'host' : 'join',
+      maxDurationMinutes,
     });
 
   useEffect(() => {
@@ -1098,6 +1104,7 @@ export default function TableDetails() {
                   serviceDay={dayBookingCtx?.serviceDay}
                   latestBookableEnd={dayBookingCtx?.latestBookableEnd}
                   isOvernight={dayBookingCtx?.isOvernight}
+                  maxBookingDurationHours={maxBookingDurationHours}
                   mode={isHostCheckout ? 'host' : 'join'}
                   autoSelectDefault={!isHostCheckout}
                   closedToday={!dayOpenToday}

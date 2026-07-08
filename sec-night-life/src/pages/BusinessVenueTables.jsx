@@ -44,7 +44,11 @@ export default function BusinessVenueTables() {
   });
   const [declineTemplatesByMember, setDeclineTemplatesByMember] = useState({});
   const [declineParamsByMember, setDeclineParamsByMember] = useState({});
-  const [venueFees, setVenueFees] = useState({ host_table_fee_zar: '', custom_table_booking_fee_zar: '' });
+  const [venueFees, setVenueFees] = useState({
+    host_table_fee_zar: '',
+    custom_table_booking_fee_zar: '',
+    max_booking_duration_hours: '',
+  });
   const [actionTableId, setActionTableId] = useState(null);
   const [editingTableId, setEditingTableId] = useState(null);
   const [editForm, setEditForm] = useState(null);
@@ -322,11 +326,16 @@ export default function BusinessVenueTables() {
   const seatingPlanCount = seatingPlansData?.items?.length ?? 0;
 
   const saveVenueFees = useMutation({
-    mutationFn: () =>
-      apiPatch(`/api/venues/${venue.id}`, {
+    mutationFn: () => {
+      const rawMax = String(venueFees.max_booking_duration_hours ?? '').trim();
+      const max_booking_duration_hours =
+        rawMax === '' ? null : Math.max(1, parseInt(rawMax, 10) || 1);
+      return apiPatch(`/api/venues/${venue.id}`, {
         host_table_fee_zar: parseFloat(venueFees.host_table_fee_zar) || 0,
         custom_table_booking_fee_zar: parseFloat(venueFees.custom_table_booking_fee_zar) || 0,
-      }),
+        max_booking_duration_hours,
+      });
+    },
     onSuccess: () => {
       toast.success('Fees saved');
       qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
@@ -339,9 +348,18 @@ export default function BusinessVenueTables() {
       setVenueFees({
         host_table_fee_zar: String(venueDetail.host_table_fee_zar ?? ''),
         custom_table_booking_fee_zar: String(venueDetail.custom_table_booking_fee_zar ?? ''),
+        max_booking_duration_hours:
+          venueDetail.max_booking_duration_hours != null
+            ? String(venueDetail.max_booking_duration_hours)
+            : '',
       });
     }
-  }, [venueDetail?.id, venueDetail?.host_table_fee_zar, venueDetail?.custom_table_booking_fee_zar]);
+  }, [
+    venueDetail?.id,
+    venueDetail?.host_table_fee_zar,
+    venueDetail?.custom_table_booking_fee_zar,
+    venueDetail?.max_booking_duration_hours,
+  ]);
 
   async function setCustomRequestsEnabled(enabled) {
     if (!venue?.id) return;
@@ -1129,6 +1147,25 @@ export default function BusinessVenueTables() {
             />
           </div>
           <div className="mt-6 space-y-3 border-t border-[var(--sec-border)] pt-5">
+            <p className="text-sm font-medium">Booking duration (optional)</p>
+            <div>
+              <Label className="text-xs">Maximum booking duration (hours)</Label>
+              <Input
+                className="mt-1 h-9"
+                type="number"
+                min={1}
+                placeholder="No limit"
+                value={venueFees.max_booking_duration_hours}
+                onChange={(e) =>
+                  setVenueFees((f) => ({ ...f, max_booking_duration_hours: e.target.value }))
+                }
+              />
+              <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+                Leave blank for no limit. When set, guests hosting or joining day tables cannot book longer than this.
+              </p>
+            </div>
+          </div>
+          <div className="mt-6 space-y-3 border-t border-[var(--sec-border)] pt-5">
             <p className="text-sm font-medium">Default fees (custom table hosts)</p>
             <div>
               <Label className="text-xs">Host table fee (ZAR)</Label>
@@ -1156,9 +1193,25 @@ export default function BusinessVenueTables() {
               disabled={saveVenueFees.isPending}
               onClick={() => saveVenueFees.mutate()}
             >
-              Save fees
+              Save booking settings
             </Button>
           </div>
+          {dayBookingsOn && venue?.id ? (
+            <div className="mt-6 border-t border-[var(--sec-border)] pt-5">
+              <p className="text-sm font-medium">Host at your venue</p>
+              <p className="text-xs text-[var(--sec-text-muted)] mt-1 mb-3">
+                You can host a table at your own venue like any guest — normal host fees apply.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => navigate(createPageUrl(`VenueBook?venueId=${venue.id}`))}
+              >
+                Host a table here
+              </Button>
+            </div>
+          ) : null}
         </TabsContent>
       </Tabs>
       </div>

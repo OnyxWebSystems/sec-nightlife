@@ -785,16 +785,30 @@ export default function Home() {
               style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8 }}
               className="scrollbar-hide -mx-5 px-5 lg:mx-0 lg:px-0"
             >
-              {tableOfferings.map((offering, i) => (
-                <motion.div
-                  key={offering.id}
-                  initial={{ opacity: 0, x: 12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                >
-                  <TableOfferingCard offering={offering} wide={!!offering.boosted} />
-                </motion.div>
-              ))}
+              {tablesLoading
+                ? [1, 2, 3].map((i) => (
+                    <div
+                      key={`table-skel-${i}`}
+                      className="animate-pulse flex-shrink-0"
+                      style={{
+                        width: 288,
+                        height: 168,
+                        borderRadius: 16,
+                        background: 'var(--sec-bg-card)',
+                        border: '1px solid var(--sec-border)',
+                      }}
+                    />
+                  ))
+                : tableOfferings.map((offering, i) => (
+                    <motion.div
+                      key={offering.id}
+                      initial={{ opacity: 0, x: 12 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                    >
+                      <TableOfferingCard offering={offering} wide={!!offering.boosted} />
+                    </motion.div>
+                  ))}
             </motion.div>
 
             {tableOfferings.length === 0 && !tablesLoading && (
