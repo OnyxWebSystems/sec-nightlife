@@ -281,7 +281,7 @@ export function validateBookingWindow(
   value,
   venueWindow,
   occupancy = [],
-  { mode = 'host', now = new Date() } = {},
+  { mode = 'host', now = new Date(), maxDurationMinutes = null } = {},
 ) {
   if (!venueWindow?.startTime || !venueWindow?.endTime) {
     return 'No service window configured for today';
@@ -298,10 +298,10 @@ export function validateBookingWindow(
     return `Minimum booking is ${MIN_WINDOW_MINUTES} minutes`;
   }
 
-  const maxDurationMinutes = options.maxDurationMinutes ?? null;
-  if (maxDurationMinutes != null && duration > maxDurationMinutes) {
-    const hours = maxDurationMinutes / 60;
-    const label = Number.isInteger(hours) ? `${hours} hour${hours === 1 ? '' : 's'}` : `${maxDurationMinutes} minutes`;
+  const maxDurationMinutesResolved = maxDurationMinutes ?? null;
+  if (maxDurationMinutesResolved != null && duration > maxDurationMinutesResolved) {
+    const hours = maxDurationMinutesResolved / 60;
+    const label = Number.isInteger(hours) ? `${hours} hour${hours === 1 ? '' : 's'}` : `${maxDurationMinutesResolved} minutes`;
     return `Maximum booking duration is ${label}`;
   }
 
