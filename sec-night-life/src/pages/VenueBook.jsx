@@ -13,6 +13,12 @@ import { normalizeGuestSeatingPlans } from '@/lib/seatingPlanUtils';
 import { formatWindowLabel, isOvernightWindow } from '@/lib/dayBookingSlotUtils';
 import { venueWindowFromSchedule } from '@/lib/resolveDayBookingContext';
 
+const guestBookQueryOpts = {
+  staleTime: 0,
+  refetchOnMount: 'always',
+  refetchOnWindowFocus: true,
+};
+
 export default function VenueBook() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -25,12 +31,14 @@ export default function VenueBook() {
     queryKey: ['venue', venueId],
     queryFn: () => apiGet(`/api/venues/${venueId}`),
     enabled: !!venueId,
+    ...guestBookQueryOpts,
   });
 
   const { data: tierData, isLoading, isError, refetch } = useQuery({
     queryKey: ['venue-day-table-tiers', venueId],
     queryFn: () => apiGet(`/api/venues/${venueId}/day-table-tiers`),
     enabled: !!venueId,
+    ...guestBookQueryOpts,
   });
 
   const tiers = tierData?.tiers ?? [];

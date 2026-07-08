@@ -1,5 +1,5 @@
 export const MIN_WINDOW_MINUTES = 30;
-export const END_BUFFER_MINUTES = 60;
+export const END_BUFFER_MINUTES = 0;
 export const SLOT_STEP_MINUTES = 30;
 const SAST_TZ = 'Africa/Johannesburg';
 
@@ -309,7 +309,7 @@ export function validateBookingWindow(
   const userEndM = toServiceMinutes(endTime, venueWindow);
   const latestEndM = toServiceMinutes(latestEnd, venueWindow);
   if (userEndM != null && latestEndM != null && userEndM > latestEndM) {
-    return `Bookings must end by ${latestEnd} (1 hour before service ends)`;
+    return `Bookings must end by ${latestEnd}`;
   }
 
   const gaps = buildAvailableGaps(venueWindow, occupancy, { now });

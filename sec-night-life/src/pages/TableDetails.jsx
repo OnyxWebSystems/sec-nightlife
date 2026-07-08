@@ -43,6 +43,12 @@ import {
   canRestoreVenueCheckoutDraft,
 } from '@/lib/resolveDayBookingContext';
 
+const guestBookQueryOpts = {
+  staleTime: 0,
+  refetchOnMount: 'always',
+  refetchOnWindowFocus: true,
+};
+
 /* ── small shared helpers ─────────────────────────────────────── */
 
 function CircleBtn({ onClick, children, style = {} }) {
@@ -203,6 +209,7 @@ export default function TableDetails() {
     },
     enabled: !!tableId && isVenueSource,
     retry: false,
+    ...guestBookQueryOpts,
   });
 
   const { data: hostedTable, isLoading: hostedLoading } = useQuery({
@@ -273,6 +280,7 @@ export default function TableDetails() {
     queryKey: ['venue-day-table-tiers', venueTable?.venueId],
     queryFn: () => apiGet(`/api/venues/${venueTable.venueId}/day-table-tiers`),
     enabled: needsTierOccupancy && !!venueTable?.venueId,
+    ...guestBookQueryOpts,
   });
 
   const dayBookingCtx = useMemo(

@@ -8,7 +8,7 @@ import {
 const SAST_OFFSET = '+02:00';
 const SAST_TZ = 'Africa/Johannesburg';
 const MIN_WINDOW_MINUTES = 30;
-const END_BUFFER_MINUTES = 60;
+const END_BUFFER_MINUTES = 0;
 const SLOT_STEP_MINUTES = 30;
 
 function parseClock(value) {
@@ -384,7 +384,7 @@ export function validateUserWindow(userStart, userEnd, venueWindow, now = new Da
   if (userEndM != null && latestEndM != null && userEndM > latestEndM) {
     return {
       ok: false,
-      error: `Bookings must end at least 1 hour before service ends (by ${latestEnd})`,
+      error: `Bookings must end by ${latestEnd}`,
     };
   }
 

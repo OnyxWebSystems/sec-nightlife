@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
@@ -55,6 +55,13 @@ export default function BusinessVenueTables() {
   const [expandedTierKey, setExpandedTierKey] = useState(null);
 
   const { activeVenue: venue } = useActiveVenue();
+
+  const invalidateGuestBookCaches = useCallback(() => {
+    if (!venue?.id) return;
+    qc.invalidateQueries({ queryKey: ['venue-day-table-tiers', venue.id] });
+    qc.invalidateQueries({ queryKey: ['venue', venue.id] });
+    qc.invalidateQueries({ queryKey: ['venue-table'] });
+  }, [qc, venue?.id]);
 
   const { data: venueDetail } = useQuery({
     queryKey: ['venue-detail', venue?.id],
@@ -168,6 +175,7 @@ export default function BusinessVenueTables() {
       toast.success('Listing(s) created');
       qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
       qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+      invalidateGuestBookCaches();
       setShowForm(false);
     },
     onError: (e) => toast.error(e?.message || e?.data?.error || 'Could not create'),
@@ -179,6 +187,7 @@ export default function BusinessVenueTables() {
       toast.success('Listing updated');
       qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
       qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+      invalidateGuestBookCaches();
       setEditingTableId(null);
       setEditForm(null);
     },
@@ -232,6 +241,7 @@ export default function BusinessVenueTables() {
         await refetchDayTables();
         qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
         qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+        invalidateGuestBookCaches();
         setEditingTableId(null);
         setEditForm(null);
       } else {
@@ -278,6 +288,7 @@ export default function BusinessVenueTables() {
       toast.success('Tier deleted');
       qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
       qc.invalidateQueries({ queryKey: ['biz-venue-tables'] });
+      invalidateGuestBookCaches();
       setEditingTableId(null);
       setEditForm(null);
     } catch (err) {
@@ -304,6 +315,7 @@ export default function BusinessVenueTables() {
     onSuccess: () => {
       toast.success('Venue settings saved');
       qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
+      invalidateGuestBookCaches();
     },
     onError: (e) => toast.error(e?.data?.error || e.message),
   });
@@ -314,6 +326,7 @@ export default function BusinessVenueTables() {
     onSuccess: () => {
       toast.success('Seating plan setting saved');
       qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
+      invalidateGuestBookCaches();
     },
     onError: (e) => toast.error(e?.data?.error || e.message),
   });
@@ -339,6 +352,7 @@ export default function BusinessVenueTables() {
     onSuccess: () => {
       toast.success('Fees saved');
       qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
+      invalidateGuestBookCaches();
     },
     onError: (e) => toast.error(e?.data?.error || e.message),
   });
