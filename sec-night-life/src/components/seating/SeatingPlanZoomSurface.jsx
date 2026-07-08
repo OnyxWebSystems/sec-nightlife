@@ -3,28 +3,30 @@ import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 
-const SLIDER_MIN_SCALE = 0.5;
-const PINCH_MIN_SCALE = 0.15;
-const MAX_SCALE = 10;
+const FIT_SCALE = 1;
+const SLIDER_MAX_SCALE = 5;
+const HARD_MIN_SCALE = 0.4;
+const HARD_MAX_SCALE = 10;
 const SLIDER_STEP = 1;
-const BUTTON_STEP_PERCENT = 5;
+const BUTTON_ZOOM_STEP = 0.2;
 const SLIDER_PRESETS = [0, 25, 50, 75, 100];
 
-/** Map scale to slider 0–100% (slider floor = SLIDER_MIN_SCALE; pinch can go lower). */
+/** Map scale to slider 0–100% (0% = fit, 100% = SLIDER_MAX_SCALE; gestures can exceed both). */
 function scaleToSliderPercent(scale) {
-  const s = Math.min(MAX_SCALE, Math.max(PINCH_MIN_SCALE, scale));
-  if (s <= SLIDER_MIN_SCALE) return 0;
-  return Math.round(((s - SLIDER_MIN_SCALE) / (MAX_SCALE - SLIDER_MIN_SCALE)) * 100);
+  const s = Math.min(HARD_MAX_SCALE, Math.max(HARD_MIN_SCALE, scale));
+  if (s <= FIT_SCALE) return 0;
+  if (s >= SLIDER_MAX_SCALE) return 100;
+  return Math.round(((s - FIT_SCALE) / (SLIDER_MAX_SCALE - FIT_SCALE)) * 100);
 }
 
-/** Map slider 0–100% to scale (does not include extra pinch-only zoom-out range). */
+/** Map slider 0–100% to scale (fit → slider max; gestures can go beyond). */
 function sliderPercentToScale(percent) {
   const p = Math.min(100, Math.max(0, percent));
-  return SLIDER_MIN_SCALE + (p / 100) * (MAX_SCALE - SLIDER_MIN_SCALE);
+  return FIT_SCALE + (p / 100) * (SLIDER_MAX_SCALE - FIT_SCALE);
 }
 
 export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
-  const [sliderPercent, setSliderPercent] = useState(() => scaleToSliderPercent(1));
+  const [sliderPercent, setSliderPercent] = useState(() => scaleToSliderPercent(FIT_SCALE));
 
   const handleTransform = useCallback((ref) => {
     setSliderPercent(scaleToSliderPercent(ref.state.scale));
@@ -35,13 +37,13 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
   return (
     <TransformWrapper
       key={resetKey}
-      initialScale={1}
-      minScale={PINCH_MIN_SCALE}
-      maxScale={MAX_SCALE}
+      initialScale={FIT_SCALE}
+      minScale={HARD_MIN_SCALE}
+      maxScale={HARD_MAX_SCALE}
       centerOnInit
       smooth
       doubleClick={{ mode: 'toggle', step: 0.35, animationTime: 180 }}
-      wheel={{ step: 0.08 }}
+      wheel={{ step: 0.04, smoothStep: 0.002 }}
       pinch={{ disabled: false, step: 5 }}
       panning={{ velocityDisabled: true, disabled: false }}
       limitToBounds={false}
@@ -49,22 +51,11 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
       onTransformed={handleTransform}
       onInit={handleTransform}
     >
-      {({ zoomIn, zoomOut, resetTransform, centerView }) => {
+      {({ zoomIn, zoomOut, centerView }) => {
         const applySliderPercent = (percent, animationTime = 0) => {
           const next = sliderPercentToScale(percent);
           setSliderPercent(Math.round(percent));
           centerView(next, animationTime);
-        };
-
-        const nudgeSlider = (delta) => {
-          if (delta < 0 && sliderPercent <= 0) {
-            zoomOut(0.12, 120);
-            return;
-          }
-          applySliderPercent(
-            Math.min(100, Math.max(0, sliderPercent + delta)),
-            120,
-          );
         };
 
         return (
@@ -76,7 +67,7 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => nudgeSlider(-BUTTON_STEP_PERCENT)}
+                  onClick={() => zoomOut(BUTTON_ZOOM_STEP, 120)}
                   className="w-11 h-11 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0"
                   style={{ background: 'var(--sec-bg-elevated)' }}
                   aria-label="Zoom out"
@@ -97,7 +88,7 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
 
                 <button
                   type="button"
-                  onClick={() => nudgeSlider(BUTTON_STEP_PERCENT)}
+                  onClick={() => zoomIn(BUTTON_ZOOM_STEP, 120)}
                   className="w-11 h-11 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center shrink-0"
                   style={{ background: 'var(--sec-bg-elevated)' }}
                   aria-label="Zoom in"
@@ -144,8 +135,8 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
                 <button
                   type="button"
                   onClick={() => {
-                    resetTransform(120);
-                    setSliderPercent(scaleToSliderPercent(1));
+                    centerView(FIT_SCALE, 120);
+                    setSliderPercent(0);
                   }}
                   className="h-8 min-h-[32px] px-3 rounded-full text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
                   style={{ background: 'var(--sec-bg-elevated)', color: 'var(--sec-text-primary)' }}
@@ -156,7 +147,7 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
               </div>
 
               <p className="text-[10px] leading-snug" style={{ color: 'var(--sec-text-muted)' }}>
-                Pinch to zoom in or out (past 0% on the slider) · drag to pan · slider runs 0% (wide) to 100% (close)
+                Scroll, pinch, or use the slider to zoom — drag to pan. Zoom out past 0% or in past 100% anytime.
               </p>
             </div>
 
@@ -172,8 +163,14 @@ export default function SeatingPlanZoomSurface({ imageUrl, alt, resetKey }) {
                   src={imageUrl}
                   alt={alt || 'Venue seating plan'}
                   draggable={false}
-                  className="max-w-none select-none rounded-lg"
-                  style={{ width: 'auto', height: 'auto', maxWidth: 'none', touchAction: 'none' }}
+                  className="select-none rounded-lg object-contain"
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    width: 'auto',
+                    height: 'auto',
+                    touchAction: 'none',
+                  }}
                 />
               </TransformComponent>
             </div>
