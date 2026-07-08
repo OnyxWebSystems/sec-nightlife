@@ -46,11 +46,14 @@ const TABLE_PAYMENT_TYPES = new Set([
 /** Day booking payment (venue table with no linked event). */
 export function isDayBookingPayment(meta) {
   if (!isObjectRecord(meta)) return false;
-  if (meta.is_day_booking === true) return true;
+  if (meta.is_day_booking === true || meta.isDayBooking === true) return true;
   const eventId = meta.event_id ?? meta.eventId;
   if (eventId) return false;
   const t = String(meta.type || '');
-  return TABLE_PAYMENT_TYPES.has(t);
+  if (TABLE_PAYMENT_TYPES.has(t)) return true;
+  // Sparse metadata still counts as day booking when a venue table id is present and no event.
+  if (meta.venue_table_id || meta.venueTableId) return true;
+  return false;
 }
 
 /** Day-booking host checkout (venue slot, no event). */
@@ -217,7 +220,12 @@ export function classifyVenuePaymentRevenueScoped(
   ledgerRef = null,
 ) {
   const meta = isObjectRecord(metadata) ? metadata : {};
-  if (!paymentMatchesRevenueScope(meta, revenueScope)) return false;
+  // Day-booking scope: allow sparse non-event rows through (ledger often lacks type flags).
+  if (revenueScope === 'day_bookings') {
+    if (meta.event_id ?? meta.eventId) return false;
+  } else if (!paymentMatchesRevenueScope(meta, revenueScope)) {
+    return false;
+  }
   if (isExcludedFromVenueAnalytics(mtype, pType)) return false;
 
   const g = Number(gross) || 0;
@@ -230,7 +238,7 @@ export function classifyVenuePaymentRevenueScoped(
       bumpCounter(counters, 'menuPaymentZar', 'menuPaymentNetZar', g, n);
       return true;
     }
-    if (isDayBookingHostPayment(meta)) {
+    if (isDayBookingHostPayment(meta) || isHostedTableVenuePayment(meta)) {
       bumpCounter(counters, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', g, n);
       return true;
     }
@@ -238,7 +246,28 @@ export function classifyVenuePaymentRevenueScoped(
       bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
       return true;
     }
-    // Unclassified day-booking rows are ignored (not boosts — those already returned false).
+    const component = ledgerPaymentComponent(ledgerRef);
+    if (component === 'menu') {
+      bumpCounter(counters, 'dayBookingMenuPaymentZar', 'dayBookingMenuPaymentNetZar', g, n);
+      bumpCounter(counters, 'menuPaymentZar', 'menuPaymentNetZar', g, n);
+      return true;
+    }
+    if (component === 'join') {
+      bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
+      return true;
+    }
+    // Sparse day-booking ledger rows (common when payment metadata is incomplete).
+    // Venue recipient without :join/:menu is usually the host/table fee; guest joins use :join.
+    if (!isTicketPaymentMeta(meta, pType) && !(meta.event_id ?? meta.eventId)) {
+      const bookingMode = meta.booking_mode || meta.bookingMode;
+      const memberRole = meta.member_role || meta.memberRole;
+      if (bookingMode === 'join' || memberRole === 'GUEST') {
+        bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
+      } else {
+        bumpCounter(counters, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', g, n);
+      }
+      return true;
+    }
     return false;
   }
 

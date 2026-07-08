@@ -316,7 +316,8 @@ export default function VenueAnalytics() {
       return apiGet(`/api/business/venue-analytics?${params.toString()}`);
     },
     enabled: !!user && !!venueScope.venueQuery && (revenueScope !== 'per_event' || !!selectedEventId),
-    staleTime: 60_000,
+    staleTime: 120_000,
+    placeholderData: (prev) => prev,
   });
 
   // Prefetch first page so Single Event has a default selection without opening the picker

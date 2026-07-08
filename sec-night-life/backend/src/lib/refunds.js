@@ -71,16 +71,23 @@ export async function loadRefundedPaymentRefs(venueIds) {
     }
   }
 
+  // Venue-scoped payment refunds only (avoid scanning all platform refunds).
+  const venuePaymentOr = ids.flatMap((vid) => [
+    { metadata: { path: ['venue_id'], equals: vid } },
+    { metadata: { path: ['venueId'], equals: vid } },
+  ]);
   const payments = await prisma.payment.findMany({
-    where: { refundStatus: 'APPROVED', status: 'success' },
-    select: { reference: true, metadata: true },
-    take: 10000,
+    where: {
+      refundStatus: 'APPROVED',
+      status: 'success',
+      OR: venuePaymentOr,
+    },
+    select: { reference: true },
+    take: 5000,
   });
 
   for (const p of payments) {
-    const meta = flattenPaymentMetadata(p.metadata);
-    const vid = meta.venue_id ?? meta.venueId;
-    if (vid && ids.includes(String(vid))) {
+    if (p.reference) {
       refs.add(p.reference);
       refs.add(basePaymentReference(p.reference));
     }
