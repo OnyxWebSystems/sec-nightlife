@@ -1,0 +1,21 @@
+# Large assets not needed for the frontend build/deploy
+launch-resources
+sec-launch-resources.zip
+*.zip
+
+# Dependencies (Vercel installs its own)
+node_modules
+**/node_modules
+
+# Native mobile (Capacitor) projects
+sec-night-life/android
+sec-night-life/ios
+android
+ios
+
+# Prebuilt output (Vercel rebuilds)
+sec-night-life/dist
+dist
+
+# Misc large media
+*.mov
