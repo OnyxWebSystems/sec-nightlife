@@ -205,12 +205,23 @@ export function listTimeOptionsInGap(
   { applyEarliestFilter = true } = {},
 ) {
   if (!gap?.startTime || !gap?.endTime) return [];
-  const start = parseClock(gap.startTime)?.minutes;
-  const end = parseClock(gap.endTime)?.minutes;
-  if (start == null || end == null) return [];
-  let t0 = start;
-  let t1 = end;
-  if (t1 <= t0) t1 += 1440;
+  let t0;
+  let t1;
+  if (venueWindow) {
+    // Convert gap boundaries into service minutes so overnight gaps that fall
+    // entirely after midnight (e.g. 00:00–05:00 for a 12:00–05:00 service) line
+    // up with the earliest-start filter, which also works in service minutes.
+    const interval = serviceInterval(gap.startTime, gap.endTime, venueWindow);
+    if (!interval) return [];
+    [t0, t1] = interval;
+  } else {
+    const start = parseClock(gap.startTime)?.minutes;
+    const end = parseClock(gap.endTime)?.minutes;
+    if (start == null || end == null) return [];
+    t0 = start;
+    t1 = end;
+    if (t1 <= t0) t1 += 1440;
+  }
 
   if (venueWindow && applyEarliestFilter) {
     const earliest = earliestBookableStartMinutes(venueWindow, now, stepMinutes);
