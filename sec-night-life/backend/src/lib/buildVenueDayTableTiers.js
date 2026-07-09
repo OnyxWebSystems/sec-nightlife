@@ -60,7 +60,7 @@ export async function buildVenueDayTableTiers(venueId, options = {}) {
       tierMap.set(tierKey, {
         tierKey,
         tierName: vt.tierLabel || vt.tableName,
-        category: 'general',
+        category: vt.tableCategory === 'vip' ? 'vip' : 'general',
         tierIndex: Number.isFinite(tierIdx) ? tierIdx : 0,
         minSpendJoin: Number(vt.minimumSpend) || 0,
         minSpendHost: Number(vt.hostMinimumSpend ?? vt.minimumSpend) || 0,

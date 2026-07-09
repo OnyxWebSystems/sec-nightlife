@@ -260,6 +260,12 @@ export async function adjustDayTierFromVenueListing(venueId, tierIndex, tierPatc
         ? tierPatch.host_table_fee_zar
         : existing.def.host_table_fee_zar,
       tier_table_slots: slots,
+      table_category:
+        tierPatch.table_category !== undefined
+          ? String(tierPatch.table_category || 'general').toLowerCase() === 'vip'
+            ? 'vip'
+            : 'general'
+          : existing.def.table_category,
       included_items: tierPatch.included_items ?? existing.def.included_items,
     },
     slots,

@@ -210,6 +210,7 @@ export default function BusinessVenueTables() {
       hostMinimumSpend: String(table.hostMinimumSpend ?? table.minimumSpend ?? 0),
       bookingFeeZar: String(table.bookingFeeZar ?? 0),
       hostTableFeeZar: String(table.hostTableFeeZar ?? 0),
+      tableCategory: table.tableCategory === 'vip' ? 'vip' : 'general',
       serviceDays: scheduleMapFromApi(table.serviceSchedule),
       allowsCustomRequests: Boolean(table.allowsCustomRequests),
     });
@@ -236,6 +237,7 @@ export default function BusinessVenueTables() {
           hostMinimumSpend: parseFloat(editForm.hostMinimumSpend) || 0,
           bookingFeeZar: parseFloat(editForm.bookingFeeZar) || 0,
           hostTableFeeZar: parseFloat(editForm.hostTableFeeZar) || 0,
+          table_category: editForm.tableCategory === 'vip' ? 'vip' : 'general',
           serviceSchedule,
         });
         toast.success('Listing updated');
@@ -639,13 +641,25 @@ export default function BusinessVenueTables() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             {expanded ? (
                               <ChevronDown size={16} className="shrink-0 text-[var(--sec-text-muted)]" />
                             ) : (
                               <ChevronRight size={16} className="shrink-0 text-[var(--sec-text-muted)]" />
                             )}
                             <p className="font-semibold text-sm">{group.tierName}</p>
+                            {sample?.tableCategory === 'vip' ? (
+                              <span
+                                className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                                style={{
+                                  color: 'var(--sec-accent)',
+                                  background: 'var(--sec-accent-muted)',
+                                  border: '1px solid var(--sec-accent-border)',
+                                }}
+                              >
+                                VIP
+                              </span>
+                            ) : null}
                           </div>
                           <p className="text-xs text-[var(--sec-text-muted)] mt-1 ml-6">
                             {group.tableCount} table{group.tableCount === 1 ? '' : 's'}
@@ -743,6 +757,45 @@ export default function BusinessVenueTables() {
                   onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                 />
               </div>
+              {editForm.tierIndex != null ? (
+                <div>
+                  <Label>Table type</Label>
+                  <div className="flex gap-2 mt-1">
+                    <button
+                      type="button"
+                      className="h-9 flex-1 rounded-lg text-xs font-semibold border"
+                      style={{
+                        borderColor:
+                          (editForm.tableCategory || 'general') === 'general'
+                            ? 'var(--sec-accent-border)'
+                            : 'var(--sec-border)',
+                        background:
+                          (editForm.tableCategory || 'general') === 'general'
+                            ? 'var(--sec-accent-muted)'
+                            : 'transparent',
+                        color: 'var(--sec-text-primary)',
+                      }}
+                      onClick={() => setEditForm((f) => ({ ...f, tableCategory: 'general' }))}
+                    >
+                      General
+                    </button>
+                    <button
+                      type="button"
+                      className="h-9 flex-1 rounded-lg text-xs font-semibold border"
+                      style={{
+                        borderColor:
+                          editForm.tableCategory === 'vip' ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                        background:
+                          editForm.tableCategory === 'vip' ? 'var(--sec-accent-muted)' : 'transparent',
+                        color: 'var(--sec-text-primary)',
+                      }}
+                      onClick={() => setEditForm((f) => ({ ...f, tableCategory: 'vip' }))}
+                    >
+                      VIP
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <ServiceWeekdayPicker
                 value={editForm.serviceDays}
                 onChange={(serviceDays) => setEditForm((f) => ({ ...f, serviceDays }))}

@@ -58,6 +58,7 @@ function pickRevenueAmount(analytics, grossKey, netKey, revenueMode) {
 
 function revenueScopeLabel(revenueScope) {
   if (revenueScope === 'per_event') return 'Selected event';
+  if (revenueScope === 'ticketed_events') return 'Ticketed events';
   if (revenueScope === 'day_bookings') return 'Day bookings only';
   return 'All hosted events';
 }
@@ -65,6 +66,7 @@ function revenueScopeLabel(revenueScope) {
 /** Map UI revenueScope to API revenueScope for cache safety. */
 function apiRevenueScope(uiScope) {
   if (uiScope === 'per_event') return 'events';
+  if (uiScope === 'ticketed_events') return 'ticketed_events';
   if (uiScope === 'day_bookings') return 'day_bookings';
   return 'all';
 }
@@ -93,6 +95,7 @@ function AnalyticsEventPicker({
   selectedEventId,
   onSelectEvent,
   selectedEvent,
+  ticketedOnly = false,
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -105,7 +108,12 @@ function AnalyticsEventPicker({
     hasNextPage,
     fetchNextPage,
   } = useInfiniteQuery({
-    queryKey: ['venue-events-picker', venueScope.staffContextToken || venueScope.venueId || selectedVenue, debouncedSearch],
+    queryKey: [
+      'venue-events-picker',
+      venueScope.staffContextToken || venueScope.venueId || selectedVenue,
+      debouncedSearch,
+      ticketedOnly ? 'ticketed' : 'all',
+    ],
     queryFn: async ({ pageParam = 0 }) => {
       const params = new URLSearchParams({
         paginated: '1',
@@ -114,6 +122,7 @@ function AnalyticsEventPicker({
         sort: '-date',
       });
       if (debouncedSearch) params.set('q', debouncedSearch);
+      if (ticketedOnly) params.set('event_format', 'TICKETING_ONLY');
       if (venueScope.inStaffSession) {
         params.set('staff_ctx', venueScope.staffContextToken);
         return apiGet(`/api/events?${params.toString()}`);
@@ -135,16 +144,19 @@ function AnalyticsEventPicker({
     const out = [];
     for (const page of pages) {
       for (const event of page.items || []) {
+        if (ticketedOnly && !isTicketingEvent(event)) continue;
         if (seen.has(event.id)) continue;
         seen.add(event.id);
         out.push(event);
       }
     }
     if (selectedEvent && !seen.has(selectedEvent.id)) {
-      out.unshift(selectedEvent);
+      if (!ticketedOnly || isTicketingEvent(selectedEvent)) {
+        out.unshift(selectedEvent);
+      }
     }
     return out;
-  }, [data?.pages, selectedEvent]);
+  }, [data?.pages, selectedEvent, ticketedOnly]);
 
   const total = data?.pages?.[0]?.total ?? null;
 
@@ -161,10 +173,12 @@ function AnalyticsEventPicker({
         >
           <span className="truncate text-left">
             {!enabled
-              ? 'Available for Single Event scope'
+              ? 'Select a scope that uses events'
               : selectedEvent
                 ? eventLabel(selectedEvent)
-                : 'Search and select an event'}
+                : ticketedOnly
+                  ? 'All ticketed events (or search)'
+                  : 'Search and select an event'}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -300,7 +314,8 @@ export default function VenueAnalytics() {
     return venues.find((v) => v.id === selectedVenue) || null;
   }, [venues, selectedVenue, venueScope.inStaffSession, scopeKey, venueScope.venueName]);
 
-  const analyticsEventKey = revenueScope === 'per_event' ? selectedEventId : null;
+  const analyticsEventKey =
+    revenueScope === 'per_event' || revenueScope === 'ticketed_events' ? selectedEventId || 'all' : null;
   const {
     data: analytics,
     isLoading: analyticsLoading,
@@ -320,6 +335,9 @@ export default function VenueAnalytics() {
       }
       if (revenueScope === 'per_event') {
         params.set('revenue_scope', 'events');
+        if (selectedEventId) params.set('event_id', selectedEventId);
+      } else if (revenueScope === 'ticketed_events') {
+        params.set('revenue_scope', 'ticketed_events');
         if (selectedEventId) params.set('event_id', selectedEventId);
       } else if (revenueScope === 'day_bookings') {
         params.set('revenue_scope', 'day_bookings');
@@ -371,6 +389,16 @@ export default function VenueAnalytics() {
   }, [selectedVenue]);
 
   useEffect(() => {
+    if (revenueScope !== 'ticketed_events') return;
+    if (!selectedEventId) return;
+    if (selectedEventCache?.id === selectedEventId && isTicketingEvent(selectedEventCache)) return;
+    const fromInitial = (initialEventsPage?.items || []).find((e) => e.id === selectedEventId);
+    if (fromInitial && isTicketingEvent(fromInitial)) return;
+    setSelectedEventId('');
+    setSelectedEventCache(null);
+  }, [revenueScope, selectedEventId, selectedEventCache, initialEventsPage]);
+
+  useEffect(() => {
     const items = initialEventsPage?.items || [];
     if (!items.length) return;
     if (selectedEventId && items.some((e) => e.id === selectedEventId)) {
@@ -378,14 +406,15 @@ export default function VenueAnalytics() {
       if (match) setSelectedEventCache(match);
       return;
     }
-    if (!selectedEventId) {
+    // Only auto-pick for Single Event scope; ticketed scope allows "all ticketed".
+    if (!selectedEventId && revenueScope === 'per_event') {
       const preferred = items.find(isTicketingEvent) || items[0];
       if (preferred) {
         setSelectedEventId(preferred.id);
         setSelectedEventCache(preferred);
       }
     }
-  }, [initialEventsPage, selectedEventId]);
+  }, [initialEventsPage, selectedEventId, revenueScope]);
 
   const handleSelectEvent = useCallback((event) => {
     if (!event?.id) return;
@@ -520,6 +549,15 @@ export default function VenueAnalytics() {
         { name: 'Join fees (to venue)', value: metrics.dayBookingVenueJoinFeeVolumeZar },
       ].filter((d) => d.value > 0);
     }
+    if (revenueScope === 'ticketed_events') {
+      return [
+        { name: 'Ticket revenue', value: metrics.ticketPaymentZar },
+        { name: 'Ticketed table hosts', value: metrics.ticketedTableHostPaymentZar || 0 },
+        { name: 'Ticketed table joins', value: metrics.ticketedTableJoinPaymentZar || 0 },
+        { name: 'Ticketed table menu', value: metrics.ticketedTableMenuPaymentZar || 0 },
+        { name: 'Menu payments', value: metrics.menuPaymentZar },
+      ].filter((d) => d.value > 0);
+    }
     return [
       { name: 'Ticket revenue', value: metrics.ticketPaymentZar },
       { name: 'Entrance fees', value: metrics.entrancePaymentZar || 0 },
@@ -548,7 +586,7 @@ export default function VenueAnalytics() {
 
   // Initial load / scope change: show skeletons. Background refetch: keep values visible.
   const chartsLoading = analyticsLoading || (analyticsFetching && analyticsIsPlaceholder);
-  const eventPickerEnabled = revenueScope === 'per_event';
+  const eventPickerEnabled = revenueScope === 'per_event' || revenueScope === 'ticketed_events';
   const selectedEvent =
     selectedEventCache?.id === selectedEventId
       ? selectedEventCache
@@ -655,6 +693,7 @@ export default function VenueAnalytics() {
                     <SelectContent className="bg-[var(--sec-bg-elevated)] border-[var(--sec-border)] text-white">
                       <SelectItem value="all_events">All Events Combined</SelectItem>
                       <SelectItem value="per_event">Single Event</SelectItem>
+                      <SelectItem value="ticketed_events">Ticketed events</SelectItem>
                       <SelectItem value="day_bookings">Day bookings only</SelectItem>
                     </SelectContent>
                   </Select>
@@ -671,7 +710,13 @@ export default function VenueAnalytics() {
                     selectedEventId={selectedEventId}
                     selectedEvent={selectedEvent}
                     onSelectEvent={handleSelectEvent}
+                    ticketedOnly={revenueScope === 'ticketed_events'}
                   />
+                  {revenueScope === 'ticketed_events' ? (
+                    <p className="text-[11px] text-gray-500">
+                      Optional: pick one ticketed event, or leave blank for all ticketed events.
+                    </p>
+                  ) : null}
                 </CardContent>
               </Card>
             </div>
@@ -1080,7 +1125,11 @@ export default function VenueAnalytics() {
                 <CardContent className="space-y-4">
                   <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                     <p className="text-sm text-gray-400 mb-1">
-                      {revenueScope === 'day_bookings' ? 'Peak table booking time' : 'Peak Event Time'}
+                      {revenueScope === 'day_bookings'
+                        ? 'Peak table booking time'
+                        : revenueScope === 'ticketed_events'
+                          ? 'Peak ticketed event time'
+                          : 'Peak Event Time'}
                     </p>
                     <p className="text-xl font-bold text-white">{metrics.peakHour}</p>
                     <p className="text-xs text-gray-500 mt-1">
@@ -1095,7 +1144,11 @@ export default function VenueAnalytics() {
                   </div>
                   <div className="p-3 rounded-lg bg-[var(--sec-bg-elevated)]">
                     <p className="text-sm text-gray-400 mb-1">
-                      {revenueScope === 'day_bookings' ? 'Avg. Revenue per table' : 'Avg. Revenue per Event'}
+                      {revenueScope === 'day_bookings'
+                        ? 'Avg. Revenue per table'
+                        : revenueScope === 'ticketed_events'
+                          ? 'Avg. Revenue per ticketed event'
+                          : 'Avg. Revenue per Event'}
                     </p>
                     <p className="text-xl font-bold text-white">
                       R{Math.round(

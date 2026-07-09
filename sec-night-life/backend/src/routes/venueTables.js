@@ -192,6 +192,7 @@ const syncDayListingsSchema = z.object({
         booking_fee_zar: z.union([z.number(), z.string()]).optional(),
         host_table_fee_zar: z.union([z.number(), z.string()]).optional(),
         tier_table_slots: z.union([z.number(), z.string()]).optional(),
+        table_category: z.enum(['general', 'vip']).optional(),
         included_items: z.array(z.any()).optional(),
       }),
     )
@@ -264,6 +265,7 @@ const adjustDayTierSchema = z.object({
   hostMinimumSpend: z.number().min(0).optional(),
   bookingFeeZar: z.number().min(0).optional(),
   hostTableFeeZar: z.number().min(0).optional(),
+  table_category: z.enum(['general', 'vip']).optional(),
   serviceSchedule: z
     .array(
       z.object({
@@ -325,6 +327,7 @@ router.post('/adjust-day-tier', authenticateToken, async (req, res, next) => {
         booking_fee_zar: d.bookingFeeZar,
         host_table_fee_zar: d.hostTableFeeZar,
         tier_table_slots: d.tierTableSlots,
+        table_category: d.table_category,
       },
       { serviceSchedule: d.serviceSchedule ?? null },
     );

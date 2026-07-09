@@ -587,6 +587,10 @@ router.get('/', optionalAuth, async (req, res, next) => {
     if (req.query.venue_id) where.venueId = req.query.venue_id;
     if (req.query.city) where.city = String(req.query.city);
     if (req.query.id) where.id = req.query.id;
+    const eventFormatQ = String(req.query.event_format || '').trim().toUpperCase();
+    if (eventFormatQ === 'TICKETING_ONLY' || eventFormatQ === 'TABLE_HOSTING') {
+      where.eventFormat = eventFormatQ;
+    }
     const searchQ = String(req.query.q || req.query.search || '').trim();
     if (searchQ) {
       where.title = { contains: searchQ, mode: 'insensitive' };
@@ -740,6 +744,10 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     if (req.query.id) where.id = req.query.id;
     if (req.query.venue_id) where.venueId = req.query.venue_id;
     if (req.query.status) where.status = req.query.status;
+    const eventFormatQ = String(req.query.event_format || '').trim().toUpperCase();
+    if (eventFormatQ === 'TICKETING_ONLY' || eventFormatQ === 'TABLE_HOSTING') {
+      where.eventFormat = eventFormatQ;
+    }
     const searchQ = String(req.query.q || req.query.search || '').trim();
     if (searchQ) {
       where.title = { contains: searchQ, mode: 'insensitive' };

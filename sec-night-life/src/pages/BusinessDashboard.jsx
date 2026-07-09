@@ -14,7 +14,7 @@ import {
   Star, Users, ArrowRight, Building2, Plus,
   ChevronRight, AlertCircle, Briefcase, Loader2, ShieldCheck, FileText, Upload, UtensilsCrossed, Armchair, Wallet,
   Settings,
-  RotateCcw, Map,
+  RotateCcw, Map, Ticket, DoorOpen,
 } from 'lucide-react';
 import VenueSecWallet from '@/components/wallet/VenueSecWallet';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
@@ -324,9 +324,29 @@ export default function BusinessDashboard() {
     events: 0,
     bookings: 0,
     guests: 0,
+    ticketsSold: 0,
+    ticketRevenueZar: 0,
+    entranceFees: 0,
+    ticketedTables: 0,
   };
-  const yearTotalStats = monthlyStats.yearTotal || { events: 0, bookings: 0, guests: 0 };
-  const allTimeStats = monthlyStats.allTime || { events: 0, bookings: 0, guests: 0 };
+  const yearTotalStats = monthlyStats.yearTotal || {
+    events: 0,
+    bookings: 0,
+    guests: 0,
+    ticketsSold: 0,
+    ticketRevenueZar: 0,
+    entranceFees: 0,
+    ticketedTables: 0,
+  };
+  const allTimeStats = monthlyStats.allTime || {
+    events: 0,
+    bookings: 0,
+    guests: 0,
+    ticketsSold: 0,
+    ticketRevenueZar: 0,
+    entranceFees: 0,
+    ticketedTables: 0,
+  };
   const activeStats =
     statsPeriod === 'all'
       ? allTimeStats
@@ -795,6 +815,34 @@ export default function BusinessDashboard() {
               value={monthStatValue(activeStats.guests)}
               sub={statSubLabel}
             />
+            <StatCard
+              icon={Ticket}
+              label="Tickets sold"
+              value={monthStatValue(activeStats.ticketsSold ?? 0)}
+              sub={statSubLabel}
+            />
+            <StatCard
+              icon={Wallet}
+              label="Ticket revenue"
+              value={
+                monthlyStatsLoading
+                  ? '—'
+                  : `R${Number(activeStats.ticketRevenueZar || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+              }
+              sub={statSubLabel}
+            />
+            <StatCard
+              icon={DoorOpen}
+              label="Entrance fees"
+              value={monthStatValue(activeStats.entranceFees ?? 0)}
+              sub={statSubLabel}
+            />
+            <StatCard
+              icon={Armchair}
+              label="Ticketed tables"
+              value={monthStatValue(activeStats.ticketedTables ?? 0)}
+              sub={statSubLabel}
+            />
           </>
         ) : null}
         {showAnalyticsStats ? (
@@ -1022,14 +1070,20 @@ export default function BusinessDashboard() {
                     backgroundColor: 'var(--sec-accent-muted)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <Users size={16} style={{ color: 'var(--sec-accent)' }} />
+                    {t.type === 'ticket' ? (
+                      <Ticket size={16} style={{ color: 'var(--sec-accent)' }} />
+                    ) : (
+                      <Users size={16} style={{ color: 'var(--sec-accent)' }} />
+                    )}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {t.tableName}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--sec-text-muted)' }}>
-                      {t.guestCount}{t.capacity ? `/${t.capacity}` : ''} guests · {t.subLabel}
+                      {t.type === 'ticket'
+                        ? t.subLabel
+                        : `${t.guestCount}${t.capacity ? `/${t.capacity}` : ''} guests · ${t.subLabel}`}
                     </div>
                   </div>
                   <span className={`sec-badge ${['ACTIVE', 'PARTIALLY_FILLED', 'FULL'].includes(String(t.status || '').toUpperCase()) ? 'sec-badge-success' : 'sec-badge-muted'}`}>

@@ -15,6 +15,7 @@ import {
   paymentMatchesRevenueScope,
   isExcludedFromVenueAnalytics,
   isHostedTableVenuePayment,
+  isTicketedEventPayment,
 } from '../lib/paymentMetadata.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
 import {
@@ -889,11 +890,15 @@ function ticketQuantityFromMeta(meta) {
 
 function parseRevenueScope(raw) {
   const s = String(raw || 'all').toLowerCase();
-  if (s === 'events' || s === 'day_bookings') return s;
+  if (s === 'events' || s === 'day_bookings' || s === 'ticketed_events') return s;
   return 'all';
 }
 
-function matchesAnalyticsFilter(meta, { revenueScope, eventId }, { fromVenueLedger = false } = {}) {
+function matchesAnalyticsFilter(
+  meta,
+  { revenueScope, eventId, ticketedEventIdSet = null },
+  { fromVenueLedger = false } = {},
+) {
   const m = meta && typeof meta === 'object' ? meta : {};
   const eid = m.event_id ?? m.eventId;
 
@@ -910,6 +915,15 @@ function matchesAnalyticsFilter(meta, { revenueScope, eventId }, { fromVenueLedg
       if (isExcludedFromVenueAnalytics(m.type, null)) return false;
       return true;
     }
+    if (revenueScope === 'ticketed_events') {
+      if (isDayBookingPayment(m)) return false;
+      if (eventId && (eid == null || String(eid) !== eventId)) return false;
+      if (isTicketedEventPayment(m)) return true;
+      if (eid != null && ticketedEventIdSet instanceof Set) {
+        return ticketedEventIdSet.has(String(eid));
+      }
+      return false;
+    }
     if (revenueScope === 'events') {
       if (isDayBookingPayment(m)) return false;
       if (eventId && (eid == null || String(eid) !== eventId)) return false;
@@ -919,6 +933,9 @@ function matchesAnalyticsFilter(meta, { revenueScope, eventId }, { fromVenueLedg
   }
 
   if (!paymentMatchesRevenueScope(m, revenueScope)) return false;
+  if (revenueScope === 'ticketed_events' && eid != null && ticketedEventIdSet instanceof Set) {
+    if (!ticketedEventIdSet.has(String(eid)) && !isTicketedEventPayment(m)) return false;
+  }
   if (eventId && revenueScope !== 'day_bookings') {
     if (eid == null || String(eid) !== eventId) return false;
   }
@@ -951,6 +968,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const isDayBookingsScope = revenueScope === 'day_bookings';
+    const isTicketedEventsScope = revenueScope === 'ticketed_events';
 
     // Day-bookings: align with /venue-table-bookings (paid refs on eventId-null tables),
     // then fill gaps from hosted guests, day splits, venue ledger, and venue day payments.
@@ -1042,8 +1060,13 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         isDayBookingsScope
           ? Promise.resolve([])
           : prisma.event.findMany({
-              where: { venueId, deletedAt: null, ...(eventId ? { id: eventId } : {}) },
-              select: { id: true, date: true, startTime: true, eventFormat: true },
+              where: {
+                venueId,
+                deletedAt: null,
+                ...(eventId ? { id: eventId } : {}),
+                ...(isTicketedEventsScope ? { eventFormat: 'TICKETING_ONLY' } : {}),
+              },
+              select: { id: true, date: true, startTime: true, eventFormat: true, hostingConfig: true },
             }),
         prisma.payoutLedger.findMany({
           where: {
@@ -1102,6 +1125,9 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     if (eventId && eventIds.length === 0) return res.status(400).json({ error: 'Event not found for this venue' });
     const eventById = new Map(events.map((e) => [String(e.id), e]));
     const eventIdSet = new Set(eventIds.map(String));
+    const ticketedEventIdSet = new Set(
+      events.filter((e) => e.eventFormat === 'TICKETING_ONLY').map((e) => String(e.id)),
+    );
 
     const eventsInPeriod = events.filter((e) => e.date && new Date(e.date) >= cutoff).length;
     const upcomingEventsCount = events.filter((e) => e.date && new Date(e.date) >= todayStart).length;
@@ -1160,7 +1186,11 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       return paymentAmountByRef.get(ref) || paymentAmountByRef.get(base) || 0;
     };
 
-    const scopeFilter = { revenueScope, eventId: revenueScope === 'day_bookings' ? null : eventId };
+    const scopeFilter = {
+      revenueScope,
+      eventId: revenueScope === 'day_bookings' ? null : eventId,
+      ticketedEventIdSet: isTicketedEventsScope ? ticketedEventIdSet : null,
+    };
 
     let grossTotal = 0;
     let netTotal = 0;
@@ -1499,19 +1529,39 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     const ticketSalesCount = Math.max(ticketSalesCountFromRows, ticketSalesFromPayments);
 
-    const successfulEventTypeCounts = { Ticketing: 0, 'Table hosting': 0 };
+    const successfulEventTypeCounts = isTicketedEventsScope
+      ? { Ticketing: 0, 'Tables at ticketed events': 0 }
+      : { Ticketing: 0, 'Table hosting': 0 };
     const successfulEventPeakHours = {};
     for (const eid of eventIdsWithRevenue) {
       const ev = eventById.get(eid);
       if (!ev) continue;
       if (eventId && String(ev.id) !== eventId) continue;
       if (isDayBookingsScope) continue;
-      const formatLabel = ev.eventFormat === 'TICKETING_ONLY' ? 'Ticketing' : 'Table hosting';
-      successfulEventTypeCounts[formatLabel] = (successfulEventTypeCounts[formatLabel] || 0) + 1;
+      if (isTicketedEventsScope && ev.eventFormat !== 'TICKETING_ONLY') continue;
+      if (isTicketedEventsScope) {
+        successfulEventTypeCounts.Ticketing += 1;
+        if (ticketedEventHasTables(ev)) {
+          successfulEventTypeCounts['Tables at ticketed events'] += 1;
+        }
+      } else {
+        const formatLabel = ev.eventFormat === 'TICKETING_ONLY' ? 'Ticketing' : 'Table hosting';
+        successfulEventTypeCounts[formatLabel] = (successfulEventTypeCounts[formatLabel] || 0) + 1;
+      }
       if (ev.startTime) {
         const hour = parseInt(String(ev.startTime).split(':')[0], 10);
         if (!Number.isNaN(hour)) {
           successfulEventPeakHours[hour] = (successfulEventPeakHours[hour] || 0) + 1;
+        }
+      }
+    }
+
+    // Ticketed scope: only count ticketed events toward peak/avg insights.
+    if (isTicketedEventsScope) {
+      for (const eid of [...eventIdsWithRevenue]) {
+        const ev = eventById.get(eid);
+        if (!ev || ev.eventFormat !== 'TICKETING_ONLY') {
+          eventIdsWithRevenue.delete(eid);
         }
       }
     }
@@ -1628,6 +1678,14 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       ticketSalesCount,
       ticketPaymentZar: roundZar(revenueCounters.ticketPaymentZar),
       ticketPaymentNetZar: roundZar(revenueCounters.ticketPaymentNetZar),
+      entrancePaymentZar: roundZar(revenueCounters.entrancePaymentZar),
+      entrancePaymentNetZar: roundZar(revenueCounters.entrancePaymentNetZar),
+      ticketedTableHostPaymentZar: roundZar(revenueCounters.ticketedTableHostPaymentZar),
+      ticketedTableHostPaymentNetZar: roundZar(revenueCounters.ticketedTableHostPaymentNetZar),
+      ticketedTableJoinPaymentZar: roundZar(revenueCounters.ticketedTableJoinPaymentZar),
+      ticketedTableJoinPaymentNetZar: roundZar(revenueCounters.ticketedTableJoinPaymentNetZar),
+      ticketedTableMenuPaymentZar: roundZar(revenueCounters.ticketedTableMenuPaymentZar),
+      ticketedTableMenuPaymentNetZar: roundZar(revenueCounters.ticketedTableMenuPaymentNetZar),
       hostedTablePaymentZar: roundZar(revenueCounters.hostedTablePaymentZar),
       hostedTablePaymentNetZar: roundZar(revenueCounters.hostedTablePaymentNetZar),
       dayBookingHostPaymentZar: roundZar(revenueCounters.dayBookingHostPaymentZar),
@@ -1751,6 +1809,10 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
         totalBookings: 0,
         activeBookings: 0,
         totalGuests: 0,
+        ticketsSold: 0,
+        ticketRevenueZar: 0,
+        entranceFees: 0,
+        ticketedTables: 0,
         recentBookings: [],
       });
     }
@@ -1927,15 +1989,88 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
       .filter(Boolean);
 
     // Unified cap: merge event + venue/day bookings, sort by latest activity, return top 5 only.
-    const recentBookings = [...recentEventBookings, ...recentVenueBookings]
+    let recentTicketActivity = [];
+    if (eventIds.length) {
+      const recentTickets = await prisma.ticket.findMany({
+        where: {
+          kind: 'EVENT_TICKET',
+          eventId: { in: eventIds },
+          hiddenFromHistoryAt: null,
+          refundedAt: null,
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          event: { select: { title: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      recentTicketActivity = recentTickets.map((t) => ({
+        id: `ticket-${t.id}`,
+        type: 'ticket',
+        tableName: 'Ticket order',
+        guestCount: 1,
+        capacity: null,
+        status: 'PAID',
+        subLabel: t.event?.title || 'Ticketed event',
+        sortAt: t.createdAt,
+      }));
+    }
+
+    const recentBookings = [...recentEventBookings, ...recentVenueBookings, ...recentTicketActivity]
       .sort((a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime())
       .slice(0, 5)
       .map(({ sortAt, ...rest }) => rest);
+
+    let ticketsSold = 0;
+    let ticketRevenueZar = 0;
+    let entranceFees = 0;
+    let ticketedTables = 0;
+    if (eventIds.length) {
+      ticketsSold = await prisma.ticket.count({
+        where: {
+          kind: 'EVENT_TICKET',
+          eventId: { in: eventIds },
+          hiddenFromHistoryAt: null,
+          refundedAt: null,
+        },
+      });
+      entranceFees = await prisma.ticket.count({
+        where: {
+          kind: 'EVENT_ENTRANCE',
+          eventId: { in: eventIds },
+          hiddenFromHistoryAt: null,
+          refundedAt: null,
+        },
+      });
+      const ticketingEvents = await prisma.event.findMany({
+        where: { id: { in: eventIds }, eventFormat: 'TICKETING_ONLY', deletedAt: null },
+        select: { id: true, eventFormat: true, hostingConfig: true },
+      });
+      const ticketedTableEventIds = ticketingEvents.filter((e) => ticketedEventHasTables(e)).map((e) => e.id);
+      if (ticketedTableEventIds.length) {
+        const rows = await prisma.eventVenueTableBooking.findMany({
+          where: {
+            venueId: { in: venueIds },
+            eventId: { in: ticketedTableEventIds },
+            role: { in: ['HOST', 'GUEST'] },
+            hostedTableId: { not: null },
+          },
+          select: { hostedTableId: true },
+        });
+        ticketedTables = new Set(rows.map((r) => r.hostedTableId).filter(Boolean)).size;
+      }
+    }
 
     res.json({
       totalBookings: eventTableCount + venueTableIds.size,
       activeBookings: eventActiveBookings + venueActiveTables + venuePendingCount,
       totalGuests: eventGoingHeadcount + venueGuestCount,
+      ticketsSold,
+      ticketRevenueZar,
+      entranceFees,
+      ticketedTables,
       recentBookings,
     });
   } catch (e) {
@@ -1952,6 +2087,10 @@ function emptyMonthlyBuckets() {
     events: 0,
     bookings: 0,
     guests: 0,
+    ticketsSold: 0,
+    ticketRevenueZar: 0,
+    entranceFees: 0,
+    ticketedTables: 0,
   }));
 }
 
@@ -1983,7 +2122,15 @@ function bucketMonth(dateValue, year = null) {
 /** Venue dashboard stats — aligned with dashboard-booking-stats, with monthly buckets. */
 async function computeVenueDashboardStats(venueIds, year) {
   const months = emptyMonthlyBuckets();
-  const allTime = { events: 0, bookings: 0, guests: 0 };
+  const allTime = {
+    events: 0,
+    bookings: 0,
+    guests: 0,
+    ticketsSold: 0,
+    ticketRevenueZar: 0,
+    entranceFees: 0,
+    ticketedTables: 0,
+  };
 
   const bump = (month, field, amount = 1) => {
     if (month && month >= 1 && month <= 12) months[month - 1][field] += amount;
@@ -1991,9 +2138,10 @@ async function computeVenueDashboardStats(venueIds, year) {
 
   const eventsInScope = await prisma.event.findMany({
     where: { venueId: { in: venueIds }, deletedAt: null },
-    select: { id: true, date: true },
+    select: { id: true, date: true, eventFormat: true, hostingConfig: true },
   });
   const eventIds = eventsInScope.map((e) => e.id);
+  const ticketedTableEventIds = eventsInScope.filter((e) => ticketedEventHasTables(e)).map((e) => e.id);
 
   allTime.events = eventsInScope.length;
   for (const ev of eventsInScope) {
@@ -2060,11 +2208,96 @@ async function computeVenueDashboardStats(venueIds, year) {
     months[i].bookings = eventTablesByMonth[i].size + venueTablesByMonth[i].size;
   }
 
+  // Tickets sold + ticket revenue (gross) for venue events.
+  if (eventIds.length) {
+    const tickets = await prisma.ticket.findMany({
+      where: {
+        kind: 'EVENT_TICKET',
+        eventId: { in: eventIds },
+        hiddenFromHistoryAt: null,
+        refundedAt: null,
+      },
+      select: { createdAt: true, paystackReference: true },
+      take: 20000,
+    });
+    allTime.ticketsSold = tickets.length;
+    for (const t of tickets) {
+      bump(bucketMonth(t.createdAt, year), 'ticketsSold');
+    }
+
+    const ticketRefs = [
+      ...new Set(tickets.map((t) => basePaymentReference(t.paystackReference)).filter(Boolean)),
+    ];
+    if (ticketRefs.length) {
+      const ticketPayments = await prisma.payment.findMany({
+        where: { reference: { in: ticketRefs }, status: 'success' },
+        select: { amount: true, createdAt: true, reference: true },
+      });
+      for (const p of ticketPayments) {
+        const amt = Number(p.amount) || 0;
+        allTime.ticketRevenueZar += amt;
+        bump(bucketMonth(p.createdAt, year), 'ticketRevenueZar', amt);
+      }
+    }
+  }
+
+  // Entrance fees (EVENT_ENTRANCE tickets / bookings).
+  if (eventIds.length) {
+    const entranceTickets = await prisma.ticket.findMany({
+      where: {
+        kind: 'EVENT_ENTRANCE',
+        eventId: { in: eventIds },
+        hiddenFromHistoryAt: null,
+        refundedAt: null,
+      },
+      select: { createdAt: true },
+      take: 10000,
+    });
+    allTime.entranceFees = entranceTickets.length;
+    for (const t of entranceTickets) {
+      bump(bucketMonth(t.createdAt, year), 'entranceFees');
+    }
+  }
+
+  // Ticketed tables — unique hosted tables on TICKETING_ONLY events with HOST/GUEST activity.
+  if (ticketedTableEventIds.length) {
+    const ticketedTableBookings = await prisma.eventVenueTableBooking.findMany({
+      where: {
+        venueId: { in: venueIds },
+        eventId: { in: ticketedTableEventIds },
+        role: { in: ['HOST', 'GUEST'] },
+        hostedTableId: { not: null },
+      },
+      select: { hostedTableId: true, createdAt: true },
+    });
+    const allTicketedTables = new Set();
+    const ticketedTablesByMonth = Array.from({ length: 12 }, () => new Set());
+    for (const row of ticketedTableBookings) {
+      if (!row.hostedTableId) continue;
+      allTicketedTables.add(row.hostedTableId);
+      const m = bucketMonth(row.createdAt, year);
+      if (m) ticketedTablesByMonth[m - 1].add(row.hostedTableId);
+    }
+    allTime.ticketedTables = allTicketedTables.size;
+    for (let i = 0; i < 12; i++) {
+      months[i].ticketedTables = ticketedTablesByMonth[i].size;
+    }
+  }
+
   const yearTotal = {
     events: months.reduce((sum, m) => sum + m.events, 0),
     bookings: months.reduce((sum, m) => sum + m.bookings, 0),
     guests: months.reduce((sum, m) => sum + m.guests, 0),
+    ticketsSold: months.reduce((sum, m) => sum + m.ticketsSold, 0),
+    ticketRevenueZar: roundZar(months.reduce((sum, m) => sum + m.ticketRevenueZar, 0)),
+    entranceFees: months.reduce((sum, m) => sum + m.entranceFees, 0),
+    ticketedTables: months.reduce((sum, m) => sum + m.ticketedTables, 0),
   };
+
+  allTime.ticketRevenueZar = roundZar(allTime.ticketRevenueZar);
+  for (const m of months) {
+    m.ticketRevenueZar = roundZar(m.ticketRevenueZar);
+  }
 
   const reviewAgg = await prisma.venueReview.aggregate({
     where: { venueId: { in: venueIds } },
@@ -2109,8 +2342,24 @@ router.get('/dashboard-monthly-stats', authenticateToken, async (req, res, next)
       return res.json({
         year,
         months: emptyMonthlyBuckets(),
-        yearTotal: { events: 0, bookings: 0, guests: 0 },
-        allTime: { events: 0, bookings: 0, guests: 0 },
+        yearTotal: {
+          events: 0,
+          bookings: 0,
+          guests: 0,
+          ticketsSold: 0,
+          ticketRevenueZar: 0,
+          entranceFees: 0,
+          ticketedTables: 0,
+        },
+        allTime: {
+          events: 0,
+          bookings: 0,
+          guests: 0,
+          ticketsSold: 0,
+          ticketRevenueZar: 0,
+          entranceFees: 0,
+          ticketedTables: 0,
+        },
         averageRating: null,
         reviewCount: 0,
       });
@@ -2298,6 +2547,8 @@ function emptyTicketBookingsSummary() {
     totalRevenueZar: 0,
     totalVenueShareZar: 0,
     totalGrossZar: 0,
+    tableGroupCount: 0,
+    tablePaidZar: 0,
   };
 }
 
@@ -2374,27 +2625,35 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         : null;
     const scopeRaw = String(req.query.event_scope || 'active').toLowerCase();
     const eventScope = ['active', 'past', 'all'].includes(scopeRaw) ? scopeRaw : 'active';
-    const startToday = startOfUtcToday();
-    const dateWhere =
-      eventScope === 'active' ? { gte: startToday } : eventScope === 'past' ? { lt: startToday } : undefined;
+    const now = new Date();
 
-    const eventWhere = {
+    const eventWhereBase = {
       venueId: { in: scopedVenueIds },
       deletedAt: null,
       ...(eventIdFilter ? { id: eventIdFilter } : {}),
-      ...(dateWhere ? { date: dateWhere } : {}),
     };
 
     if (eventIdFilter) {
       const ev = await prisma.event.findFirst({
-        where: eventWhere,
-        select: { id: true, date: true },
+        where: eventWhereBase,
+        select: {
+          id: true,
+          title: true,
+          date: true,
+          startTime: true,
+          endsAt: true,
+          city: true,
+          ticketTiers: true,
+          eventFormat: true,
+          hostingConfig: true,
+        },
       });
       if (!ev) return res.status(404).json({ error: 'Event not found' });
-      const isPast = eventDateIsPast(ev.date, startToday);
+      const isPast = eventIsPastByEndsAt(ev, now);
       if (eventScope === 'active' && isPast) {
         return res.json({
           items: [],
+          tableGroups: [],
           eventSummaries: [],
           summary: emptyTicketBookingsSummary(),
           eventScope,
@@ -2404,6 +2663,7 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
       if (eventScope === 'past' && !isPast) {
         return res.json({
           items: [],
+          tableGroups: [],
           eventSummaries: [],
           summary: emptyTicketBookingsSummary(),
           eventScope,
@@ -2412,19 +2672,25 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
       }
     }
 
-    const eventsAtVenue = await prisma.event.findMany({
-      where: eventWhere,
+    let eventsAtVenue = await prisma.event.findMany({
+      where: eventWhereBase,
       select: {
         id: true,
         title: true,
         date: true,
         startTime: true,
+        endsAt: true,
         city: true,
         ticketTiers: true,
         eventFormat: true,
         hostingConfig: true,
       },
     });
+    if (eventScope === 'active') {
+      eventsAtVenue = eventsAtVenue.filter((e) => eventIsActiveByEndsAt(e, now));
+    } else if (eventScope === 'past') {
+      eventsAtVenue = eventsAtVenue.filter((e) => eventIsPastByEndsAt(e, now));
+    }
     const eventIds = eventsAtVenue.map((e) => e.id);
 
     const ticketWhere =

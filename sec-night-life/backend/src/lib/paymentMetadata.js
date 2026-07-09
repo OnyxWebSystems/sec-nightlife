@@ -192,7 +192,18 @@ export function createEmptyRevenueCounters() {
   };
 }
 
-/** @param {'all'|'events'|'day_bookings'} scope */
+/** True when payment metadata clearly belongs to a TICKETING_ONLY event. */
+export function isTicketedEventPayment(meta) {
+  const m = isObjectRecord(meta) ? meta : {};
+  if (isDayBookingPayment(m)) return false;
+  const fmt = String(m.event_format || m.eventFormat || '');
+  if (fmt === 'TICKETING_ONLY' || Boolean(m.ticketed_event_tables)) return true;
+  if (fmt === 'TABLE_HOSTING') return false;
+  if (isTicketPaymentMeta(m, m.type)) return true;
+  return false;
+}
+
+/** @param {'all'|'events'|'day_bookings'|'ticketed_events'} scope */
 export function paymentMatchesRevenueScope(meta, scope) {
   if (scope === 'all') return true;
   const m = isObjectRecord(meta) ? meta : {};
@@ -200,6 +211,16 @@ export function paymentMatchesRevenueScope(meta, scope) {
   const hasEvent = Boolean(m.event_id ?? m.eventId);
 
   if (scope === 'day_bookings') return isDay;
+  if (scope === 'ticketed_events') {
+    if (isDay) return false;
+    if (isTicketedEventPayment(m)) return true;
+    // Ambiguous event-linked rows: allow; route filters by TICKETING_ONLY event id set.
+    if (hasEvent) {
+      const fmt = String(m.event_format || m.eventFormat || '');
+      return fmt !== 'TABLE_HOSTING';
+    }
+    return false;
+  }
   if (scope === 'events') {
     if (isDay) return false;
     if (hasEvent) return true;
@@ -220,7 +241,7 @@ function bumpCounter(counters, grossKey, netKey, gross, net) {
  * Classify revenue into buckets with gross + net amounts.
  * Returns true when the row was counted toward analytics totals.
  * Boosts, promotions, and house-party fees are never counted.
- * @param {'all'|'events'|'day_bookings'} revenueScope
+ * @param {'all'|'events'|'day_bookings'|'ticketed_events'} revenueScope
  * @param {string|null} [ledgerRef] - full payout ledger paymentReference (may include :menu suffix)
  */
 export function classifyVenuePaymentRevenueScoped(

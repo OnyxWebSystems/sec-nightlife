@@ -227,12 +227,13 @@ export default function BusinessBookings() {
   const [user, setUser] = useState(null);
   const [mainTab, setMainTab] = useState('tables');
   const [tableSubTab, setTableSubTab] = useState('event');
+  const [ticketSubTab, setTicketSubTab] = useState('tickets');
   const [dayVenueScope, setDayVenueScope] = useState('active');
   const [search, setSearch] = useState('');
   const [ticketSearch, setTicketSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [eventTimeScope, setEventTimeScope] = useState('active');
-  const [ticketEventTimeScope, setTicketEventTimeScope] = useState('all');
+  const [ticketEventTimeScope, setTicketEventTimeScope] = useState('active');
   const [selectedEventId, setSelectedEventId] = useState('all');
   const [ticketEventId, setTicketEventId] = useState('all');
   const [detailTicket, setDetailTicket] = useState(null);
@@ -404,6 +405,27 @@ export default function BusinessBookings() {
       (order.paystackReference || '').toLowerCase().includes(q)
     );
   });
+
+  const filteredTicketTableGroups = ticketTableGroups.filter((group) => {
+    if (!ticketSearch) return true;
+    const q = ticketSearch.toLowerCase();
+    const matchesTable =
+      (group?.event?.title || '').toLowerCase().includes(q) ||
+      (group?.hostedTable?.tableName || '').toLowerCase().includes(q);
+    const matchesGuest = (group.transactions || []).some((t) =>
+      (t?.user?.username || '').toLowerCase().includes(q),
+    );
+    return matchesTable || matchesGuest;
+  });
+
+  const ticketTableStats = {
+    tableCount: filteredTicketTableGroups.length,
+    transactionCount: filteredTicketTableGroups.reduce((s, g) => s + Number(g.transactionCount || 0), 0),
+    totalPaidZar:
+      ticketSummary?.tablePaidZar != null
+        ? Number(ticketSummary.tablePaidZar)
+        : filteredTicketTableGroups.reduce((s, g) => s + Number(g.totalPaidZar || 0), 0),
+  };
 
   const openEventTableSession = (group) => {
     const query = sessionQueryFromEventGroup(group);
@@ -769,82 +791,203 @@ export default function BusinessBookings() {
           </TabsContent>
 
           <TabsContent value="tickets" className="mt-0">
-            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              Ticket purchases for your ticketing events — tier, quantity, and buyer details.
-            </p>
+            <Tabs value={ticketSubTab} onValueChange={setTicketSubTab}>
+              <TabsList className="mb-5 border-0 sec-tabs-scroll" style={{ background: 'transparent' }}>
+                <TabsTrigger
+                  value="tickets"
+                  className="rounded-full px-4 py-2 text-sm data-[state=active]:bg-[var(--sec-accent-muted)] data-[state=active]:text-[var(--sec-accent)]"
+                  style={{ border: '1px solid var(--sec-border)', marginBottom: 0 }}
+                >
+                  Tickets
+                </TabsTrigger>
+                <TabsTrigger
+                  value="tables"
+                  className="rounded-full px-4 py-2 text-sm data-[state=active]:bg-[var(--sec-accent-muted)] data-[state=active]:text-[var(--sec-accent)]"
+                  style={{ border: '1px solid var(--sec-border)', marginBottom: 0 }}
+                >
+                  Tables
+                </TabsTrigger>
+              </TabsList>
 
-            {ticketScopeNotice(ticketBookingsData?.notice) && (
-              <div
-                style={{
-                  marginBottom: 16,
-                  padding: '10px 14px',
-                  borderRadius: 12,
-                  border: '1px solid var(--sec-accent-border)',
-                  background: 'var(--sec-accent-muted)',
-                  fontSize: 13,
-                  color: 'var(--sec-text-secondary)',
-                }}
-              >
-                {ticketScopeNotice(ticketBookingsData.notice)}
-              </div>
-            )}
+              <TabsContent value="tickets" className="mt-0">
+                <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
+                  Ticket purchases for your ticketing events — tier, quantity, and buyer details.
+                </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
-              <StatTile label="Orders" value={ticketSummary?.orderCount ?? 0} accent />
-              <StatTile label="Tickets sold" value={ticketSummary?.ticketCount ?? 0} />
-              <StatTile label="Paid" value={`R${Number(ticketSummary?.totalGrossZar ?? ticketSummary?.totalRevenueZar ?? 0).toFixed(0)}`} accent />
-            </div>
+                {ticketScopeNotice(ticketBookingsData?.notice) && (
+                  <div
+                    style={{
+                      marginBottom: 16,
+                      padding: '10px 14px',
+                      borderRadius: 12,
+                      border: '1px solid var(--sec-accent-border)',
+                      background: 'var(--sec-accent-muted)',
+                      fontSize: 13,
+                      color: 'var(--sec-text-secondary)',
+                    }}
+                  >
+                    {ticketScopeNotice(ticketBookingsData.notice)}
+                  </div>
+                )}
 
-            <FilterBar>
-              <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-                <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
-                <Input
-                  placeholder="Search event, tier, buyer, or reference…"
-                  value={ticketSearch}
-                  onChange={(e) => setTicketSearch(e.target.value)}
-                  className="h-10 rounded-xl pl-9"
-                  style={selectTriggerStyle}
-                />
-              </div>
-              <Select value={ticketEventTimeScope} onValueChange={setTicketEventTimeScope}>
-                <SelectTrigger className="w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
-                  <SelectItem value="active">Active events</SelectItem>
-                  <SelectItem value="past">Past events</SelectItem>
-                  <SelectItem value="all">All events</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={ticketEventId} onValueChange={setTicketEventId}>
-                <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
-                  <SelectValue placeholder="Event" />
-                </SelectTrigger>
-                <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
-                  <SelectItem value="all">All events</SelectItem>
-                  {(ticketBookingsData?.eventSummaries || []).map((e) => (
-                    <SelectItem key={e.id} value={e.id}>{e.title || 'Untitled event'}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FilterBar>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
+                  <StatTile label="Orders" value={ticketSummary?.orderCount ?? 0} accent />
+                  <StatTile label="Tickets sold" value={ticketSummary?.ticketCount ?? 0} />
+                  <StatTile label="Admitted" value={ticketSummary?.admittedCount ?? 0} />
+                  <StatTile label="Paid" value={`R${Number(ticketSummary?.totalGrossZar ?? ticketSummary?.totalRevenueZar ?? 0).toFixed(0)}`} accent />
+                </div>
 
-            {ticketsLoading ? (
-              <div className="flex justify-center py-16"><Loader2 className="animate-spin" style={{ color: 'var(--sec-accent)' }} /></div>
-            ) : filteredTickets.length === 0 && ticketTableGroups.length === 0 ? (
-              <EmptyState
-                icon={Ticket}
-                title="No ticket bookings yet"
-                description="When party goers buy tickets for your events, orders will appear here with tier and admission details."
-              />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {ticketTableGroups.length > 0 ? (
-                  <>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginTop: 4 }}>
-                      Tables at ticketed events
-                    </p>
-                    {ticketTableGroups.map((group) => (
+                <FilterBar>
+                  <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                    <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
+                    <Input
+                      placeholder="Search event, tier, buyer, or reference…"
+                      value={ticketSearch}
+                      onChange={(e) => setTicketSearch(e.target.value)}
+                      className="h-10 rounded-xl pl-9"
+                      style={selectTriggerStyle}
+                    />
+                  </div>
+                  <Select value={ticketEventTimeScope} onValueChange={setTicketEventTimeScope}>
+                    <SelectTrigger className="w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="past">Past</SelectItem>
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={ticketEventId} onValueChange={setTicketEventId}>
+                    <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
+                      <SelectValue placeholder="Event" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
+                      <SelectItem value="all">All events</SelectItem>
+                      {(ticketBookingsData?.eventSummaries || []).map((e) => (
+                        <SelectItem key={e.id} value={e.id}>{e.title || 'Untitled event'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FilterBar>
+
+                {ticketsLoading ? (
+                  <div className="flex justify-center py-16"><Loader2 className="animate-spin" style={{ color: 'var(--sec-accent)' }} /></div>
+                ) : filteredTickets.length === 0 ? (
+                  <EmptyState
+                    icon={Ticket}
+                    title="No ticket bookings yet"
+                    description="When party goers buy tickets for your events, orders will appear here with tier and admission details."
+                  />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {filteredTickets.map((order) => (
+                      <div
+                        key={order.id}
+                        className="sec-card"
+                        style={{ padding: '14px 16px', border: '1px solid var(--sec-border)', cursor: 'pointer' }}
+                        onClick={() => setDetailTicket(order)}
+                        onKeyDown={(e) => e.key === 'Enter' && setDetailTicket(order)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{
+                            width: 48, height: 48, borderRadius: 12, flexShrink: 0,
+                            background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            <Ticket size={20} style={{ color: 'var(--sec-accent)' }} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {order.event?.title || 'Ticket order'}
+                            </div>
+                            {formatEventWhen(order.event) && (
+                              <div style={{ fontSize: 12, color: 'var(--sec-text-secondary)', marginTop: 2 }}>
+                                {formatEventWhen(order.event)}
+                                {order.event?.city ? ` · ${order.event.city}` : ''}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                              {order.tierName} · {order.quantity} ticket{order.quantity === 1 ? '' : 's'} · @{order.purchaser?.username || 'guest'}
+                              {order.fulfillmentPending ? ' · Preparing tickets' : ''}
+                              {order.refundStatus === 'APPROVED' ? ' · Refunded' : ''}
+                              {order.refundStatus === 'PENDING' ? ' · Refund pending' : ''}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: order.refundStatus === 'APPROVED' ? 'var(--sec-text-muted)' : 'var(--sec-accent)' }}>
+                              R{ticketPaidZar(order).toFixed(0)}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>
+                              {order.refundStatus === 'APPROVED' ? 'Refunded' : 'Paid'}
+                            </div>
+                          </div>
+                          <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="tables" className="mt-0">
+                <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
+                  Host and join tables at your ticketed events — same session view as event table bookings.
+                </p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
+                  <StatTile label="Tables" value={ticketTableStats.tableCount} accent />
+                  <StatTile label="Transactions" value={ticketTableStats.transactionCount} />
+                  <StatTile label="Paid" value={`R${Number(ticketTableStats.totalPaidZar || 0).toFixed(0)}`} accent />
+                </div>
+
+                <FilterBar>
+                  <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                    <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
+                    <Input
+                      placeholder="Search event, table, or guest…"
+                      value={ticketSearch}
+                      onChange={(e) => setTicketSearch(e.target.value)}
+                      className="h-10 rounded-xl pl-9"
+                      style={selectTriggerStyle}
+                    />
+                  </div>
+                  <Select value={ticketEventTimeScope} onValueChange={setTicketEventTimeScope}>
+                    <SelectTrigger className="w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="past">Past</SelectItem>
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={ticketEventId} onValueChange={setTicketEventId}>
+                    <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
+                      <SelectValue placeholder="Event" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
+                      <SelectItem value="all">All events</SelectItem>
+                      {(ticketBookingsData?.eventSummaries || []).map((e) => (
+                        <SelectItem key={e.id} value={e.id}>{e.title || 'Untitled event'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FilterBar>
+
+                {ticketsLoading ? (
+                  <div className="flex justify-center py-16"><Loader2 className="animate-spin" style={{ color: 'var(--sec-accent)' }} /></div>
+                ) : filteredTicketTableGroups.length === 0 ? (
+                  <EmptyState
+                    icon={Users}
+                    title="No ticketed table bookings yet"
+                    description="When guests host or join tables at your ticketed events, sessions will appear here."
+                  />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {filteredTicketTableGroups.map((group) => (
                       <div
                         key={`tt-${group.id}`}
                         className="sec-card"
@@ -894,62 +1037,10 @@ export default function BusinessBookings() {
                         </div>
                       </div>
                     ))}
-                    {filteredTickets.length > 0 ? (
-                      <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginTop: 12 }}>
-                        Ticket orders
-                      </p>
-                    ) : null}
-                  </>
-                ) : null}
-                {filteredTickets.map((order) => (
-                  <div
-                    key={order.id}
-                    className="sec-card"
-                    style={{ padding: '14px 16px', border: '1px solid var(--sec-border)', cursor: 'pointer' }}
-                    onClick={() => setDetailTicket(order)}
-                    onKeyDown={(e) => e.key === 'Enter' && setDetailTicket(order)}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <div style={{
-                        width: 48, height: 48, borderRadius: 12, flexShrink: 0,
-                        background: 'var(--sec-accent-muted)', border: '1px solid var(--sec-accent-border)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <Ticket size={20} style={{ color: 'var(--sec-accent)' }} />
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {order.event?.title || 'Ticket order'}
-                        </div>
-                        {formatEventWhen(order.event) && (
-                          <div style={{ fontSize: 12, color: 'var(--sec-text-secondary)', marginTop: 2 }}>
-                            {formatEventWhen(order.event)}
-                            {order.event?.city ? ` · ${order.event.city}` : ''}
-                          </div>
-                        )}
-                        <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
-                          {order.tierName} · {order.quantity} ticket{order.quantity === 1 ? '' : 's'} · @{order.purchaser?.username || 'guest'}
-                          {order.fulfillmentPending ? ' · Preparing tickets' : ''}
-                          {order.refundStatus === 'APPROVED' ? ' · Refunded' : ''}
-                          {order.refundStatus === 'PENDING' ? ' · Refund pending' : ''}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: order.refundStatus === 'APPROVED' ? 'var(--sec-text-muted)' : 'var(--sec-accent)' }}>
-                          R{ticketPaidZar(order).toFixed(0)}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 2 }}>
-                          {order.refundStatus === 'APPROVED' ? 'Refunded' : 'Paid'}
-                        </div>
-                      </div>
-                      <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
-                    </div>
                   </div>
-                ))}
-              </div>
-            )}
+                )}
+              </TabsContent>
+            </Tabs>
           </TabsContent>
         </Tabs>
       </div>
