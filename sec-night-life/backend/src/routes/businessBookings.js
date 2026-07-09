@@ -950,7 +950,8 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
               select: {
                 id: true,
                 tierLabel: true,
-                hostingTiersKey: true,
+                // Prefer tierLabel/tableName for insights — avoid hostingTiersKey select
+                // (stale Prisma clients have crashed day_bookings on that field).
                 tableName: true,
                 bookingFeeZar: true,
                 hostTableFeeZar: true,
@@ -989,7 +990,6 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
                   select: {
                     id: true,
                     tierLabel: true,
-                    hostingTiersKey: true,
                     tableName: true,
                   },
                 },
@@ -1496,9 +1496,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
       const bumpTier = (tableId, tableMeta, amt, windowStart, paidAt, joinedAt) => {
         if (!tableId || amt <= 0) return;
-        const tierKey = String(
-          tableMeta?.hostingTiersKey || tableMeta?.tierLabel || tableMeta?.tableName || tableId,
-        );
+        const tierKey = String(tableMeta?.tierLabel || tableMeta?.tableName || tableId);
         if (!tierMap.has(tierKey)) {
           tierMap.set(tierKey, { tierKey, tables: new Map() });
         }
