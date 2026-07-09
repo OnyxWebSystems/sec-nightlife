@@ -29,6 +29,7 @@ import {
 } from '../lib/dayBookingWindows.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { getEventEntranceZar, getHostTableFeeZar, resolveHostingTierCaps } from '../lib/hostedTableSecFees.js';
+import { userHasPaidEventEntrance, resolveTableEntranceZar, resolveHostedJoinEntranceZar } from '../lib/entranceCheckout.js';
 import { addUserToHostedTableGroupChat, removeUserFromHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
 import {
   reconcileTableInvitesOnJoin,
@@ -465,7 +466,11 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       eventLocation?.displayLabel ||
       [t.venueAddress, t.venueName].filter(Boolean).join(', ') ||
       t.venueName;
-    const entranceZar = getEventEntranceZar(t.event);
+    const entranceZar = await resolveHostedJoinEntranceZar({
+      event: t.event,
+      userId: uid,
+      hostedTableId: t.id,
+    });
     const joinZar = t.hasJoiningFee && Number(t.joiningFee) > 0 ? Number(t.joiningFee) : 0;
     const tierMin =
       t.tierMinSpend != null && Number.isFinite(Number(t.tierMinSpend)) ? Number(t.tierMinSpend) : null;
@@ -1763,7 +1768,11 @@ router.patch('/tables/:tableId/join-requests/:userId', authenticateToken, async 
       ? await resolveLinkedVenueTableForHostedTable(prisma, table.id)
       : null;
     const approveVenueId = approveEvent?.venueId || approveLinkedVt?.venueId || null;
-    const entranceZarApprove = getEventEntranceZar(approveEvent);
+    const entranceZarApprove = await resolveHostedJoinEntranceZar({
+      event: approveEvent,
+      userId: targetUserId,
+      hostedTableId: table.id,
+    });
     const joinZarApprove =
       table.hasJoiningFee && Number(table.joiningFee || 0) > 0 ? Number(table.joiningFee) : 0;
     if (action === 'reject') {
@@ -2032,7 +2041,11 @@ router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified
       : null;
     const joinLinkedVt = !joinEvent ? await resolveLinkedVenueTableForHostedTable(prisma, t.id) : null;
     const joinVenueId = joinEvent?.venueId || joinLinkedVt?.venueId || null;
-    const entranceZar = getEventEntranceZar(joinEvent);
+    const entranceZar = await resolveHostedJoinEntranceZar({
+      event: joinEvent,
+      userId: req.userId,
+      hostedTableId: t.id,
+    });
     const joinZar = t.hasJoiningFee && Number(t.joiningFee || 0) > 0 ? Number(t.joiningFee) : 0;
 
     let menuResolved = { items: [], totalZar: 0 };
@@ -2180,7 +2193,11 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
       });
       return res.json({ joined: false, pending: true });
     }
-    const entranceZarJoin = getEventEntranceZar(joinEvent);
+    const entranceZarJoin = await resolveHostedJoinEntranceZar({
+      event: joinEvent,
+      userId: req.userId,
+      hostedTableId: t.id,
+    });
     const joinZarJoin = t.hasJoiningFee && Number(t.joiningFee || 0) > 0 ? Number(t.joiningFee) : 0;
     const menuZarJoin = Number(menuResolved.totalZar || 0);
     const payZarJoin = entranceZarJoin + joinZarJoin + menuZarJoin;
@@ -2509,7 +2526,11 @@ router.patch('/tables/invites/:inviteId/respond', authenticateToken, async (req,
           select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
         })
       : null;
-    const entranceZarInv = getEventEntranceZar(inviteEvent);
+    const entranceZarInv = await resolveHostedJoinEntranceZar({
+      event: inviteEvent,
+      userId: req.userId,
+      hostedTableId: table.id,
+    });
     const joinZarInv = table.hasJoiningFee && Number(table.joiningFee || 0) > 0 ? Number(table.joiningFee) : 0;
     if (entranceZarInv + joinZarInv > 0) {
       const member =

@@ -1,8 +1,13 @@
 import { prisma } from './prisma.js';
-import { normalizeHostingConfig, resolveTierBookingFees } from './hostingConfig.js';
+import {
+  normalizeHostingConfig,
+  resolveTierBookingFees,
+  resolveIncludeEntranceFee,
+} from './hostingConfig.js';
 
 /**
  * Sync event hosting_config tiers to VenueTable listings (one row per tier slot).
+ * Works for TABLE_HOSTING and TICKETING_ONLY events that define hosting tiers.
  */
 export async function syncEventVenueTables(eventId) {
   const event = await prisma.event.findFirst({
@@ -17,12 +22,12 @@ export async function syncEventVenueTables(eventId) {
   for (const cat of ['general', 'vip']) {
     const section = hosting[cat] || {};
     const tiers = Array.isArray(section.tiers) ? section.tiers : [];
-    const allowsCustom = Boolean(section.allows_custom_requests);
     for (let tierIdx = 0; tierIdx < tiers.length; tierIdx++) {
       const tier = tiers[tierIdx];
       const slots = Number(tier.tier_table_slots) || 1;
       const tierKeyBase = `${cat}:${tierIdx}`;
       const { joinFee, hostFee } = resolveTierBookingFees(tier, section);
+      const includeEntranceFee = resolveIncludeEntranceFee(tier);
       const includedItems = Array.isArray(tier.included_items) ? tier.included_items : [];
 
       for (let slotIdx = 0; slotIdx < slots; slotIdx++) {
@@ -54,6 +59,8 @@ export async function syncEventVenueTables(eventId) {
           hostTableFeeZar: hostFee,
           minSpendSettlement: 'PREPAY_MENU',
           tierLabel: tier.tier_name || null,
+          tableCategory: cat,
+          includeEntranceFee,
           hostingTierKey,
           includedItems: includedItems.length ? includedItems : null,
           allowsCustomRequests: false,
@@ -68,6 +75,8 @@ export async function syncEventVenueTables(eventId) {
               ? {
                   tableName: data.tableName,
                   tierLabel: data.tierLabel,
+                  tableCategory: data.tableCategory,
+                  includeEntranceFee: data.includeEntranceFee,
                   includedItems: data.includedItems,
                   isActive: true,
                 }

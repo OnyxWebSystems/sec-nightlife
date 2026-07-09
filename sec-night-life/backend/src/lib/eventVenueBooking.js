@@ -23,12 +23,17 @@ export async function recordEventVenueTableBooking({
   promoterUserId = null,
 }) {
   if (!venueId || !eventId || !userId || !role) return null;
-  if (!hostedTableId && !venueTableId) return null;
+  if (!hostedTableId && !venueTableId && role !== 'ENTRANCE') return null;
 
   let dup = null;
   if (paystackReference) {
     dup = await prisma.eventVenueTableBooking.findFirst({
       where: { paystackReference },
+    });
+  }
+  if (!dup && role === 'ENTRANCE') {
+    dup = await prisma.eventVenueTableBooking.findFirst({
+      where: { eventId, userId, role: 'ENTRANCE' },
     });
   }
   if (!dup && hostedTableId) {

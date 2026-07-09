@@ -40,7 +40,7 @@ export default function BusinessVenueTables() {
     description: '',
     serviceDays: emptyServiceScheduleMap(),
     allowsCustomRequests: false,
-    tiers: [{ tier_name: 'Standard', max_guests: '6', min_spend: '2000', booking_fee_zar: '200', tier_table_slots: '1', included_items: [] }],
+    tiers: [{ tier_name: 'Standard', max_guests: '6', min_spend: '2000', booking_fee_zar: '200', tier_table_slots: '1', table_category: 'general', included_items: [] }],
   });
   const [declineTemplatesByMember, setDeclineTemplatesByMember] = useState({});
   const [declineParamsByMember, setDeclineParamsByMember] = useState({});
@@ -160,6 +160,7 @@ export default function BusinessVenueTables() {
           booking_fee_zar: fees.booking_fee_zar,
           host_table_fee_zar: fees.host_table_fee_zar,
           tier_table_slots: parseInt(tier.tier_table_slots, 10) || 1,
+          table_category: String(tier.table_category || 'general').toLowerCase() === 'vip' ? 'vip' : 'general',
           included_items: tier.included_items || [],
         };
       });

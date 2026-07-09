@@ -22,6 +22,7 @@ import {
   buildTicketPaymentMetadata,
   expectedTicketTotalFromMetadata,
 } from '../lib/ticketCheckout.js';
+import { computeEventEntranceCheckout, issueEventEntranceFromPayment } from '../lib/issueEventEntrance.js';
 import { normalizeGuestGenderPreference } from '../lib/genderPreference.js';
 import { getEventEntranceZar } from '../lib/hostedTableSecFees.js';
 import {
@@ -929,6 +930,12 @@ async function applyReferenceSideEffects(reference, paystackData) {
           memberRole: member?.memberRole,
           tableSessionNumber: vt.tableSessionNumber,
         });
+        try {
+          const { addUserToEventGroupChat } = await import('../lib/groupChatHelpers.js');
+          await addUserToEventGroupChat(vt.eventId, String(userId), vt.event?.title || vt.tableName);
+        } catch (_) {
+          /* non-fatal */
+        }
       }
     }
   }
@@ -1535,6 +1542,14 @@ async function applyReferenceSideEffects(reference, paystackData) {
             }
             const payerName = payer?.fullName || payer?.username || 'A guest';
             await addUserToHostedTableGroupChat(htFinal.id, String(userId));
+            if (htEvent?.id) {
+              try {
+                const { addUserToEventGroupChat } = await import('../lib/groupChatHelpers.js');
+                await addUserToEventGroupChat(htEvent.id, String(userId), htEvent.title || htFinal.tableName);
+              } catch (_) {
+                /* non-fatal */
+              }
+            }
             if (htEvent?.venue?.ownerUserId) {
               await createInAppNotification({
                 userId: htEvent.venue.ownerUserId,
@@ -1687,6 +1702,16 @@ async function applyReferenceSideEffects(reference, paystackData) {
     (metadata.ticket_tier_name || metadata.ticketTierName)
   ) {
     await issueEventTicketsFromPayment(prisma, {
+      reference,
+      userId,
+      email,
+      amount,
+      metadata,
+    });
+  }
+
+  if (userId && (metadata.type === 'EVENT_ENTRANCE' || type === 'EVENT_ENTRANCE')) {
+    await issueEventEntranceFromPayment(prisma, {
       reference,
       userId,
       email,
@@ -1855,6 +1880,11 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
         if (member?.status !== 'GOING') return false;
       }
     }
+    const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+    return Boolean(ticket);
+  }
+
+  if (type === 'EVENT_ENTRANCE') {
     const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
     return Boolean(ticket);
   }
@@ -2197,6 +2227,31 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
         });
       }
       meta = buildTicketPaymentMetadata(meta, computed);
+    } else if (type === 'EVENT_ENTRANCE') {
+      const computed = await computeEventEntranceCheckout(prisma, {
+        eventId: meta.event_id || d.event_id,
+        selectedMenuItems: meta.selected_menu_items || meta.selectedMenuItems || [],
+      });
+      if (!computed.ok) return res.status(400).json({ error: computed.error });
+      if (Math.abs(Number(d.amount) - computed.total) >= 0.02) {
+        return res.status(400).json({
+          error: 'Payment amount does not match checkout total.',
+          expected_zar: computed.total,
+        });
+      }
+      meta = {
+        ...meta,
+        type: 'EVENT_ENTRANCE',
+        event_id: computed.event.id,
+        venue_id: computed.event.venueId,
+        entrance_zar: computed.entranceZar,
+        menu_zar: computed.menuZar,
+        amount_total_zar: computed.total,
+        platform_fee_zar: computed.platformFee,
+        venue_share_zar: computed.venueShare,
+        selected_menu_items: computed.menuItems.length ? computed.menuItems : undefined,
+        lines: computed.lines,
+      };
     } else if (['table', 'VENUE_TABLE_JOIN', 'TABLE_CHECKOUT', 'HOSTED_TABLE_JOIN'].includes(type)) {
       const expected = expectedTotalFromMetadata(meta);
       if (expected > 0 && Math.abs(Number(d.amount) - expected) >= 0.02) {
@@ -2305,6 +2360,31 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         });
       }
       meta = buildTicketPaymentMetadata(meta, computed);
+    } else if (type === 'EVENT_ENTRANCE') {
+      const computed = await computeEventEntranceCheckout(prisma, {
+        eventId: meta.event_id || d.event_id,
+        selectedMenuItems: meta.selected_menu_items || meta.selectedMenuItems || [],
+      });
+      if (!computed.ok) return res.status(400).json({ error: computed.error });
+      if (Math.abs(Number(d.amount) - computed.total) >= 0.02) {
+        return res.status(400).json({
+          error: 'Payment amount does not match checkout total.',
+          expected_zar: computed.total,
+        });
+      }
+      meta = {
+        ...meta,
+        type: 'EVENT_ENTRANCE',
+        event_id: computed.event.id,
+        venue_id: computed.event.venueId,
+        entrance_zar: computed.entranceZar,
+        menu_zar: computed.menuZar,
+        amount_total_zar: computed.total,
+        platform_fee_zar: computed.platformFee,
+        venue_share_zar: computed.venueShare,
+        selected_menu_items: computed.menuItems.length ? computed.menuItems : undefined,
+        lines: computed.lines,
+      };
     } else if (['table', 'VENUE_TABLE_JOIN', 'TABLE_CHECKOUT', 'HOSTED_TABLE_JOIN'].includes(type)) {
       const expected = expectedTotalFromMetadata(meta);
       if (expected > 0 && Math.abs(Number(d.amount) - expected) >= 0.02) {

@@ -656,6 +656,37 @@ router.get('/:id/table-tiers', optionalAuth, async (req, res, next) => {
   }
 });
 
+/** Preview standalone entrance (+ optional menu) checkout for table-hosting events. */
+router.post('/:id/entrance-checkout-preview', authenticateToken, async (req, res, next) => {
+  try {
+    const { computeEventEntranceCheckout } = await import('../lib/issueEventEntrance.js');
+    const { userHasPaidEventEntrance } = await import('../lib/entranceCheckout.js');
+    const already = await userHasPaidEventEntrance(req.userId, req.params.id);
+    if (already) {
+      return res.status(400).json({ error: 'You already have an entrance pass for this event.' });
+    }
+    const selectedMenuItems = Array.isArray(req.body?.selectedMenuItems)
+      ? req.body.selectedMenuItems
+      : [];
+    const computed = await computeEventEntranceCheckout(prisma, {
+      eventId: req.params.id,
+      selectedMenuItems,
+    });
+    if (!computed.ok) return res.status(400).json({ error: computed.error });
+    res.json({
+      entrance_zar: computed.entranceZar,
+      menu_zar: computed.menuZar,
+      total: computed.total,
+      platform_fee: computed.platformFee,
+      venue_share: computed.venueShare,
+      lines: computed.lines,
+      menu_items: computed.menuItems,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** Public summary of SEC hosted tables for an event (event details page). */
 router.get('/:id/hosted-tables-summary', optionalAuth, async (req, res, next) => {
   try {
@@ -1149,9 +1180,11 @@ router.post('/', authenticateToken, async (req, res, next) => {
     }
 
     const eventFormat = d.event_format === 'TICKETING_ONLY' ? 'TICKETING_ONLY' : 'TABLE_HOSTING';
-    const normalizedHosting =
-      eventFormat === 'TICKETING_ONLY' ? null : normalizeHostingConfig(d.hosting_config ?? null);
-    if (eventFormat === 'TABLE_HOSTING' && d.hosting_config) {
+    const normalizedHosting = normalizeHostingConfig(d.hosting_config ?? null);
+    const hasHostingTiers = ['general', 'vip'].some(
+      (cat) => Array.isArray(normalizedHosting[cat]?.tiers) && normalizedHosting[cat].tiers.length > 0,
+    );
+    if (d.hosting_config && hasHostingTiers) {
       const hostCfgCheck = validateHostingTierSlotsConfig(normalizedHosting);
       if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
       const menuCheck = await validateHostingMenuItems(resolvedVenueId, normalizedHosting);
@@ -1202,7 +1235,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         endsAt: endsAtResolved,
         hasEntranceFee: eventFormat === 'TICKETING_ONLY' ? false : hasFee,
         entranceFeeAmount: eventFormat === 'TICKETING_ONLY' ? null : hasFee ? d.entrance_fee_amount : null,
-        hostingConfig: normalizedHosting,
+        hostingConfig: hasHostingTiers ? normalizedHosting : null,
         eventFormat,
         allowsTicketMenuAddons:
           eventFormat === 'TICKETING_ONLY' ? Boolean(d.allows_ticket_menu_addons) : false,
@@ -1211,7 +1244,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
         seatingPlanId: seatingFields.seatingPlanId,
       },
     });
-    if (d.status === 'published' && eventFormat === 'TABLE_HOSTING') {
+    if (d.status === 'published' && hasHostingTiers) {
       await syncEventVenueTables(event.id);
     }
     ensureGroupChatForEvent(event.id, event.title).catch((e) => {
@@ -1309,18 +1342,20 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       updates.allowsTicketMenuAddons = false;
     }
 
-    if (d.hosting_config !== undefined && nextFormat !== 'TICKETING_ONLY') {
+    if (d.hosting_config !== undefined) {
       const mergedHosting = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);
-      const hostCfgCheck = validateHostingTierSlotsConfig(mergedHosting);
-      if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
-      const menuCheck = await validateHostingMenuItems(event.venueId, mergedHosting);
-      if (!menuCheck.ok) return res.status(400).json({ error: menuCheck.error });
-      const tierSlotsCheck = await assertTierSlotsNotBelowCurrentHostedTables(event.id, mergedHosting);
-      if (!tierSlotsCheck.ok) return res.status(400).json({ error: tierSlotsCheck.error });
-      updates.hostingConfig = mergedHosting;
-    }
-    if (nextFormat === 'TICKETING_ONLY') {
-      updates.hostingConfig = null;
+      const hasHostingTiers = ['general', 'vip'].some(
+        (cat) => Array.isArray(mergedHosting[cat]?.tiers) && mergedHosting[cat].tiers.length > 0,
+      );
+      if (hasHostingTiers) {
+        const hostCfgCheck = validateHostingTierSlotsConfig(mergedHosting);
+        if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
+        const menuCheck = await validateHostingMenuItems(event.venueId, mergedHosting);
+        if (!menuCheck.ok) return res.status(400).json({ error: menuCheck.error });
+        const tierSlotsCheck = await assertTierSlotsNotBelowCurrentHostedTables(event.id, mergedHosting);
+        if (!tierSlotsCheck.ok) return res.status(400).json({ error: tierSlotsCheck.error });
+      }
+      updates.hostingConfig = hasHostingTiers ? mergedHosting : null;
     }
 
     if (hasEventCodeInput) {
@@ -1389,10 +1424,14 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
         logger.error('Group chat creation on publish failed', { eventId: updated.id, message: e?.message });
       });
     }
-    const isTicketingOnly = updated.eventFormat === 'TICKETING_ONLY';
+    const hostingForSync = updates.hostingConfig !== undefined ? updates.hostingConfig : updated.hostingConfig;
+    const hasHostingTiers = ['general', 'vip'].some((cat) => {
+      const cfg = hostingForSync && typeof hostingForSync === 'object' ? hostingForSync[cat] : null;
+      return Array.isArray(cfg?.tiers) && cfg.tiers.length > 0;
+    });
     const shouldSync =
       updated.status === 'published' &&
-      !isTicketingOnly &&
+      hasHostingTiers &&
       (updates.hostingConfig !== undefined || d.status === 'published');
     if (shouldSync) {
       await syncEventVenueTables(updated.id);

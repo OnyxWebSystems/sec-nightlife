@@ -275,7 +275,7 @@ function tryAddHistoryRow(byKey, byCanonical, hiddenKeys, row, hostedToVenue = n
 }
 
 function ticketRoleFromKind(kind, ticket = null) {
-  if (kind === 'EVENT_TICKET') return 'ATTENDED';
+  if (kind === 'EVENT_TICKET' || kind === 'EVENT_ENTRANCE') return 'ATTENDED';
   if (kind === 'TABLE_HOST_FEE') return 'HOST';
   if (kind === 'VENUE_TABLE_JOIN') {
     const title = String(ticket?.title || '');
@@ -285,7 +285,7 @@ function ticketRoleFromKind(kind, ticket = null) {
 }
 
 function ticketHistoryKey(ticket, hostedToVenue = null) {
-  if (ticket.kind === 'EVENT_TICKET' && ticket.eventId) {
+  if ((ticket.kind === 'EVENT_TICKET' || ticket.kind === 'EVENT_ENTRANCE') && ticket.eventId) {
     return `ATTENDED:${ticket.eventId}`;
   }
   const role = ticketRoleFromKind(ticket.kind, ticket);
@@ -302,7 +302,7 @@ function ticketHistoryKey(ticket, hostedToVenue = null) {
 
 function ticketToHistoryRow(ticket, userId) {
   const role = ticketRoleFromKind(ticket.kind, ticket);
-  const isEventTicket = ticket.kind === 'EVENT_TICKET';
+  const isEventTicket = ticket.kind === 'EVENT_TICKET' || ticket.kind === 'EVENT_ENTRANCE';
   return {
     id: `ticket-${ticket.id}`,
     userId,

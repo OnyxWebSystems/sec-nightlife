@@ -85,6 +85,12 @@ function rollBookingStats(rows) {
 }
 
 function bookingGroupKey(row) {
+  if (row.role === 'ENTRANCE' && row.event?.id) {
+    return `entrance-only-${row.event.id}`;
+  }
+  if (row.role === 'ENTRANCE' && row.eventId) {
+    return `entrance-only-${row.eventId}`;
+  }
   if (row.hostedTable?.id) return String(row.hostedTable.id);
   if (row.venueTableId) {
     return `direct-vt-${row.venueTableId}-s${row.tableSessionNumber || 1}`;
@@ -133,15 +139,24 @@ function groupEventTableBookingsByTable(mapped, refundedRefs = null) {
     if (!groups.has(tableId)) {
       groups.set(tableId, {
         id: tableId,
-        hostedTable: row.hostedTable,
+        hostedTable: row.role === 'ENTRANCE'
+          ? {
+              id: tableId,
+              tableName: 'Entrance only',
+              status: 'ACTIVE',
+              hostUserId: null,
+              hostingCategory: null,
+            }
+          : row.hostedTable,
         event: row.event,
         venue: row.venue,
         totalPaidZar: 0,
         transactionCount: 0,
         lastActivityAt: row.createdAt,
         transactions: [],
-        rolesSummary: { hosts: 0, guests: 0 },
+        rolesSummary: { hosts: 0, guests: 0, entrance: 0 },
         isDirectVenueSlot: Boolean(row.isDirectVenueSlot),
+        isEntranceOnly: row.role === 'ENTRANCE',
       });
     }
     const g = groups.get(tableId);
@@ -152,6 +167,7 @@ function groupEventTableBookingsByTable(mapped, refundedRefs = null) {
     g.transactions.push(row);
     if (row.role === 'HOST') g.rolesSummary.hosts += 1;
     else if (row.role === 'GUEST') g.rolesSummary.guests += 1;
+    else if (row.role === 'ENTRANCE') g.rolesSummary.entrance += 1;
   }
   for (const g of groups.values()) {
     g.transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -345,7 +361,7 @@ function eventIsActiveByEndsAt(ev, now = new Date()) {
   return !eventIsPastByEndsAt(ev, now);
 }
 
-/** Table-hosting events only — excludes ticketed-only experiences from event table bookings. */
+/** Table-hosting events for the Event Table bookings tab (excludes ticketed events). */
 function eventSupportsTableBookings(ev) {
   if (!ev) return false;
   if (ev.eventFormat === 'TABLE_HOSTING') return true;
@@ -367,6 +383,23 @@ function eventSupportsTableBookings(ev) {
 
   if (hasTicketTiers && !hasTableHosting) return false;
   return hasTableHosting;
+}
+
+function ticketedEventHasTables(ev) {
+  if (!ev || ev.eventFormat !== 'TICKETING_ONLY') return false;
+  const hosting = normalizeHostingConfig(ev.hostingConfig);
+  const tableTierCount =
+    (Array.isArray(hosting.general?.tiers) ? hosting.general.tiers.length : 0) +
+    (Array.isArray(hosting.vip?.tiers) ? hosting.vip.tiers.length : 0);
+  const maxG = Number(hosting.general?.max_tables);
+  const maxV = Number(hosting.vip?.max_tables);
+  return (
+    tableTierCount > 0 ||
+    (Number.isFinite(maxG) && maxG > 0) ||
+    (Number.isFinite(maxV) && maxV > 0) ||
+    Boolean(hosting.general?.allows_custom_requests) ||
+    Boolean(hosting.vip?.allows_custom_requests)
+  );
 }
 
 function eventQualifiesForTableBookings(ev, eventIdsWithVenueTables) {
@@ -482,6 +515,8 @@ function mapVenueTableManagementItem(t, hosted, goingCount = null) {
     id: t.id,
     tableName: t.tableName,
     tierLabel: t.tierLabel,
+    tableCategory: t.tableCategory || null,
+    includeEntranceFee: t.includeEntranceFee !== false,
     hostingTierKey: t.hostingTierKey,
     isActive: t.isActive,
     isCustomListing: Boolean(t.isCustomListing),
@@ -2387,6 +2422,7 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         city: true,
         ticketTiers: true,
         eventFormat: true,
+        hostingConfig: true,
       },
     });
     const eventIds = eventsAtVenue.map((e) => e.id);
@@ -2650,7 +2686,60 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
       totalVenueShareZar: activeItems.reduce((s, i) => s + Number(i.venueShareZar || 0), 0),
     };
 
-    res.json({ items, eventSummaries, summary, eventScope });
+    // Tables at ticketed events (host/join) — shown under Ticket Bookings.
+    const ticketingEventIds = eventsAtVenue
+      .filter((ev) => ticketedEventHasTables(ev))
+      .map((e) => e.id);
+    let tableGroups = [];
+    if (ticketingEventIds.length) {
+      const tableBookings = await prisma.eventVenueTableBooking.findMany({
+        where: {
+          venueId: { in: scopedVenueIds },
+          eventId: { in: ticketingEventIds },
+          role: { in: ['HOST', 'GUEST'] },
+        },
+        include: {
+          event: {
+            select: { id: true, title: true, date: true, startTime: true, city: true, eventFormat: true },
+          },
+          venue: { select: { id: true, name: true } },
+          hostedTable: {
+            select: {
+              id: true,
+              tableName: true,
+              status: true,
+              hostUserId: true,
+              hostingCategory: true,
+              guestQuantity: true,
+              spotsRemaining: true,
+            },
+          },
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+              userProfile: { select: { username: true, avatarUrl: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 2000,
+      });
+      const mapped = tableBookings.map((row) => ({
+        ...row,
+        lineTotalZar: Number(row.amountTotal || 0),
+        eventId: row.eventId,
+        venueTableId: row.venueTableId,
+        tableSessionNumber: row.tableSessionNumber,
+        isDirectVenueSlot: !row.hostedTableId && Boolean(row.venueTableId),
+      }));
+      tableGroups = groupEventTableBookingsByTable(mapped, refundedRefs);
+      summary.tableGroupCount = tableGroups.length;
+      summary.tablePaidZar = tableGroups.reduce((s, g) => s + Number(g.totalPaidZar || 0), 0);
+    }
+
+    res.json({ items, tableGroups, eventSummaries, summary, eventScope });
   } catch (e) {
     next(e);
   }

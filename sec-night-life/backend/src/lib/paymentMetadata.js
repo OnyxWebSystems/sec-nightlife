@@ -164,6 +164,14 @@ export function createEmptyRevenueCounters() {
   return {
     ticketPaymentZar: 0,
     ticketPaymentNetZar: 0,
+    entrancePaymentZar: 0,
+    entrancePaymentNetZar: 0,
+    ticketedTableHostPaymentZar: 0,
+    ticketedTableHostPaymentNetZar: 0,
+    ticketedTableJoinPaymentZar: 0,
+    ticketedTableJoinPaymentNetZar: 0,
+    ticketedTableMenuPaymentZar: 0,
+    ticketedTableMenuPaymentNetZar: 0,
     hostedTablePaymentZar: 0,
     hostedTablePaymentNetZar: 0,
     dayBookingHostPaymentZar: 0,
@@ -295,6 +303,11 @@ export function classifyVenuePaymentRevenueScoped(
     return true;
   }
 
+  if (t === 'EVENT_ENTRANCE') {
+    bumpCounter(counters, 'entrancePaymentZar', 'entrancePaymentNetZar', g, n);
+    return true;
+  }
+
   if (
     t === 'HOSTED_TABLE_JOIN' ||
     t === 'TABLE_CHECKOUT' ||
@@ -304,7 +317,23 @@ export function classifyVenuePaymentRevenueScoped(
     if (isDayBookingGuestPayment(meta)) {
       bumpCounter(counters, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', g, n);
     } else {
-      bumpCounter(counters, 'venueTablePaymentZar', 'venueTablePaymentNetZar', g, n);
+      const bookingMode = String(meta.booking_mode || meta.bookingMode || '');
+      const memberRole = String(meta.member_role || meta.memberRole || '');
+      const component = ledgerPaymentComponent(ledgerRef);
+      const isTicketedEventTables = String(meta.event_format || meta.eventFormat || '') === 'TICKETING_ONLY'
+        || Boolean(meta.ticketed_event_tables);
+      if (isTicketedEventTables) {
+        if (component === 'menu' || isMenuPayment(meta, t, ledgerRef)) {
+          bumpCounter(counters, 'ticketedTableMenuPaymentZar', 'ticketedTableMenuPaymentNetZar', g, n);
+          bumpCounter(counters, 'menuPaymentZar', 'menuPaymentNetZar', g, n);
+        } else if (bookingMode === 'host' || bookingMode === 'custom_host' || memberRole === 'HOST') {
+          bumpCounter(counters, 'ticketedTableHostPaymentZar', 'ticketedTableHostPaymentNetZar', g, n);
+        } else {
+          bumpCounter(counters, 'ticketedTableJoinPaymentZar', 'ticketedTableJoinPaymentNetZar', g, n);
+        }
+      } else {
+        bumpCounter(counters, 'venueTablePaymentZar', 'venueTablePaymentNetZar', g, n);
+      }
     }
     return true;
   }
@@ -325,7 +354,7 @@ export function classifyVenuePaymentRevenueScoped(
     return true;
   }
   if (component === 'entrance') {
-    bumpCounter(counters, 'ticketPaymentZar', 'ticketPaymentNetZar', g, n);
+    bumpCounter(counters, 'entrancePaymentZar', 'entrancePaymentNetZar', g, n);
     return true;
   }
 

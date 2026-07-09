@@ -445,6 +445,25 @@ export default function VenueAnalytics() {
       totalEvents: eventsInPeriod,
       upcomingEvents: Number(analytics?.upcomingEventsCount ?? 0),
       ticketPaymentZar: pickRevenueAmount(analytics, 'ticketPaymentZar', 'ticketPaymentNetZar', revenueMode),
+      entrancePaymentZar: pickRevenueAmount(analytics, 'entrancePaymentZar', 'entrancePaymentNetZar', revenueMode),
+      ticketedTableHostPaymentZar: pickRevenueAmount(
+        analytics,
+        'ticketedTableHostPaymentZar',
+        'ticketedTableHostPaymentNetZar',
+        revenueMode,
+      ),
+      ticketedTableJoinPaymentZar: pickRevenueAmount(
+        analytics,
+        'ticketedTableJoinPaymentZar',
+        'ticketedTableJoinPaymentNetZar',
+        revenueMode,
+      ),
+      ticketedTableMenuPaymentZar: pickRevenueAmount(
+        analytics,
+        'ticketedTableMenuPaymentZar',
+        'ticketedTableMenuPaymentNetZar',
+        revenueMode,
+      ),
       hostedTablePaymentZar: pickRevenueAmount(analytics, 'hostedTablePaymentZar', 'hostedTablePaymentNetZar', revenueMode),
       dayBookingHostPaymentZar: pickRevenueAmount(analytics, 'dayBookingHostPaymentZar', 'dayBookingHostPaymentNetZar', revenueMode),
       dayBookingGuestPaymentZar: pickRevenueAmount(analytics, 'dayBookingGuestPaymentZar', 'dayBookingGuestPaymentNetZar', revenueMode),
@@ -503,7 +522,11 @@ export default function VenueAnalytics() {
     }
     return [
       { name: 'Ticket revenue', value: metrics.ticketPaymentZar },
+      { name: 'Entrance fees', value: metrics.entrancePaymentZar || 0 },
       { name: 'Hosted table fees', value: metrics.hostedTablePaymentZar },
+      { name: 'Ticketed table hosts', value: metrics.ticketedTableHostPaymentZar || 0 },
+      { name: 'Ticketed table joins', value: metrics.ticketedTableJoinPaymentZar || 0 },
+      { name: 'Ticketed table menu', value: metrics.ticketedTableMenuPaymentZar || 0 },
       { name: 'Day-booking hosts', value: metrics.dayBookingHostPaymentZar },
       { name: 'Table joins (guests)', value: metrics.venueTablePaymentZar },
       { name: 'Menu payments', value: metrics.menuPaymentZar },
@@ -775,10 +798,40 @@ export default function VenueAnalytics() {
                   </Card>
                   <Card className="glass-card border-[var(--sec-border)]">
                     <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm">Entrance fees</p>
+                      <p className="text-2xl font-bold text-white mt-1">R{(metrics.entrancePaymentZar || 0).toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[var(--sec-border)]">
+                    <CardContent className="pt-6">
                       <p className="text-gray-500 text-sm" title="External listings and event-linked host fees">
                         Hosted table fees
                       </p>
                       <p className="text-2xl font-bold text-white mt-1">R{metrics.hostedTablePaymentZar.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[var(--sec-border)]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm">Ticketed event — table hosts</p>
+                      <p className="text-2xl font-bold text-white mt-1">
+                        R{(metrics.ticketedTableHostPaymentZar || 0).toLocaleString()}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[var(--sec-border)]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm">Ticketed event — table joins</p>
+                      <p className="text-2xl font-bold text-white mt-1">
+                        R{(metrics.ticketedTableJoinPaymentZar || 0).toLocaleString()}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card className="glass-card border-[var(--sec-border)]">
+                    <CardContent className="pt-6">
+                      <p className="text-gray-500 text-sm">Ticketed event — table menu</p>
+                      <p className="text-2xl font-bold text-white mt-1">
+                        R{(metrics.ticketedTableMenuPaymentZar || 0).toLocaleString()}
+                      </p>
                     </CardContent>
                   </Card>
                   <Card className="glass-card border-[var(--sec-border)]">

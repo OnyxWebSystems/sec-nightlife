@@ -23,10 +23,12 @@ Source: `sec-night-life/backend/src/lib/platformSplit.js` — `PLATFORM_FEE_RATE
 | Flow | Description | SEC share | Recipient |
 |------|-------------|-----------|-----------|
 | Event tickets | Buy tickets for venue events | 15% | Venue (85%) |
+| Event entrance | Pay entrance only (table events); optional menu | 15% | Venue (85%) |
 | Join venue table | Join a table at a venue; may include menu items | 15% | Venue (85%) |
 | Host venue table | Pay to host a table at a venue | 15% | Venue (85%) |
-| Join hosted table | Join another user's hosted table; joining fee to host | 15% | Table host (85%) |
+| Join hosted table | Join another user's hosted table; joining fee to host; entrance/menu to venue | 15% | Host (join) / Venue (entrance+menu) |
 | Hosted table menu | Order menu items on a hosted table after joining | 15% | Venue (85%) |
+| Ticketed event tables | Host/join tables on ticketed events (table pass = entry QR) | 15% | Same as table host/join splits |
 | Host own event | Pay entrance / host fees to run event at venue | 15% venue share; host fees may be 100% SEC | Venue / SEC |
 | Table boost | Pay to boost table visibility | 100% | SEC |
 | External listing | List table at external venue | 100% | SEC |

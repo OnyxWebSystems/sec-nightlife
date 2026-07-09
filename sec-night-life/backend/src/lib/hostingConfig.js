@@ -33,6 +33,12 @@ export function resolveTierBookingFees(tier, section = {}) {
   };
 }
 
+/** Whether this tier charges the event entrance fee at table checkout (default true). */
+export function resolveIncludeEntranceFee(tier) {
+  if (tier?.include_entrance_fee === false) return false;
+  return true;
+}
+
 function normalizeLegacySlot(slot) {
   if (!slot || typeof slot !== 'object') return emptyLegacyCat();
   const out = emptyLegacyCat();
@@ -46,6 +52,7 @@ function normalizeLegacySlot(slot) {
         ...t,
         include_join_booking_fee: includeJoin,
         include_host_booking_fee: includeHost,
+        include_entrance_fee: resolveIncludeEntranceFee(t),
         booking_fee_zar: joinFee,
         host_table_fee_zar: hostFee,
         included_items: Array.isArray(t.included_items) ? t.included_items : [],

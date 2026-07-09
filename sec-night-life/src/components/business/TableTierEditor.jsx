@@ -27,6 +27,7 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
         host_table_fee_zar: '0',
         include_join_booking_fee: false,
         include_host_booking_fee: false,
+        table_category: 'general',
         tier_table_slots: showSlots ? '1' : undefined,
         included_items: [],
       },
@@ -102,6 +103,42 @@ export default function TableTierEditor({ tiers = [], onChange, venueMenuItems =
                 placeholder="e.g. Standard, VIP Lounge"
                 className="h-9 mt-1"
               />
+            </div>
+            <div className="col-span-2">
+              <Label className="text-xs">Table type</Label>
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  className="h-9 flex-1 rounded-lg text-xs font-semibold border"
+                  style={{
+                    borderColor:
+                      (tier.table_category || 'general') === 'general'
+                        ? 'var(--sec-accent-border)'
+                        : 'var(--sec-border)',
+                    background:
+                      (tier.table_category || 'general') === 'general'
+                        ? 'var(--sec-accent-muted)'
+                        : 'transparent',
+                    color: 'var(--sec-text-primary)',
+                  }}
+                  onClick={() => updateTier(idx, { table_category: 'general' })}
+                >
+                  General
+                </button>
+                <button
+                  type="button"
+                  className="h-9 flex-1 rounded-lg text-xs font-semibold border"
+                  style={{
+                    borderColor:
+                      tier.table_category === 'vip' ? 'var(--sec-accent-border)' : 'var(--sec-border)',
+                    background: tier.table_category === 'vip' ? 'var(--sec-accent-muted)' : 'transparent',
+                    color: 'var(--sec-text-primary)',
+                  }}
+                  onClick={() => updateTier(idx, { table_category: 'vip' })}
+                >
+                  VIP
+                </button>
+              </div>
             </div>
             <div>
               <Label className="text-xs">Max guests per table</Label>

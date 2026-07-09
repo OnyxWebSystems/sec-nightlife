@@ -19,7 +19,6 @@ import EventTableTierSheet from '@/components/events/EventTableTierSheet';
 import SeatingPlanCTA from '@/components/seating/SeatingPlanCTA';
 import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
 import { normalizeGuestSeatingPlans } from '@/lib/seatingPlanUtils';
-import TicketPurchaseButton from '@/components/events/TicketPurchaseButton';
 import EventShareModal from '@/components/events/EventShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
 
@@ -402,7 +401,7 @@ export default function EventDetails() {
           </div>
         </div>
 
-        {event.stats && event.event_format !== 'TICKETING_ONLY' && (
+        {event.stats && tableTiers.length > 0 && (
           <div className="sec-card" style={{ padding: 16, marginBottom: 20 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--sec-text-primary)' }}>Tables & attendance</h2>
             <div style={{ display: 'grid', gap: 10, fontSize: 13, color: 'var(--sec-text-muted)' }}>
@@ -462,12 +461,92 @@ export default function EventDetails() {
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
             <Ticket size={16} strokeWidth={1.5} style={{ color: 'var(--sec-accent)', flexShrink: 0 }} />
-            <div>
+            <div style={{ flex: 1 }}>
               <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 2, fontWeight: 500 }}>Entrance fee</p>
               <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
                 R{Number(event.entrance_fee_amount)}
               </p>
             </div>
+            <button
+              type="button"
+              className="sec-btn sec-btn-primary"
+              style={{ height: 36, padding: '0 14px', fontSize: 13 }}
+              onClick={() => {
+                if (!user) {
+                  authService.redirectToLogin(window.location.href);
+                  return;
+                }
+                navigate(createPageUrl(`EventEntranceCheckout?id=${eventId}`));
+              }}
+            >
+              Pay to enter
+            </button>
+          </div>
+        )}
+
+        {event.event_format !== 'TICKETING_ONLY' && event.has_entrance_fee && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 8,
+              marginBottom: 20,
+            }}
+          >
+            <button
+              type="button"
+              className="sec-btn"
+              style={{
+                height: 44,
+                fontSize: 13,
+                background: 'var(--sec-bg-card)',
+                border: '1px solid var(--sec-border)',
+                color: 'var(--sec-text-primary)',
+              }}
+              onClick={() => {
+                if (!user) {
+                  authService.redirectToLogin(window.location.href);
+                  return;
+                }
+                navigate(createPageUrl(`EventEntranceCheckout?id=${eventId}`));
+              }}
+            >
+              Pay to enter
+            </button>
+            <button
+              type="button"
+              className="sec-btn"
+              style={{
+                height: 44,
+                fontSize: 13,
+                background: 'var(--sec-bg-card)',
+                border: '1px solid var(--sec-border)',
+                color: 'var(--sec-text-primary)',
+              }}
+              onClick={() => {
+                const section = document.querySelector('[data-tables-section]');
+                if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            >
+              Host
+            </button>
+            <button
+              type="button"
+              className="sec-btn"
+              style={{
+                height: 44,
+                fontSize: 13,
+                background: 'var(--sec-bg-card)',
+                border: '1px solid var(--sec-border)',
+                color: 'var(--sec-text-primary)',
+              }}
+              onClick={() => {
+                const section = document.querySelector('[data-tables-section]');
+                if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            >
+              Join
+            </button>
           </div>
         )}
 
@@ -548,14 +627,16 @@ export default function EventDetails() {
           </div>
         )}
 
-        {event.event_format !== 'TICKETING_ONLY' ? (
+        {(event.event_format !== 'TICKETING_ONLY' || tableTiers.length > 0) ? (
         <div data-tables-section style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Users size={15} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
               Table tiers ({tableTiers.length})
             </h2>
-            <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Host or join on Sec</span>
+            <span style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>
+              {event.event_format === 'TICKETING_ONLY' ? 'Table pass = entry' : 'Host or join on Sec'}
+            </span>
           </div>
 
           {seatingPlan ? (
@@ -641,7 +722,7 @@ export default function EventDetails() {
         </div>
         ) : null}
 
-        {event.event_format !== 'TICKETING_ONLY' ? (
+        {(event.event_format !== 'TICKETING_ONLY' || tableTiers.length > 0) ? (
         <EventTableTierSheet
           tier={selectedTier}
           open={Boolean(selectedTier)}
@@ -682,7 +763,7 @@ export default function EventDetails() {
       {/* ── Sticky bottom bar — price left / CTA right ── */}
       <div className="sec-bottom-bar sec-bottom-bar--responsive">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 960, margin: '0 auto' }}>
-          {event.event_format === 'TICKETING_ONLY' || (event.ticket_tiers?.length > 0 && tableTiers.length === 0) ? (
+          {event.event_format === 'TICKETING_ONLY' && event.ticket_tiers?.length > 0 ? (
             <>
               {lowestTicketPrice > 0 && (
                 <div className="sec-bottom-bar__price">
@@ -690,12 +771,37 @@ export default function EventDetails() {
                   <div className="sec-bottom-bar__price-value">R{lowestTicketPrice}</div>
                 </div>
               )}
-              <div className="sec-bottom-bar__cta">
-                {event.ticket_tiers?.length > 0 ? (
-                  <TicketPurchaseButton event={event} />
-                ) : (
-                  <button type="button" className="sec-btn sec-btn-primary sec-btn-full" disabled>
-                    Tickets unavailable
+              <div className="sec-bottom-bar__cta" style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="sec-btn sec-btn-primary"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    if (!user) {
+                      authService.redirectToLogin(window.location.href);
+                      return;
+                    }
+                    navigate(createPageUrl(`TicketCheckout?id=${eventId}`));
+                  }}
+                >
+                  Buy tickets
+                </button>
+                {tableTiers.length > 0 && (
+                  <button
+                    type="button"
+                    className="sec-btn"
+                    style={{
+                      flex: 1,
+                      background: 'var(--sec-bg-elevated)',
+                      border: '1px solid var(--sec-border)',
+                      color: 'var(--sec-text-primary)',
+                    }}
+                    onClick={() => {
+                      const section = document.querySelector('[data-tables-section]');
+                      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                  >
+                    Tables
                   </button>
                 )}
               </div>
@@ -703,22 +809,51 @@ export default function EventDetails() {
           ) : tableTiers.length > 0 ? (
             <>
               <div className="sec-bottom-bar__price">
-                <div className="sec-bottom-bar__price-label">Spots left</div>
-                <div className="sec-bottom-bar__price-value">{totalSpotsRemaining}</div>
+                <div className="sec-bottom-bar__price-label">
+                  {event.has_entrance_fee ? 'Entrance' : 'Spots left'}
+                </div>
+                <div className="sec-bottom-bar__price-value">
+                  {event.has_entrance_fee
+                    ? `R${Number(event.entrance_fee_amount || 0)}`
+                    : totalSpotsRemaining}
+                </div>
               </div>
-              <div className="sec-bottom-bar__cta">
+              <div className="sec-bottom-bar__cta" style={{ display: 'flex', gap: 8 }}>
+                {event.has_entrance_fee && (
+                  <button
+                    type="button"
+                    className="sec-btn"
+                    style={{
+                      flex: 1,
+                      background: 'var(--sec-bg-elevated)',
+                      border: '1px solid var(--sec-border)',
+                      color: 'var(--sec-text-primary)',
+                      fontSize: 13,
+                    }}
+                    onClick={() => {
+                      if (!user) {
+                        authService.redirectToLogin(window.location.href);
+                        return;
+                      }
+                      navigate(createPageUrl(`EventEntranceCheckout?id=${eventId}`));
+                    }}
+                  >
+                    Pay to enter
+                  </button>
+                )}
                 <button
-                  className="sec-btn sec-btn-primary sec-btn-full"
+                  className="sec-btn sec-btn-primary"
+                  style={{ flex: 1 }}
                   onClick={() => {
                     const section = document.querySelector('[data-tables-section]');
                     if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   }}
                 >
-                  Book a Table
+                  Host / Join
                 </button>
               </div>
             </>
-          ) : (
+          ) : event.ticket_tiers?.length > 0 ? (
             <>
               {lowestTicketPrice > 0 && (
                 <div className="sec-bottom-bar__price">
@@ -727,38 +862,52 @@ export default function EventDetails() {
                 </div>
               )}
               <div className="sec-bottom-bar__cta">
-                {event.ticket_tiers?.length > 0 ? (
-                  <TicketPurchaseButton event={event} />
-                ) : (
-                  <button
-                    type="button"
-                    className="sec-btn sec-btn-primary sec-btn-full"
-                    disabled={toggleInterestMutation.isPending}
-                    onClick={() =>
-                      user
-                        ? toggleInterestMutation.mutate()
-                        : authService.redirectToLogin(window.location.href)
+                <button
+                  type="button"
+                  className="sec-btn sec-btn-primary sec-btn-full"
+                  onClick={() => {
+                    if (!user) {
+                      authService.redirectToLogin(window.location.href);
+                      return;
                     }
-                    style={
-                      isInterested
-                        ? {
-                            background: 'var(--sec-success)',
-                            color: '#fff',
-                            border: '1px solid rgba(255,255,255,0.2)',
-                          }
-                        : undefined
-                    }
-                  >
-                    {isInterested ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        <BadgeCheck size={18} strokeWidth={2} />
-                        Interested
-                      </span>
-                    ) : (
-                      "I'm Interested"
-                    )}
-                  </button>
-                )}
+                    navigate(createPageUrl(`TicketCheckout?id=${eventId}`));
+                  }}
+                >
+                  Buy tickets
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="sec-bottom-bar__cta">
+                <button
+                  type="button"
+                  className="sec-btn sec-btn-primary sec-btn-full"
+                  disabled={toggleInterestMutation.isPending}
+                  onClick={() =>
+                    user
+                      ? toggleInterestMutation.mutate()
+                      : authService.redirectToLogin(window.location.href)
+                  }
+                  style={
+                    isInterested
+                      ? {
+                          background: 'var(--sec-success)',
+                          color: '#fff',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                        }
+                      : undefined
+                  }
+                >
+                  {isInterested ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <BadgeCheck size={18} strokeWidth={2} />
+                      Interested
+                    </span>
+                  ) : (
+                    "I'm Interested"
+                  )}
+                </button>
               </div>
             </>
           )}

@@ -23,6 +23,14 @@ function notificationCopyForTicketKind(kind, title) {
         inAppBody: `${title}. View it under Profile → Tickets.`,
         inAppType: 'EVENT_JOINED',
       };
+    case 'EVENT_ENTRANCE':
+      return {
+        legacyTitle: 'Entrance pass ready',
+        legacyBody: `${title} — open Profile → Tickets to view your QR code.`,
+        inAppTitle: 'Entrance confirmed',
+        inAppBody: `${title}. Your entrance pass is in Profile → Tickets.`,
+        inAppType: 'EVENT_JOINED',
+      };
     case 'HOSTED_TABLE_JOIN':
     case 'VENUE_TABLE_JOIN':
     case 'TABLE_JOIN':

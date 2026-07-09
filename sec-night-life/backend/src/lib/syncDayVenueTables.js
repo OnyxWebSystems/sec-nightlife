@@ -40,6 +40,10 @@ export async function syncDayVenueTables(venueId, options = {}) {
     const { joinFee, hostFee } = resolveTierBookingFees(tier, {});
     const { joinMin, hostMin } = resolveTierMinSpendsFromTier(tier);
     const includedItems = Array.isArray(tier.included_items) ? tier.included_items : [];
+    const tableCategory =
+      String(tier.table_category || tier.tableCategory || 'general').toLowerCase() === 'vip'
+        ? 'vip'
+        : 'general';
 
     for (let slotIdx = 0; slotIdx < slots; slotIdx++) {
       const hostingTierKey = `${tierKeyBase}:${slotIdx}`;
@@ -67,6 +71,7 @@ export async function syncDayVenueTables(venueId, options = {}) {
         startTime: scheduleRows.length ? null : (startTime ?? null),
         endTime: scheduleRows.length ? null : (endTime ?? null),
         tierLabel: tier.tier_name || null,
+        tableCategory,
         hostingTierKey,
         includedItems: includedItems.length ? includedItems : null,
         allowsCustomRequests: false,
@@ -81,6 +86,7 @@ export async function syncDayVenueTables(venueId, options = {}) {
             ? {
                 tableName: data.tableName,
                 tierLabel: data.tierLabel,
+                tableCategory: data.tableCategory,
                 includedItems: data.includedItems,
                 description: data.description,
                 serviceDate: data.serviceDate,
@@ -203,6 +209,7 @@ function venueTableToTierDef(row) {
     booking_fee_zar: row.bookingFeeZar,
     host_table_fee_zar: row.hostTableFeeZar,
     tier_table_slots: 1,
+    table_category: row.tableCategory === 'vip' ? 'vip' : 'general',
     included_items: Array.isArray(row.includedItems) ? row.includedItems : [],
   };
 }

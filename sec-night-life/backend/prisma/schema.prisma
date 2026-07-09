@@ -229,6 +229,7 @@ enum HostingTableCategory {
 
 enum TicketKind {
   EVENT_TICKET
+  EVENT_ENTRANCE
   TABLE_JOIN
   HOSTED_TABLE_JOIN
   HOUSE_PARTY
@@ -1822,6 +1823,10 @@ model VenueTable {
   allowsCustomRequests Boolean       @default(false) @map("allows_custom_requests")
   tierLabel         String?          @map("tier_label")
   hostingTierKey    String?          @map("hosting_tier_key")
+  /// Day-listing / event tier category: "general" | "vip"
+  tableCategory     String?          @map("table_category")
+  /// When false, event entrance fee is not charged at this table's checkout.
+  includeEntranceFee Boolean         @default(true) @map("include_entrance_fee")
   includedItems     Json?            @map("included_items")
   hostedTableId     String?          @unique @map("hosted_table_id")
   hostUserId        String?          @map("host_user_id")

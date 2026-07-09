@@ -63,6 +63,7 @@ function hostingFromApi(hc) {
           host_table_fee_zar: String(t.host_table_fee_zar ?? ''),
           include_join_booking_fee: toggles.include_join_booking_fee,
           include_host_booking_fee: toggles.include_host_booking_fee,
+          include_entrance_fee: t.include_entrance_fee !== false,
           tier_table_slots: String(t.tier_table_slots ?? ''),
           included_items: Array.isArray(t?.included_items)
             ? t.included_items.map((inc) => ({
@@ -137,6 +138,8 @@ export default function BusinessEvents() {
   const [resettingTableId, setResettingTableId] = useState(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [createMode, setCreateMode] = useState('tables');
+  const [importDayTiers, setImportDayTiers] = useState(false);
+  const [importingDayTiers, setImportingDayTiers] = useState(false);
   const [selectedPromoterIds, setSelectedPromoterIds] = useState([]);
 
   const coverCrop = useImageCropUpload({
@@ -454,8 +457,8 @@ export default function BusinessEvents() {
       payload.has_entrance_fee = false;
       payload.entrance_fee_amount = null;
       payload.allows_ticket_menu_addons = Boolean(form.allows_ticket_menu_addons);
-      saveMutation.mutate(payload);
-      return;
+    } else {
+      payload.allows_ticket_menu_addons = false;
     }
 
     const hostingPayload = {
@@ -555,6 +558,7 @@ export default function BusinessEvents() {
           host_table_fee_zar: fees.host_table_fee_zar,
           include_join_booking_fee: fees.include_join_booking_fee,
           include_host_booking_fee: fees.include_host_booking_fee,
+          include_entrance_fee: t.include_entrance_fee !== false,
         };
         if (included.length) tierPayload.included_items = included;
         parsedTiers.push(tierPayload);
@@ -572,7 +576,20 @@ export default function BusinessEvents() {
       }
       hostingPayload[cat].tiers = parsedTiers;
     }
-    payload.hosting_config = hostingPayload;
+    const hasAnyHostingTiers = ['general', 'vip'].some((c) => hostingPayload[c].tiers.length > 0);
+    if (hasAnyHostingTiers || !isTicketing) {
+      payload.hosting_config = hostingPayload;
+    } else {
+      payload.hosting_config = null;
+    }
+
+    if (isTicketing) {
+      payload.show_seating_plan = false;
+      payload.seating_plan_id = null;
+      saveMutation.mutate(payload);
+      return;
+    }
+
     payload.show_seating_plan = Boolean(form.show_seating_plan);
     payload.seating_plan_id = form.show_seating_plan
       ? (form.seating_plan_id || venueSeatingPlans.find((p) => p.is_default)?.id || venueSeatingPlans[0]?.id || null)
@@ -1139,7 +1156,97 @@ export default function BusinessEvents() {
                 ) : null}
               </div>
             ) : null}
-            {createMode === 'tables' && (['general', 'vip']).map((cat) => {
+            {/* Import day listing tiers */}
+            <div
+              className="rounded-xl border p-4 mb-4"
+              style={{ borderColor: 'var(--sec-border)', backgroundColor: 'var(--sec-bg-elevated)' }}
+            >
+              <label className="flex items-center gap-2 text-sm cursor-pointer mb-2">
+                <Checkbox
+                  checked={importDayTiers}
+                  disabled={importingDayTiers}
+                  onCheckedChange={async (v) => {
+                    const on = Boolean(v);
+                    setImportDayTiers(on);
+                    if (!on) return;
+                    const venueId = venueScope.venueId || venue?.id;
+                    if (!venueId) {
+                      toast.error('No venue selected');
+                      setImportDayTiers(false);
+                      return;
+                    }
+                    setImportingDayTiers(true);
+                    try {
+                      const data = await apiGet(`/api/business/day-venue-tables?venue_id=${encodeURIComponent(venueId)}`);
+                      const items = (data?.items || []).filter((t) => !t.isCustomListing && t.isActive !== false);
+                      const byKey = new Map();
+                      for (const row of items) {
+                        const cat = String(row.tableCategory || row.table_category || 'general').toLowerCase() === 'vip' ? 'vip' : 'general';
+                        const name = row.tierLabel || row.tableName?.replace(/\s#\d+$/, '') || 'Tier';
+                        const key = `${cat}::${name}`;
+                        if (!byKey.has(key)) {
+                          byKey.set(key, {
+                            cat,
+                            tier_name: name,
+                            max_guests: String(row.guestCapacity ?? 6),
+                            min_spend: String(row.minimumSpend ?? ''),
+                            min_spend_join: String(row.minimumSpend ?? ''),
+                            min_spend_host: String(row.hostMinimumSpend ?? row.minimumSpend ?? ''),
+                            booking_fee_zar: String(row.bookingFeeZar ?? ''),
+                            host_table_fee_zar: String(row.hostTableFeeZar ?? ''),
+                            include_join_booking_fee: Number(row.bookingFeeZar || 0) > 0,
+                            include_host_booking_fee: Number(row.hostTableFeeZar || 0) > 0,
+                            include_entrance_fee: true,
+                            tier_table_slots: 0,
+                            included_items: Array.isArray(row.includedItems)
+                              ? row.includedItems.map((inc) => ({
+                                  menu_item_id: String(inc.menu_item_id || inc.menuItemId || ''),
+                                  quantity: String(inc.quantity ?? '1'),
+                                }))
+                              : [],
+                          });
+                        }
+                        const cur = byKey.get(key);
+                        cur.tier_table_slots += 1;
+                      }
+                      const nextHosting = emptyHostingForm();
+                      for (const tier of byKey.values()) {
+                        const cat = tier.cat;
+                        const { cat: _c, ...rest } = tier;
+                        nextHosting[cat].tiers.push({
+                          ...rest,
+                          tier_table_slots: String(rest.tier_table_slots),
+                        });
+                      }
+                      for (const cat of ['general', 'vip']) {
+                        const sum = nextHosting[cat].tiers.reduce(
+                          (a, t) => a + (parseInt(String(t.tier_table_slots), 10) || 0),
+                          0,
+                        );
+                        nextHosting[cat].max_tables = sum > 0 ? String(sum) : '';
+                      }
+                      if (![...byKey.values()].length) {
+                        toast.error('No day booking table listings found to import');
+                        setImportDayTiers(false);
+                        return;
+                      }
+                      setForm((p) => ({ ...p, hosting_config: nextHosting }));
+                      toast.success('Imported day listing tiers — review slots and fees before publishing');
+                    } catch (e) {
+                      toast.error(e?.data?.error || e.message || 'Could not import day listings');
+                      setImportDayTiers(false);
+                    } finally {
+                      setImportingDayTiers(false);
+                    }
+                  }}
+                />
+                Import tables from Day bookings listings
+              </label>
+              <p className="text-xs text-gray-500">
+                Prefills General / VIP tiers from your Tables & day bookings page. Adjust slot counts and entrance include before publishing.
+              </p>
+            </div>
+            {(['general', 'vip']).map((cat) => {
               const label = cat === 'vip' ? 'VIP' : 'General';
               const sec = form.hosting_config?.[cat] || emptyHostingSection();
               const tiers = sec.tiers || [];
@@ -1221,6 +1328,7 @@ export default function BusinessEvents() {
                                     host_table_fee_zar: '',
                                     include_join_booking_fee: false,
                                     include_host_booking_fee: false,
+                                    include_entrance_fee: true,
                                     tier_table_slots: '',
                                     included_items: [],
                                   },
@@ -1308,6 +1416,25 @@ export default function BusinessEvents() {
                               />
                               Charge join booking fee
                             </label>
+                            {createMode !== 'ticketing' && form.has_entrance_fee ? (
+                              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                                <Checkbox
+                                  checked={tier.include_entrance_fee !== false}
+                                  onCheckedChange={(v) => {
+                                    const next = [...(form.hosting_config[cat].tiers || [])];
+                                    next[idx] = { ...next[idx], include_entrance_fee: Boolean(v) };
+                                    setForm((p) => ({
+                                      ...p,
+                                      hosting_config: {
+                                        ...p.hosting_config,
+                                        [cat]: { ...p.hosting_config[cat], tiers: next },
+                                      },
+                                    }));
+                                  }}
+                                />
+                                Include entrance fee at checkout
+                              </label>
+                            ) : null}
                             {tier.include_join_booking_fee ? (
                               <Input
                                 type="number"

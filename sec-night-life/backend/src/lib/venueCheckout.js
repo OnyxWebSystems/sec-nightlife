@@ -1,5 +1,6 @@
 import { line, sumCheckoutLines } from './checkoutLines.js';
 import { splitPlatformGross } from './platformSplit.js';
+import { resolveTableEntranceZar } from './entranceCheckout.js';
 
 /**
  * Build checkout lines for a venue table booking.
@@ -9,6 +10,7 @@ import { splitPlatformGross } from './platformSplit.js';
  * @param {number} opts.menuTotal - full selected menu total for min-spend checks
  * @param {string} opts.settlementMode
  * @param {string} opts.bookingMode - 'host' | 'join' | 'custom_host'
+ * @param {boolean} opts.userHasEntranceCredit - omit entrance if already paid
  */
 export function computeVenueCheckout(
   table,
@@ -19,6 +21,7 @@ export function computeVenueCheckout(
     venue = null,
     bookingMode = 'join',
     overrideMinSpend = null,
+    userHasEntranceCredit = false,
   } = {},
 ) {
   const joinFee = Number(table.bookingFeeZar || 0);
@@ -51,8 +54,9 @@ export function computeVenueCheckout(
   }
 
   const event = table.event;
-  if (event?.hasEntranceFee && Number(event.entranceFeeAmount) > 0) {
-    lines.push(line('entrance', 'Entrance fee', Number(event.entranceFeeAmount)));
+  const entranceZar = resolveTableEntranceZar(event, table, { userHasEntranceCredit });
+  if (entranceZar > 0) {
+    lines.push(line('entrance', 'Entrance fee', entranceZar));
   }
 
   const included = Array.isArray(table.includedItems) ? table.includedItems : [];

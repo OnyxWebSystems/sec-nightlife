@@ -113,6 +113,7 @@ function ticketPaidZar(order) {
 function roleLabel(role) {
   if (role === 'HOST') return 'Host fee';
   if (role === 'GUEST') return 'Guest join';
+  if (role === 'ENTRANCE') return 'Entrance';
   return role || 'Payment';
 }
 
@@ -121,6 +122,9 @@ function isSyntheticHostedId(id) {
 }
 
 function sessionQueryFromEventGroup(group) {
+  if (group?.isEntranceOnly || String(group?.id || '').startsWith('entrance-only-')) {
+    return { entrance_only: true, event_id: group.event?.id || group.transactions?.[0]?.eventId };
+  }
   const htId = group.hostedTable?.id;
   if (htId && !isSyntheticHostedId(htId)) {
     return { hosted_table_id: htId };
@@ -306,7 +310,7 @@ export default function BusinessBookings() {
       }
       return apiGet(`/api/business/table-booking-detail?${params.toString()}`);
     },
-    enabled: !!user && !!sessionView?.query,
+    enabled: !!user && !!sessionView?.query && !sessionView?.entranceGroup,
   });
 
   const releaseMutation = useMutation({
@@ -326,6 +330,7 @@ export default function BusinessBookings() {
   const eventTables = bookingsData?.items || [];
   const venueTableBookings = venueTableBookingsData?.items || [];
   const ticketOrders = ticketBookingsData?.items || [];
+  const ticketTableGroups = ticketBookingsData?.tableGroups || [];
   const eventSummary = bookingsData?.summary;
   const ticketSummary = ticketBookingsData?.summary;
 
@@ -403,6 +408,15 @@ export default function BusinessBookings() {
   const openEventTableSession = (group) => {
     const query = sessionQueryFromEventGroup(group);
     if (!query) return;
+    if (query.entrance_only) {
+      setSessionView({
+        query: null,
+        entranceGroup: group,
+        title: 'Entrance only',
+        subtitle: group.event?.title || 'Event booking',
+      });
+      return;
+    }
     setSessionView({
       query,
       title: group.hostedTable?.tableName || 'Hosted table',
@@ -592,6 +606,9 @@ export default function BusinessBookings() {
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                               {group.transactionCount} transaction{group.transactionCount === 1 ? '' : 's'}
+                              {group.isEntranceOnly || group.rolesSummary?.entrance
+                                ? ` · ${group.rolesSummary?.entrance || group.transactionCount} entrance`
+                                : ''}
                               {group.rolesSummary?.hosts ? ` · ${group.rolesSummary.hosts} host` : ''}
                               {group.rolesSummary?.guests ? ` · ${group.rolesSummary.guests} guest${group.rolesSummary.guests === 1 ? '' : 's'}` : ''}
                             </div>
@@ -814,7 +831,7 @@ export default function BusinessBookings() {
 
             {ticketsLoading ? (
               <div className="flex justify-center py-16"><Loader2 className="animate-spin" style={{ color: 'var(--sec-accent)' }} /></div>
-            ) : filteredTickets.length === 0 ? (
+            ) : filteredTickets.length === 0 && ticketTableGroups.length === 0 ? (
               <EmptyState
                 icon={Ticket}
                 title="No ticket bookings yet"
@@ -822,6 +839,68 @@ export default function BusinessBookings() {
               />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {ticketTableGroups.length > 0 ? (
+                  <>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginTop: 4 }}>
+                      Tables at ticketed events
+                    </p>
+                    {ticketTableGroups.map((group) => (
+                      <div
+                        key={`tt-${group.id}`}
+                        className="sec-card"
+                        style={{ padding: '14px 16px', border: '1px solid var(--sec-border)', cursor: 'pointer' }}
+                        onClick={() => openEventTableSession(group)}
+                        onKeyDown={(e) => e.key === 'Enter' && openEventTableSession(group)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div
+                            style={{
+                              width: 48,
+                              height: 48,
+                              borderRadius: 12,
+                              flexShrink: 0,
+                              background: 'var(--sec-accent-muted)',
+                              border: '1px solid var(--sec-accent-border)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Users size={20} style={{ color: 'var(--sec-accent)' }} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 600 }}>
+                              {group.hostedTable?.tableName || 'Table'}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--sec-text-secondary)', marginTop: 2 }}>
+                              {group.event?.title || 'Ticketed event'}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                              {group.transactionCount} transaction{group.transactionCount === 1 ? '' : 's'}
+                              {group.rolesSummary?.hosts ? ` · ${group.rolesSummary.hosts} host` : ''}
+                              {group.rolesSummary?.guests
+                                ? ` · ${group.rolesSummary.guests} guest${group.rolesSummary.guests === 1 ? '' : 's'}`
+                                : ''}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-accent)' }}>
+                              R{Number(group.totalPaidZar || 0).toFixed(0)}
+                            </div>
+                          </div>
+                          <ChevronRight size={18} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
+                        </div>
+                      </div>
+                    ))}
+                    {filteredTickets.length > 0 ? (
+                      <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-secondary)', marginTop: 12 }}>
+                        Ticket orders
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
                 {filteredTickets.map((order) => (
                   <div
                     key={order.id}
@@ -878,7 +957,59 @@ export default function BusinessBookings() {
       {/* Table session detail (event + day bookings) */}
       <Dialog open={!!sessionView} onOpenChange={(open) => { if (!open) closeSessionView(); }}>
         <DialogContent className="sm:max-w-[480px] p-0 gap-0" style={dialogContentStyle}>
-          {sessionView && (
+          {sessionView?.entranceGroup ? (
+            <>
+              <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--sec-border)' }}>
+                <DialogHeader className="space-y-1 text-left">
+                  <DialogTitle style={{ fontSize: 17, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
+                    Entrance only
+                  </DialogTitle>
+                  <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0 }}>
+                    {sessionView.subtitle}
+                  </p>
+                </DialogHeader>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)', marginLeft: 'auto' }}>
+                    R{Number(sessionView.entranceGroup.totalPaidZar || 0).toFixed(0)} paid
+                  </span>
+                </div>
+              </div>
+              <div style={{ padding: '16px 20px', maxHeight: 'min(55vh, 400px)', overflowY: 'auto' }}>
+                <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 10 }}>
+                  Entrance payers
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(sessionView.entranceGroup.transactions || []).map((tx) => (
+                    <div
+                      key={tx.id}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 12,
+                        background: 'var(--sec-bg-card)',
+                        border: '1px solid var(--sec-border)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+                          @{tx.user?.username || tx.user?.userProfile?.username || 'guest'}
+                        </p>
+                        <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)' }}>
+                          R{Number(tx.lineTotalZar || tx.amountTotal || 0).toFixed(0)}
+                        </p>
+                      </div>
+                      {Number(tx.entranceZar) > 0 || Number(tx.menuTotalZar) > 0 ? (
+                        <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                          {Number(tx.entranceZar) > 0 ? `Entrance R${Number(tx.entranceZar).toFixed(0)}` : ''}
+                          {Number(tx.entranceZar) > 0 && Number(tx.menuTotalZar) > 0 ? ' · ' : ''}
+                          {Number(tx.menuTotalZar) > 0 ? `Menu R${Number(tx.menuTotalZar).toFixed(0)}` : ''}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : sessionView ? (
             <>
               <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--sec-border)' }}>
                 <DialogHeader className="space-y-1 text-left">
@@ -1010,7 +1141,7 @@ export default function BusinessBookings() {
                 </div>
               </div>
             </>
-          )}
+          ) : null}
         </DialogContent>
       </Dialog>
 

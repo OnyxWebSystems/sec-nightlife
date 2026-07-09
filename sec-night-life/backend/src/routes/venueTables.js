@@ -6,6 +6,7 @@ import { logger } from '../lib/logger.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { buildTableCheckoutMetadata } from '../lib/checkoutLines.js';
 import { computeVenueCheckout, computeChargeableMenuTotal, computeFullMenuTotal } from '../lib/venueCheckout.js';
+import { userHasPaidEventEntrance } from '../lib/entranceCheckout.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { sendEmail } from '../lib/email.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
@@ -637,6 +638,13 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
     Array.isArray(table.includedItems) ? table.includedItems : [],
   );
 
+  let userHasEntranceCredit = false;
+  if (table.eventId && existing?.userId) {
+    userHasEntranceCredit = await userHasPaidEventEntrance(existing.userId, table.eventId);
+  } else if (table.eventId && payload.userId) {
+    userHasEntranceCredit = await userHasPaidEventEntrance(payload.userId, table.eventId);
+  }
+
   const checkout = computeVenueCheckout(
     { ...table, event: table.event, minimumSpend: minSpend },
     {
@@ -646,9 +654,18 @@ async function buildVenueCheckoutForTable(table, venue, menuItems, payload, exis
       venue,
       bookingMode,
       overrideMinSpend: specs.proposedMinimumSpend,
+      userHasEntranceCredit,
     },
   );
-  return { checkout, bookingMode, settlementMode, menuSelections: payload.selectedMenuItems || [], menuTotal, windowCtx };
+  return {
+    checkout,
+    bookingMode,
+    settlementMode,
+    menuSelections: payload.selectedMenuItems || [],
+    menuTotal,
+    windowCtx,
+    userHasEntranceCredit,
+  };
 }
 
 router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) => {
@@ -668,7 +685,15 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
       where: { id: req.params.tableId },
       include: {
         venue: true,
-        event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            hasEntranceFee: true,
+            entranceFeeAmount: true,
+          },
+        },
         menuItems: { where: { isAvailable: true } },
       },
     });
@@ -677,10 +702,20 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
     const myMembership = await loadMyMembershipForTable(table.id, req.userId, {
       isDayBooking: isDayVenueTable(table),
     });
-    const result = await buildVenueCheckoutForTable(table, table.venue, menuItems, payload, myMembership);
+    const result = await buildVenueCheckoutForTable(
+      table,
+      table.venue,
+      menuItems,
+      { ...payload, userId: req.userId },
+      myMembership,
+    );
     if (result.error) return res.status(400).json({ error: result.error });
     if (result.checkout.error) return res.status(400).json({ error: result.checkout.error });
-    res.json({ ...result.checkout, bookingMode: result.bookingMode });
+    res.json({
+      ...result.checkout,
+      bookingMode: result.bookingMode,
+      entrance_credited: Boolean(result.userHasEntranceCredit),
+    });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     next(e);
@@ -1045,7 +1080,13 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       }
     }
 
-    const result = await buildVenueCheckoutForTable(table, table.venue, menuItems, payload, existing);
+    const result = await buildVenueCheckoutForTable(
+      table,
+      table.venue,
+      menuItems,
+      { ...payload, userId: req.userId },
+      existing,
+    );
     if (result.error) return res.status(400).json({ error: result.error });
     const { checkout, bookingMode, settlementMode, menuSelections, menuTotal, windowCtx } = result;
     if (checkout.error) return res.status(400).json({ error: checkout.error });
