@@ -917,20 +917,22 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     todayStart.setHours(0, 0, 0, 0);
     const isDayBookingsScope = revenueScope === 'day_bookings';
 
-    // Day-bookings: members first, then ledger/payments for anything members miss.
+    // Day-bookings: align with /venue-table-bookings (paid refs on eventId-null tables),
+    // then fill gaps from hosted guests, day splits, venue ledger, and venue day payments.
+    const debugAnalytics = String(req.query.debug || '') === '1';
     const dayMembersPromise = isDayBookingsScope
       ? prisma.venueTableMember.findMany({
           where: {
-            // Include PENDING_PAYMENT when amountPaid > 0 (fulfillment lag).
-            status: { in: ['CONFIRMED', 'APPROVED', 'PENDING_PAYMENT'] },
-            amountPaid: { gt: 0 },
+            // Match list endpoint: paid refs, include LEFT (session ended). Skip REFUNDED in loop.
+            paystackReference: { not: null },
+            status: { in: ['CONFIRMED', 'LEFT', 'APPROVED', 'PENDING_PAYMENT'] },
             venueTable: {
               venueId,
               eventId: null,
             },
             OR: [
               { paidAt: { gte: cutoff } },
-              { joinedAt: { gte: cutoff } },
+              { AND: [{ paidAt: null }, { joinedAt: { gte: cutoff } }] },
               { bookingDate: { gte: cutoff } },
             ],
           },
@@ -959,7 +961,46 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         })
       : Promise.resolve([]);
 
-    const [refundedRefs, refundedMetrics, events, ledgerRows, splitLogs, paidTx, dayMembersEarly] =
+    const dayHostedGuestsPromise = isDayBookingsScope
+      ? prisma.hostedTableMember.findMany({
+          where: {
+            status: 'GOING',
+            paystackReference: { not: null },
+            hostedTable: {
+              eventId: null,
+              venueTable: { venueId },
+            },
+            OR: [
+              { hostReviewedAt: { gte: cutoff } },
+              { AND: [{ hostReviewedAt: null }, { joinedAt: { gte: cutoff } }] },
+            ],
+          },
+          select: {
+            joinFeePaid: true,
+            menuSpendPaid: true,
+            paystackReference: true,
+            hostReviewedAt: true,
+            joinedAt: true,
+            selectedMenuItems: true,
+            hostedTable: {
+              select: {
+                venueTableId: true,
+                venueTable: {
+                  select: {
+                    id: true,
+                    tierLabel: true,
+                    hostingTiersKey: true,
+                    tableName: true,
+                  },
+                },
+              },
+            },
+          },
+          take: 5000,
+        })
+      : Promise.resolve([]);
+
+    const [refundedRefs, refundedMetrics, events, ledgerRows, splitLogs, paidTx, dayMembersEarly, dayHostedGuests] =
       await Promise.all([
         loadRefundedPaymentRefs([venueId]),
         loadRefundedMetricsForPeriod([venueId], cutoff),
@@ -1019,6 +1060,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
                 take: 8000,
               }),
         dayMembersPromise,
+        dayHostedGuestsPromise,
       ]);
 
     const eventIds = events.map((e) => e.id);
@@ -1032,19 +1074,41 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const ledgerRefs = [...new Set(ledgerRows.map((r) => r.paymentReference).filter(Boolean))];
     const ledgerBaseRefs = [...new Set(ledgerRefs.map((r) => basePaymentReference(r)).filter(Boolean))];
     const splitRefs = [...new Set(splitLogs.map((s) => s.reference).filter(Boolean))];
-    const ledgerLookupRefs = [...new Set([...ledgerRefs, ...ledgerBaseRefs, ...splitRefs])];
+    const memberRefs = isDayBookingsScope
+      ? [
+          ...dayMembersEarly.map((m) => m.paystackReference).filter(Boolean),
+          ...dayHostedGuests.map((g) => g.paystackReference).filter(Boolean),
+        ]
+      : [];
+    const ledgerLookupRefs = [...new Set([...ledgerRefs, ...ledgerBaseRefs, ...splitRefs, ...memberRefs])];
     const ledgerPayments =
       ledgerLookupRefs.length > 0
         ? await prisma.payment.findMany({
             where: { reference: { in: ledgerLookupRefs } },
-            select: { reference: true, metadata: true, type: true },
+            select: { reference: true, metadata: true, type: true, amount: true },
           })
         : [];
     const paymentMetaByRef = new Map();
     const paymentTypeByRef = new Map();
+    const paymentAmountByRef = new Map();
     for (const p of ledgerPayments) {
       paymentMetaByRef.set(p.reference, flattenPaymentMetadata(p.metadata));
       paymentTypeByRef.set(p.reference, p.type);
+      paymentAmountByRef.set(p.reference, Number(p.amount) || 0);
+    }
+
+    /** Day-booking base refs proven via split logs on eventId-null venue tables. */
+    const daySplitBaseRefs = new Set();
+    if (isDayBookingsScope) {
+      for (const log of splitLogs) {
+        if (log.reference) daySplitBaseRefs.add(basePaymentReference(log.reference));
+      }
+      for (const m of dayMembersEarly) {
+        if (m.paystackReference) daySplitBaseRefs.add(basePaymentReference(m.paystackReference));
+      }
+      for (const g of dayHostedGuests) {
+        if (g.paystackReference) daySplitBaseRefs.add(basePaymentReference(g.paystackReference));
+      }
     }
 
     const resolveLedgerPaymentMeta = (ref) => {
@@ -1054,6 +1118,11 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const resolveLedgerPaymentType = (ref) => {
       const base = basePaymentReference(ref);
       return paymentTypeByRef.get(ref) ?? paymentTypeByRef.get(base) ?? null;
+    };
+    const resolvePaymentAmount = (ref) => {
+      if (!ref) return 0;
+      const base = basePaymentReference(ref);
+      return paymentAmountByRef.get(ref) || paymentAmountByRef.get(base) || 0;
     };
 
     const scopeFilter = { revenueScope, eventId: revenueScope === 'day_bookings' ? null : eventId };
@@ -1066,6 +1135,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     /** Base refs where a non-component (full) payment was counted — used to skip member fallback. */
     const fullyMatchedBaseRefs = new Set();
     const eventIdsWithRevenue = new Set();
+    let countedRows = 0;
 
     const addRevenueRow = (meta, mtype, pType, gross, net, dayKey, ref, opts = {}) => {
       if (!matchesAnalyticsFilter(meta, scopeFilter, opts)) return false;
@@ -1083,6 +1153,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       if (!counted) return false;
       grossTotal += gross;
       netTotal += net;
+      countedRows += 1;
       if (ref) {
         matchedPaymentRefs.add(ref);
         matchedPaymentRefs.add(basePaymentReference(ref));
@@ -1099,13 +1170,15 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
     let ticketSalesFromPayments = 0;
     let dayBookingVenueJoinFeeVolumeZar = 0;
+    let paymentsConsidered = 0;
 
     // Day-bookings: count paid members first (authoritative for host/guest/menu splits).
     if (isDayBookingsScope) {
       for (const m of dayMembersEarly) {
         const ref = m.paystackReference || null;
         if (ref && isRefundedPaymentRef(ref, refundedRefs)) continue;
-        const amt = Number(m.amountPaid) || 0;
+        let amt = Number(m.amountPaid) || 0;
+        if (amt <= 0 && ref) amt = resolvePaymentAmount(ref);
         if (amt <= 0) continue;
         const when = m.paidAt || m.joinedAt || m.bookingDate || new Date();
         const dayKey = when instanceof Date ? when.toISOString().slice(0, 10) : String(when).slice(0, 10);
@@ -1156,18 +1229,51 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
           addRevenueRow(meta, meta.type, null, remaining, net, dayKey, ref);
         }
       }
+
+      // Hosted day-table guests: venue only receives menu (join fee goes to host).
+      for (const g of dayHostedGuests) {
+        const ref = g.paystackReference || null;
+        if (ref && isRefundedPaymentRef(ref, refundedRefs)) continue;
+        const menuZar = Number(g.menuSpendPaid) || 0;
+        if (menuZar <= 0) continue;
+        const when = g.hostReviewedAt || g.joinedAt || new Date();
+        const dayKey = when instanceof Date ? when.toISOString().slice(0, 10) : String(when).slice(0, 10);
+        const tableId = g.hostedTable?.venueTableId || g.hostedTable?.venueTable?.id || null;
+        const menuNet = splitPlatformGross(menuZar).recipientAmount;
+        addRevenueRow(
+          {
+            is_day_booking: true,
+            type: 'HOSTED_TABLE_MENU',
+            venue_table_id: tableId,
+            venue_id: venueId,
+            member_role: 'GUEST',
+            booking_mode: 'join',
+          },
+          'HOSTED_TABLE_MENU',
+          null,
+          menuZar,
+          menuNet,
+          dayKey,
+          ref ? `${ref}:menu` : null,
+        );
+      }
     }
 
     for (const row of ledgerRows) {
       let meta = resolveLedgerPaymentMeta(row.paymentReference);
+      const baseRef = row.paymentReference ? basePaymentReference(row.paymentReference) : null;
       if (isDayBookingsScope) {
-        if (isDayBookingPayment(meta) || !(meta.event_id ?? meta.eventId)) {
+        // Prefer table/split proof over sparse metadata (stray event_id).
+        if (daySplitBaseRefs.has(baseRef) || isDayBookingPayment(meta) || !(meta.event_id ?? meta.eventId)) {
           meta = { ...meta, is_day_booking: true };
+          if (meta.event_id || meta.eventId) {
+            const { event_id: _e1, eventId: _e2, ...rest } = meta;
+            meta = { ...rest, is_day_booking: true };
+          }
         }
       }
       if (isRefundedPaymentRef(row.paymentReference, refundedRefs)) continue;
       if (row.paymentReference && matchedPaymentRefs.has(row.paymentReference)) continue;
-      const baseRef = row.paymentReference ? basePaymentReference(row.paymentReference) : null;
       // Skip ledger components when the full member payment was already counted.
       if (baseRef && fullyMatchedBaseRefs.has(baseRef)) continue;
       const gross = Number(row.grossAmount) || 0;
@@ -1192,6 +1298,10 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       let meta = resolveLedgerPaymentMeta(log.reference);
       if (isDayBookingsScope) {
         meta = { ...meta, is_day_booking: true };
+        if (meta.event_id || meta.eventId) {
+          const { event_id: _e1, eventId: _e2, ...rest } = meta;
+          meta = { ...rest, is_day_booking: true };
+        }
       }
       if (isRefundedPaymentRef(log.reference, refundedRefs)) continue;
       const gross = Number(log.totalAmount) || 0;
@@ -1200,39 +1310,91 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       addRevenueRow(meta, meta?.type, resolveLedgerPaymentType(log.reference), gross, net, dayKey, log.reference);
     }
 
-    // Venue-scoped payment fallback. Day bookings filter via classification / is_day_booking.
+    // Venue-scoped payment fallback. Day bookings require venue match + day-booking classification.
     {
-      const venuePaymentOr = [
-        { metadata: { path: ['venue_id'], equals: venueId } },
-        { metadata: { path: ['venueId'], equals: venueId } },
-      ];
+      let payments = [];
       if (isDayBookingsScope) {
-        venuePaymentOr.push({ metadata: { path: ['is_day_booking'], equals: true } });
-      }
-      if (eventId && !isDayBookingsScope) {
-        venuePaymentOr.push(
-          { metadata: { path: ['event_id'], equals: eventId } },
-          { metadata: { path: ['eventId'], equals: eventId } },
-        );
+        payments = await prisma.payment.findMany({
+          where: {
+            status: 'success',
+            createdAt: { gte: cutoff },
+            AND: [
+              {
+                OR: [
+                  { metadata: { path: ['venue_id'], equals: venueId } },
+                  { metadata: { path: ['venueId'], equals: venueId } },
+                ],
+              },
+              {
+                OR: [
+                  { metadata: { path: ['is_day_booking'], equals: true } },
+                  { metadata: { path: ['isDayBooking'], equals: true } },
+                ],
+              },
+            ],
+          },
+          select: { amount: true, type: true, metadata: true, createdAt: true, reference: true },
+          orderBy: { createdAt: 'desc' },
+          take: 3000,
+        });
+        // Also include venue-scoped payments without the flag when they look like day bookings in JS.
+        const venueScoped = await prisma.payment.findMany({
+          where: {
+            status: 'success',
+            createdAt: { gte: cutoff },
+            OR: [
+              { metadata: { path: ['venue_id'], equals: venueId } },
+              { metadata: { path: ['venueId'], equals: venueId } },
+            ],
+          },
+          select: { amount: true, type: true, metadata: true, createdAt: true, reference: true },
+          orderBy: { createdAt: 'desc' },
+          take: 3000,
+        });
+        const seen = new Set(payments.map((p) => p.reference).filter(Boolean));
+        for (const p of venueScoped) {
+          if (p.reference && seen.has(p.reference)) continue;
+          const meta = flattenPaymentMetadata(p.metadata);
+          if (isDayBookingPayment(meta) || (!(meta.event_id ?? meta.eventId) && (meta.venue_table_id || meta.venueTableId))) {
+            payments.push(p);
+            if (p.reference) seen.add(p.reference);
+          }
+        }
+      } else {
+        const venuePaymentOr = [
+          { metadata: { path: ['venue_id'], equals: venueId } },
+          { metadata: { path: ['venueId'], equals: venueId } },
+        ];
+        if (eventId) {
+          venuePaymentOr.push(
+            { metadata: { path: ['event_id'], equals: eventId } },
+            { metadata: { path: ['eventId'], equals: eventId } },
+          );
+        }
+        payments = await prisma.payment.findMany({
+          where: {
+            status: 'success',
+            createdAt: { gte: cutoff },
+            OR: venuePaymentOr,
+          },
+          select: { amount: true, type: true, metadata: true, createdAt: true, reference: true },
+          orderBy: { createdAt: 'desc' },
+          take: 3000,
+        });
       }
 
-      const payments = await prisma.payment.findMany({
-        where: {
-          status: 'success',
-          createdAt: { gte: cutoff },
-          OR: venuePaymentOr,
-        },
-        select: { amount: true, type: true, metadata: true, createdAt: true, reference: true },
-        orderBy: { createdAt: 'desc' },
-        take: isDayBookingsScope ? 2000 : 3000,
-      });
+      paymentsConsidered = payments.length;
 
       for (const p of payments) {
         let meta = flattenPaymentMetadata(p.metadata);
         if (isDayBookingsScope) {
-          if (!isDayBookingPayment(meta) && (meta.event_id ?? meta.eventId)) continue;
-          if (!(meta.event_id ?? meta.eventId)) {
-            meta = { ...meta, is_day_booking: true };
+          if (!isDayBookingPayment(meta) && (meta.event_id ?? meta.eventId) && !daySplitBaseRefs.has(basePaymentReference(p.reference))) {
+            continue;
+          }
+          meta = { ...meta, is_day_booking: true };
+          if (meta.event_id || meta.eventId) {
+            const { event_id: _e1, eventId: _e2, ...rest } = meta;
+            meta = { ...rest, is_day_booking: true };
           }
         } else if (!paymentMatchesVenueScope(meta, venueId, eventIdSet)) {
           continue;
@@ -1332,18 +1494,10 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       /** @type {Map<string, { tierKey: string, tables: Map<string, { gross: number, net: number }> }>} */
       const tierMap = new Map();
 
-      for (const m of dayMembersEarly) {
-        const ref = m.paystackReference || null;
-        if (ref && isRefundedPaymentRef(ref, refundedRefs)) continue;
-        const amt = Number(m.amountPaid) || 0;
-        if (amt <= 0) continue;
-
-        const tableId = m.venueTableId;
+      const bumpTier = (tableId, tableMeta, amt, windowStart, paidAt, joinedAt) => {
+        if (!tableId || amt <= 0) return;
         const tierKey = String(
-          m.venueTable?.hostingTiersKey ||
-            m.venueTable?.tierLabel ||
-            m.venueTable?.tableName ||
-            tableId,
+          tableMeta?.hostingTiersKey || tableMeta?.tierLabel || tableMeta?.tableName || tableId,
         );
         if (!tierMap.has(tierKey)) {
           tierMap.set(tierKey, { tierKey, tables: new Map() });
@@ -1353,19 +1507,37 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
         const prev = tier.tables.get(tableId) || { gross: 0, net: 0 };
         tier.tables.set(tableId, { gross: prev.gross + amt, net: prev.net + netAmt });
 
-        const clock = m.windowStartTime || null;
+        const clock = windowStart || null;
         let hour = null;
         if (clock) {
           const parsed = parseInt(String(clock).split(':')[0], 10);
           if (!Number.isNaN(parsed)) hour = parsed;
         }
         if (hour == null) {
-          const when = m.paidAt || m.joinedAt;
+          const when = paidAt || joinedAt;
           if (when) hour = when.getHours();
         }
         if (hour != null) {
           bookingHourCounts[hour] = (bookingHourCounts[hour] || 0) + 1;
         }
+      };
+
+      for (const m of dayMembersEarly) {
+        const ref = m.paystackReference || null;
+        if (ref && isRefundedPaymentRef(ref, refundedRefs)) continue;
+        let amt = Number(m.amountPaid) || 0;
+        if (amt <= 0 && ref) amt = resolvePaymentAmount(ref);
+        if (amt <= 0) continue;
+        bumpTier(m.venueTableId, m.venueTable, amt, m.windowStartTime, m.paidAt, m.joinedAt);
+      }
+
+      for (const g of dayHostedGuests) {
+        const ref = g.paystackReference || null;
+        if (ref && isRefundedPaymentRef(ref, refundedRefs)) continue;
+        const menuZar = Number(g.menuSpendPaid) || 0;
+        if (menuZar <= 0) continue;
+        const tableId = g.hostedTable?.venueTableId || g.hostedTable?.venueTable?.id;
+        bumpTier(tableId, g.hostedTable?.venueTable, menuZar, null, g.hostReviewedAt, g.joinedAt);
       }
 
       const tierAvgsGross = [];
@@ -1454,6 +1626,19 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       peakHour,
       eventIdsWithRevenue: [...eventIdsWithRevenue],
       revenueByDay: revenueByDaySorted,
+      ...(debugAnalytics
+        ? {
+            debug: {
+              memberCount: dayMembersEarly.length,
+              hostedGuestCount: dayHostedGuests.length,
+              ledgerRows: ledgerRows.length,
+              splitLogs: splitLogs.length,
+              paymentsConsidered,
+              countedRows,
+              daySplitBaseRefs: daySplitBaseRefs.size,
+            },
+          }
+        : {}),
     });
   } catch (e) {
     next(e);
