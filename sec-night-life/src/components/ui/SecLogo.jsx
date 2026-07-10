@@ -13,7 +13,10 @@ export default function SecLogo({
   const [imgError, setImgError] = useState(false);
   const showText = variant === 'full';
 
-  const logoSrc = '/Logo/sec-logo.svg';
+  const logoSrc =
+    asset === 'transparent'
+      ? '/Logo/sec-email-logo-transparent.png'
+      : '/Logo/sec-logo.png';
 
   if (!imgError) {
     return (
