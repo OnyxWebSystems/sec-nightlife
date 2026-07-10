@@ -278,6 +278,11 @@ enum TableEventType {
   OTHER
 }
 
+enum HostedListingSurface {
+  TABLE
+  EVENT
+}
+
 enum VenueTableStatus {
   AVAILABLE
   PARTIALLY_FILLED
@@ -1662,6 +1667,8 @@ model HostedTable {
   tableName        String            @map("table_name")
   tableDescription String?           @map("table_description") @db.Text
   eventType        TableEventType    @map("event_type")
+  /// Where this listing appears on Home: Available Tables vs Events.
+  listingSurface   HostedListingSurface @default(TABLE) @map("listing_surface")
   eventId          String?           @map("event_id")
   venueName        String            @map("venue_name")
   venueAddress     String?           @map("venue_address")

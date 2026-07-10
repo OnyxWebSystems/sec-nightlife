@@ -313,6 +313,10 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
   }
 
   for (const t of hostedRows) {
+    // Community "list as event" listings appear under Home Events, not Available Tables.
+    if (t.tableType === 'EXTERNAL_VENUE' && t.listingSurface === 'EVENT' && !t.venueTableId) {
+      continue;
+    }
     const spots = t.spotsRemaining;
     const isVipHosted = t.hostingCategory === 'VIP';
     const tableSummary = {
@@ -412,4 +416,63 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
 
   const sorted = sortOfferings(offerings, friendIds, sessionSeed);
   return sorted.slice(0, cappedLimit);
+}
+
+/**
+ * External hosted listings marked as EVENT surface — shown in Home Events section.
+ */
+export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
+  const cappedLimit = Math.min(Math.max(limit, 1), 30);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const rows = await prisma.hostedTable.findMany({
+    where: {
+      status: 'ACTIVE',
+      spotsRemaining: { gt: 0 },
+      eventDate: { gte: today },
+      tableType: 'EXTERNAL_VENUE',
+      listingSurface: 'EVENT',
+      venueTableId: null,
+    },
+    take: cappedLimit,
+    orderBy: { eventDate: 'asc' },
+    include: {
+      host: {
+        select: {
+          id: true,
+          username: true,
+          fullName: true,
+          userProfile: { select: { username: true, avatarUrl: true } },
+        },
+      },
+    },
+  });
+
+  return rows.map((t) => {
+    const host = formatHost(t.host);
+    return {
+      id: t.id,
+      hostedTableId: t.id,
+      source: 'hosted',
+      title: t.tableName,
+      description: t.tableDescription || null,
+      date: t.eventDate,
+      startTime: t.eventTime,
+      city: null,
+      venueName: t.venueName,
+      cover_image_url: t.photo || null,
+      coverImageUrl: t.photo || null,
+      eventType: t.eventType,
+      spotsRemaining: t.spotsRemaining,
+      guestQuantity: t.guestQuantity,
+      hasJoiningFee: t.hasJoiningFee,
+      joiningFee: t.joiningFee,
+      isPublic: t.isPublic,
+      hostName: host.username || host.fullName || null,
+      hostAvatarUrl: host.avatarUrl || null,
+      listingSurface: 'EVENT',
+      isCommunityHosted: true,
+    };
+  });
 }

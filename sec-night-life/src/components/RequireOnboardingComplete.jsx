@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { isOnboardingMarkedComplete } from '@/lib/sessionCache';
+import RoutePageFallback from '@/components/RoutePageFallback';
 
 export default function RequireOnboardingComplete({ children }) {
   const navigate = useNavigate();
@@ -20,9 +21,9 @@ export default function RequireOnboardingComplete({ children }) {
     }
   }, [isLoadingAuth, isRestoringSession, isAuthenticated, user, userProfile, navigate, navigateToLogin]);
 
-  if (isLoadingAuth || isRestoringSession) return null;
-  if (!isAuthenticated || !user) return null;
+  if (isLoadingAuth || isRestoringSession) return <RoutePageFallback />;
+  if (!isAuthenticated || !user) return <RoutePageFallback />;
   if (isOnboardingMarkedComplete(user.id)) return children;
-  if (userProfile != null && userProfile.onboarding_complete === false) return null;
+  if (userProfile != null && userProfile.onboarding_complete === false) return <RoutePageFallback />;
   return children;
 }

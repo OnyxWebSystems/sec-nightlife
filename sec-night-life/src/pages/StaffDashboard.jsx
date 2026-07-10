@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { STAFF_PERMISSIONS } from '@/components/business/AddStaffModal';
+import { staffHasPermission } from '@/hooks/useVenueStaffAccess';
 
 const PERM_PAGES = {
   dashboard: { page: 'BusinessDashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -77,6 +78,9 @@ export default function StaffDashboard() {
             {assignments.map((row) => {
               const perms = row.permissions || {};
               const enabledKeys = Object.keys(perms).filter((k) => perms[k]);
+              const quickLinkKeys = Object.keys(PERM_PAGES).filter(
+                (key) => staffHasPermission(perms, key) || enabledKeys.includes(key),
+              );
               const venueName = row.venueName || 'Venue';
               const venueCity = row.venueCity;
               const venueLogo = row.venueLogoUrl;
@@ -130,12 +134,12 @@ export default function StaffDashboard() {
                     )}
                   </div>
 
-                  {enabledKeys.length > 0 ? (
+                  {quickLinkKeys.length > 0 ? (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--sec-text-muted)' }}>
                         Quick links
                       </p>
-                      {enabledKeys.map((key) => {
+                      {quickLinkKeys.map((key) => {
                         const meta = PERM_PAGES[key];
                         if (!meta) return null;
                         const Icon = meta.icon;

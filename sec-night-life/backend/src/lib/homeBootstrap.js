@@ -1,5 +1,5 @@
 import { prisma } from './prisma.js';
-import { buildTableOfferings } from './tableOfferings.js';
+import { buildTableOfferings, buildCommunityHostedEvents } from './tableOfferings.js';
 import { parseGeoQuery } from './geo.js';
 
 async function fetchAnnouncements() {
@@ -182,7 +182,7 @@ export async function buildHomeBootstrap(req) {
   const userId = req.userId || null;
   const city = await resolveCity({ userId, overrideCity, scopeAll, geo });
 
-  const [announcements, tableItems, promotions, followedPromoters] = await Promise.all([
+  const [announcements, tableItems, promotions, followedPromoters, communityHostedEvents] = await Promise.all([
     fetchAnnouncements(),
     buildTableOfferings({
       userId,
@@ -191,6 +191,7 @@ export async function buildHomeBootstrap(req) {
     }),
     fetchPromotionsPage({ userId, city, scopeAll: scopeAll || !!geo, limit: promoLimit }),
     userId ? fetchFollowedPromoters(userId) : Promise.resolve([]),
+    buildCommunityHostedEvents({ limit: 12 }),
   ]);
 
   return {
@@ -198,5 +199,6 @@ export async function buildHomeBootstrap(req) {
     tableOfferings: tableItems,
     promotions: { results: promotions },
     followedPromoters: { items: followedPromoters },
+    communityHostedEvents,
   };
 }

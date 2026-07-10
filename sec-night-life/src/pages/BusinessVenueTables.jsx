@@ -20,7 +20,10 @@ import { LayoutGrid } from 'lucide-react';
 import { VENUE_DECLINE_TEMPLATES, formatMenuLines } from '@/lib/venueTableMessageTemplates';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
+import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
+import { businessVenueQuery } from '@/lib/businessVenueQuery';
+import { menuApiBase } from '@/lib/staffVenueApi';
 
 export default function BusinessVenueTables() {
   const navigate = useNavigate();
@@ -54,31 +57,55 @@ export default function BusinessVenueTables() {
   const [editForm, setEditForm] = useState(null);
   const [expandedTierKey, setExpandedTierKey] = useState(null);
 
-  const { activeVenue: venue } = useActiveVenue();
-
-  const invalidateGuestBookCaches = useCallback(() => {
-    if (!venue?.id) return;
-    qc.invalidateQueries({ queryKey: ['venue-day-table-tiers', venue.id] });
-    qc.invalidateQueries({ queryKey: ['venue', venue.id] });
-    qc.invalidateQueries({ queryKey: ['venue-table'] });
-  }, [qc, venue?.id]);
-
-  const { data: venueDetail } = useQuery({
-    queryKey: ['venue-detail', venue?.id],
-    queryFn: () => apiGet(`/api/venues/${venue.id}`),
-    enabled: !!venue?.id,
+  const { activeVenue } = useActiveVenue();
+  const venueScope = useBusinessVenueScope();
+  const hasVenueScope = venueScope.inStaffSession || !!activeVenue?.id;
+  const scopeKey = venueScope.staffContextToken || activeVenue?.id;
+  const scopeQs = businessVenueQuery({
+    staffCtx: venueScope.staffContextToken,
+    venueId: venueScope.inStaffSession ? null : activeVenue?.id,
   });
-
-  const { data: menuItems = [] } = useQuery({
-    queryKey: ['venue-menu-biz', venue?.id],
-    queryFn: () => apiGet(`/api/business/venues/${venue.id}/menu-items`),
-    enabled: !!venue?.id,
+  const menuBase = menuApiBase({
+    inStaffSession: venueScope.inStaffSession,
+    staffContextToken: venueScope.staffContextToken,
+    venueId: activeVenue?.id,
   });
 
   const { data: dayTablesData, isLoading, refetch: refetchDayTables } = useQuery({
-    queryKey: ['biz-day-venue-tables', venue?.id],
-    queryFn: () => apiGet(`/api/business/day-venue-tables?venue_id=${encodeURIComponent(venue.id)}`),
-    enabled: !!venue?.id,
+    queryKey: ['biz-day-venue-tables', scopeKey],
+    queryFn: () => apiGet(`/api/business/day-venue-tables?${scopeQs}`),
+    enabled: hasVenueScope && !!scopeQs,
+  });
+
+  const venueId = dayTablesData?.venue?.id || (venueScope.inStaffSession ? null : activeVenue?.id);
+  const venue = venueId
+    ? {
+        id: venueId,
+        name: dayTablesData?.venue?.name || venueScope.venueName || activeVenue?.name,
+      }
+    : null;
+
+  const invalidateGuestBookCaches = useCallback(() => {
+    if (!venueId) return;
+    qc.invalidateQueries({ queryKey: ['venue-day-table-tiers', venueId] });
+    qc.invalidateQueries({ queryKey: ['venue', venueId] });
+    qc.invalidateQueries({ queryKey: ['venue-table'] });
+  }, [qc, venueId]);
+
+  const { data: venueDetailFromApi } = useQuery({
+    queryKey: ['venue-detail', venueId],
+    queryFn: () => apiGet(`/api/venues/${venueId}`),
+    enabled: !!venueId && !venueScope.inStaffSession,
+  });
+
+  const venueDetail = venueScope.inStaffSession
+    ? dayTablesData?.venue || null
+    : venueDetailFromApi;
+
+  const { data: menuItems = [] } = useQuery({
+    queryKey: ['venue-menu-biz', scopeKey],
+    queryFn: () => apiGet(menuBase ? `${menuBase}/menu-items` : `/api/business/venues/${venueId}/menu-items`),
+    enabled: !!menuBase || (!!venueId && !venueScope.inStaffSession),
   });
 
   const dayTables = dayTablesData?.items || [];
@@ -138,9 +165,9 @@ export default function BusinessVenueTables() {
   }
 
   const { data: reservations } = useQuery({
-    queryKey: ['biz-venue-reservations'],
-    queryFn: () => apiGet('/api/business/venue-table-reservations?status=pending'),
-    enabled: !!venue?.id,
+    queryKey: ['biz-venue-reservations', scopeKey],
+    queryFn: () => apiGet(`/api/business/venue-table-reservations?status=pending&${scopeQs}`),
+    enabled: hasVenueScope && !!scopeQs,
   });
 
   const createMutation = useMutation({
@@ -165,7 +192,7 @@ export default function BusinessVenueTables() {
         };
       });
       await apiPost('/api/venue-tables/sync-day-listings', {
-        venueId: venue.id,
+        venueId,
         description: form.description || null,
         serviceSchedule,
         allowsCustomRequests: false,
@@ -227,7 +254,7 @@ export default function BusinessVenueTables() {
     try {
       if (editForm.tierIndex != null) {
         await apiPost('/api/venue-tables/adjust-day-tier', {
-          venueId: venue.id,
+          venueId,
           tierIndex: editForm.tierIndex,
           tierTableSlots: parseInt(editForm.tierTableSlots, 10) || 1,
           tableName: editForm.tableName.trim(),
@@ -275,7 +302,7 @@ export default function BusinessVenueTables() {
 
   const deleteTierListing = async (tierIndex) => {
     const idx = tierIndex ?? editForm?.tierIndex;
-    if (idx == null || !venue?.id) return;
+    if (idx == null || !venueId) return;
     if (
       !window.confirm(
         'Delete this tier and all its table slots? Empty slots are removed permanently. You must reset any in-use tables first.',
@@ -285,7 +312,7 @@ export default function BusinessVenueTables() {
     }
     try {
       await apiPost('/api/venue-tables/delete-day-tier', {
-        venueId: venue.id,
+        venueId,
         tierIndex: idx,
       });
       toast.success('Tier deleted');
@@ -314,10 +341,11 @@ export default function BusinessVenueTables() {
   });
 
   const saveVenueFlags = useMutation({
-    mutationFn: (accepts) => apiPatch(`/api/venues/${venue.id}`, { accepts_day_bookings: accepts }),
+    mutationFn: (accepts) => apiPatch(`/api/venues/${venueId}`, { accepts_day_bookings: accepts }),
     onSuccess: () => {
       toast.success('Venue settings saved');
-      qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['venue-detail', venueId] });
+      qc.invalidateQueries({ queryKey: ['biz-day-venue-tables', scopeKey] });
       invalidateGuestBookCaches();
     },
     onError: (e) => toast.error(e?.data?.error || e.message),
@@ -325,19 +353,20 @@ export default function BusinessVenueTables() {
 
   const saveSeatingPlanDay = useMutation({
     mutationFn: (enabled) =>
-      apiPatch(`/api/venues/${venue.id}`, { show_seating_plan_for_day_bookings: enabled }),
+      apiPatch(`/api/venues/${venueId}`, { show_seating_plan_for_day_bookings: enabled }),
     onSuccess: () => {
       toast.success('Seating plan setting saved');
-      qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['venue-detail', venueId] });
+      qc.invalidateQueries({ queryKey: ['biz-day-venue-tables', scopeKey] });
       invalidateGuestBookCaches();
     },
     onError: (e) => toast.error(e?.data?.error || e.message),
   });
 
   const { data: seatingPlansData } = useQuery({
-    queryKey: ['venue-seating-plans', venue?.id],
-    queryFn: () => apiGet(`/api/business/venue-seating-plans?venue_id=${encodeURIComponent(venue.id)}`),
-    enabled: !!venue?.id,
+    queryKey: ['venue-seating-plans', scopeKey],
+    queryFn: () => apiGet(`/api/business/venue-seating-plans?${scopeQs}`),
+    enabled: hasVenueScope && !!scopeQs,
   });
   const seatingPlanCount = seatingPlansData?.items?.length ?? 0;
 
@@ -346,7 +375,7 @@ export default function BusinessVenueTables() {
       const rawMax = String(venueFees.max_booking_duration_hours ?? '').trim();
       const max_booking_duration_hours =
         rawMax === '' ? null : Math.max(1, parseInt(rawMax, 10) || 1);
-      return apiPatch(`/api/venues/${venue.id}`, {
+      return apiPatch(`/api/venues/${venueId}`, {
         host_table_fee_zar: parseFloat(venueFees.host_table_fee_zar) || 0,
         custom_table_booking_fee_zar: parseFloat(venueFees.custom_table_booking_fee_zar) || 0,
         max_booking_duration_hours,
@@ -354,7 +383,8 @@ export default function BusinessVenueTables() {
     },
     onSuccess: () => {
       toast.success('Fees saved');
-      qc.invalidateQueries({ queryKey: ['venue-detail', venue?.id] });
+      qc.invalidateQueries({ queryKey: ['venue-detail', venueId] });
+      qc.invalidateQueries({ queryKey: ['biz-day-venue-tables', scopeKey] });
       invalidateGuestBookCaches();
     },
     onError: (e) => toast.error(e?.data?.error || e.message),
@@ -379,12 +409,12 @@ export default function BusinessVenueTables() {
   ]);
 
   async function setCustomRequestsEnabled(enabled) {
-    if (!venue?.id) return;
+    if (!venueId) return;
     setActionTableId('custom-requests');
     try {
       if (enabled) {
         await apiGet(
-          `/api/venue-tables/day-custom-listing?venueId=${encodeURIComponent(venue.id)}`,
+          `/api/venue-tables/day-custom-listing?venueId=${encodeURIComponent(venueId)}`,
         );
         toast.success('Custom table requests enabled');
       } else if (customListing?.id) {
@@ -400,13 +430,33 @@ export default function BusinessVenueTables() {
     }
   }
 
-  if (!venue) {
+  if (!hasVenueScope) {
     return (
       <div className="sec-page flex flex-col items-center justify-center min-h-[50vh] px-6 text-center">
         <Armchair size={40} className="mb-4 opacity-40" />
         <h2 className="text-lg font-semibold mb-2">No venue yet</h2>
         <p className="text-sm text-[var(--sec-text-muted)] mb-6">Register your venue to manage tables and day bookings.</p>
         <Button onClick={() => navigate(createPageUrl('VenueOnboarding'))}>Register venue</Button>
+      </div>
+    );
+  }
+
+  if (!venueId && isLoading) {
+    return (
+      <div className="sec-page flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="animate-spin" style={{ color: 'var(--sec-accent)' }} />
+      </div>
+    );
+  }
+
+  if (!venueId) {
+    return (
+      <div className="sec-page flex flex-col items-center justify-center min-h-[50vh] px-6 text-center">
+        <Armchair size={40} className="mb-4 opacity-40" />
+        <h2 className="text-lg font-semibold mb-2">Venue unavailable</h2>
+        <p className="text-sm text-[var(--sec-text-muted)] mb-6">
+          Could not load this venue for tables & day bookings.
+        </p>
       </div>
     );
   }
@@ -529,6 +579,11 @@ export default function BusinessVenueTables() {
       />
       <div className="px-4 pt-4">
 
+      {!venueScope.inStaffSession ? (
+        <div className="mb-4">
+          <VenueSwitcher />
+        </div>
+      ) : null}
       <Tabs
         value={tab}
         onValueChange={(v) => {
@@ -1274,7 +1329,7 @@ export default function BusinessVenueTables() {
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => navigate(createPageUrl(`VenueBook?venueId=${venue.id}`))}
+                onClick={() => navigate(createPageUrl(`VenueBook?venueId=${venueId}`))}
               >
                 Host a table here
               </Button>

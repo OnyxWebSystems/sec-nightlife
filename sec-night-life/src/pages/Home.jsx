@@ -458,6 +458,7 @@ export default function Home() {
           items:
             followedRes.status === 'fulfilled' ? followedRes.value?.items || [] : [],
         },
+        communityHostedEvents: [],
       };
     }
   }, [sessionId, homeFeedScopeAll, homeFeedGeoKey, geoCoords, homeFeedCity, locPrefs?.radiusKm]);
@@ -578,6 +579,35 @@ export default function Home() {
     [prioritizedEvents]
   );
   const upcomingEvents = prioritizedEvents.slice(0, 6);
+  const communityHostedEvents = homeBootstrap?.communityHostedEvents || [];
+
+  const upcomingEventRows = useMemo(() => {
+    const venueRows = upcomingEvents.map((event) => ({
+      kind: 'venue_event',
+      id: event.id,
+      title: event.title,
+      date: event.date,
+      city: event.city,
+      cover_image_url: event.cover_image_url,
+      href: createPageUrl(`EventDetails?id=${event.id}`),
+    }));
+    const communityRows = communityHostedEvents.map((item) => ({
+      kind: 'community_hosted',
+      id: `hosted-${item.hostedTableId || item.id}`,
+      title: item.title,
+      date: item.date,
+      city: item.venueName || item.city || null,
+      cover_image_url: item.cover_image_url || item.coverImageUrl,
+      href: createPageUrl(`TableDetails?id=${item.hostedTableId || item.id}&source=hosted`),
+    }));
+    return [...venueRows, ...communityRows]
+      .sort((a, b) => {
+        const ad = a.date ? new Date(a.date).getTime() : 0;
+        const bd = b.date ? new Date(b.date).getTime() : 0;
+        return ad - bd;
+      })
+      .slice(0, 8);
+  }, [upcomingEvents, communityHostedEvents]);
 
   const featuredEventIds = useMemo(() => featuredEvents.map((e) => e.id).join(','), [featuredEvents]);
   const { data: featuredEventDetails } = useQuery({
@@ -766,9 +796,9 @@ export default function Home() {
           </section>
         )}
 
-        <div className={`mb-9 ${upcomingEvents.length > 0 ? 'xl:grid xl:grid-cols-2 xl:gap-8' : ''}`}>
+        <div className={`mb-9 ${upcomingEventRows.length > 0 ? 'xl:grid xl:grid-cols-2 xl:gap-8' : ''}`}>
           {/* ── Open Tables ── */}
-          <section style={{ marginBottom: upcomingEvents.length > 0 ? 0 : 36 }}>
+          <section style={{ marginBottom: upcomingEventRows.length > 0 ? 0 : 36 }}>
             <div className="sec-section-header">
               <div>
                 <span className="sec-label">Now Open</span>
@@ -830,7 +860,7 @@ export default function Home() {
           </section>
 
           {/* ── Upcoming Events (list rows) ── */}
-          {upcomingEvents.length > 0 && (
+          {upcomingEventRows.length > 0 && (
             <section style={{ marginTop: 36 }} className="xl:mt-0">
               <div className="sec-section-header">
                 <div>
@@ -845,13 +875,12 @@ export default function Home() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {upcomingEvents.map((event, i) => (
+                {upcomingEventRows.map((event, i) => (
                   <motion.div key={event.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
                     <Link
-                      to={createPageUrl(`EventDetails?id=${event.id}`)}
+                      to={event.href}
                       className="sec-list-row"
                     >
-                      {/* Square thumbnail — list row avatar variant */}
                       <div className="sec-list-row__avatar-sq">
                         <img
                           src={getEventImage(event.cover_image_url)}
@@ -861,7 +890,7 @@ export default function Home() {
                       </div>
                       <div className="sec-list-row__body">
                         <div className="sec-list-row__title">{event.title}</div>
-                        <div className="sec-list-row__subtitle" style={{ display: 'flex', gap: 10 }}>
+                        <div className="sec-list-row__subtitle" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                           {event.date && (() => {
                             const d = parseISO(event.date);
                             if (!isValid(d)) return null;
@@ -874,6 +903,7 @@ export default function Home() {
                             );
                           })()}
                           {event.city && <span>{event.city}</span>}
+                          {event.kind === 'community_hosted' ? <span>Community</span> : null}
                         </div>
                       </div>
                       <div className="sec-list-row__action">

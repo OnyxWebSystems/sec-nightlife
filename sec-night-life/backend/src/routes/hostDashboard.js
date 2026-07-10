@@ -1272,6 +1272,7 @@ const createTableSchema = z.object({
   hostingCategory: z.enum(['GENERAL', 'VIP']).optional(),
   hostingTierIndex: z.number().int().min(0).optional().nullable(),
   isPublic: z.boolean().default(true),
+  listingSurface: z.enum(['TABLE', 'EVENT']).default('TABLE'),
   selectedMenuItems: z
     .array(z.object({ menuItemId: z.string().min(1), quantity: z.number().int().min(1) }))
     .optional(),
@@ -1332,6 +1333,7 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
           guestQuantity: d.guestQuantity,
           spotsRemaining: d.guestQuantity,
           isPublic: d.isPublic,
+          listingSurface: d.listingSurface === 'EVENT' ? 'EVENT' : 'TABLE',
           status: 'DRAFT',
         },
         include: { members: true, groupChat: true },

@@ -172,13 +172,13 @@ export function VenueRefundRequestDialog({
               <span className="text-white">{formatZar(selected.grossAmountZar)}</span>
             </div>
             <div className="flex justify-between items-center pt-1 border-t border-[var(--sec-accent-border)]/50">
-              <span className="font-semibold text-[var(--sec-accent-bright)]">You refund (85%)</span>
+              <span className="font-semibold text-[var(--sec-accent-bright)]">You refund</span>
               <span className="text-lg font-bold text-[var(--sec-accent-bright)]">
                 {formatZar(selected.venueRefundDueZar)}
               </span>
             </div>
             <div className="flex justify-between text-xs text-[var(--sec-text-muted)]">
-              <span>SEC keeps (15%)</span>
+              <span>SEC Cancellation fee</span>
               <span>{formatZar(selected.platformFeeKeptZar)}</span>
             </div>
           </div>

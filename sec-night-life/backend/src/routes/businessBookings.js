@@ -69,6 +69,14 @@ function bookingsVenueScope(req) {
   };
 }
 
+function venueTablesVenueScope(req) {
+  return {
+    venueIdFilter: venueIdFromQuery(req.query),
+    staffCtx: staffCtxFromQuery(req.query),
+    permission: 'venue_tables',
+  };
+}
+
 /** Prefer entrance + component when present so UI matches stored line items. */
 function bookingDisplayTotalZar(r) {
   const ent = Number(r.entranceZar ?? 0) || 0;
@@ -1738,7 +1746,10 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
 
 router.get('/venue-table-reservations', authenticateToken, async (req, res, next) => {
   try {
-    const venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
+    let venueIds = await resolveAccessibleVenueIds(req.userId, venueTablesVenueScope(req));
+    if (!venueIds.length) {
+      venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
+    }
     if (!venueIds.length) return res.json({ items: [] });
     const statusFilter = String(req.query.status || 'pending').toLowerCase();
     const statuses =
@@ -3126,14 +3137,26 @@ router.get('/event-venue-tables', authenticateToken, async (req, res, next) => {
 /** Day & venue table slots (non-event) — hide empty listings or reset in-use tables. */
 router.get('/day-venue-tables', authenticateToken, async (req, res, next) => {
   try {
-    const venueId = venueIdFromQuery(req.query);
-    if (!venueId) return res.status(400).json({ error: 'venue_id is required' });
-    const canView = await staffHasVenuePermission(req.userId, venueId, 'venue_tables');
-    if (!canView) return res.status(403).json({ error: 'Forbidden' });
+    const scope = await resolveBusinessVenueScope(req.userId, {
+      staffCtx: staffCtxFromQuery(req.query),
+      venueIdFilter: venueIdFromQuery(req.query),
+      permission: 'venue_tables',
+    });
+    if (!scope.ok) return res.status(scope.status).json({ error: scope.error });
+    const venueId = scope.venueIds[0];
+    if (!venueId) return res.status(400).json({ error: 'venue_id or staff_ctx is required' });
 
     const venue = await prisma.venue.findFirst({
       where: { id: venueId, deletedAt: null },
-      select: { id: true, name: true, acceptsDayBookings: true },
+      select: {
+        id: true,
+        name: true,
+        acceptsDayBookings: true,
+        showSeatingPlanForDayBookings: true,
+        hostTableFeeZar: true,
+        customTableBookingFeeZar: true,
+        maxBookingDurationHours: true,
+      },
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
 
@@ -3161,7 +3184,16 @@ router.get('/day-venue-tables', authenticateToken, async (req, res, next) => {
     };
 
     res.json({
-      venue: { id: venue.id, name: venue.name, acceptsDayBookings: venue.acceptsDayBookings },
+      venue: {
+        id: venue.id,
+        name: venue.name,
+        acceptsDayBookings: venue.acceptsDayBookings,
+        accepts_day_bookings: venue.acceptsDayBookings,
+        show_seating_plan_for_day_bookings: venue.showSeatingPlanForDayBookings,
+        host_table_fee_zar: venue.hostTableFeeZar,
+        custom_table_booking_fee_zar: venue.customTableBookingFeeZar,
+        max_booking_duration_hours: venue.maxBookingDurationHours,
+      },
       summary,
       items,
     });

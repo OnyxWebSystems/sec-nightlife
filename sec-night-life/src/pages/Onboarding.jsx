@@ -5,6 +5,7 @@ import * as authService from '@/services/authService';
 import { useAuth, hasStoredAuthTokens } from '@/lib/AuthContext';
 import { User, Building2, ChevronRight } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
+import RoutePageFallback from '@/components/RoutePageFallback';
 
 const ROLE_INTENT_KEY = 'sec-role-intent';
 
@@ -52,7 +53,7 @@ export default function Onboarding() {
   };
 
   if (hasStoredAuthTokens() && !user && isLoadingAuth) {
-    return null;
+    return <RoutePageFallback />;
   }
 
   return (

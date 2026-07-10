@@ -14,7 +14,7 @@ import { ensureHostedTableFromVenueHostPayment } from '../lib/venueTableHostAfte
 import { ensureVenueTableFulfillmentForPayment } from '../lib/ensureVenueTableFulfillment.js';
 import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
 import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
-import { canJoinTablesAsGuest } from '../lib/access.js';
+import { canJoinTablesAsGuest, staffHasVenuePermission } from '../lib/access.js';
 import { issueTicketAndNotify } from '../lib/issueTicket.js';
 import {
   visibleUntilForVenueTableMember,
@@ -59,6 +59,12 @@ function requireVenueOwner(req, res) {
 
 async function assertVenueOwnedByUser(venueId, userId) {
   return prisma.venue.findFirst({ where: { id: venueId, ownerUserId: userId, deletedAt: null } });
+}
+
+/** Owner or staff with venue_tables (or legacy bookings) may manage day listings. */
+async function assertCanManageVenueTables(venueId, userId) {
+  if (!venueId || !userId) return false;
+  return staffHasVenuePermission(userId, venueId, 'venue_tables');
 }
 
 async function loadMyMembershipForTable(tableId, userId, { isDayBooking = false } = {}) {
@@ -201,12 +207,11 @@ const syncDayListingsSchema = z.object({
 
 router.post('/sync-day-listings', authenticateToken, async (req, res, next) => {
   try {
-    if (!requireVenueOwner(req, res)) return;
     const parsed = syncDayListingsSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
-    const owned = await assertVenueOwnedByUser(d.venueId, req.userId);
-    if (!owned) return res.status(403).json({ error: 'Forbidden' });
+    const canManage = await assertCanManageVenueTables(d.venueId, req.userId);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     const { syncDayVenueTables } = await import('../lib/syncDayVenueTables.js');
     const result = await syncDayVenueTables(d.venueId, {
       description: d.description ?? null,
@@ -285,12 +290,11 @@ const deleteDayTierSchema = z.object({
 
 router.post('/delete-day-tier', authenticateToken, async (req, res, next) => {
   try {
-    if (!requireVenueOwner(req, res)) return;
     const parsed = deleteDayTierSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
-    const owned = await assertVenueOwnedByUser(d.venueId, req.userId);
-    if (!owned) return res.status(403).json({ error: 'Forbidden' });
+    const canManage = await assertCanManageVenueTables(d.venueId, req.userId);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     const { deleteDayTier } = await import('../lib/syncDayVenueTables.js');
     const result = await deleteDayTier(d.venueId, d.tierIndex);
     res.json(result);
@@ -307,12 +311,11 @@ router.post('/delete-day-tier', authenticateToken, async (req, res, next) => {
 
 router.post('/adjust-day-tier', authenticateToken, async (req, res, next) => {
   try {
-    if (!requireVenueOwner(req, res)) return;
     const parsed = adjustDayTierSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
-    const owned = await assertVenueOwnedByUser(d.venueId, req.userId);
-    if (!owned) return res.status(403).json({ error: 'Forbidden' });
+    const canManage = await assertCanManageVenueTables(d.venueId, req.userId);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     const { adjustDayTierFromVenueListing } = await import('../lib/syncDayVenueTables.js');
     const result = await adjustDayTierFromVenueListing(
       d.venueId,
@@ -342,7 +345,6 @@ router.post('/adjust-day-tier', authenticateToken, async (req, res, next) => {
 
 router.patch('/:tableId', authenticateToken, async (req, res, next) => {
   try {
-    if (!requireVenueOwner(req, res)) return;
     const parsed = updateTableSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const table = await prisma.venueTable.findUnique({
@@ -350,7 +352,8 @@ router.patch('/:tableId', authenticateToken, async (req, res, next) => {
       include: { venue: true },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
-    if (table.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const canManage = await assertCanManageVenueTables(table.venueId, req.userId);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     if (table.eventId) {
       return res.status(400).json({ error: 'Event-linked tables are managed from Events Manager' });
     }
@@ -857,7 +860,6 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
 
 router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, res, next) => {
   try {
-    if (!requireVenueOwner(req, res)) return;
     const { VENUE_DECLINE_TEMPLATE_KEYS, validateDeclinePayload } =
       await import('../lib/venueTableMessageTemplates.js');
     const payload = z
@@ -888,7 +890,8 @@ router.patch('/:tableId/reservations/:memberId', authenticateToken, async (req, 
       },
     });
     if (!member) return res.status(404).json({ error: 'Request not found' });
-    if (member.venueTable.venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    const canManage = await assertCanManageVenueTables(member.venueTable.venueId, req.userId);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     const guestEmail = member.user?.email;
     const tableLabel = member.venueTable.tableName;
     const payUrl = `${process.env.APP_URL || 'https://secnightlife.com'}/TableDetails?id=${member.venueTableId}&source=venue&checkout=1`;

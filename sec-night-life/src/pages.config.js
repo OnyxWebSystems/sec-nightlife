@@ -8,6 +8,7 @@ import PaymentSuccess from './pages/PaymentSuccess.jsx';
 import TicketSuccess from './pages/TicketSuccess.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
+import Register from './pages/Register.jsx';
 import { isStaleChunkLoadError, scheduleChunkReloadOnce } from './lib/chunkLoadRecovery';
 
 const modules = import.meta.glob('./pages/*.jsx');
@@ -17,6 +18,7 @@ const EAGER_PAGES = new Set([
   'Home',
   'Onboarding',
   'Login',
+  'Register',
   'TicketVerify',
   'PaymentSuccess',
   'TicketSuccess',
@@ -50,6 +52,7 @@ const EAGER_IMPORTS = {
   Home,
   Onboarding,
   Login,
+  Register,
   TicketVerify,
   PaymentSuccess,
   TicketSuccess,

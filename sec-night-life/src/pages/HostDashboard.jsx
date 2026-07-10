@@ -43,6 +43,7 @@ export default function HostDashboard() {
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [tableForm, setTableForm] = useState({
     tableType: 'EXTERNAL_VENUE',
+    listingSurface: 'TABLE',
     tableName: '',
     tableDescription: '',
     eventType: 'CLUB_TABLE',
@@ -243,18 +244,24 @@ export default function HostDashboard() {
     setSaving(true);
     try {
       if (!tableForm.venueName || !tableForm.eventDate) {
-        toast.error('Venue name and date required');
+        toast.error('Place name and date required');
         setSaving(false);
         return;
       }
       if (!tableForm.venueAddress?.trim()) {
-        toast.error('Enter the venue address so guests know where to meet');
+        toast.error('Enter the address so guests know where to meet');
+        setSaving(false);
+        return;
+      }
+      if (!tableForm.tableName?.trim()) {
+        toast.error('Add a title for your listing');
         setSaving(false);
         return;
       }
       const created = await apiPost('/api/host/tables', {
         tableType: 'EXTERNAL_VENUE',
-        tableName: tableForm.tableName,
+        listingSurface: tableForm.listingSurface === 'EVENT' ? 'EVENT' : 'TABLE',
+        tableName: tableForm.tableName.trim(),
         tableDescription: tableForm.tableDescription || null,
         eventType: tableForm.eventType,
         venueName: tableForm.venueName,
@@ -279,13 +286,13 @@ export default function HostDashboard() {
           onSuccess: async (payload) => {
             await completePaystackCheckout({ reference: created.payment.reference, payload, queryClient, showToasts: false });
             queryClient.invalidateQueries(['host-tables']);
-            toast.success('Listing payment received — your external table is live.');
+            toast.success('Listing payment received — your listing is live.');
             setShowTableModal(false);
             setSearchParams({}, { replace: true });
           },
           onCancel: () => {
             toast.message('Checkout closed', {
-              description: 'Your external table stays in draft until you complete the listing payment.',
+              description: 'Your listing stays in draft until you complete the listing payment.',
             });
             queryClient.invalidateQueries(['host-tables']);
           },
@@ -293,11 +300,11 @@ export default function HostDashboard() {
         return;
       }
       queryClient.invalidateQueries(['host-tables']);
-      toast.success('Table listed');
+      toast.success('Listing published');
       setShowTableModal(false);
       setSearchParams({}, { replace: true });
     } catch (e) {
-      toast.error(e?.message || 'Could not create table');
+      toast.error(e?.message || 'Could not create listing');
     } finally {
       setSaving(false);
     }
@@ -657,23 +664,63 @@ export default function HostDashboard() {
     );
   }
 
+  const joinFeeNum = tableForm.hasJoiningFee ? Number(tableForm.joiningFee) : 0;
+  const joinFeeValid = Number.isFinite(joinFeeNum) && joinFeeNum >= 10;
+  const hostReceiveZar = joinFeeValid ? Math.round(joinFeeNum * 0.85 * 100) / 100 : 0;
+  const secFeeZar = joinFeeValid ? Math.round(joinFeeNum * 0.15 * 100) / 100 : 0;
+
   const hostedTableCreateFields = (
-    <div className="space-y-4 text-sm">
+    <div className="space-y-5 text-sm">
       <p className="text-xs text-[var(--sec-text-muted)] leading-relaxed">
-        Host a table at your own venue — any location. To book tables at official SEC events, use Book a table on the event page — venues control those listings.
+        Host at your own place — house parties, boats, restaurants, tables, and more. Official SEC event tables are booked from the event page.
       </p>
+
+      <div>
+        <div className="text-sm font-medium mb-2">List as</div>
+        <div
+          className="grid grid-cols-2 gap-2 p-1 rounded-xl"
+          style={{ background: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}
+          role="group"
+          aria-label="Listing type"
+        >
+          {[
+            { value: 'TABLE', label: 'Table', hint: 'Shows under Available Tables' },
+            { value: 'EVENT', label: 'Event', hint: 'Shows under Events on Home' },
+          ].map((opt) => {
+            const active = tableForm.listingSurface === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setTableForm((f) => ({ ...f, listingSurface: opt.value }))}
+                className="rounded-lg px-3 py-2.5 text-left transition-colors"
+                style={{
+                  background: active ? 'var(--sec-accent-muted)' : 'transparent',
+                  border: active ? '1px solid var(--sec-accent-border)' : '1px solid transparent',
+                  color: 'var(--sec-text-primary)',
+                }}
+              >
+                <span className="block text-sm font-semibold">{opt.label}</span>
+                <span className="block text-[11px] mt-0.5 text-[var(--sec-text-muted)]">{opt.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <label className="block text-sm font-medium">
-        Venue name
+        Place name
         <input
           placeholder="e.g. Rooftop Lounge"
-          className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
           value={tableForm.venueName}
           onChange={(e) => setTableForm((f) => ({ ...f, venueName: e.target.value }))}
         />
       </label>
+
       <div>
         <div className="text-sm font-medium mb-1">Address</div>
-        <p className="text-xs text-[var(--sec-text-muted)] mb-2">Required so friends know exactly where to go.</p>
+        <p className="text-xs text-[var(--sec-text-muted)] mb-2">Required so guests know exactly where to go.</p>
         <GoogleAddressInput
           value={tableForm.venueAddress}
           label="Address"
@@ -687,58 +734,74 @@ export default function HostDashboard() {
           }}
         />
       </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-sm font-medium">
+          Date
+          <input
+            type="date"
+            className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+            value={tableForm.eventDate}
+            onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
+          />
+        </label>
+        <label className="block text-sm font-medium">
+          Meet time
+          <input
+            type="time"
+            className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+            value={tableForm.eventTime}
+            onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
+          />
+        </label>
+      </div>
+
       <label className="block text-sm font-medium">
-        Date
+        Title / name
         <input
-          type="date"
-          className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-          value={tableForm.eventDate}
-          onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
+          placeholder="e.g. Sunset rooftop, VIP booth, Boat cruise"
+          className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          value={tableForm.tableName}
+          onChange={(e) => setTableForm((f) => ({ ...f, tableName: e.target.value }))}
+          maxLength={60}
         />
       </label>
-      <input
-        placeholder="Table name (e.g. VIP Section)"
-        className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-        value={tableForm.tableName}
-        onChange={(e) => setTableForm((f) => ({ ...f, tableName: e.target.value }))}
-        maxLength={60}
-      />
-      <select
-        className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-        value={tableForm.eventType}
-        onChange={(e) => setTableForm((f) => ({ ...f, eventType: e.target.value }))}
-      >
-        <option value="CLUB_TABLE">Club Table</option>
-        <option value="HOUSE_PARTY">House Party</option>
-        <option value="BOAT_PARTY">Boat Party</option>
-        <option value="RESTAURANT">Restaurant</option>
-        <option value="OTHER">Other</option>
-      </select>
-      <textarea
-        placeholder="Description (optional)"
-        className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-        rows={3}
-        value={tableForm.tableDescription}
-        onChange={(e) => setTableForm((f) => ({ ...f, tableDescription: e.target.value }))}
-        maxLength={300}
-      />
+
       <label className="block text-sm font-medium">
-        Meet time
-        <input
-          type="time"
-          className="w-full mt-1 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-          value={tableForm.eventTime}
-          onChange={(e) => setTableForm((f) => ({ ...f, eventTime: e.target.value }))}
+        Category
+        <select
+          className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          value={tableForm.eventType}
+          onChange={(e) => setTableForm((f) => ({ ...f, eventType: e.target.value }))}
+        >
+          <option value="CLUB_TABLE">Table</option>
+          <option value="HOUSE_PARTY">House Party</option>
+          <option value="BOAT_PARTY">Boat Party</option>
+          <option value="RESTAURANT">Restaurant</option>
+          <option value="OTHER">Other</option>
+        </select>
+      </label>
+
+      <label className="block text-sm font-medium">
+        Description
+        <span className="font-normal text-[var(--sec-text-muted)]"> (optional)</span>
+        <textarea
+          placeholder="What should guests expect?"
+          className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          rows={3}
+          value={tableForm.tableDescription}
+          onChange={(e) => setTableForm((f) => ({ ...f, tableDescription: e.target.value }))}
+          maxLength={300}
         />
       </label>
+
       <label className="block text-sm font-medium">
-        Spots at table
+        Guest spots
         <input
           type="number"
           min={1}
           max={tableGuestMax}
-          placeholder="Spots at table"
-          className="w-full mt-1 px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+          className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
           value={tableForm.guestQuantity}
           onChange={(e) =>
             setTableForm((f) => {
@@ -748,29 +811,50 @@ export default function HostDashboard() {
           }
         />
       </label>
-      <p className="text-xs text-[var(--sec-text-muted)]">Your own venue tables allow at most 20 spots.</p>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={tableForm.hasJoiningFee}
-          onChange={(e) => setTableForm((f) => ({ ...f, hasJoiningFee: e.target.checked }))}
-        />
-        Charge joining fee
-      </label>
-      {tableForm.hasJoiningFee ? (
-        <input
-          type="number"
-          min={10}
-          placeholder="Joining fee (ZAR)"
-          className="w-full px-3 py-2 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
-          value={tableForm.joiningFee}
-          onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
-        />
-      ) : null}
-      <div>
-        <label className="text-xs text-[var(--sec-text-muted)] block mb-2">
-          Table photo (group chat, browse & Home when boosted)
+      <p className="text-xs text-[var(--sec-text-muted)] -mt-3">Up to {tableGuestMax} guests for your own place.</p>
+
+      <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-3">
+        <label className="flex items-start gap-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={tableForm.hasJoiningFee}
+            onChange={(e) => setTableForm((f) => ({ ...f, hasJoiningFee: e.target.checked }))}
+          />
+          <span>
+            <span className="font-medium">Charge joining fee</span>
+            <span className="block text-xs text-[var(--sec-text-muted)] mt-0.5">
+              You receive 85% of each payment in your SEC wallet. SEC keeps 15%.
+            </span>
+          </span>
         </label>
+        {tableForm.hasJoiningFee ? (
+          <div>
+            <label className="block text-sm font-medium">
+              Joining fee (ZAR)
+              <input
+                type="number"
+                min={10}
+                placeholder="e.g. 100"
+                className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+                value={tableForm.joiningFee}
+                onChange={(e) => setTableForm((f) => ({ ...f, joiningFee: e.target.value }))}
+              />
+            </label>
+            {joinFeeValid ? (
+              <p className="text-xs mt-2 text-[var(--sec-text-muted)]">
+                You receive R{hostReceiveZar.toFixed(2)} · SEC fee R{secFeeZar.toFixed(2)}
+              </p>
+            ) : (
+              <p className="text-xs mt-2 text-[var(--sec-text-muted)]">Minimum R10.</p>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      <div>
+        <label className="text-sm font-medium block mb-1.5">Cover photo</label>
+        <p className="text-xs text-[var(--sec-text-muted)] mb-2">Optional — shown on browse &amp; Home when boosted.</p>
         <input
           type="file"
           accept="image/*"
@@ -778,10 +862,11 @@ export default function HostDashboard() {
           onChange={createTablePhotoCrop.handleInputChange}
         />
         {tableForm.photo ? (
-          <img src={tableForm.photo} alt="" className="w-full h-28 object-cover rounded-xl mt-2" />
+          <img src={tableForm.photo} alt="" className="w-full h-32 object-cover rounded-xl mt-2" />
         ) : null}
       </div>
-      <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-2">
+
+      <div className="rounded-xl border border-[var(--sec-border)] p-3">
         <label className="flex items-start gap-3 text-sm cursor-pointer">
           <input
             type="checkbox"
@@ -790,9 +875,9 @@ export default function HostDashboard() {
             onChange={(e) => setTableForm((f) => ({ ...f, isPublic: e.target.checked }))}
           />
           <span>
-            <span className="font-medium">Public table (anyone can join without approval)</span>
+            <span className="font-medium">Public listing (anyone can join without approval)</span>
             <span className="block text-xs text-[var(--sec-text-muted)] mt-0.5">
-              Turn off for a private table: your table stays visible on Home, but guests must request approval before joining (invited guests can still join directly).
+              Turn off for a private listing: it stays visible on Home, but guests must request approval before joining.
             </span>
           </span>
         </label>
@@ -807,7 +892,7 @@ export default function HostDashboard() {
       className="sec-btn sec-btn-primary w-full disabled:opacity-50 min-h-[48px]"
       onClick={submitTable}
     >
-      {saving ? 'Listing…' : 'List my table'}
+      {saving ? 'Listing…' : 'Publish listing'}
     </button>
   );
 
@@ -924,13 +1009,13 @@ export default function HostDashboard() {
   return (
     <div className="max-w-[1100px] mx-auto pb-6 lg:pb-10 lg:px-4 lg:py-6">
       {isMobile ? (
-        <PageBackHeader title="Host Dashboard" subtitle="Your own venue tables" pageName="HostDashboard" />
+        <PageBackHeader title="Host Dashboard" subtitle="Your own place listings" pageName="HostDashboard" />
       ) : (
         <div className="flex items-center gap-2 mb-6 px-4 pt-6">
           <SecLogo size={30} />
           <div>
             <h1 className="text-xl font-bold">Host</h1>
-            <p className="text-sm opacity-70">Your own venue tables</p>
+            <p className="text-sm opacity-70">Your own place listings</p>
           </div>
         </div>
       )}

@@ -85,10 +85,10 @@ function StatCard({ icon: Icon, label, value, sub }) {
   );
 }
 
-function QuickAction({ icon: Icon, label, page, badge }) {
+function QuickAction({ icon: Icon, label, page, badge, staffCtx }) {
   return (
     <Link
-      to={createPageUrl(page)}
+      to={staffCtx ? buildPageUrl(page, { staff_ctx: staffCtx }) : createPageUrl(page)}
       className="sec-card"
       style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -865,6 +865,7 @@ export default function BusinessDashboard() {
               label={action.label}
               page={action.page}
               badge={action.page === 'BusinessRefundRequests' ? pendingRefundCount : 0}
+              staffCtx={venueScope.inStaffSession ? venueScope.staffContextToken : null}
             />
           ))}
         </div>

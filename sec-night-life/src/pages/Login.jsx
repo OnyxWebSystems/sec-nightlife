@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import SecLogo from '@/components/ui/SecLogo';
+import { prefetchPage } from '@/pages.config';
 import { toast } from 'sonner';
 
 const ROLE_INTENT_KEY = 'sec-role-intent';
@@ -57,6 +58,10 @@ export default function Login() {
       } catch {}
     }
   }, [roleParam]);
+
+  useEffect(() => {
+    void prefetchPage('Register');
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

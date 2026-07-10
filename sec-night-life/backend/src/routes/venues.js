@@ -18,7 +18,7 @@ async function syncProfileFollowedVenues(userId, venueId, following) {
     data: { followedVenues: [...set] },
   });
 }
-import { isStaff, getStaffAssignmentsForUser } from '../lib/access.js';
+import { isStaff, getStaffAssignmentsForUser, staffHasVenuePermission } from '../lib/access.js';
 import { ensureDayCustomVenueTable } from '../lib/ensureDayCustomVenueTable.js';
 import { sendEmail } from '../lib/email.js';
 import { buildVenueDayTableTiers } from '../lib/buildVenueDayTableTiers.js';
@@ -385,7 +385,10 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       where: { id: req.params.id, deletedAt: null }
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
-    if (venue.ownerUserId !== req.userId && !isStaff(req.userRole)) {
+    const isOwner = venue.ownerUserId === req.userId;
+    const canManageTables =
+      !isOwner && (await staffHasVenuePermission(req.userId, venue.id, 'venue_tables'));
+    if (!isOwner && !isStaff(req.userRole) && !canManageTables) {
       return res.status(403).json({ error: 'Not authorized to update this venue' });
     }
 
