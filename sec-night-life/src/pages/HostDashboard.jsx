@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { createPageUrl, getPublicAppOrigin } from '@/utils';
@@ -40,7 +40,7 @@ export default function HostDashboard() {
   const [tab, setTab] = useState('tables');
   const [tablesSubTab, setTablesSubTab] = useState('upcoming');
   const [showTableModal, setShowTableModal] = useState(false);
-  const [keyboardInset, setKeyboardInset] = useState(0);
+  const createFormScrollRef = useRef(null);
   const [tableForm, setTableForm] = useState({
     tableType: 'EXTERNAL_VENUE',
     listingSurface: 'TABLE',
@@ -155,20 +155,38 @@ export default function HostDashboard() {
   useBodyScrollLock(showTableModal);
 
   useEffect(() => {
-    if (!showTableModal || !isMobile || typeof window === 'undefined') return undefined;
-    const vv = window.visualViewport;
-    if (!vv) return undefined;
-    const sync = () => {
-      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      setKeyboardInset(inset > 40 ? Math.round(inset) : 0);
+    if (!showTableModal || !isMobile) return undefined;
+
+    let root = null;
+    let cancelled = false;
+
+    const onFocusIn = (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      window.requestAnimationFrame(() => {
+        try {
+          target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+        } catch {
+          /* ignore */
+        }
+      });
     };
-    sync();
-    vv.addEventListener('resize', sync);
-    vv.addEventListener('scroll', sync);
+
+    const attach = () => {
+      if (cancelled) return;
+      root = createFormScrollRef.current;
+      if (!root) {
+        window.requestAnimationFrame(attach);
+        return;
+      }
+      root.addEventListener('focusin', onFocusIn);
+    };
+    attach();
+
     return () => {
-      vv.removeEventListener('resize', sync);
-      vv.removeEventListener('scroll', sync);
-      setKeyboardInset(0);
+      cancelled = true;
+      root?.removeEventListener('focusin', onFocusIn);
     };
   }, [showTableModal, isMobile]);
 
@@ -914,52 +932,68 @@ export default function HostDashboard() {
   );
 
   if (isMobile && showTableModal) {
-    return (
-      <>
-        <div
-          className="fixed inset-0 z-[100] flex flex-col bg-[var(--sec-bg-base)]"
-          style={{
-            height: '100dvh',
-            maxHeight: '100dvh',
-            width: '100%',
-            overflow: 'hidden',
-            touchAction: 'manipulation',
-          }}
-        >
-          <header
-            className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--sec-border)] bg-[var(--sec-bg-base)]"
-            style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
-          >
-            <h3 className="font-semibold text-base">Your own venue</h3>
-            <button
-              type="button"
-              className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-sm"
-              style={{ backgroundColor: 'var(--sec-bg-elevated)' }}
-              onClick={closeTableModal}
-              aria-label="Close"
-            >
-              ✕
-            </button>
-          </header>
-          <div
-            data-scroll-lock-scrollable
-            className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4"
-            style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
-          >
-            {hostedTableCreateFields}
-          </div>
-          <footer
-            className="shrink-0 border-t border-[var(--sec-border)] bg-[var(--sec-bg-base)] px-4 pt-3"
-            style={{
-              paddingBottom: `max(16px, calc(env(safe-area-inset-bottom) + ${keyboardInset}px))`,
-            }}
-          >
-            {createTableSubmitButton}
-          </footer>
-        </div>
-        {imageCropDialog}
-      </>
-    );
+    const mobileSheet =
+      typeof document !== 'undefined'
+        ? createPortal(
+            <>
+              <div
+                className="fixed inset-0 z-[100] flex flex-col bg-[var(--sec-bg-base)]"
+                style={{
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  maxHeight: '100%',
+                  overflow: 'hidden',
+                  touchAction: 'manipulation',
+                  // Pin to layout viewport — do not resize with the soft keyboard.
+                  transform: 'translateZ(0)',
+                }}
+              >
+                <header
+                  className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--sec-border)] bg-[var(--sec-bg-base)]"
+                  style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
+                >
+                  <h3 className="font-semibold text-base">Your own venue</h3>
+                  <button
+                    type="button"
+                    className="min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-sm"
+                    style={{ backgroundColor: 'var(--sec-bg-elevated)' }}
+                    onClick={closeTableModal}
+                    aria-label="Close"
+                  >
+                    ✕
+                  </button>
+                </header>
+                <div
+                  ref={createFormScrollRef}
+                  data-scroll-lock-scrollable
+                  className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4"
+                  style={{
+                    WebkitOverflowScrolling: 'touch',
+                    overscrollBehavior: 'contain',
+                  }}
+                >
+                  {hostedTableCreateFields}
+                </div>
+                <footer
+                  className="shrink-0 border-t border-[var(--sec-border)] bg-[var(--sec-bg-base)] px-4 pt-3"
+                  style={{
+                    paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+                  }}
+                >
+                  {createTableSubmitButton}
+                </footer>
+              </div>
+              {imageCropDialog}
+            </>,
+            document.body,
+          )
+        : null;
+
+    return mobileSheet;
   }
 
   const desktopCreateModal =
