@@ -2028,14 +2028,33 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
     let entranceFees = 0;
     let ticketedTables = 0;
     if (eventIds.length) {
-      ticketsSold = await prisma.ticket.count({
+      const soldTickets = await prisma.ticket.findMany({
         where: {
           kind: 'EVENT_TICKET',
           eventId: { in: eventIds },
           hiddenFromHistoryAt: null,
           refundedAt: null,
         },
+        select: { paystackReference: true },
+        take: 20000,
       });
+      ticketsSold = soldTickets.length;
+      const ticketRefs = [
+        ...new Set(soldTickets.map((t) => basePaystackRef(t.paystackReference)).filter(Boolean)),
+      ];
+      if (ticketRefs.length) {
+        const ticketPayments = await prisma.payment.findMany({
+          where: {
+            reference: { in: ticketRefs },
+            status: 'success',
+            type: { in: ['ticket', 'event'] },
+          },
+          select: { amount: true },
+        });
+        ticketRevenueZar = roundZar(
+          ticketPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
+        );
+      }
       entranceFees = await prisma.ticket.count({
         where: {
           kind: 'EVENT_ENTRANCE',
@@ -2226,11 +2245,15 @@ async function computeVenueDashboardStats(venueIds, year) {
     }
 
     const ticketRefs = [
-      ...new Set(tickets.map((t) => basePaymentReference(t.paystackReference)).filter(Boolean)),
+      ...new Set(tickets.map((t) => basePaystackRef(t.paystackReference)).filter(Boolean)),
     ];
     if (ticketRefs.length) {
       const ticketPayments = await prisma.payment.findMany({
-        where: { reference: { in: ticketRefs }, status: 'success' },
+        where: {
+          reference: { in: ticketRefs },
+          status: 'success',
+          type: { in: ['ticket', 'event'] },
+        },
         select: { amount: true, createdAt: true, reference: true },
       });
       for (const p of ticketPayments) {
@@ -3021,7 +3044,7 @@ router.post('/venue-tables/:tableId/release', authenticateToken, async (req, res
       },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
-    const canManage = await staffHasVenuePermission(req.userId, table.venue.id, 'bookings');
+    const canManage = await staffHasVenuePermission(req.userId, table.venue.id, 'venue_tables');
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
 
     if (table.eventId && table.event && !table.event.deletedAt) {
@@ -3067,7 +3090,7 @@ router.get('/event-venue-tables', authenticateToken, async (req, res, next) => {
       select: { id: true, title: true, status: true, date: true, venueId: true },
     });
     if (!event) return res.status(404).json({ error: 'Event not found' });
-    const canView = await staffHasVenuePermission(req.userId, event.venueId, 'bookings');
+    const canView = await staffHasVenuePermission(req.userId, event.venueId, 'venue_tables');
     if (!canView) return res.status(403).json({ error: 'Forbidden' });
 
     const tables = await prisma.venueTable.findMany({
@@ -3105,7 +3128,7 @@ router.get('/day-venue-tables', authenticateToken, async (req, res, next) => {
   try {
     const venueId = venueIdFromQuery(req.query);
     if (!venueId) return res.status(400).json({ error: 'venue_id is required' });
-    const canView = await staffHasVenuePermission(req.userId, venueId, 'bookings');
+    const canView = await staffHasVenuePermission(req.userId, venueId, 'venue_tables');
     if (!canView) return res.status(403).json({ error: 'Forbidden' });
 
     const venue = await prisma.venue.findFirst({
@@ -3154,7 +3177,7 @@ router.post('/venue-tables/:tableId/hide-from-listings', authenticateToken, asyn
       include: { venue: { select: { ownerUserId: true } } },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
-    const canManageHide = await staffHasVenuePermission(req.userId, table.venueId, 'bookings');
+    const canManageHide = await staffHasVenuePermission(req.userId, table.venueId, 'venue_tables');
     if (!canManageHide) return res.status(403).json({ error: 'Forbidden' });
     if (table.isCustomListing) return res.status(400).json({ error: 'Cannot hide the custom request listing' });
 
@@ -3190,7 +3213,7 @@ router.post('/venue-tables/:tableId/restore-to-listings', authenticateToken, asy
       include: { venue: { select: { ownerUserId: true } } },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
-    const canManageRestore = await staffHasVenuePermission(req.userId, table.venueId, 'bookings');
+    const canManageRestore = await staffHasVenuePermission(req.userId, table.venueId, 'venue_tables');
     if (!canManageRestore) return res.status(403).json({ error: 'Forbidden' });
 
     let hostedTable = null;

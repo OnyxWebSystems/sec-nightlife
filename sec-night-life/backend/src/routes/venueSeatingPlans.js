@@ -18,7 +18,7 @@ async function requireBookingsScope(req, res) {
   const scope = await resolveBusinessVenueScope(req.userId, {
     staffCtx,
     venueIdFilter,
-    permission: 'bookings',
+    permission: 'seating_plans',
   });
   if (!scope.ok) {
     res.status(scope.status || 403).json({ error: scope.error || 'Forbidden' });
@@ -29,7 +29,7 @@ async function requireBookingsScope(req, res) {
     res.status(400).json({ error: 'venue_id is required' });
     return null;
   }
-  if (!(await staffHasVenuePermission(req.userId, venueId, 'bookings'))) {
+  if (!(await staffHasVenuePermission(req.userId, venueId, 'seating_plans'))) {
     res.status(403).json({ error: 'Forbidden' });
     return null;
   }
@@ -78,7 +78,7 @@ router.post('/venue-seating-plans', authenticateToken, async (req, res, next) =>
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const d = parsed.data;
-    if (!(await staffHasVenuePermission(req.userId, d.venue_id, 'bookings'))) {
+    if (!(await staffHasVenuePermission(req.userId, d.venue_id, 'seating_plans'))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const count = await prisma.venueSeatingPlan.count({ where: { venueId: d.venue_id } });
@@ -116,7 +116,7 @@ router.patch('/venue-seating-plans/:id', authenticateToken, async (req, res, nex
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const existing = await prisma.venueSeatingPlan.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Plan not found' });
-    if (!(await staffHasVenuePermission(req.userId, existing.venueId, 'bookings'))) {
+    if (!(await staffHasVenuePermission(req.userId, existing.venueId, 'seating_plans'))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const d = parsed.data;
@@ -163,7 +163,7 @@ router.delete('/venue-seating-plans/:id', authenticateToken, async (req, res, ne
   try {
     const existing = await prisma.venueSeatingPlan.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Plan not found' });
-    if (!(await staffHasVenuePermission(req.userId, existing.venueId, 'bookings'))) {
+    if (!(await staffHasVenuePermission(req.userId, existing.venueId, 'seating_plans'))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -219,7 +219,7 @@ router.post('/venue-seating-plans/reorder', authenticateToken, async (req, res, 
     const parsed = reorderSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
     const { venue_id: venueId, plan_ids: planIds } = parsed.data;
-    if (!(await staffHasVenuePermission(req.userId, venueId, 'bookings'))) {
+    if (!(await staffHasVenuePermission(req.userId, venueId, 'seating_plans'))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const existing = await prisma.venueSeatingPlan.findMany({

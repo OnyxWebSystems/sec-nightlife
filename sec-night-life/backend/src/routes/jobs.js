@@ -99,6 +99,7 @@ async function getApplicationForBusinessUser(applicationId, userId, include = {}
 function publicJobWhere(query = {}) {
   const where = {
     status: 'OPEN',
+    deletedAt: null,
     OR: [{ closingDate: null }, { closingDate: { gt: new Date() } }],
   };
   const venueId = query.venueId || query.venue_id;
@@ -160,6 +161,40 @@ function applicantMayMessage(status) {
   return status === 'SHORTLISTED' || status === 'HIRED';
 }
 
+async function notifyApplicantRejected({ applicant, jobTitle, venueName, applicationId, jobPostingId }) {
+  if (applicant?.email) {
+    await sendEmail({
+      to: applicant.email,
+      subject: `Update on your ${jobTitle} application`,
+      text: `Unfortunately, your application for ${jobTitle} at ${venueName} was not selected. Thank you for applying.`,
+    }).catch(() => {});
+  }
+  await createJobNotification({
+    userId: applicant?.id,
+    type: 'job_application',
+    title: 'Application update',
+    body: `Unfortunately, your application for ${jobTitle} at ${venueName} was not selected.`,
+    actionUrl: myApplicationThreadPath(applicationId, jobPostingId),
+  });
+}
+
+async function notifyApplicantReleased({ applicant, jobTitle, venueName, applicationId, jobPostingId }) {
+  if (applicant?.email) {
+    await sendEmail({
+      to: applicant.email,
+      subject: `Staff update — ${jobTitle}`,
+      text: `You have been removed from the ${jobTitle} staff team at ${venueName}.`,
+    }).catch(() => {});
+  }
+  await createJobNotification({
+    userId: applicant?.id,
+    type: 'job_application',
+    title: 'Removed from staff',
+    body: `You have been removed from the ${jobTitle} staff team at ${venueName}.`,
+    actionUrl: myApplicationThreadPath(applicationId, jobPostingId),
+  });
+}
+
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
     const parsed = postingSchema.safeParse(req.body || {});
@@ -216,14 +251,112 @@ router.get('/by-venue', authenticateToken, async (req, res, next) => {
       permission: 'jobs',
     });
     if (!scope.ok) return res.status(scope.status).json({ error: scope.error });
-    const venueId = scope.venueIds[0];
-    if (!venueId) return res.json([]);
+    const venueIds = scope.venueIds || [];
+    if (!venueIds.length) return res.json([]);
     const jobs = await prisma.jobPosting.findMany({
-      where: { venueId },
+      where: { venueId: { in: venueIds }, deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { applications: true, messages: true } } },
+      include: {
+        venue: { select: { id: true, name: true, city: true } },
+        _count: { select: { applications: true, messages: true } },
+      },
     });
     return res.json(jobs);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/hired-staff', authenticateToken, async (req, res, next) => {
+  try {
+    const scope = await resolveBusinessVenueScope(req.userId, {
+      staffCtx: staffCtxFromQuery(req.query),
+      venueIdFilter: venueIdFromQuery(req.query),
+      permission: 'jobs',
+    });
+    if (!scope.ok) return res.status(scope.status).json({ error: scope.error });
+    const venueIds = scope.venueIds || [];
+    if (!venueIds.length) return res.json([]);
+
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const hiredApps = await prisma.jobApplication.findMany({
+      where: {
+        status: 'HIRED',
+        jobPosting: { venueId: { in: venueIds } },
+        ...(q
+          ? {
+              OR: [
+                { applicant: { fullName: { contains: q, mode: 'insensitive' } } },
+                { applicant: { username: { contains: q, mode: 'insensitive' } } },
+                { applicant: { userProfile: { username: { contains: q, mode: 'insensitive' } } } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        applicant: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            username: true,
+            userProfile: { select: { username: true, avatarUrl: true } },
+          },
+        },
+        jobPosting: {
+          select: {
+            id: true,
+            title: true,
+            jobType: true,
+            positionRole: true,
+            status: true,
+            deletedAt: true,
+            filledSpots: true,
+            totalSpots: true,
+            venueId: true,
+            venue: { select: { id: true, name: true, city: true } },
+          },
+        },
+      },
+    });
+
+    const byJob = new Map();
+    for (const app of hiredApps) {
+      const job = app.jobPosting;
+      if (!byJob.has(job.id)) {
+        byJob.set(job.id, {
+          job: {
+            id: job.id,
+            title: job.title,
+            jobType: job.jobType,
+            positionRole: job.positionRole,
+            status: job.status,
+            deletedAt: job.deletedAt,
+            filledSpots: job.filledSpots,
+            totalSpots: job.totalSpots,
+            venue: job.venue,
+          },
+          hired: [],
+        });
+      }
+      byJob.get(job.id).hired.push({
+        id: app.id,
+        status: app.status,
+        appliedAt: app.appliedAt,
+        updatedAt: app.updatedAt,
+        completedAt: app.completedAt,
+        coverMessage: app.coverMessage,
+        applicant: {
+          id: app.applicant.id,
+          fullName: app.applicant.fullName,
+          email: app.applicant.email,
+          username: app.applicant.userProfile?.username || app.applicant.username || null,
+          avatarUrl: app.applicant.userProfile?.avatarUrl || null,
+        },
+      });
+    }
+    return res.json([...byJob.values()]);
   } catch (err) {
     return next(err);
   }
@@ -234,9 +367,12 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
     const venue = await getVenueOwnedByUser(req.params.venueId, req.userId);
     if (!venue) return res.status(403).json({ error: 'Forbidden' });
     const jobs = await prisma.jobPosting.findMany({
-      where: { venueId: req.params.venueId },
+      where: { venueId: req.params.venueId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { applications: true, messages: true } } },
+      include: {
+        venue: { select: { id: true, name: true, city: true } },
+        _count: { select: { applications: true, messages: true } },
+      },
     });
     return res.json(jobs);
   } catch (err) {
@@ -421,19 +557,121 @@ router.delete('/:jobId', authenticateToken, async (req, res, next) => {
   try {
     const ownedJob = await getOwnedJob(req.params.jobId, req.userId);
     if (!ownedJob) return res.status(403).json({ error: 'Forbidden' });
-    const applicationCount = await prisma.jobApplication.count({
-      where: { jobPostingId: req.params.jobId },
-    });
-    const hiredCount = await prisma.jobApplication.count({
-      where: { jobPostingId: req.params.jobId, status: 'HIRED' },
-    });
-    if (hiredCount > 0) {
-      return res.status(400).json({
-        error: 'Cannot delete a job with hired applicants. Close the job instead or remove hires first.',
-      });
+    if (ownedJob.deletedAt) {
+      return res.json({ deleted: true, applicationCount: 0, alreadyDeleted: true });
     }
-    await prisma.jobPosting.delete({ where: { id: req.params.jobId } });
-    return res.json({ deleted: true, applicationCount });
+
+    const toReject = await prisma.jobApplication.findMany({
+      where: {
+        jobPostingId: ownedJob.id,
+        status: { in: ['PENDING', 'SHORTLISTED'] },
+      },
+      include: {
+        applicant: { select: { id: true, email: true, fullName: true } },
+      },
+    });
+
+    const applicationCount = await prisma.jobApplication.count({
+      where: { jobPostingId: ownedJob.id },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      if (toReject.length) {
+        await tx.jobApplication.updateMany({
+          where: {
+            jobPostingId: ownedJob.id,
+            status: { in: ['PENDING', 'SHORTLISTED'] },
+          },
+          data: { status: 'REJECTED' },
+        });
+      }
+      await tx.jobPosting.update({
+        where: { id: ownedJob.id },
+        data: { deletedAt: new Date(), status: 'CLOSED' },
+      });
+    });
+
+    const jobTitle = ownedJob.title;
+    const venueName = ownedJob.venue?.name || 'the venue';
+    await Promise.all(
+      toReject.map((app) =>
+        notifyApplicantRejected({
+          applicant: app.applicant,
+          jobTitle,
+          venueName,
+          applicationId: app.id,
+          jobPostingId: ownedJob.id,
+        }),
+      ),
+    );
+
+    return res.json({
+      deleted: true,
+      softDeleted: true,
+      applicationCount,
+      rejectedCount: toReject.length,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/applications/:applicationId/unhire', authenticateToken, async (req, res, next) => {
+  try {
+    const application = await getApplicationForBusinessUser(req.params.applicationId, req.userId, {
+      applicant: { select: { id: true, email: true, fullName: true } },
+      jobPosting: {
+        include: {
+          venue: { select: { id: true, name: true, ownerUserId: true } },
+        },
+      },
+    });
+    if (!application) return res.status(403).json({ error: 'Forbidden' });
+    if (application.status !== 'HIRED') {
+      return res.status(400).json({ error: 'Only hired applicants can be removed from staff.' });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.jobApplication.update({
+        where: { id: application.id },
+        data: { status: 'RELEASED' },
+      });
+      const posting = await tx.jobPosting.findUnique({
+        where: { id: application.jobPostingId },
+        select: { filledSpots: true },
+      });
+      const nextFilled = Math.max(0, (posting?.filledSpots || 0) - 1);
+      await tx.jobPosting.update({
+        where: { id: application.jobPostingId },
+        data: {
+          filledSpots: nextFilled,
+          ...(application.jobPosting.status === 'FILLED' && nextFilled < application.jobPosting.totalSpots
+            ? { status: 'CLOSED' }
+            : {}),
+        },
+      });
+      if (isPromoterJobPosting(application.jobPosting)) {
+        await tx.venuePromoter.updateMany({
+          where: {
+            venueId: application.jobPosting.venueId,
+            promoterUserId: application.applicant.id,
+            status: 'ACTIVE',
+          },
+          data: { status: 'RELEASED' },
+        });
+      }
+      return row;
+    });
+
+    await notifyApplicantReleased({
+      applicant: application.applicant,
+      jobTitle: application.jobPosting.title,
+      venueName: application.jobPosting.venue.name,
+      applicationId: application.id,
+      jobPostingId: application.jobPostingId,
+    });
+
+    return res.json(updated);
   } catch (err) {
     return next(err);
   }
@@ -446,9 +684,30 @@ router.get('/:jobId/applications', authenticateToken, async (req, res, next) => 
     const applications = await prisma.jobApplication.findMany({
       where: { jobPostingId: req.params.jobId },
       orderBy: { appliedAt: 'desc' },
-      include: { applicant: { select: { id: true, fullName: true, email: true } } },
+      include: {
+        applicant: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            username: true,
+            userProfile: { select: { username: true, avatarUrl: true } },
+          },
+        },
+      },
     });
-    return res.json(applications);
+    return res.json(
+      applications.map((app) => ({
+        ...app,
+        applicant: {
+          id: app.applicant.id,
+          fullName: app.applicant.fullName,
+          email: app.applicant.email,
+          username: app.applicant.userProfile?.username || app.applicant.username || null,
+          avatarUrl: app.applicant.userProfile?.avatarUrl || null,
+        },
+      })),
+    );
   } catch (err) {
     return next(err);
   }
@@ -840,7 +1099,7 @@ router.post('/:jobId/apply', authenticateToken, async (req, res, next) => {
     const parsed = applicationSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const job = await prisma.jobPosting.findFirst({
-      where: { id: req.params.jobId, status: 'OPEN' },
+      where: { id: req.params.jobId, status: 'OPEN', deletedAt: null },
       include: { venue: { select: { name: true, ownerUserId: true, owner: { select: { id: true, email: true } } } } },
     });
     if (!job) return res.status(404).json({ error: 'Job not found or closed' });

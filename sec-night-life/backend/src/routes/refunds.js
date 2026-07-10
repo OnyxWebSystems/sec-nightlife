@@ -260,7 +260,7 @@ async function resolveVenueRefundScope(req) {
   const venueIds = await resolveAccessibleVenueIds(req.userId, {
     venueIdFilter,
     staffCtx: staffCtxFromQuery(req.query),
-    permission: 'bookings',
+    permission: 'refund_requests',
   });
   return { venueIds, venueIdFilter };
 }
@@ -338,7 +338,7 @@ router.get('/venue/:id', authenticateToken, async (req, res, next) => {
     });
     if (!row) return res.status(404).json({ error: 'Refund request not found' });
 
-    const canManage = await staffHasVenuePermission(req.userId, row.venueId, 'bookings');
+    const canManage = await staffHasVenuePermission(req.userId, row.venueId, 'refund_requests');
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
 
     res.json({ request: mapRefundRequestRow(row, { includeUser: true, includeVenue: true }) });
@@ -356,7 +356,7 @@ router.post('/venue/:id/approve', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'This request has already been processed' });
     }
 
-    const canManage = await staffHasVenuePermission(req.userId, existing.venueId, 'bookings');
+    const canManage = await staffHasVenuePermission(req.userId, existing.venueId, 'refund_requests');
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
 
     let approved;
@@ -409,7 +409,7 @@ router.post('/venue/:id/reject', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'This request has already been processed' });
     }
 
-    const canManage = await staffHasVenuePermission(req.userId, existing.venueId, 'bookings');
+    const canManage = await staffHasVenuePermission(req.userId, existing.venueId, 'refund_requests');
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
 
     const messages = formatRefundRejectMessages(validation.keys);
@@ -464,7 +464,7 @@ router.post('/venue/:id/mark-paid', authenticateToken, async (req, res, next) =>
       return res.status(400).json({ error: 'Only approved refunds can be marked paid' });
     }
 
-    const canManage = await staffHasVenuePermission(req.userId, existing.venueId, 'bookings');
+    const canManage = await staffHasVenuePermission(req.userId, existing.venueId, 'refund_requests');
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
 
     const updated = await prisma.refundRequest.update({

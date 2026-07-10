@@ -18,6 +18,9 @@ export const STAFF_PERMISSIONS = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'analytics', label: 'Analytics' },
   { key: 'bookings', label: 'Bookings' },
+  { key: 'venue_tables', label: 'Tables & day bookings' },
+  { key: 'seating_plans', label: 'Seating plans' },
+  { key: 'refund_requests', label: 'Refund requests' },
   { key: 'promotions', label: 'Promotions' },
   { key: 'events', label: 'Events' },
   { key: 'menu', label: 'Menu' },
@@ -31,12 +34,12 @@ const PERM_PRESETS = [
   {
     id: 'bookings',
     label: 'Bookings team',
-    keys: ['dashboard', 'bookings', 'messages'],
+    keys: ['dashboard', 'bookings', 'messages', 'venue_tables', 'seating_plans', 'refund_requests'],
   },
   {
     id: 'events',
     label: 'Events team',
-    keys: ['dashboard', 'events', 'bookings', 'menu'],
+    keys: ['dashboard', 'events', 'bookings', 'menu', 'venue_tables'],
   },
   {
     id: 'full',

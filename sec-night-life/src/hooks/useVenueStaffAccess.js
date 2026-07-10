@@ -13,19 +13,22 @@ export const BUSINESS_PAGE_PERMISSIONS = {
   BusinessJobs: 'jobs',
   CreateJob: 'jobs',
   BusinessMessages: 'messages',
-  BusinessVenueTables: 'bookings',
-  BusinessVenueSeatingPlans: 'bookings',
-  BusinessRefundRequests: 'bookings',
+  BusinessVenueTables: 'venue_tables',
+  BusinessVenueSeatingPlans: 'seating_plans',
+  BusinessRefundRequests: 'refund_requests',
   VenueProfile: 'venue_page',
   VenueOnboarding: 'venue_page',
   FeedbackInsights: 'analytics',
 };
+
+const BOOKINGS_SUB_PERMISSIONS = new Set(['venue_tables', 'seating_plans', 'refund_requests']);
 
 export function staffHasPermission(staffPermissions, permission) {
   if (!permission) return false;
   const perms = staffPermissions && typeof staffPermissions === 'object' ? staffPermissions : {};
   if (perms[permission] === true) return true;
   if (permission === 'posts' && perms.promotions === true) return true;
+  if (BOOKINGS_SUB_PERMISSIONS.has(permission) && perms.bookings === true) return true;
   return false;
 }
 

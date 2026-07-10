@@ -10,6 +10,9 @@ export const VENUE_STAFF_PERMISSION_KEYS = [
   'dashboard',
   'analytics',
   'bookings',
+  'venue_tables',
+  'seating_plans',
+  'refund_requests',
   'promotions',
   'events',
   'menu',
@@ -18,6 +21,8 @@ export const VENUE_STAFF_PERMISSION_KEYS = [
   'messages',
   'venue_page',
 ];
+
+const BOOKINGS_SUB_PERMISSIONS = new Set(['venue_tables', 'seating_plans', 'refund_requests']);
 
 export function isStaff(role) {
   return role && STAFF_ROLES.includes(role);
@@ -39,6 +44,8 @@ export function staffPermissionOk(permissions, permission) {
   if (!permission) return Object.values(perms).some(Boolean);
   if (perms[permission] === true) return true;
   if (permission === 'posts' && perms.promotions === true) return true;
+  // Legacy invites only had `bookings` — treat it as granting booking sub-pages.
+  if (BOOKINGS_SUB_PERMISSIONS.has(permission) && perms.bookings === true) return true;
   return false;
 }
 
@@ -171,9 +178,7 @@ export async function staffHasVenuePermission(userId, venueId, permission = null
 
   const perms = parseStaffPermissions(row.permissions);
   if (!permission) return Object.values(perms).some(Boolean);
-  if (perms[permission] === true) return true;
-  if (permission === 'posts' && perms.promotions === true) return true;
-  return false;
+  return staffPermissionOk(perms, permission);
 }
 
 /** Venue IDs the user owns or may access with an optional permission key. */

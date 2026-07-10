@@ -27,9 +27,9 @@ import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 const QUICK_ACTIONS = [
   { icon: Plus, label: 'Create Event', page: 'BusinessEvents', perm: 'events' },
   { icon: BookOpen, label: 'Manage Bookings', page: 'BusinessBookings', perm: 'bookings' },
-  { icon: RotateCcw, label: 'Refund requests', page: 'BusinessRefundRequests', perm: 'bookings' },
-  { icon: Armchair, label: 'Tables & day bookings', page: 'BusinessVenueTables', perm: 'bookings' },
-  { icon: Map, label: 'Seating plans', page: 'BusinessVenueSeatingPlans', perm: 'bookings' },
+  { icon: RotateCcw, label: 'Refund requests', page: 'BusinessRefundRequests', perm: 'refund_requests' },
+  { icon: Armchair, label: 'Tables & day bookings', page: 'BusinessVenueTables', perm: 'venue_tables' },
+  { icon: Map, label: 'Seating plans', page: 'BusinessVenueSeatingPlans', perm: 'seating_plans' },
   { icon: BarChart3, label: 'View Analytics', page: 'VenueAnalytics', perm: 'analytics' },
   { icon: Megaphone, label: 'Promotions', page: 'BusinessPromotions', perm: 'promotions' },
   { icon: UtensilsCrossed, label: 'Menu Maker', page: 'BusinessMenu', perm: 'menu' },
@@ -237,16 +237,17 @@ export default function BusinessDashboard() {
       setDeletingJobId(jobId);
     },
     onSuccess: (data, jobId) => {
-      const n = data?.applicationCount || 0;
+      const rejected = data?.rejectedCount || 0;
       toast.success(
-        n > 0
-          ? `Job deleted (${n} application${n === 1 ? '' : 's'} removed)`
-          : 'Job deleted',
+        rejected > 0
+          ? `Job removed. ${rejected} open application${rejected === 1 ? '' : 's'} auto-rejected. Hired staff kept.`
+          : 'Job removed. Hired staff (if any) were kept.',
       );
       qc.setQueryData(['biz-jobs', scopeKey], (old) =>
         asArray(old).filter((j) => j.id !== jobId),
       );
       qc.invalidateQueries({ queryKey: ['biz-jobs', scopeKey] });
+      qc.invalidateQueries({ queryKey: ['biz-hired-staff'] });
     },
     onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to delete job'),
     onSettled: () => setDeletingJobId(null),
@@ -944,11 +945,7 @@ export default function BusinessDashboard() {
                     style={{ height: 42, width: '100%', borderColor: 'rgba(217, 85, 85, 0.35)', color: 'var(--sec-error)' }}
                     disabled={deletingJobId === j.id}
                     onClick={() => {
-                      const appCount = j._count?.applications || 0;
-                      const msg =
-                        appCount > 0
-                          ? `Delete "${j.title}"? This will permanently remove ${appCount} application${appCount === 1 ? '' : 's'} and all related messages.`
-                          : `Delete "${j.title}"? This action cannot be undone.`;
+                      const msg = `Remove "${j.title}" from your job listings? Open and shortlisted applicants will be auto-rejected. Hired staff stay hired under Hired Staff.`;
                       if (!window.confirm(msg)) return;
                       deleteJobMutation.mutate(j.id);
                     }}
