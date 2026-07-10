@@ -232,8 +232,6 @@ export default function HostDashboard() {
     enabled: !!user?.id,
   });
 
-  const tableGuestMax = 20;
-
   const { data: pendingRequests = [], refetch: refetchPending, isFetching: pendingLoading } = useQuery({
     queryKey: ['host-table-pending', pendingTableId],
     queryFn: () => apiGet(`/api/host/tables/${pendingTableId}/pending-requests`),
@@ -800,18 +798,17 @@ export default function HostDashboard() {
         <input
           type="number"
           min={1}
-          max={tableGuestMax}
           className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
           value={tableForm.guestQuantity}
           onChange={(e) =>
             setTableForm((f) => {
-              const raw = parseInt(e.target.value, 10) || 1;
-              return { ...f, guestQuantity: Math.min(Math.max(1, raw), tableGuestMax) };
+              const raw = parseInt(e.target.value, 10);
+              return { ...f, guestQuantity: Number.isFinite(raw) && raw >= 1 ? raw : 1 };
             })
           }
         />
       </label>
-      <p className="text-xs text-[var(--sec-text-muted)] -mt-3">Up to {tableGuestMax} guests for your own place.</p>
+      <p className="text-xs text-[var(--sec-text-muted)] -mt-3">How many guests can join your listing.</p>
 
       <div className="rounded-xl border border-[var(--sec-border)] p-3 space-y-3">
         <label className="flex items-start gap-3 text-sm cursor-pointer">

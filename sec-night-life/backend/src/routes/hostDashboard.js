@@ -1267,8 +1267,8 @@ const createTableSchema = z.object({
   drinkPreferences: z.string().optional().nullable(),
   desiredCompany: z.string().optional().nullable(),
   guestGenderPreference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
-  /** External meet-ups cap at 20; IN_APP caps at 500 then tier rules apply in handler. */
-  guestQuantity: z.number().int().min(1).max(500),
+  /** Guest capacity — no hard product cap for own-place listings. */
+  guestQuantity: z.number().int().min(1).max(100000),
   hostingCategory: z.enum(['GENERAL', 'VIP']).optional(),
   hostingTierIndex: z.number().int().min(0).optional().nullable(),
   isPublic: z.boolean().default(true),
@@ -1302,9 +1302,6 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
     }
     if (d.tableType === 'EXTERNAL_VENUE' && (!d.venueAddress || !d.venueAddress.trim())) {
       return res.status(400).json({ error: 'venueAddress is required for external venue tables' });
-    }
-    if (d.tableType === 'EXTERNAL_VENUE' && d.guestQuantity > 20) {
-      return res.status(400).json({ error: 'External meet-up tables allow at most 20 guests.' });
     }
     if (!d.venueName) return res.status(400).json({ error: 'venueName required for external venue' });
     if (!isExternalMeetupInFuture(d.eventDate, d.eventTime)) {
@@ -1878,7 +1875,7 @@ const patchTableSchema = z.object({
   joiningFee: z.number().min(10).optional().nullable(),
   photo: z.string().url().optional().nullable(),
   photoPublicId: z.string().optional().nullable(),
-  guestQuantity: z.number().int().min(1).max(500).optional(),
+  guestQuantity: z.number().int().min(1).max(100000).optional(),
   eventTime: z.string().optional(),
   isPublic: z.boolean().optional(),
   venueAddress: z.string().trim().min(1).optional().nullable(),
@@ -1923,8 +1920,8 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
         where: { hostedTableId: t.id, status: 'GOING' },
       });
       if (d.guestQuantity < going) return res.status(400).json({ error: 'guestQuantity too low' });
-      if (t.tableType === 'EXTERNAL_VENUE' && d.guestQuantity > 20) {
-        return res.status(400).json({ error: 'External meet-up tables allow at most 20 guests.' });
+      if (t.tableType === 'IN_APP_EVENT' && d.guestQuantity > 500) {
+        return res.status(400).json({ error: 'Guest quantity too high for this listing type.' });
       }
       if (t.tableType === 'IN_APP_EVENT' && t.eventId) {
         const evPatch = await prisma.event.findFirst({ where: { id: t.eventId, deletedAt: null } });
