@@ -23,7 +23,7 @@ import { enterPartygoerMode } from '@/lib/activeViewMode';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
-  LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2, Shield, RotateCcw, Armchair
+  LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2, Shield, RotateCcw, Armchair, Store
 } from 'lucide-react';
 
 const iconProps = { size: 22, strokeWidth: 1.5 };
@@ -332,6 +332,7 @@ export default function Layout({ children, currentPageName }) {
       ],
       secondary: [
         { name: 'Events', icon: Calendar, page: 'Events' },
+        { name: 'Vendors', icon: Store, page: 'Vendors' },
         { name: 'Jobs', icon: Briefcase, page: 'Jobs' },
         { name: 'Notifications', icon: Bell, page: 'Notifications', badge },
         { name: 'Leaderboard', icon: Trophy, page: 'Leaderboard' },
@@ -352,6 +353,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Menu', icon: BookOpen, page: 'BusinessMenu' },
       ],
       secondary: [
+        { name: 'Vendors', icon: Store, page: 'Vendors' },
         { name: 'Post Job', icon: Briefcase, page: 'CreateJob' },
         { name: 'Jobs', icon: Briefcase, page: 'BusinessJobs' },
         { name: 'Promotions', icon: Megaphone, page: 'BusinessPromotions' },

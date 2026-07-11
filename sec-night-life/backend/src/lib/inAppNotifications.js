@@ -5,10 +5,12 @@ import { sendPushToUser } from './pushDelivery.js';
 const NOTIFICATION_BATCH_SIZE = 500;
 
 function pushPathForNotification(data) {
-  if (data.type === 'PLATFORM_ANNOUNCEMENT') {
+  if (data.type === 'PLATFORM_ANNOUNCEMENT' || data.type === 'VENDOR_LISTING_REMINDER') {
     return typeof data.referenceId === 'string' && data.referenceId.startsWith('/')
       ? data.referenceId
-      : '/Home';
+      : data.type === 'VENDOR_LISTING_REMINDER'
+        ? '/VendorBusinessSettings'
+        : '/Home';
   }
   if (data.referenceType === 'ROUTE' && typeof data.referenceId === 'string' && data.referenceId.startsWith('/')) {
     return data.referenceId;

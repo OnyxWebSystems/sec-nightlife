@@ -870,10 +870,10 @@ export default function VenueOnboarding() {
       ) : null}
       {/* Header — SEC logo + Sec for Business */}
       {!isStaffEdit ? (
-      <div className="flex items-center justify-center pt-8 pb-6 max-w-md mx-auto w-full">
-        <div className="flex items-center gap-3">
-          <SecLogo size={40} variant="full" />
-          <span className="text-xl sm:text-2xl font-bold truncate min-w-0" style={{ color: 'var(--sec-text-primary)' }}>Sec for Business</span>
+      <div className="flex items-center justify-center pt-5 sm:pt-8 pb-3 sm:pb-6 max-w-md mx-auto w-full px-5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <SecLogo size={32} variant="full" />
+          <span className="text-lg sm:text-2xl font-bold truncate min-w-0" style={{ color: 'var(--sec-text-primary)' }}>Sec for Business</span>
         </div>
       </div>
       ) : null}
@@ -882,7 +882,7 @@ export default function VenueOnboarding() {
       <OnboardingStepIndicator steps={visibleSteps} currentStep={step} completedThrough={step} />
 
       {/* Form Content */}
-      <div className="flex-1 max-w-md mx-auto w-full overflow-y-auto">
+      <div className="flex-1 max-w-md mx-auto w-full overflow-y-auto px-5">
         <AnimatePresence mode="wait">
           {step === 1 && (
             <motion.div
@@ -890,10 +890,10 @@ export default function VenueOnboarding() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
+              className="space-y-4 sm:space-y-6"
             >
-              <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold mb-2">
+              <div className="text-center mb-5 sm:mb-8">
+                <h1 className="text-xl sm:text-2xl font-bold mb-1.5">
                   {isStaffEdit ? 'Edit venue setup' : isNewVenue ? 'Register another venue' : isEditMode ? 'Edit your venue' : 'Register your venue'}
                 </h1>
                 <p className="text-gray-500">
@@ -1014,10 +1014,10 @@ export default function VenueOnboarding() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
+              className="space-y-4 sm:space-y-6"
             >
-              <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold mb-2">Contact & Details</h1>
+              <div className="text-center mb-5 sm:mb-8">
+                <h1 className="text-xl sm:text-2xl font-bold mb-1.5">Contact & Details</h1>
                 <p className="text-gray-500">How can people reach you?</p>
               </div>
 
@@ -1221,7 +1221,7 @@ export default function VenueOnboarding() {
           )}
 
           {step === 3 && (
-            <motion.div key="step-menu" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+            <motion.div key="step-menu" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 sm:space-y-6">
               <div className="text-center mb-2">
                 <div
                   className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
@@ -1229,7 +1229,7 @@ export default function VenueOnboarding() {
                 >
                   <UtensilsCrossed className="w-8 h-8" style={{ color: 'var(--sec-accent)' }} />
                 </div>
-                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Menu Maker</h1>
+                <h1 className="text-xl sm:text-2xl font-bold mb-1.5" style={{ color: 'var(--sec-text-primary)' }}>Menu Maker</h1>
                 <p className="text-sm max-w-sm mx-auto" style={{ color: 'var(--sec-text-muted)' }}>
                   Add items with your own photos and prices now, or skip and update your menu later from the dashboard.
                 </p>
@@ -1284,10 +1284,10 @@ export default function VenueOnboarding() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
+              className="space-y-4 sm:space-y-6"
             >
               <div className="text-center mb-6">
-                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Compliance Documents</h1>
+                <h1 className="text-xl sm:text-2xl font-bold mb-1.5" style={{ color: 'var(--sec-text-primary)' }}>Compliance Documents</h1>
                 <p style={{ color: 'var(--sec-text-muted)' }}>Required for verification</p>
               </div>
 
@@ -1349,10 +1349,10 @@ export default function VenueOnboarding() {
              initial={{ opacity: 0, x: 20 }}
              animate={{ opacity: 1, x: 0 }}
              exit={{ opacity: 0, x: -20 }}
-             className="space-y-6"
+             className="space-y-4 sm:space-y-6"
            >
-             <div className="text-center mb-8">
-               <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>Set up payouts</h1>
+             <div className="text-center mb-5 sm:mb-8">
+               <h1 className="text-xl sm:text-2xl font-bold mb-1.5" style={{ color: 'var(--sec-text-primary)' }}>Set up payouts</h1>
                <p style={{ color: 'var(--sec-text-muted)' }}>Optional now. You can also add this later in your Sec Wallet on the Business Dashboard.</p>
                <div className="mt-3 max-w-md mx-auto text-left">
                  <RefundPolicyNote />
@@ -1400,7 +1400,7 @@ export default function VenueOnboarding() {
           </div>
 
           {/* Navigation */}
-      <div className="max-w-md mx-auto w-full pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="max-w-md mx-auto w-full pt-4 sm:pt-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] px-5">
         <div className="flex gap-3">
           <Button
             onClick={() => {
@@ -1415,7 +1415,7 @@ export default function VenueOnboarding() {
               }
             }}
             variant="outline"
-            className="h-14 px-6 rounded-xl bg-[#141416] border-[#262629]"
+            className="h-12 px-5 rounded-xl bg-[#141416] border-[#262629]"
           >
             <ChevronLeft className="w-5 h-5" />
           </Button>
@@ -1423,7 +1423,7 @@ export default function VenueOnboarding() {
             <Button
               onClick={() => setStep(step + 1)}
               disabled={!canProceed()}
-              className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
+              className="flex-1 h-12 rounded-xl font-semibold transition-all disabled:opacity-50"
               style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
               {step === 4 && !hasComplianceDocs() ? 'Skip for now' : 'Continue'}
@@ -1433,7 +1433,7 @@ export default function VenueOnboarding() {
             <Button
               onClick={handleStaffSaveAndExit}
               disabled={isSubmitting || !canProceed()}
-              className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
+              className="flex-1 h-12 rounded-xl font-semibold transition-all disabled:opacity-50"
               style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
             >
               {isSubmitting ? 'Saving...' : 'Save & return'}
@@ -1445,14 +1445,14 @@ export default function VenueOnboarding() {
                 onClick={handleSkipPayment}
                 disabled={isSubmitting}
                 variant="outline"
-                className="h-14 px-4 rounded-xl bg-[#141416] border-[#262629]"
+                className="h-12 px-4 rounded-xl bg-[#141416] border-[#262629]"
               >
                 {isSubmitting ? 'Saving...' : 'Skip for now'}
               </Button>
               <Button
                 onClick={handleContinueWithPlan}
                 disabled={isSubmitting}
-                className="flex-1 h-14 rounded-xl font-semibold transition-all disabled:opacity-50"
+                className="flex-1 h-12 rounded-xl font-semibold transition-all disabled:opacity-50"
                 style={{ backgroundColor: 'var(--sec-accent)', color: '#000' }}
               >
                 {isSubmitting ? 'Saving...' : 'Save payout details'}

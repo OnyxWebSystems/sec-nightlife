@@ -13,6 +13,7 @@ import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.
 import { mergeTableHistoryForUser, participationKey, countParticipationStats } from '../lib/tableHistory.js';
 import { idDocumentUrlChanged } from '../lib/idDocumentUrl.js';
 import { notifyAdmins } from '../lib/adminNotify.js';
+import { maybeSendVendorListingReminder } from './vendors.js';
 
 const router = Router();
 const PROFILE_GENDER_VALUES = ['male', 'female', 'other'];
@@ -650,6 +651,9 @@ const profileUpdateSchema = z.object({
   full_name: z.string().max(200).optional().nullable(),
   bio: z.string().max(2000).optional().nullable(),
   city: z.string().max(100).optional().nullable(),
+  latitude: z.number().min(-90).max(90).optional().nullable(),
+  longitude: z.number().min(-180).max(180).optional().nullable(),
+  location_label: z.string().max(300).optional().nullable(),
   avatar_url: optionalMediaUrl,
   favorite_drink: z.string().max(100).optional().nullable(),
   gender: z.enum(PROFILE_GENDER_VALUES).optional().nullable(),
@@ -668,6 +672,8 @@ const profileUpdateSchema = z.object({
   followed_venues: z.array(z.string()).optional().nullable(),
   interested_events: z.array(z.string().uuid()).max(50).optional().nullable(),
   onboarding_complete: z.boolean().optional().nullable(),
+  has_vendor_interest: z.boolean().optional().nullable(),
+  vendor_listing_deferred: z.boolean().optional().nullable(),
   notification_prefs: z.record(z.unknown()).optional().nullable(),
   privacy_settings: z.record(z.unknown()).optional().nullable(),
   app_preferences: z.record(z.unknown()).optional().nullable(),
@@ -696,6 +702,9 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       full_name: user.fullName || profile?.username,
       bio: profile?.bio,
       city: profile?.city,
+      latitude: profile?.latitude ?? null,
+      longitude: profile?.longitude ?? null,
+      location_label: profile?.locationLabel ?? null,
       avatar_url: profile?.avatarUrl,
       favorite_drink: profile?.favoriteDrink,
       gender: profile?.gender ?? null,
@@ -713,6 +722,8 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
       followed_venues: profile?.followedVenues ?? [],
       interested_events: profile?.interestedEvents ?? [],
       onboarding_complete: profile?.onboardingComplete ?? false,
+      has_vendor_interest: profile?.hasVendorInterest ?? false,
+      vendor_listing_deferred: profile?.vendorListingDeferred ?? false,
       notification_prefs: profile?.notificationPrefs ?? null,
       privacy_settings: profile?.privacySettings ?? null,
       app_preferences: profile?.appPreferences ?? null,
@@ -759,6 +770,9 @@ router.get('/profile/:id', authenticateToken, async (req, res, next) => {
       full_name: user.fullName || profile?.username,
       bio: profile?.bio,
       city: profile?.city,
+      latitude: profile?.latitude ?? null,
+      longitude: profile?.longitude ?? null,
+      location_label: profile?.locationLabel ?? null,
       avatar_url: profile?.avatarUrl,
       favorite_drink: profile?.favoriteDrink,
       gender: profile?.gender ?? null,
@@ -907,6 +921,9 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
         full_name: u.fullName || p?.username,
         bio: p?.bio,
         city: p?.city,
+        latitude: p?.latitude ?? null,
+        longitude: p?.longitude ?? null,
+        location_label: p?.locationLabel ?? null,
         avatar_url: p?.avatarUrl,
         favorite_drink: p?.favoriteDrink,
         gender: p?.gender ?? null,
@@ -921,7 +938,9 @@ router.get('/filter', authenticateToken, async (req, res, next) => {
         friends: p?.friends ?? [],
         followed_venues: p?.followedVenues ?? [],
         interested_events: u.id === req.userId ? p?.interestedEvents ?? [] : [],
-        onboarding_complete: p?.onboardingComplete ?? false
+        onboarding_complete: p?.onboardingComplete ?? false,
+        has_vendor_interest: p?.hasVendorInterest ?? false,
+        vendor_listing_deferred: p?.vendorListingDeferred ?? false,
       };
     });
     if (is_verified_promoter === 'true') {
@@ -965,6 +984,9 @@ router.post('/', authenticateToken, async (req, res, next) => {
       ...(canonicalUsername != null && { username: canonicalUsername }),
       ...(data.bio != null && { bio: data.bio }),
       ...(data.city != null && { city: data.city }),
+      ...(data.latitude !== undefined && { latitude: data.latitude }),
+      ...(data.longitude !== undefined && { longitude: data.longitude }),
+      ...(data.location_label !== undefined && { locationLabel: data.location_label }),
       ...(data.avatar_url != null && { avatarUrl: data.avatar_url }),
       ...(data.favorite_drink != null && { favoriteDrink: data.favorite_drink }),
       ...(data.gender !== undefined && { gender: data.gender }),
@@ -974,6 +996,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
       ...(data.verification_status != null && { verificationStatus: data.verification_status }),
       ...(data.payment_setup_complete != null && { paymentSetupComplete: data.payment_setup_complete }),
       ...(data.onboarding_complete != null && { onboardingComplete: data.onboarding_complete }),
+      ...(data.has_vendor_interest != null && { hasVendorInterest: data.has_vendor_interest }),
+      ...(data.vendor_listing_deferred != null && { vendorListingDeferred: data.vendor_listing_deferred }),
       ...(data.interests !== undefined && {
         interests: data.interests === null ? [] : normalizeInterestList(data.interests),
       }),
@@ -1020,6 +1044,9 @@ router.post('/', authenticateToken, async (req, res, next) => {
       full_name: userFresh.fullName || profile.username,
       bio: profile.bio,
       city: profile.city,
+      latitude: profile.latitude ?? null,
+      longitude: profile.longitude ?? null,
+      location_label: profile.locationLabel ?? null,
       avatar_url: profile.avatarUrl,
       favorite_drink: profile.favoriteDrink,
       gender: profile.gender ?? null,
@@ -1031,7 +1058,9 @@ router.post('/', authenticateToken, async (req, res, next) => {
       friends: profile.friends ?? [],
       followed_venues: profile.followedVenues ?? [],
       interested_events: profile.interestedEvents ?? [],
-      onboarding_complete: profile.onboardingComplete
+      onboarding_complete: profile.onboardingComplete,
+      has_vendor_interest: profile.hasVendorInterest ?? false,
+      vendor_listing_deferred: profile.vendorListingDeferred ?? false,
     });
   } catch (err) {
     next(err);
@@ -1109,6 +1138,9 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       ...(canonicalUsername != null && { username: canonicalUsername }),
       ...(data.bio != null && { bio: data.bio }),
       ...(data.city != null && { city: data.city }),
+      ...(data.latitude !== undefined && { latitude: data.latitude }),
+      ...(data.longitude !== undefined && { longitude: data.longitude }),
+      ...(data.location_label !== undefined && { locationLabel: data.location_label }),
       ...(data.avatar_url !== undefined && { avatarUrl: data.avatar_url }),
       ...(data.favorite_drink != null && { favoriteDrink: data.favorite_drink }),
       ...(data.gender !== undefined && { gender: data.gender }),
@@ -1118,6 +1150,8 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       ...(data.verification_status != null && { verificationStatus: data.verification_status }),
       ...(data.payment_setup_complete != null && { paymentSetupComplete: data.payment_setup_complete }),
       ...(data.onboarding_complete != null && { onboardingComplete: data.onboarding_complete }),
+      ...(data.has_vendor_interest != null && { hasVendorInterest: data.has_vendor_interest }),
+      ...(data.vendor_listing_deferred != null && { vendorListingDeferred: data.vendor_listing_deferred }),
       ...(data.interests !== undefined && {
         interests: data.interests === null ? [] : normalizeInterestList(data.interests),
       }),
@@ -1153,6 +1187,9 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       );
     }
     await maybeNotifyIdVerificationSubmitted(prevStatus, profile, user);
+    if (data.vendor_listing_deferred === true || (profile.vendorListingDeferred && data.onboarding_complete === true)) {
+      void maybeSendVendorListingReminder(req.userId);
+    }
     const userFresh = await prisma.user.findUnique({
       where: { id: req.userId },
       select: { email: true, fullName: true, username: true }
@@ -1164,6 +1201,9 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       full_name: userFresh.fullName || profile.username,
       bio: profile.bio,
       city: profile.city,
+      latitude: profile.latitude ?? null,
+      longitude: profile.longitude ?? null,
+      location_label: profile.locationLabel ?? null,
       avatar_url: profile.avatarUrl,
       favorite_drink: profile.favoriteDrink,
       gender: profile.gender ?? null,
@@ -1178,7 +1218,9 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       friends: profile.friends ?? [],
       followed_venues: profile.followedVenues ?? [],
       interested_events: profile.interestedEvents ?? [],
-      onboarding_complete: profile.onboardingComplete
+      onboarding_complete: profile.onboardingComplete,
+      has_vendor_interest: profile.hasVendorInterest ?? false,
+      vendor_listing_deferred: profile.vendorListingDeferred ?? false,
     });
   } catch (err) {
     next(err);
@@ -1261,6 +1303,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (canonicalUsername != null) updates.username = canonicalUsername;
     if (data.bio != null) updates.bio = data.bio;
     if (data.city != null) updates.city = data.city;
+    if (data.latitude !== undefined) updates.latitude = data.latitude;
+    if (data.longitude !== undefined) updates.longitude = data.longitude;
+    if (data.location_label !== undefined) updates.locationLabel = data.location_label;
     if (data.avatar_url !== undefined) updates.avatarUrl = data.avatar_url;
     if (data.favorite_drink != null) updates.favoriteDrink = data.favorite_drink;
     if (data.gender !== undefined) updates.gender = data.gender;
@@ -1288,6 +1333,8 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
         data.interested_events === null ? [] : normalizeInterestedEvents(data.interested_events);
     }
     if (data.onboarding_complete != null) updates.onboardingComplete = data.onboarding_complete;
+    if (data.has_vendor_interest != null) updates.hasVendorInterest = data.has_vendor_interest;
+    if (data.vendor_listing_deferred != null) updates.vendorListingDeferred = data.vendor_listing_deferred;
     let updated;
     try {
       updated = await prisma.userProfile.upsert({
@@ -1314,6 +1361,9 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       full_name: user.fullName || updated.username,
       bio: updated.bio,
       city: updated.city,
+      latitude: updated.latitude ?? null,
+      longitude: updated.longitude ?? null,
+      location_label: updated.locationLabel ?? null,
       avatar_url: updated.avatarUrl,
       favorite_drink: updated.favoriteDrink,
       gender: updated.gender ?? null,

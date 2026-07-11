@@ -140,6 +140,16 @@ export function PreferencesProvider({ children }) {
     if (userProfile.privacy_settings && typeof userProfile.privacy_settings === 'object') {
       setPrivacyState({ ...defaultPrivacy, ...userProfile.privacy_settings });
     }
+    // Seed preferred location when location preference is already on
+    if (
+      userProfile.app_preferences?.location?.useLocation &&
+      typeof userProfile.latitude === 'number' &&
+      typeof userProfile.longitude === 'number' &&
+      !Number.isNaN(userProfile.latitude) &&
+      !Number.isNaN(userProfile.longitude)
+    ) {
+      setGeoCoords({ lat: userProfile.latitude, lng: userProfile.longitude });
+    }
     hydratedFromApi.current = true;
   }, [userProfile]);
 
@@ -193,8 +203,15 @@ export function PreferencesProvider({ children }) {
       setGeoCoords(null);
       return;
     }
-    requestGeoCoords().catch(() => {});
-  }, [prefs.location?.useLocation, requestGeoCoords]);
+    requestGeoCoords().catch(() => {
+      if (
+        typeof userProfile?.latitude === 'number' &&
+        typeof userProfile?.longitude === 'number'
+      ) {
+        setGeoCoords({ lat: userProfile.latitude, lng: userProfile.longitude });
+      }
+    });
+  }, [prefs.location?.useLocation, requestGeoCoords, userProfile?.latitude, userProfile?.longitude]);
 
   const setTheme = useCallback((theme) => {
     if (theme !== 'dark' && theme !== 'light') return;

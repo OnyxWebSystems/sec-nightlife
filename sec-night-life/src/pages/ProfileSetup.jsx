@@ -19,7 +19,9 @@ import {
   FileText,
   Wine,
   X,
-  Landmark,
+  Store,
+  LocateFixed,
+  Loader2,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,11 +32,14 @@ import SecLogo from '@/components/ui/SecLogo';
 import AvatarCropDialog from '@/components/profile/AvatarCropDialog';
 import OnboardingStepIndicator from '@/components/onboarding/OnboardingStepIndicator';
 import { markOnboardingComplete } from '@/lib/sessionCache';
+import GoogleAddressInput from '@/components/GoogleAddressInput';
+import VendorListingForm, { isVendorListingValid } from '@/components/vendors/VendorListingForm';
 
 const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
   'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Polokwane',
 ];
+const CITY_OTHER = '__other__';
 
 const DRINKS = [
   'Whiskey', 'Vodka', 'Gin', 'Tequila', 'Rum', 'Champagne',
@@ -59,6 +64,16 @@ export default function ProfileSetup() {
   const [uploadProgress, setUploadProgress] = useState({});
   const [cropOpen, setCropOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
+  const [cityMode, setCityMode] = useState(''); // '' | listed city | CITY_OTHER
+  const [customCity, setCustomCity] = useState('');
+  const [locating, setLocating] = useState(false);
+  const [hasVendorBusiness, setHasVendorBusiness] = useState(null); // null | true | false
+  const [vendorDraft, setVendorDraft] = useState({
+    name: '',
+    category: '',
+    description: '',
+    images: [],
+  });
 
   const [formData, setFormData] = useState({
     username: '',
@@ -68,6 +83,9 @@ export default function ProfileSetup() {
     favorite_drink: '',
     gender: '',
     date_of_birth: '',
+    latitude: null,
+    longitude: null,
+    location_label: '',
     payout_account_name: '',
     payout_account_number: '',
     payout_bank_code: '',
@@ -78,7 +96,8 @@ export default function ProfileSetup() {
     { number: 1, title: 'Basics', icon: User },
     { number: 2, title: 'Details', icon: MapPin },
     { number: 3, title: 'Verify', icon: Calendar },
-    { number: 4, title: 'Payout', icon: CreditCard },
+    { number: 4, title: 'Services', icon: Store },
+    { number: 5, title: 'Payout', icon: CreditCard },
   ];
 
   useEffect(() => {
@@ -93,16 +112,24 @@ export default function ProfileSetup() {
       if (profiles.length > 0) {
         const profile = profiles[0];
         setUserProfile(profile);
+        const profileCity = profile.city || '';
+        const isListed = CITIES.includes(profileCity);
+        setCityMode(profileCity ? (isListed ? profileCity : CITY_OTHER) : '');
+        setCustomCity(isListed ? '' : profileCity);
         setFormData((prev) => ({
           ...prev,
           username: profile.username || '',
           bio: profile.bio || '',
           avatar_url: profile.avatar_url || '',
-          city: profile.city || '',
+          city: profileCity,
           favorite_drink: profile.favorite_drink || '',
           gender: profile.gender || '',
           date_of_birth: profile.date_of_birth || '',
+          latitude: profile.latitude ?? null,
+          longitude: profile.longitude ?? null,
+          location_label: profile.location_label || '',
         }));
+        if (profile.has_vendor_interest) setHasVendorBusiness(true);
         if (profile.age_verified || profile.verification_status === 'verified' || profile.verification_status === 'approved') {
           setAgeDeclarationAccepted(true);
         }
@@ -164,9 +191,13 @@ export default function ProfileSetup() {
     return age >= 18;
   };
 
+  const resolvedCity = cityMode === CITY_OTHER ? customCity.trim() : cityMode;
+
   const canProceed = () => {
     if (step === 1) return formData.username && formData.bio.trim().length > 0;
-    if (step === 2) return formData.city && formData.favorite_drink;
+    if (step === 2) {
+      return Boolean(resolvedCity) && Boolean(formData.favorite_drink);
+    }
     if (step === 3) {
       return (
         Boolean(formData.gender) &&
@@ -175,8 +206,53 @@ export default function ProfileSetup() {
         ageDeclarationAccepted
       );
     }
-    if (step === 4) return false;
+    if (step === 4) {
+      if (hasVendorBusiness === false) return true;
+      if (hasVendorBusiness === true) return true; // list later allowed; list-now validated on continue
+      return false;
+    }
+    if (step === 5) return false;
     return true;
+  };
+
+  const useLiveLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported on this device.');
+      return;
+    }
+    setLocating(true);
+    setError('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setFormData((prev) => ({
+          ...prev,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          location_label: prev.location_label || 'Current location',
+        }));
+        setLocating(false);
+      },
+      () => {
+        setError('Could not access location — enable permission in your browser.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
+    );
+  };
+
+  const saveVendorIfNeeded = async () => {
+    if (hasVendorBusiness !== true) return;
+    if (!isVendorListingValid(vendorDraft)) return; // deferred
+    await apiPost('/api/vendors', {
+      name: vendorDraft.name.trim(),
+      category: vendorDraft.category,
+      description: vendorDraft.description.trim(),
+      city: resolvedCity || formData.city || null,
+      latitude: formData.latitude,
+      longitude: formData.longitude,
+      is_published: true,
+      images: (vendorDraft.images || []).map((url, i) => ({ url, sort_order: i })),
+    });
   };
 
   const saveProfile = async (options = {}) => {
@@ -202,13 +278,22 @@ export default function ProfileSetup() {
         }
       }
 
+      const cityValue = resolvedCity || formData.city;
+      const listedVendorNow = hasVendorBusiness === true && isVendorListingValid(vendorDraft);
+      const deferredVendor = hasVendorBusiness === true && !listedVendorNow;
+
       const payload = {
         username: formData.username,
         bio: formData.bio,
-        city: formData.city,
+        city: cityValue,
         favorite_drink: formData.favorite_drink,
         gender: formData.gender,
         date_of_birth: formData.date_of_birth,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
+        location_label: formData.location_label || null,
+        has_vendor_interest: hasVendorBusiness === true,
+        vendor_listing_deferred: deferredVendor,
       };
       if (paymentCompleted) payload.payment_setup_complete = true;
       if (markComplete) payload.onboarding_complete = true;
@@ -219,6 +304,20 @@ export default function ProfileSetup() {
       } else {
         await dataService.User.create({ ...payload, onboarding_complete: true });
       }
+
+      try {
+        await saveVendorIfNeeded();
+      } catch (vendorErr) {
+        setError(vendorErr?.message || 'Profile saved but vendor listing failed. You can finish in Settings.');
+        if (markComplete && user?.id) {
+          markOnboardingComplete(user.id);
+          await authService.persistSessionCache().catch(() => {});
+        }
+        setIsSubmitting(false);
+        navigate(createPageUrl(isEditMode ? 'Profile' : 'Home'));
+        return;
+      }
+
       if (markComplete && user?.id) {
         markOnboardingComplete(user.id);
         await authService.persistSessionCache().catch(() => {});
@@ -340,18 +439,24 @@ export default function ProfileSetup() {
     letterSpacing: '0.09em',
     textTransform: 'uppercase',
     color: 'var(--sec-text-muted)',
-    marginBottom: 8,
-    display: 'block',
+    marginBottom: 6,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
   };
 
   const inputStyle = {
-    height: 46,
+    height: 44,
     backgroundColor: 'var(--sec-bg-elevated)',
     border: '1px solid var(--sec-border)',
     borderRadius: 'var(--radius-md)',
     color: 'var(--sec-text-primary)',
     fontSize: 16,
   };
+
+  const stepTitleClass = 'text-xl sm:text-2xl font-bold mb-1.5';
+  const stepWrapClass = 'space-y-4 sm:space-y-6';
+  const navBtnHeight = 46;
 
   if (loading) {
     return (
@@ -366,10 +471,10 @@ export default function ProfileSetup() {
   return (
     <div className="min-h-screen flex flex-col max-w-full overflow-x-hidden" style={{ backgroundColor: 'var(--sec-bg-base)' }}>
       {/* Header — SecLogo + Sec */}
-      <div className="flex items-center justify-center pt-8 pb-6 max-w-md mx-auto w-full px-4">
-        <div className="flex items-center gap-3">
-          <SecLogo size={30} variant="full" />
-          <span className="text-2xl font-bold" style={{ color: 'var(--sec-text-primary)' }}>
+      <div className="flex items-center justify-center pt-5 sm:pt-8 pb-3 sm:pb-6 max-w-md mx-auto w-full px-5">
+        <div className="flex items-center gap-2.5">
+          <SecLogo size={26} variant="full" />
+          <span className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--sec-text-primary)' }}>
             Sec
           </span>
         </div>
@@ -379,7 +484,7 @@ export default function ProfileSetup() {
       <OnboardingStepIndicator steps={steps} currentStep={step} />
 
       {/* Form content */}
-      <div className="flex-1 max-w-md mx-auto w-full overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="flex-1 max-w-md mx-auto w-full overflow-y-auto px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <AnimatePresence mode="wait">
           {step === 1 && (
             <motion.div
@@ -387,13 +492,13 @@ export default function ProfileSetup() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
+              className={stepWrapClass}
             >
-              <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
+              <div className="text-center mb-5 sm:mb-8">
+                <h1 className={stepTitleClass} style={{ color: 'var(--sec-text-primary)' }}>
                   {isEditMode ? 'Edit profile setup' : 'Basics'}
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>
+                <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
                   {isEditMode ? 'Update any section — save when you are done' : 'Tell us about yourself'}
                 </p>
               </div>
@@ -404,8 +509,8 @@ export default function ProfileSetup() {
                   <div style={{ position: 'relative' }}>
                     <div
                       style={{
-                        width: 96,
-                        height: 96,
+                        width: 80,
+                        height: 80,
                         borderRadius: '50%',
                         border: '1px solid var(--sec-border-strong)',
                         backgroundColor: 'var(--sec-bg-elevated)',
@@ -422,7 +527,7 @@ export default function ProfileSetup() {
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />
                       ) : (
-                        <User size={36} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
+                        <User size={32} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
                       )}
                     </div>
                     <div
@@ -430,8 +535,8 @@ export default function ProfileSetup() {
                         position: 'absolute',
                         bottom: 0,
                         right: 0,
-                        width: 30,
-                        height: 30,
+                        width: 28,
+                        height: 28,
                         borderRadius: '50%',
                         backgroundColor: 'var(--sec-bg-card)',
                         border: '1px solid var(--sec-border-strong)',
@@ -440,7 +545,7 @@ export default function ProfileSetup() {
                         justifyContent: 'center',
                       }}
                     >
-                      <Camera size={14} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
+                      <Camera size={13} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
                     </div>
                   </div>
                   <input type="file" accept="image/*" style={{ display: 'none' }} onChange={onPickAvatarImage} />
@@ -503,20 +608,31 @@ export default function ProfileSetup() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
+              className={stepWrapClass}
             >
-              <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
+              <div className="text-center mb-5 sm:mb-8">
+                <h1 className={stepTitleClass} style={{ color: 'var(--sec-text-primary)' }}>
                   Details
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Where are you? What do you drink?</p>
+                <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>Where are you? What do you drink?</p>
               </div>
 
               <div>
                 <div style={labelStyle}>
                   <MapPin size={12} strokeWidth={2} /> City
                 </div>
-                <Select value={formData.city} onValueChange={(v) => setFormData((prev) => ({ ...prev, city: v }))}>
+                <Select
+                  value={cityMode}
+                  onValueChange={(v) => {
+                    setCityMode(v);
+                    if (v !== CITY_OTHER) {
+                      setCustomCity('');
+                      setFormData((prev) => ({ ...prev, city: v }));
+                    } else {
+                      setFormData((prev) => ({ ...prev, city: customCity }));
+                    }
+                  }}
+                >
                   <SelectTrigger style={{ ...inputStyle, paddingLeft: 14 }}>
                     <SelectValue placeholder="Select your city" />
                   </SelectTrigger>
@@ -532,8 +648,81 @@ export default function ProfileSetup() {
                         {city}
                       </SelectItem>
                     ))}
+                    <SelectItem value={CITY_OTHER} style={{ color: 'var(--sec-text-primary)' }}>
+                      Other
+                    </SelectItem>
                   </SelectContent>
                 </Select>
+                {cityMode === CITY_OTHER ? (
+                  <Input
+                    value={customCity}
+                    onChange={(e) => {
+                      setCustomCity(e.target.value);
+                      setFormData((prev) => ({ ...prev, city: e.target.value }));
+                    }}
+                    placeholder="Enter your city"
+                    style={{ ...inputStyle, marginTop: 10 }}
+                  />
+                ) : null}
+              </div>
+
+              <div>
+                <div style={labelStyle}>
+                  <LocateFixed size={12} strokeWidth={2} /> Preferred location
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', margin: '0 0 10px' }}>
+                  Used when you turn on nearby venues in App Preferences — live GPS or a place you choose.
+                </p>
+                <button
+                  type="button"
+                  onClick={useLiveLocation}
+                  disabled={locating}
+                  style={{
+                    width: '100%',
+                    height: 44,
+                    marginBottom: 10,
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--sec-border)',
+                    backgroundColor: 'var(--sec-bg-card)',
+                    color: 'var(--sec-text-primary)',
+                    fontSize: 14,
+                    fontWeight: 560,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    cursor: locating ? 'wait' : 'pointer',
+                  }}
+                >
+                  {locating ? <Loader2 size={16} className="animate-spin" /> : <LocateFixed size={16} />}
+                  {locating ? 'Getting location…' : 'Use my current location'}
+                </button>
+                <GoogleAddressInput
+                  label="Or enter a place"
+                  placeholder="Suburb, street, or landmark"
+                  value={
+                    formData.location_label
+                      ? {
+                          formattedAddress: formData.location_label,
+                          latitude: formData.latitude,
+                          longitude: formData.longitude,
+                        }
+                      : null
+                  }
+                  onChange={(addr) => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      location_label: addr?.formattedAddress || '',
+                      latitude: addr?.latitude ?? null,
+                      longitude: addr?.longitude ?? null,
+                    }));
+                  }}
+                />
+                {formData.latitude != null && formData.longitude != null ? (
+                  <p style={{ fontSize: 12, color: 'var(--sec-accent)', marginTop: 8 }}>
+                    Location saved{formData.location_label ? `: ${formData.location_label}` : ''}
+                  </p>
+                ) : null}
               </div>
 
               <div>
@@ -568,13 +757,13 @@ export default function ProfileSetup() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
+              className={stepWrapClass}
             >
-              <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
+              <div className="text-center mb-5 sm:mb-8">
+                <h1 className={stepTitleClass} style={{ color: 'var(--sec-text-primary)' }}>
                   Age verification
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Confirm your age to access tables, events, and payments</p>
+                <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>Confirm your age to access tables, events, and payments</p>
               </div>
 
               <div>
@@ -685,22 +874,89 @@ export default function ProfileSetup() {
 
           {step === 4 && (
             <motion.div
-              key="step4"
+              key="step4-services"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
+              className={stepWrapClass}
             >
-              <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sec-text-primary)' }}>
+              <div className="text-center mb-5 sm:mb-8">
+                <h1 className={stepTitleClass} style={{ color: 'var(--sec-text-primary)' }}>
+                  Vendor services?
+                </h1>
+                <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                  Do you run a small vendor business venues might hire — food, equipment, DJ sets, and more?
+                </p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {[
+                  { value: true, label: 'Yes' },
+                  { value: false, label: 'No' },
+                ].map((opt) => {
+                  const active = hasVendorBusiness === opt.value;
+                  return (
+                    <button
+                      key={String(opt.value)}
+                      type="button"
+                      onClick={() => setHasVendorBusiness(opt.value)}
+                      style={{
+                        height: 48,
+                        borderRadius: 'var(--radius-lg)',
+                        border: `1px solid ${active ? 'var(--sec-accent-border)' : 'var(--sec-border)'}`,
+                        backgroundColor: active ? 'var(--sec-accent-muted)' : 'var(--sec-bg-card)',
+                        color: 'var(--sec-text-primary)',
+                        fontWeight: 600,
+                        fontSize: 15,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {hasVendorBusiness === true ? (
+                <div
+                  style={{
+                    padding: 14,
+                    borderRadius: 'var(--radius-lg)',
+                    backgroundColor: 'var(--sec-bg-card)',
+                    border: '1px solid var(--sec-border)',
+                  }}
+                >
+                  <p style={{ fontSize: 13, color: 'var(--sec-text-secondary)', margin: '0 0 14px', lineHeight: 1.45 }}>
+                    List your business now so venues can find you, or do it later in Settings.
+                  </p>
+                  <VendorListingForm
+                    value={vendorDraft}
+                    onChange={setVendorDraft}
+                    cityHint={resolvedCity || undefined}
+                  />
+                </div>
+              ) : null}
+            </motion.div>
+          )}
+
+          {step === 5 && (
+            <motion.div
+              key="step5"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className={stepWrapClass}
+            >
+              <div className="text-center mb-5 sm:mb-8">
+                <h1 className={stepTitleClass} style={{ color: 'var(--sec-text-primary)' }}>
                   Get paid faster
                 </h1>
-                <p style={{ color: 'var(--sec-text-muted)' }}>Add payout details now or later in your Sec Wallet on Profile</p>
+                <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>Add payout details now or later in your Sec Wallet on Profile</p>
               </div>
 
               <div
                 style={{
-                  padding: 20,
+                  padding: 16,
                   borderRadius: 'var(--radius-xl)',
                   backgroundColor: 'var(--sec-bg-card)',
                   border: '1px solid var(--sec-border)',
@@ -756,8 +1012,8 @@ export default function ProfileSetup() {
         </AnimatePresence>
       </div>
 
-      {/* Navigation — steps 1–3: back + continue; step 4: back + skip / optional complete */}
-      <div className="max-w-md mx-auto w-full pt-6 pb-8 px-4">
+      {/* Navigation — steps 1–4: back + continue; step 5: skip / payout */}
+      <div className="max-w-md mx-auto w-full pt-4 sm:pt-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] px-5">
         <div className="flex gap-3">
           <button
             type="button"
@@ -769,8 +1025,8 @@ export default function ProfileSetup() {
               }
             }}
             style={{
-              height: 52,
-              width: 52,
+              height: navBtnHeight,
+              width: navBtnHeight,
               borderRadius: 'var(--radius-lg)',
               backgroundColor: 'var(--sec-bg-card)',
               border: '1px solid var(--sec-border)',
@@ -779,6 +1035,7 @@ export default function ProfileSetup() {
               justifyContent: 'center',
               cursor: 'pointer',
               color: 'var(--sec-text-secondary)',
+              flexShrink: 0,
             }}
           >
             <ChevronLeft size={20} strokeWidth={2} />
@@ -790,7 +1047,7 @@ export default function ProfileSetup() {
               disabled={isSubmitting}
               style={{
                 flex: 1,
-                height: 52,
+                height: navBtnHeight,
                 borderRadius: 'var(--radius-lg)',
                 backgroundColor: 'var(--sec-accent)',
                 color: '#000',
@@ -808,15 +1065,15 @@ export default function ProfileSetup() {
               {isSubmitting ? 'Saving…' : 'Save changes'}
             </button>
           ) : null}
-          {step < 4 ? (
+          {step < 5 ? (
             <button
               type="button"
               onClick={() => setStep(step + 1)}
               disabled={!canProceed()}
               style={{
                 flex: isEditMode ? undefined : 1,
-                width: isEditMode ? 52 : undefined,
-                height: 52,
+                width: isEditMode ? navBtnHeight : undefined,
+                height: navBtnHeight,
                 borderRadius: 'var(--radius-lg)',
                 backgroundColor: isEditMode ? 'var(--sec-bg-card)' : 'var(--sec-accent)',
                 color: isEditMode ? 'var(--sec-text-secondary)' : '#000',
@@ -835,7 +1092,9 @@ export default function ProfileSetup() {
                 <ChevronRight size={20} strokeWidth={2} />
               ) : (
                 <>
-                  {step === 3 ? (formData.id_document_url ? 'Continue' : 'Verify later') : 'Continue'}
+                  {step === 4 && hasVendorBusiness === true && !isVendorListingValid(vendorDraft)
+                    ? 'List later'
+                    : 'Continue'}
                   <ChevronRight size={20} strokeWidth={2} />
                 </>
               )}
@@ -848,7 +1107,7 @@ export default function ProfileSetup() {
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  minHeight: 52,
+                  minHeight: navBtnHeight,
                   borderRadius: 'var(--radius-lg)',
                   backgroundColor: 'var(--sec-accent)',
                   color: '#000',
@@ -872,7 +1131,7 @@ export default function ProfileSetup() {
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  minHeight: 44,
+                  minHeight: 42,
                   borderRadius: 'var(--radius-lg)',
                   backgroundColor: 'transparent',
                   color: 'var(--sec-text-secondary)',
@@ -891,27 +1150,7 @@ export default function ProfileSetup() {
                 Save payout details and finish
               </button>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSkipPayment}
-              disabled={isSubmitting}
-              style={{
-                flex: 1,
-                height: 52,
-                borderRadius: 'var(--radius-lg)',
-                backgroundColor: 'var(--sec-accent)',
-                color: '#000',
-                fontWeight: 600,
-                fontSize: 15,
-                border: 'none',
-                cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                opacity: isSubmitting ? 0.5 : 1,
-              }}
-            >
-              {isSubmitting ? 'Saving…' : 'Save payout & finish'}
-            </button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

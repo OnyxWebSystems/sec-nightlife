@@ -106,11 +106,13 @@ export default function Notifications() {
     }
     if (t === 'FRIEND_ACCEPTED') return `${createPageUrl('Friends')}?tab=all`;
 
-    if (t === 'PLATFORM_ANNOUNCEMENT') {
+    if (t === 'PLATFORM_ANNOUNCEMENT' || t === 'VENDOR_LISTING_REMINDER') {
       if (n.referenceType === 'ROUTE' && typeof n.referenceId === 'string' && n.referenceId.startsWith('/')) {
         return n.referenceId;
       }
-      return createPageUrl('Home');
+      return t === 'VENDOR_LISTING_REMINDER'
+        ? createPageUrl('VendorBusinessSettings')
+        : createPageUrl('Home');
     }
 
     if (t === 'TABLE_REQUEST' || t === 'table_request') {

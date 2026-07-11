@@ -185,6 +185,7 @@ enum NotificationType {
   PROMOTER_EVENT_ASSIGNED
   VENUE_STAFF_ASSIGNED
   PLATFORM_ANNOUNCEMENT
+  VENDOR_LISTING_REMINDER
 }
 
 enum LegalDocumentType {
@@ -399,6 +400,7 @@ model User {
   hostedTableGroupChatMessagesSent HostedTableGroupChatMessage[] @relation("HostedTableGroupChatMessageSender")
   inAppNotifications          InAppNotification[]
   friendActivities            FriendActivity[]
+  vendorBusinesses            VendorBusiness[]
   reviewsGiven                UserReview[]               @relation("ReviewsGiven")
   reviewsReceived             UserReview[]               @relation("ReviewsReceived")
   venueUserReviewsAuthored    VenueUserReview[]          @relation("VenueUserReviewsAuthored")
@@ -480,6 +482,9 @@ model UserProfile {
   username                  String?
   bio                       String?
   city                      String?
+  latitude                  Float?
+  longitude                 Float?
+  locationLabel             String?   @map("location_label")
   avatarUrl                 String?   @map("avatar_url")
   favoriteDrink             String?   @map("favorite_drink")
   gender                    String?
@@ -510,6 +515,8 @@ model UserProfile {
   followedVenues            String[]  @default([]) @map("followed_venues")
   interestedEvents          String[]  @default([]) @map("interested_events")
   onboardingComplete        Boolean   @default(false) @map("onboarding_complete")
+  hasVendorInterest         Boolean   @default(false) @map("has_vendor_interest")
+  vendorListingDeferred     Boolean   @default(false) @map("vendor_listing_deferred")
   notificationPrefs         Json?     @map("notification_prefs")
   privacySettings           Json?     @map("privacy_settings")
   appPreferences            Json?     @map("app_preferences")
@@ -520,6 +527,43 @@ model UserProfile {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_profiles")
+}
+
+model VendorBusiness {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  name        String
+  category    String
+  description String?   @db.Text
+  city        String?
+  latitude    Float?
+  longitude   Float?
+  isPublished Boolean   @default(true) @map("is_published")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  user   User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  images VendorBusinessImage[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([city])
+  @@index([isPublished])
+  @@map("vendor_businesses")
+}
+
+model VendorBusinessImage {
+  id               String   @id @default(uuid())
+  vendorBusinessId String   @map("vendor_business_id")
+  url              String
+  sortOrder        Int      @default(0) @map("sort_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  vendorBusiness VendorBusiness @relation(fields: [vendorBusinessId], references: [id], onDelete: Cascade)
+
+  @@index([vendorBusinessId])
+  @@map("vendor_business_images")
 }
 
 // Dedupe T-3h interest reminders (cron idempotency).

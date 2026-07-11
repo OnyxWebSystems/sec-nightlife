@@ -2,12 +2,12 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { motion } from 'framer-motion';
-import { Users, Calendar, MapPin, Briefcase } from 'lucide-react';
+import { Users, Calendar, Store, Briefcase } from 'lucide-react';
 
 const actions = [
   { label: 'Tables',  page: 'Tables',  icon: Users,    accent: false },
   { label: 'Events',  page: 'Events',  icon: Calendar, accent: false },
-  { label: 'Map',     page: 'Map',     icon: MapPin,   accent: false },
+  { label: 'Vendors', page: 'Vendors', icon: Store,    accent: false },
   { label: 'Jobs',    page: 'Jobs',    icon: Briefcase, accent: true },
 ];
 

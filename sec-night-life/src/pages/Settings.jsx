@@ -20,6 +20,7 @@ import {
   Mail,
   Key,
   Trash2,
+  Store,
 } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -107,6 +108,7 @@ export default function Settings() {
       title: t('account'),
       items: [
         { icon: User, label: t('editProfile'), page: 'EditProfile' },
+        { icon: Store, label: 'My vendor business', description: 'List services venues can hire', page: 'VendorBusinessSettings' },
         { icon: Bell, label: t('notifications'), description: t('managePushNotifications'), page: 'Notifications' },
         { icon: Shield, label: t('privacySecurity'), page: 'Privacy' },
         { icon: Mail, label: t('changeEmail'), page: 'ChangeEmail' },

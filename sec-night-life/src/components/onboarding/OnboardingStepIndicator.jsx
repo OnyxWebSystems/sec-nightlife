@@ -13,7 +13,7 @@ export default function OnboardingStepIndicator({ steps, currentStep, completedT
 
   if (!isDesktop) {
     return (
-      <div className="mb-6 px-4 w-full max-w-md mx-auto">
+      <div className="mb-4 sm:mb-6 px-5 w-full max-w-md mx-auto">
         <div className="flex items-center gap-1.5 mb-2">
           {steps.map((s) => (
             <div
@@ -28,7 +28,7 @@ export default function OnboardingStepIndicator({ steps, currentStep, completedT
           ))}
         </div>
         <p
-          className="text-center text-sm font-medium"
+          className="text-center text-xs sm:text-sm font-medium"
           style={{ color: 'var(--sec-text-primary)' }}
         >
           Step {currentStep} of {steps.length}: {current?.title}

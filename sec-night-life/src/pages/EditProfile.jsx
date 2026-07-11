@@ -5,9 +5,10 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
 import { apiGet, apiPatch } from '@/api/client';
-import { ChevronLeft, Camera, User, MapPin, Wine, BadgeCheck, Loader2, Check, X, Calendar } from 'lucide-react';
+import { ChevronLeft, Camera, User, MapPin, Wine, BadgeCheck, Loader2, Check, X, Calendar, LocateFixed } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AvatarCropDialog from '@/components/profile/AvatarCropDialog';
+import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -17,6 +18,7 @@ const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
   'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Polokwane',
 ];
+const CITY_OTHER = '__other__';
 
 const DRINKS = [
   'Whiskey', 'Vodka', 'Gin', 'Tequila', 'Rum', 'Champagne',
@@ -44,7 +46,13 @@ export default function EditProfile() {
     gender: '',
     avatar_url: '',
     date_of_birth: '',
+    latitude: null,
+    longitude: null,
+    location_label: '',
   });
+  const [cityMode, setCityMode] = useState('');
+  const [customCity, setCustomCity] = useState('');
+  const [locating, setLocating] = useState(false);
   const [ageDeclarationAccepted, setAgeDeclarationAccepted] = useState(false);
   const [cropOpen, setCropOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
@@ -98,7 +106,14 @@ export default function EditProfile() {
         gender: profile.gender || '',
         avatar_url: profile.avatar_url || '',
         date_of_birth: profile.date_of_birth || '',
+        latitude: profile.latitude ?? null,
+        longitude: profile.longitude ?? null,
+        location_label: profile.location_label || '',
       });
+      const profileCity = profile.city || '';
+      const isListed = CITIES.includes(profileCity);
+      setCityMode(profileCity ? (isListed ? profileCity : CITY_OTHER) : '');
+      setCustomCity(isListed ? '' : profileCity);
       if (profile.age_verified || profile.verification_status === 'verified' || profile.verification_status === 'approved') {
         setAgeDeclarationAccepted(true);
       }
@@ -177,15 +192,19 @@ export default function EditProfile() {
         });
       }
 
+      const resolvedCity = cityMode === CITY_OTHER ? customCity.trim() : cityMode;
       const payload = {
         full_name: formData.full_name.trim(),
         username: normalizedUsername,
         bio: formData.bio,
-        city: formData.city || null,
+        city: resolvedCity || null,
         favorite_drink: formData.favorite_drink || null,
         gender: formData.gender || null,
         avatar_url: formData.avatar_url || null,
         date_of_birth: formData.date_of_birth || null,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
+        location_label: formData.location_label || null,
       };
       const updated = await apiPatch('/api/users/profile', payload);
       setUserProfile((prev) => (prev ? { ...prev, ...updated } : prev));
@@ -214,7 +233,7 @@ export default function EditProfile() {
     marginBottom: 8,
   };
 
-  const citySelectValue = formData.city && CITIES.includes(formData.city) ? formData.city : '';
+  const citySelectValue = cityMode;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)', paddingBottom: 40 }}>
@@ -426,14 +445,20 @@ export default function EditProfile() {
             </div>
             <Select
               value={citySelectValue}
-              onValueChange={(v) => setFormData((prev) => ({ ...prev, city: v }))}
+              onValueChange={(v) => {
+                setCityMode(v);
+                if (v !== CITY_OTHER) {
+                  setCustomCity('');
+                  setFormData((prev) => ({ ...prev, city: v }));
+                }
+              }}
             >
               <SelectTrigger style={{
                 height: 46,
                 backgroundColor: 'var(--sec-bg-elevated)',
                 border: '1px solid var(--sec-border)',
                 borderRadius: 'var(--radius-md)',
-                color: formData.city ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
+                color: cityMode ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
                 fontSize: 14,
               }}>
                 <SelectValue placeholder="Select your city" />
@@ -452,8 +477,104 @@ export default function EditProfile() {
                     {city}
                   </SelectItem>
                 ))}
+                <SelectItem value={CITY_OTHER} style={{ color: 'var(--sec-text-primary)', cursor: 'pointer' }}>
+                  Other
+                </SelectItem>
               </SelectContent>
             </Select>
+            {cityMode === CITY_OTHER ? (
+              <Input
+                value={customCity}
+                onChange={(e) => {
+                  setCustomCity(e.target.value);
+                  setFormData((prev) => ({ ...prev, city: e.target.value }));
+                }}
+                placeholder="Enter your city"
+                style={{
+                  marginTop: 10,
+                  height: 46,
+                  backgroundColor: 'var(--sec-bg-elevated)',
+                  border: '1px solid var(--sec-border)',
+                  borderRadius: 'var(--radius-md)',
+                  color: 'var(--sec-text-primary)',
+                  fontSize: 14,
+                }}
+              />
+            ) : null}
+          </div>
+
+          <div>
+            <div style={labelStyle}>
+              <LocateFixed size={12} strokeWidth={2} />
+              Preferred location
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!navigator.geolocation) {
+                  toast.error('Geolocation is not supported');
+                  return;
+                }
+                setLocating(true);
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      latitude: pos.coords.latitude,
+                      longitude: pos.coords.longitude,
+                      location_label: prev.location_label || 'Current location',
+                    }));
+                    setLocating(false);
+                    toast.success('Location updated');
+                  },
+                  () => {
+                    toast.error('Could not access location');
+                    setLocating(false);
+                  },
+                  { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
+                );
+              }}
+              disabled={locating}
+              style={{
+                width: '100%',
+                height: 44,
+                marginBottom: 10,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--sec-border)',
+                backgroundColor: 'var(--sec-bg-card)',
+                color: 'var(--sec-text-primary)',
+                fontSize: 14,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                cursor: locating ? 'wait' : 'pointer',
+              }}
+            >
+              {locating ? <Loader2 size={16} className="animate-spin" /> : <LocateFixed size={16} />}
+              {locating ? 'Getting location…' : 'Use my current location'}
+            </button>
+            <GoogleAddressInput
+              label="Or enter a place"
+              placeholder="Suburb, street, or landmark"
+              value={
+                formData.location_label
+                  ? {
+                      formattedAddress: formData.location_label,
+                      latitude: formData.latitude,
+                      longitude: formData.longitude,
+                    }
+                  : null
+              }
+              onChange={(addr) => {
+                setFormData((prev) => ({
+                  ...prev,
+                  location_label: addr?.formattedAddress || '',
+                  latitude: addr?.latitude ?? null,
+                  longitude: addr?.longitude ?? null,
+                }));
+              }}
+            />
           </div>
 
           <div>

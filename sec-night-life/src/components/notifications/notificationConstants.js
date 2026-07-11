@@ -8,6 +8,7 @@ import {
   UserPlus,
   Shield,
   Megaphone,
+  Store,
 } from 'lucide-react';
 
 export const NOTIFICATION_ICONS = {
@@ -26,6 +27,7 @@ export const NOTIFICATION_ICONS = {
   PROMOTER_EVENT_ASSIGNED: Calendar,
   VENUE_STAFF_ASSIGNED: Shield,
   PLATFORM_ANNOUNCEMENT: Megaphone,
+  VENDOR_LISTING_REMINDER: Store,
   table_request: Users,
   TABLE_REQUEST: Users,
   TABLE_APPROVED: Users,
@@ -65,4 +67,5 @@ export const NOTIFICATION_COLORS = {
   EVENT_INTEREST_REMINDER: 'sec-badge-silver',
   VENUE_STAFF_ASSIGNED: 'sec-badge-gold',
   PLATFORM_ANNOUNCEMENT: 'sec-badge-silver',
+  VENDOR_LISTING_REMINDER: 'sec-badge-gold',
 };
