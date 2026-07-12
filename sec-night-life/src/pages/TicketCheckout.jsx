@@ -53,7 +53,8 @@ export default function TicketCheckout() {
   const maxQuantity = selectedTierData
     ? Math.min(selectedTierData.quantity - (selectedTierData.sold || 0), 10)
     : 1;
-  const totalPrice = Math.round((selectedTierData ? selectedTierData.price * quantity : 0) * 100) / 100;
+  const ticketSubtotal = selectedTierData ? selectedTierData.price * quantity : 0;
+  const totalPrice = Math.round(ticketSubtotal * 100) / 100;
 
   function holderDisplayNameFromUser(u) {
     const n = u?.fullName || u?.username || u?.userProfile?.username;
@@ -243,14 +244,6 @@ export default function TicketCheckout() {
               R{ticketSubtotal.toFixed(0)}
             </span>
           </div>
-          {menuSubtotal > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ color: 'var(--sec-text-secondary)' }}>Menu</span>
-              <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>
-                R{menuSubtotal.toFixed(0)}
-              </span>
-            </div>
-          )}
           <div
             style={{
               display: 'flex',

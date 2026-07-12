@@ -777,7 +777,7 @@ export default function BusinessEvents() {
                     <Zap size={16} />
                   </button>
                   ) : null}
-                  {!ended && evt.status === 'published' && evt.event_format !== 'TICKETING_ONLY' ? (
+                  {!ended && evt.status === 'published' ? (
                   <button
                     onClick={() => setTablesEventId(evt.id)}
                     style={{ padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'var(--sec-text-muted)' }}
@@ -1769,7 +1769,7 @@ export default function BusinessEvents() {
             </div>
           ) : (eventTablesData?.items || []).length === 0 ? (
             <p className="text-sm text-gray-500 py-10 px-6 text-center">
-              No table slots for this event yet. Publish with hosting tiers to generate listings.
+              No table slots for this event yet. Table-hosting events generate slots from hosting tiers; ticketed events only show slots if tables were synced.
             </p>
           ) : (
             <div className="space-y-3 p-4">
