@@ -535,6 +535,7 @@ model VendorBusiness {
   name        String
   category    String
   description String?   @db.Text
+  website     String?
   city        String?
   latitude    Float?
   longitude   Float?

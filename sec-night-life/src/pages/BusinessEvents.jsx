@@ -997,6 +997,7 @@ export default function BusinessEvents() {
                 <h3 className="text-sm font-semibold">Ticket tiers</h3>
                 <p className="text-xs text-gray-500">
                   Guests buy tickets only — no table hosting or entrance fee. Each ticket gets its own QR with tier details.
+                  Ticket sales split 4% to SEC and 96% to the venue (menu add-ons, if enabled, stay 15% / 85%).
                 </p>
                 <label className="flex items-start gap-2 text-sm cursor-pointer">
                   <Checkbox

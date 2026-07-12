@@ -24,12 +24,22 @@ const vendorBodySchema = z.object({
   name: z.string().trim().min(1).max(120),
   category: z.string().trim().min(1).max(60),
   description: z.string().trim().max(2000).optional().nullable(),
+  website: z.string().trim().max(500).optional().nullable(),
   city: z.string().trim().max(100).optional().nullable(),
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
   is_published: z.boolean().optional(),
   images: z.array(imageSchema).max(4).optional(),
 });
+
+/** Normalize optional website: empty → null; bare domain → https://… */
+function normalizeWebsite(raw) {
+  if (raw == null) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.slice(0, 500);
+  return `https://${trimmed}`.slice(0, 500);
+}
 
 function formatVendor(row, { includeOwner = true } = {}) {
   if (!row) return null;
@@ -48,6 +58,7 @@ function formatVendor(row, { includeOwner = true } = {}) {
     name: row.name,
     category: row.category,
     description: row.description,
+    website: row.website || null,
     city: row.city,
     latitude: row.latitude,
     longitude: row.longitude,
@@ -180,6 +191,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
           name: data.name,
           category: data.category,
           description: data.description || null,
+          website: normalizeWebsite(data.website),
           city: data.city || null,
           latitude: data.latitude ?? null,
           longitude: data.longitude ?? null,
@@ -234,6 +246,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
           ...(data.name !== undefined && { name: data.name }),
           ...(data.category !== undefined && { category: data.category }),
           ...(data.description !== undefined && { description: data.description || null }),
+          ...(data.website !== undefined && { website: normalizeWebsite(data.website) }),
           ...(data.city !== undefined && { city: data.city || null }),
           ...(data.latitude !== undefined && { latitude: data.latitude }),
           ...(data.longitude !== undefined && { longitude: data.longitude }),

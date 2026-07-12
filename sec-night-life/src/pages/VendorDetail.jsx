@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapPin, MessageCircle, UserPlus, Store, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MapPin, MessageCircle, UserPlus, Store, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { apiGet, apiPost } from '@/api/client';
 import { createPageUrl } from '@/utils';
 import { useAuth } from '@/lib/AuthContext';
@@ -183,6 +183,27 @@ export default function VendorDetail() {
         <p style={{ margin: '18px 0 0', fontSize: 15, lineHeight: 1.55, color: 'var(--sec-text-secondary)' }}>
           {vendor.description}
         </p>
+
+        {vendor.website ? (
+          <a
+            href={vendor.website}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              marginTop: 16,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--sec-accent)',
+              textDecoration: 'none',
+            }}
+          >
+            <ExternalLink size={16} />
+            Visit website
+          </a>
+        ) : null}
 
         {vendor.owner ? (
           <Link

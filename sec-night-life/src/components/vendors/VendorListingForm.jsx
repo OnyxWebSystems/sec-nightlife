@@ -26,7 +26,7 @@ const inputStyle = {
 
 /**
  * Compact vendor listing form shared by onboarding + settings.
- * value: { name, category, description, images: string[] }
+ * value: { name, category, description, website, images: string[] }
  */
 export default function VendorListingForm({ value, onChange, cityHint }) {
   const [uploading, setUploading] = useState(false);
@@ -124,6 +124,17 @@ export default function VendorListingForm({ value, onChange, cityHint }) {
             padding: '12px 14px',
             resize: 'none',
           }}
+        />
+      </div>
+
+      <div>
+        <div style={labelStyle}>Website</div>
+        <Input
+          type="url"
+          value={value.website || ''}
+          onChange={(e) => setField({ website: e.target.value })}
+          placeholder="https://yoursite.com"
+          style={inputStyle}
         />
       </div>
 

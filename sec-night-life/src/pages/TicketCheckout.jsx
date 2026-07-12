@@ -279,7 +279,8 @@ export default function TicketCheckout() {
             <span style={{ fontWeight: 800, fontSize: 18 }}>R{totalPrice.toFixed(0)}</span>
           </div>
           <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>
-            SEC retains 15%; the venue receives 85%.
+            Ticket sales: SEC retains 4%; the venue receives 96%.
+            {menuEnabled ? ' Menu add-ons stay at 15% SEC / 85% venue.' : ''}
           </p>
         </div>
 

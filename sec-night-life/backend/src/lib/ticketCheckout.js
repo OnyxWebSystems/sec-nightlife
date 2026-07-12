@@ -1,8 +1,9 @@
-import { splitPlatformGross } from './platformSplit.js';
+import { splitTicketCheckoutAmounts } from './platformSplit.js';
 import { line, sumCheckoutLines } from './checkoutLines.js';
 
 /**
  * Validate ticket tier + optional menu and compute checkout totals (ZAR).
+ * Ticket tier: 4% SEC / 96% venue. Menu add-ons: 15% SEC / 85% venue.
  */
 export async function computeTicketCheckout(prisma, {
   eventId,
@@ -67,7 +68,7 @@ export async function computeTicketCheckout(prisma, {
     lines.push(line('menu', 'Menu add-ons', menuTotal));
   }
   const total = Math.round((ticketSubtotal + menuTotal) * 100) / 100;
-  const { secAmount, recipientAmount } = splitPlatformGross(total);
+  const { secAmount, recipientAmount } = splitTicketCheckoutAmounts(ticketSubtotal, menuTotal);
 
   return {
     ok: true,

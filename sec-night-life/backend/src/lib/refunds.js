@@ -1,5 +1,5 @@
 import { prisma } from './prisma.js';
-import { splitPlatformGross } from './platformSplit.js';
+import { splitPlatformGross, splitTicketCheckoutAmounts } from './platformSplit.js';
 import {
   basePaymentReference,
   flattenPaymentMetadata,
@@ -30,7 +30,35 @@ const EXCLUDED_META_TYPES = new Set([
   'BOOST',
 ]);
 
-export function computeRefundAmounts(grossZar) {
+/**
+ * Default refund split uses the standard 15/85 platform rate.
+ * Pass payment metadata for ticket purchases so stored 4% ticket + 15% menu fees are respected.
+ */
+export function computeRefundAmounts(grossZar, metadata = null) {
+  const meta = metadata && typeof metadata === 'object' ? metadata : null;
+  if (meta && (meta.type === 'ticket' || meta.type === 'event')) {
+    if (meta.platform_fee_zar != null && meta.venue_share_zar != null) {
+      const platformFeeKeptZar = Math.round(Number(meta.platform_fee_zar) * 100) / 100;
+      const venueRefundDueZar = Math.round(Number(meta.venue_share_zar) * 100) / 100;
+      const gross =
+        Math.round((Number(grossZar) || platformFeeKeptZar + venueRefundDueZar) * 100) / 100;
+      return {
+        grossAmountZar: gross,
+        venueRefundDueZar,
+        platformFeeKeptZar,
+      };
+    }
+    if (meta.ticket_subtotal_zar != null || meta.menu_zar != null || meta.menu_total_zar != null) {
+      const ticketSub = Number(meta.ticket_subtotal_zar ?? grossZar) || 0;
+      const menuSub = Number(meta.menu_total_zar ?? meta.menu_zar ?? 0) || 0;
+      const split = splitTicketCheckoutAmounts(ticketSub, menuSub);
+      return {
+        grossAmountZar: split.gross || Math.round((Number(grossZar) || 0) * 100) / 100,
+        venueRefundDueZar: split.recipientAmount,
+        platformFeeKeptZar: split.secAmount,
+      };
+    }
+  }
   const { gross, secAmount, recipientAmount } = splitPlatformGross(grossZar);
   return {
     grossAmountZar: gross,

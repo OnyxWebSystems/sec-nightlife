@@ -65,8 +65,8 @@ async function appendEligiblePaymentItem(items, seenRefs, payment, userId) {
   seenRefs.add(baseRef);
   const grossZar =
     check.grossAmountZar != null ? Number(check.grossAmountZar) : Number(payment.amount) || 0;
-  const amounts = computeRefundAmounts(grossZar);
   const meta = payment.metadata && typeof payment.metadata === 'object' ? payment.metadata : {};
+  const amounts = computeRefundAmounts(grossZar, meta);
   items.push({
     reference: baseRef,
     amount: payment.amount,
@@ -114,7 +114,8 @@ router.post('/request', authenticateToken, async (req, res, next) => {
       eligibility.grossAmountZar != null
         ? Number(eligibility.grossAmountZar)
         : Number(payment.amount) || 0;
-    const amounts = computeRefundAmounts(grossZar);
+    const paymentMeta = payment.metadata && typeof payment.metadata === 'object' ? payment.metadata : {};
+    const amounts = computeRefundAmounts(grossZar, paymentMeta);
 
     const refundRequest = await prisma.$transaction(async (tx) => {
       const row = await tx.refundRequest.create({

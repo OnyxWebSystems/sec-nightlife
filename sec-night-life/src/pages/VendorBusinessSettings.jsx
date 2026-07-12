@@ -16,6 +16,7 @@ export default function VendorBusinessSettings() {
     name: '',
     category: '',
     description: '',
+    website: '',
     images: [],
     is_published: true,
   });
@@ -33,6 +34,7 @@ export default function VendorBusinessSettings() {
       name: existing.name || '',
       category: existing.category || '',
       description: existing.description || '',
+      website: existing.website || '',
       images: (existing.images || []).map((i) => i.url),
       is_published: existing.is_published !== false,
     });
@@ -47,6 +49,7 @@ export default function VendorBusinessSettings() {
         name: draft.name.trim(),
         category: draft.category,
         description: draft.description.trim(),
+        website: draft.website?.trim() || null,
         city: userProfile?.city || null,
         latitude: userProfile?.latitude ?? null,
         longitude: userProfile?.longitude ?? null,
@@ -70,7 +73,7 @@ export default function VendorBusinessSettings() {
     mutationFn: () => apiDelete(`/api/vendors/${existing.id}`),
     onSuccess: () => {
       toast.success('Listing removed');
-      setDraft({ name: '', category: '', description: '', images: [], is_published: true });
+      setDraft({ name: '', category: '', description: '', website: '', images: [], is_published: true });
       queryClient.invalidateQueries({ queryKey: ['vendor-mine'] });
       queryClient.invalidateQueries({ queryKey: ['vendors'] });
     },

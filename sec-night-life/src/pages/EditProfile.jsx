@@ -517,15 +517,30 @@ export default function EditProfile() {
                 }
                 setLocating(true);
                 navigator.geolocation.getCurrentPosition(
-                  (pos) => {
-                    setFormData((prev) => ({
-                      ...prev,
-                      latitude: pos.coords.latitude,
-                      longitude: pos.coords.longitude,
-                      location_label: prev.location_label || 'Current location',
-                    }));
-                    setLocating(false);
-                    toast.success('Location updated');
+                  async (pos) => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    try {
+                      const { reverseGeocodeLatLng } = await import('@/lib/reverseGeocode');
+                      const label = await reverseGeocodeLatLng(lat, lng);
+                      setFormData((prev) => ({
+                        ...prev,
+                        latitude: lat,
+                        longitude: lng,
+                        location_label: label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                      }));
+                      toast.success('Location updated');
+                    } catch {
+                      setFormData((prev) => ({
+                        ...prev,
+                        latitude: lat,
+                        longitude: lng,
+                        location_label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                      }));
+                      toast.success('Location updated');
+                    } finally {
+                      setLocating(false);
+                    }
                   },
                   () => {
                     toast.error('Could not access location');

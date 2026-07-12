@@ -72,6 +72,7 @@ export default function ProfileSetup() {
     name: '',
     category: '',
     description: '',
+    website: '',
     images: [],
   });
 
@@ -215,7 +216,7 @@ export default function ProfileSetup() {
     return true;
   };
 
-  const useLiveLocation = () => {
+  const useLiveLocation = async () => {
     if (!navigator.geolocation) {
       setError('Geolocation is not supported on this device.');
       return;
@@ -223,14 +224,28 @@ export default function ProfileSetup() {
     setLocating(true);
     setError('');
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setFormData((prev) => ({
-          ...prev,
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          location_label: prev.location_label || 'Current location',
-        }));
-        setLocating(false);
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        try {
+          const { reverseGeocodeLatLng } = await import('@/lib/reverseGeocode');
+          const label = await reverseGeocodeLatLng(lat, lng);
+          setFormData((prev) => ({
+            ...prev,
+            latitude: lat,
+            longitude: lng,
+            location_label: label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          }));
+        } catch {
+          setFormData((prev) => ({
+            ...prev,
+            latitude: lat,
+            longitude: lng,
+            location_label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          }));
+        } finally {
+          setLocating(false);
+        }
       },
       () => {
         setError('Could not access location — enable permission in your browser.');
@@ -247,6 +262,7 @@ export default function ProfileSetup() {
       name: vendorDraft.name.trim(),
       category: vendorDraft.category,
       description: vendorDraft.description.trim(),
+      website: vendorDraft.website?.trim() || null,
       city: resolvedCity || formData.city || null,
       latitude: formData.latitude,
       longitude: formData.longitude,

@@ -10,7 +10,8 @@ import {
   visibleUntilAfterEventDate,
   holderDisplayNameFromUser,
 } from './ticketHelpers.js';
-import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForVenue, splitSecPlatform } from './paystackPayout.js';
+import { recordPayoutAndMaybeTransfer, resolveRecipientCodeForVenue } from './paystackPayout.js';
+import { splitTicketCheckoutAmounts, splitTicketGross } from './platformSplit.js';
 import { promoterUserIdFromMetadata, recordPromoterConversion } from './promoterAttribution.js';
 import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { logger } from './logger.js';
@@ -271,11 +272,27 @@ export async function issueEventTicketsFromPayment(db, {
         actionUrl: `/BusinessEvents`,
       });
 
-      const { secAmount: eSec, recipientAmount: eRec } = splitSecPlatform(Number(amount || 0));
+      const grossZar = Number(amount || 0);
+      let eSec;
+      let eRec;
+      if (metadata?.platform_fee_zar != null && metadata?.venue_share_zar != null) {
+        eSec = Math.round(Number(metadata.platform_fee_zar) * 100) / 100;
+        eRec = Math.round(Number(metadata.venue_share_zar) * 100) / 100;
+      } else if (metadata?.ticket_subtotal_zar != null || metadata?.menu_zar != null || metadata?.menu_total_zar != null) {
+        const ticketSub = Number(metadata.ticket_subtotal_zar ?? grossZar) || 0;
+        const menuSub = Number(metadata.menu_total_zar ?? metadata.menu_zar ?? 0) || 0;
+        const split = splitTicketCheckoutAmounts(ticketSub, menuSub);
+        eSec = split.secAmount;
+        eRec = split.recipientAmount;
+      } else {
+        const split = splitTicketGross(grossZar);
+        eSec = split.secAmount;
+        eRec = split.recipientAmount;
+      }
       const vCode = await resolveRecipientCodeForVenue(event.venueId);
       await recordPayoutAndMaybeTransfer({
         paymentReference: reference,
-        grossZar: Number(amount || 0),
+        grossZar,
         secAmount: eSec,
         recipientAmount: eRec,
         recipientType: 'VENUE',
