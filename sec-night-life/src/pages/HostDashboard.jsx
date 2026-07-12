@@ -17,6 +17,7 @@ import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { uploadHostedTablePhotoFile } from '@/lib/uploadHostedTablePhoto';
+import { COVER_CROP_DIALOG_PROPS } from '@/lib/coverImageAspect';
 import HostedTableHostCard from '@/components/host/HostedTableHostCard';
 import FeedBoostDialog, {
   FEED_BOOST_ZAR_PER_DAY,
