@@ -520,6 +520,12 @@ export default function EditProfile() {
                   async (pos) => {
                     const lat = pos.coords.latitude;
                     const lng = pos.coords.longitude;
+                    setFormData((prev) => ({
+                      ...prev,
+                      latitude: lat,
+                      longitude: lng,
+                      location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                    }));
                     try {
                       const { reverseGeocodeLatLng } = await import('@/lib/reverseGeocode');
                       const label = await reverseGeocodeLatLng(lat, lng);
@@ -535,7 +541,7 @@ export default function EditProfile() {
                         ...prev,
                         latitude: lat,
                         longitude: lng,
-                        location_label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                        location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
                       }));
                       toast.success('Location updated');
                     } finally {

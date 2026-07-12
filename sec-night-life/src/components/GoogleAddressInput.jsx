@@ -146,10 +146,10 @@ export default function GoogleAddressInput({
 
       {mapsStatus === 'error' ? (
         <div className="mt-2 space-y-4">
-          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
-            Maps failed to load. You can still register; location-based features will improve once Maps works.
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200/90 text-sm">
+            Address suggestions are unavailable. Use “Use my current location” above, or type a place manually.
             {mapsError?.message ? (
-              <div className="mt-1 text-xs text-red-300">
+              <div className="mt-1 text-xs text-amber-200/60">
                 {mapsError.message}
               </div>
             ) : null}

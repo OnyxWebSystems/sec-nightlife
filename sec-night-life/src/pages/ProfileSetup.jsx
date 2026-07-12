@@ -227,6 +227,14 @@ export default function ProfileSetup() {
       async (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        // Save GPS immediately — nearby discovery only needs coords.
+        // Labeling can fail when Google Maps auth is broken.
+        setFormData((prev) => ({
+          ...prev,
+          latitude: lat,
+          longitude: lng,
+          location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        }));
         try {
           const { reverseGeocodeLatLng } = await import('@/lib/reverseGeocode');
           const label = await reverseGeocodeLatLng(lat, lng);
@@ -241,7 +249,7 @@ export default function ProfileSetup() {
             ...prev,
             latitude: lat,
             longitude: lng,
-            location_label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+            location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
           }));
         } finally {
           setLocating(false);

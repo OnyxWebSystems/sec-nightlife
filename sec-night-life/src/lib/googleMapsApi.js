@@ -57,7 +57,13 @@ export function loadGoogleMapsApi() {
     importLibrary('maps'),
     importLibrary('places'),
   ])
-    .then(() => window.google)
+    .then(() => {
+      if (typeof window !== 'undefined' && window.__googleMapsAuthFailure) {
+        loadPromise = null;
+        throw withHelpfulMessage(new Error('Google Maps authentication failed.'));
+      }
+      return window.google;
+    })
     .catch((err) => {
       loadPromise = null;
       throw withHelpfulMessage(err);

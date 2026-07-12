@@ -54,6 +54,60 @@ function mapTableRow(t) {
   };
 }
 
+/**
+ * Reverse-geocode lat/lng for labels when browser Maps auth fails.
+ * Uses OpenStreetMap Nominatim (server-side; no Google key required).
+ */
+router.get('/reverse-geocode', optionalAuth, async (req, res, next) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: 'lat and lng are required numbers' });
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ error: 'lat/lng out of range' });
+    }
+
+    const url = new URL('https://nominatim.openstreetmap.org/reverse');
+    url.searchParams.set('lat', String(lat));
+    url.searchParams.set('lon', String(lng));
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('zoom', '16');
+    url.searchParams.set('addressdetails', '0');
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    let upstream;
+    try {
+      upstream = await fetch(url.toString(), {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'SECNightlife/1.0 (https://secnightlife.com; support@secnightlife.com)',
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!upstream.ok) {
+      return res.status(502).json({ error: 'Reverse geocode upstream failed' });
+    }
+    const data = await upstream.json();
+    const label = typeof data?.display_name === 'string' ? data.display_name.trim() : '';
+    if (!label) {
+      return res.status(404).json({ error: 'No address found' });
+    }
+    return res.json({ label, latitude: lat, longitude: lng });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      return res.status(504).json({ error: 'Reverse geocode timed out' });
+    }
+    next(err);
+  }
+});
+
 /** Geo-filtered map pins for venues, events, and open tables. */
 router.get('/pins', optionalAuth, async (req, res, next) => {
   try {
