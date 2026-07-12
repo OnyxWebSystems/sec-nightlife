@@ -18,6 +18,10 @@ import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { uploadHostedTablePhotoFile } from '@/lib/uploadHostedTablePhoto';
 import HostedTableHostCard from '@/components/host/HostedTableHostCard';
+import FeedBoostDialog, {
+  FEED_BOOST_ZAR_PER_DAY,
+  maxBoostDaysUntil,
+} from '@/components/business/FeedBoostDialog';
 import { splitHostDashboardTables } from '@/lib/hostTableDashboard';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useIsMobile } from '@/hooks/useIsDesktop';
@@ -79,6 +83,8 @@ export default function HostDashboard() {
     isPublic: true,
   });
   const [locatingAddress, setLocatingAddress] = useState(false);
+  const [boostTarget, setBoostTarget] = useState(null);
+  const [boostBusy, setBoostBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingTableId, setPendingTableId] = useState(null);
   const [inviteOpenTableId, setInviteOpenTableId] = useState(null);
@@ -348,24 +354,44 @@ export default function HostDashboard() {
   };
 
   const boostTable = async (id) => {
+    const row = (tables || []).find((t) => t.id === id);
+    setBoostTarget({
+      id,
+      name: row?.tableName || row?.venueName || 'Listing',
+      endAt: row?.eventDate || row?.windowEndsAt || null,
+    });
+  };
+
+  const confirmBoostDays = async (days) => {
+    if (!boostTarget?.id) return;
+    setBoostBusy(true);
     try {
-      const pay = await apiPost(`/api/host/tables/${id}/boost`, {});
-      if (pay?.reference && pay?.access_code) {
-        await launchPaystackInline({
-          email: user?.email,
-          amount: 200,
-          reference: pay.reference,
-          accessCode: pay.access_code,
-          onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
-            queryClient.invalidateQueries({ queryKey: ['host-tables'] });
-            queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
-            toast.success('Table boosted for 7 days');
-          },
-        });
-      }
+      const pay = await apiPost(`/api/host/tables/${boostTarget.id}/boost`, { days });
+      if (!pay?.reference || !pay?.access_code) throw new Error('Could not start payment');
+      await launchPaystackInline({
+        email: user?.email,
+        amount: pay.amount_zar ?? days * FEED_BOOST_ZAR_PER_DAY,
+        reference: pay.reference,
+        accessCode: pay.access_code,
+        authorizationUrl: pay.authorization_url,
+        onSuccess: async (payload) => {
+          await completePaystackCheckout({
+            reference: pay.reference,
+            payload,
+            queryClient,
+            showToasts: false,
+          });
+          queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+          queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+          toast.success(`Listing boosted for ${days} day${days === 1 ? '' : 's'}`);
+          setBoostTarget(null);
+        },
+        onCancel: () => toast.message('Boost checkout cancelled'),
+      });
     } catch (e) {
-      toast.error(e?.message || 'Payment failed to start');
+      toast.error(e?.data?.error || e?.message || 'Payment failed to start');
+    } finally {
+      setBoostBusy(false);
     }
   };
 
@@ -776,28 +802,40 @@ export default function HostDashboard() {
                   const structured = await reverseGeocodeLatLngStructured(lat, lng);
                   setTableForm((f) => ({
                     ...f,
-                    venueAddress: structured.formattedAddress || f.venueAddress,
-                    suburb: structured.suburb || f.suburb,
-                    province: structured.province || f.province,
+                    venueAddress: structured.formattedAddress || structured.street || f.venueAddress,
+                    suburb: structured.suburb || structured.city || '',
+                    province: structured.province || '',
                     latitude: lat,
                     longitude: lng,
                   }));
+                  toast.success(
+                    structured.formattedAddress
+                      ? `Location set: ${structured.formattedAddress}`
+                      : 'Location coordinates saved',
+                  );
                 } catch {
                   setTableForm((f) => ({
                     ...f,
-                    venueAddress: f.venueAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                    venueAddress: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
                     latitude: lat,
                     longitude: lng,
                   }));
+                  toast.message('Saved GPS coordinates — refine the address if needed');
                 } finally {
                   setLocatingAddress(false);
                 }
               },
-              () => {
-                toast.error('Could not access location — enable permission in your browser.');
+              (err) => {
+                const msg =
+                  err?.code === 1
+                    ? 'Location permission denied — enable it in your browser settings.'
+                    : err?.code === 3
+                      ? 'Location timed out — try again outdoors or with Wi‑Fi.'
+                      : 'Could not access location — enable permission in your browser.';
+                toast.error(msg);
                 setLocatingAddress(false);
               },
-              { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
+              { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
             );
           }}
           className="mb-2 flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-xl w-full justify-center"
@@ -1093,7 +1131,6 @@ export default function HostDashboard() {
           <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
             style={{ touchAction: 'none' }}
-            onClick={closeTableModal}
             role="presentation"
           >
             <div
@@ -1272,6 +1309,17 @@ export default function HostDashboard() {
 
       {imageCropDialog}
       {desktopCreateModal}
+      <FeedBoostDialog
+        open={Boolean(boostTarget)}
+        onOpenChange={(open) => {
+          if (!open) setBoostTarget(null);
+        }}
+        title={boostTarget ? `Boost “${boostTarget.name}”` : 'Boost listing'}
+        description="Boosted Your own venue tables and events appear more often under Available Tables and Home Events."
+        maxDays={maxBoostDaysUntil(boostTarget?.endAt)}
+        busy={boostBusy}
+        onConfirm={confirmBoostDays}
+      />
     </div>
   );
 }

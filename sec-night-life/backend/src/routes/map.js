@@ -74,19 +74,47 @@ router.get('/reverse-geocode', optionalAuth, async (req, res, next) => {
     url.searchParams.set('lat', String(lat));
     url.searchParams.set('lon', String(lng));
     url.searchParams.set('format', 'json');
-    url.searchParams.set('zoom', '16');
-    url.searchParams.set('addressdetails', '0');
+    url.searchParams.set('zoom', '18');
+    url.searchParams.set('addressdetails', '1');
 
     const upstream = await nominatimFetch(url);
     if (!upstream.ok) {
       return res.status(502).json({ error: 'Reverse geocode upstream failed' });
     }
     const data = await upstream.json();
+    const addr = data?.address && typeof data.address === 'object' ? data.address : {};
+    const street = [addr.house_number, addr.road || addr.pedestrian || addr.path]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    const suburb =
+      addr.suburb ||
+      addr.neighbourhood ||
+      addr.township ||
+      addr.village ||
+      addr.suburb ||
+      addr.city_district ||
+      '';
+    const city = addr.city || addr.town || addr.municipality || addr.county || '';
+    const province = addr.state || addr.province || addr.region || '';
     const label = typeof data?.display_name === 'string' ? data.display_name.trim() : '';
-    if (!label) {
+    const formattedAddress =
+      [street || null, suburb || null, city || null, province || null].filter(Boolean).join(', ') ||
+      label;
+    if (!formattedAddress && !label) {
       return res.status(404).json({ error: 'No address found' });
     }
-    return res.json({ label, latitude: lat, longitude: lng });
+    return res.json({
+      label: formattedAddress || label,
+      formattedAddress: formattedAddress || label,
+      street: street || formattedAddress || label,
+      suburb: suburb || '',
+      city: city || '',
+      province: province || '',
+      country: addr.country_code ? String(addr.country_code).toUpperCase() : 'ZA',
+      latitude: lat,
+      longitude: lng,
+    });
   } catch (err) {
     if (err?.name === 'AbortError') {
       return res.status(504).json({ error: 'Reverse geocode timed out' });

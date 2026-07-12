@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import SecLogo from '@/components/ui/SecLogo';
 
 export const FEED_BOOST_ZAR_PER_DAY = 150;
 export const FEED_BOOST_MAX_DAYS = 30;
@@ -22,7 +23,7 @@ export function maxBoostDaysUntil(endAt) {
 }
 
 /**
- * Day-slider boost checkout dialog (same UX idea as Business Promotions).
+ * Day-slider boost checkout dialog — SEC silver theme + watermark logo.
  */
 export default function FeedBoostDialog({
   open,
@@ -72,32 +73,60 @@ export default function FeedBoostDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-[var(--sec-text-muted)] mb-4">{description}</p>
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span>
+
+        <div
+          className="relative overflow-hidden rounded-2xl border p-4 space-y-3"
+          style={{
+            borderColor: 'var(--sec-accent-border)',
+            background:
+              'linear-gradient(145deg, rgba(184,184,184,0.08) 0%, var(--sec-bg-elevated) 45%, rgba(184,184,184,0.04) 100%)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+          }}
+        >
+          <div
+            className="pointer-events-none absolute inset-0 flex items-center justify-center"
+            aria-hidden
+          >
+            <div style={{ opacity: 0.07, transform: 'scale(2.2)' }}>
+              <SecLogo size={72} asset="transparent" variant="mark" />
+            </div>
+          </div>
+
+          <div className="relative flex justify-between items-baseline gap-3 text-sm">
+            <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>
               Boost · {days} day{days === 1 ? '' : 's'}
             </span>
-            <span className="font-semibold">R{total}</span>
+            <span style={{ color: 'var(--sec-accent-bright)', fontWeight: 700, fontSize: 16 }}>
+              R{total}
+            </span>
           </div>
+
           <input
             type="range"
             min={1}
             max={safeMax}
             value={Math.min(Math.max(1, days), safeMax)}
             onChange={(e) => setDays(parseInt(e.target.value, 10))}
-            className="w-full"
-            style={{ accentColor: 'var(--sec-warning)' }}
+            className="relative w-full"
+            style={{ accentColor: 'var(--sec-accent, #B8B8B8)' }}
           />
-          <p className="text-xs text-[var(--sec-text-muted)]">
-            R{FEED_BOOST_ZAR_PER_DAY}/day · max {safeMax} day{safeMax === 1 ? '' : 's'} until this
-            listing ends
+
+          <p className="relative text-xs" style={{ color: 'var(--sec-text-muted)' }}>
+            R{FEED_BOOST_ZAR_PER_DAY}/day · silver priority in the Home feed · max {safeMax} day
+            {safeMax === 1 ? '' : 's'} until this listing ends
           </p>
         </div>
+
         <DialogFooter className="gap-2 mt-4">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button type="button" onClick={() => onConfirm?.(days)} disabled={busy}>
+          <Button
+            type="button"
+            onClick={() => onConfirm?.(days)}
+            disabled={busy}
+            style={{ backgroundColor: 'var(--sec-accent)', color: '#000', fontWeight: 650 }}
+          >
             {busy ? 'Starting…' : `Pay R${total}`}
           </Button>
         </DialogFooter>

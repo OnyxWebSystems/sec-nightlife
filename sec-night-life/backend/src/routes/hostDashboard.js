@@ -68,9 +68,16 @@ import {
   holderDisplayNameFromUser,
 } from '../lib/ticketHelpers.js';
 
+import {
+  FEED_BOOST_ZAR_PER_DAY,
+  clampBoostDays,
+  maxBoostDaysUntil,
+} from '../lib/feedBoost.js';
+
 const router = Router();
 const EXTERNAL_HOSTED_LISTING_ZAR = 200;
-export const TABLE_BOOST_ZAR = 200;
+/** @deprecated Prefer FEED_BOOST_ZAR_PER_DAY × days — kept for older clients. */
+export const TABLE_BOOST_ZAR = FEED_BOOST_ZAR_PER_DAY * 7;
 
 function isBoostActive(table) {
   if (!table?.boosted) return false;
@@ -1353,12 +1360,48 @@ router.post('/tables/:tableId/boost', authenticateToken, requireVerified, async 
     const t = await prisma.hostedTable.findFirst({ where: { id: req.params.tableId } });
     if (!t) return res.status(404).json({ error: 'Not found' });
     if (t.hostUserId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (t.status !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Only live listings can be boosted' });
+    }
+
+    const endAt =
+      t.windowEndsAt ||
+      (() => {
+        const d = t.eventDate instanceof Date ? new Date(t.eventDate) : new Date(t.eventDate);
+        d.setHours(23, 59, 59, 999);
+        return d;
+      })();
+    const maxDays = maxBoostDaysUntil(endAt);
+    if (maxDays < 1) {
+      return res.status(400).json({ error: 'This listing has ended and cannot be boosted' });
+    }
+
+    const parsedDays = z.coerce.number().int().min(1).max(30).safeParse(req.body?.days ?? 7);
+    const boostDays = clampBoostDays(parsedDays.success ? parsedDays.data : 7, maxDays);
+    if (boostDays < 1) {
+      return res.status(400).json({ error: `Choose between 1 and ${maxDays} boost days` });
+    }
+
+    const amountZar = FEED_BOOST_ZAR_PER_DAY * boostDays;
     const pay = await initializePaystackPayment({
       userId: req.userId,
-      amountZar: TABLE_BOOST_ZAR,
-      metadata: { type: 'TABLE_BOOST', hostedTableId: t.id, user_id: req.userId },
+      amountZar,
+      metadata: {
+        type: 'TABLE_BOOST',
+        hostedTableId: t.id,
+        hosted_table_id: t.id,
+        user_id: req.userId,
+        boostDays,
+        boost_days: boostDays,
+      },
     });
-    res.json(pay);
+    res.json({
+      ...pay,
+      amount_zar: amountZar,
+      boost_days: boostDays,
+      max_boost_days: maxDays,
+      zar_per_day: FEED_BOOST_ZAR_PER_DAY,
+    });
   } catch (e) {
     next(e);
   }

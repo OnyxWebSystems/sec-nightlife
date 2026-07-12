@@ -21,21 +21,36 @@ function componentByType(addressComponents, typeName) {
 function parseGoogleResult(result, latN, lngN) {
   const formattedAddress = result?.formatted_address || '';
   const addressComponents = result?.address_components || [];
+
+  const streetNumber = componentByType(addressComponents, 'street_number')?.long_name;
+  const route = componentByType(addressComponents, 'route')?.long_name;
+  const street = [streetNumber, route].filter(Boolean).join(' ').trim() || route || '';
+
+  // Prefer true neighbourhood/sublocality — avoid using city/postal_town as "suburb".
   const suburb =
     componentByType(addressComponents, 'neighborhood')?.long_name ||
     componentByType(addressComponents, 'sublocality')?.long_name ||
     componentByType(addressComponents, 'sublocality_level_1')?.long_name ||
-    componentByType(addressComponents, 'postal_town')?.long_name ||
     '';
+
   const city =
     componentByType(addressComponents, 'locality')?.long_name ||
     componentByType(addressComponents, 'postal_town')?.long_name ||
+    componentByType(addressComponents, 'administrative_area_level_2')?.long_name ||
     '';
+
   const province = componentByType(addressComponents, 'administrative_area_level_1')?.long_name || '';
+
+  const primary =
+    street ||
+    [suburb, city].filter(Boolean).join(', ') ||
+    formattedAddress ||
+    coordFallback(latN, lngN);
+
   return {
-    formattedAddress: formattedAddress || coordFallback(latN, lngN),
-    street: formattedAddress || coordFallback(latN, lngN),
-    suburb,
+    formattedAddress: primary,
+    street: street || primary,
+    suburb: suburb || city || '',
     city,
     province,
     country: 'ZA',
@@ -74,43 +89,39 @@ async function reverseViaGoogleStructured(latN, lngN) {
   );
 }
 
-async function reverseViaApi(latN, lngN) {
+async function reverseViaApiStructured(latN, lngN) {
   const data = await apiGet(
     `/api/map/reverse-geocode?lat=${encodeURIComponent(latN)}&lng=${encodeURIComponent(lngN)}`,
     { timeoutMs: 10000, skipAuth: true }
   );
-  const label = typeof data?.label === 'string' ? data.label.trim() : '';
-  if (!label) throw new Error('No label from API');
-  return label;
+  const formatted =
+    (typeof data?.formattedAddress === 'string' && data.formattedAddress.trim()) ||
+    (typeof data?.label === 'string' && data.label.trim()) ||
+    '';
+  if (!formatted) throw new Error('No label from API');
+  return {
+    formattedAddress: formatted,
+    street: (typeof data?.street === 'string' && data.street.trim()) || formatted,
+    suburb: typeof data?.suburb === 'string' ? data.suburb : '',
+    city: typeof data?.city === 'string' ? data.city : '',
+    province: typeof data?.province === 'string' ? data.province : '',
+    country: data?.country || 'ZA',
+    latitude: latN,
+    longitude: lngN,
+  };
 }
 
 /**
- * Reverse-geocode lat/lng to a human-readable address.
- * Tries Google Maps first, then server Nominatim fallback.
- * Never hangs: always returns a string (coords as last resort).
+ * Reverse-geocode lat/lng to a human-readable address string.
  */
 export async function reverseGeocodeLatLng(lat, lng) {
-  const latN = Number(lat);
-  const lngN = Number(lng);
-  const fallback = coordFallback(latN, lngN);
-  if (!Number.isFinite(latN) || !Number.isFinite(lngN)) return '';
-
-  try {
-    const structured = await reverseViaGoogleStructured(latN, lngN);
-    return structured?.formattedAddress || fallback;
-  } catch {
-    // Maps key/referrer issues are common on prod — don't block live GPS.
-  }
-
-  try {
-    return (await reverseViaApi(latN, lngN)) || fallback;
-  } catch {
-    return fallback;
-  }
+  const structured = await reverseGeocodeLatLngStructured(lat, lng);
+  return structured?.formattedAddress || '';
 }
 
 /**
  * Reverse-geocode to a structured address object (suburb/province when available).
+ * Prefers fresh GPS-aligned Google result, then Nominatim with address details.
  */
 export async function reverseGeocodeLatLngStructured(lat, lng) {
   const latN = Number(lat);
@@ -136,12 +147,7 @@ export async function reverseGeocodeLatLngStructured(lat, lng) {
   }
 
   try {
-    const label = await reverseViaApi(latN, lngN);
-    return {
-      ...fallback,
-      formattedAddress: label || fallback.formattedAddress,
-      street: label || fallback.street,
-    };
+    return (await reverseViaApiStructured(latN, lngN)) || fallback;
   } catch {
     return fallback;
   }

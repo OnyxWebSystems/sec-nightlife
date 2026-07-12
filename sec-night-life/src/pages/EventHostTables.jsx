@@ -12,8 +12,10 @@ import InviteFriendsDialog from '@/components/tables/InviteFriendsDialog';
 import { launchPaystackInline } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { getEventImage } from '@/lib/placeholders';
-
-const TABLE_BOOST_ZAR = 200;
+import FeedBoostDialog, {
+  FEED_BOOST_ZAR_PER_DAY,
+  maxBoostDaysUntil,
+} from '@/components/business/FeedBoostDialog';
 
 export default function EventHostTables() {
   const navigate = useNavigate();
@@ -25,6 +27,8 @@ export default function EventHostTables() {
   const [inviteTable, setInviteTable] = useState(null);
   const [joinTarget, setJoinTarget] = useState(null);
   const [isJoining, setIsJoining] = useState(false);
+  const [boostTarget, setBoostTarget] = useState(null);
+  const [boostBusy, setBoostBusy] = useState(false);
 
   useEffect(() => {
     authService.getCurrentUser().then(setUser).catch(() => setUser(null));
@@ -110,29 +114,45 @@ export default function EventHostTables() {
     }
   };
 
-  const boostTable = async (tableId) => {
+  const boostTable = (tableId) => {
+    const row = tables.find((t) => t.id === tableId);
+    setBoostTarget({
+      id: tableId,
+      name: row?.tableName || 'Table',
+      endAt: row?.eventDate || event?.date || event?.ends_at || null,
+    });
+  };
+
+  const confirmBoostDays = async (days) => {
+    if (!boostTarget?.id) return;
+    setBoostBusy(true);
     try {
-      const pay = await apiPost(`/api/host/tables/${tableId}/boost`, {});
-      if (pay?.authorization_url) {
-        await launchPaystackInline({
-          authorizationUrl: pay.authorization_url,
-          accessCode: pay.access_code,
-          reference: pay.reference,
-          onSuccess: async (payload) => {
-            await completePaystackCheckout({
-              reference: pay.reference,
-              payload,
-              queryClient,
-              showToasts: false,
-            });
-            toast.success('Table boosted for 7 days');
-            queryClient.invalidateQueries({ queryKey: ['host-at-event', eventId, hostUserId] });
-            queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
-          },
-        });
-      }
+      const pay = await apiPost(`/api/host/tables/${boostTarget.id}/boost`, { days });
+      if (!pay?.reference) throw new Error('Could not start payment');
+      await launchPaystackInline({
+        email: user?.email,
+        amount: pay.amount_zar ?? days * FEED_BOOST_ZAR_PER_DAY,
+        authorizationUrl: pay.authorization_url,
+        accessCode: pay.access_code,
+        reference: pay.reference,
+        onSuccess: async (payload) => {
+          await completePaystackCheckout({
+            reference: pay.reference,
+            payload,
+            queryClient,
+            showToasts: false,
+          });
+          toast.success(`Table boosted for ${days} day${days === 1 ? '' : 's'}`);
+          setBoostTarget(null);
+          queryClient.invalidateQueries({ queryKey: ['host-at-event', eventId, hostUserId] });
+          queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+        },
+        onCancel: () => toast.message('Boost checkout cancelled'),
+      });
     } catch (e) {
       toast.error(e?.data?.error || e.message || 'Boost failed');
+    } finally {
+      setBoostBusy(false);
     }
   };
 
@@ -287,7 +307,7 @@ export default function EventHostTables() {
                           onClick={() => boostTable(table.id)}
                         >
                           <Sparkles size={18} className="inline mr-2" />
-                          Boost R{TABLE_BOOST_ZAR}
+                          Boost (R{FEED_BOOST_ZAR_PER_DAY}/day)
                         </button>
                       )}
                     </div>
@@ -360,6 +380,17 @@ export default function EventHostTables() {
           source="hosted"
         />
       )}
+      <FeedBoostDialog
+        open={Boolean(boostTarget)}
+        onOpenChange={(open) => {
+          if (!open) setBoostTarget(null);
+        }}
+        title={boostTarget ? `Boost “${boostTarget.name}”` : 'Boost table'}
+        description="Boosted hosted tables appear more often on Home."
+        maxDays={maxBoostDaysUntil(boostTarget?.endAt)}
+        busy={boostBusy}
+        onConfirm={confirmBoostDays}
+      />
     </div>
   );
 }

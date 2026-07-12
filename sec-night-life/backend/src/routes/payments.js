@@ -471,7 +471,9 @@ async function applyReferenceSideEffects(reference, paystackData) {
 
   const hostedTableBoostId = metadata.hostedTableId || metadata.hosted_table_id;
   if (metadata.type === 'TABLE_BOOST' && hostedTableBoostId && userId) {
-    const boostExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
+    const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '7'), 10) || 7));
+    const boostExpiry = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
     const ht = await prisma.hostedTable.findFirst({ where: { id: String(hostedTableBoostId) } });
     if (ht && ht.hostUserId === userId) {
       await prisma.hostedTable.update({

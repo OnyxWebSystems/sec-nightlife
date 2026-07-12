@@ -632,7 +632,7 @@ const PromotionCreateForm = React.memo(function PromotionCreateForm({
               <span>Boost · {boostDays} day{boostDays === 1 ? '' : 's'}</span>
               <span style={{ color: 'var(--sec-text-primary)', fontWeight: 600 }}>R{boostTotal.toLocaleString('en-ZA')}</span>
             </div>
-            <input type="range" min={1} max={maxBoostDays} value={Math.min(Math.max(1, boostDays), maxBoostDays)} onChange={(e) => setBoostDays(parseInt(e.target.value, 10))} className="w-full" style={{ accentColor: 'var(--sec-warning)' }} />
+            <input type="range" min={1} max={maxBoostDays} value={Math.min(Math.max(1, boostDays), maxBoostDays)} onChange={(e) => setBoostDays(parseInt(e.target.value, 10))} className="w-full" style={{ accentColor: 'var(--sec-accent, #B8B8B8)' }} />
           </div>
         ) : null}
 
@@ -1031,7 +1031,7 @@ const PublishRepublishModal = React.memo(function PublishRepublishModal({ open, 
               <span style={{ color: 'var(--sec-text-secondary)' }}>{boostDays} day(s)</span>
               <span style={{ fontWeight: 600 }}>R{boostTotal}</span>
             </div>
-            <input type="range" min={1} max={maxBoostDays} value={Math.min(Math.max(1, boostDays), maxBoostDays)} onChange={(e) => setBoostDays(+e.target.value)} style={{ width: '100%', accentColor: 'var(--sec-warning)' }} />
+            <input type="range" min={1} max={maxBoostDays} value={Math.min(Math.max(1, boostDays), maxBoostDays)} onChange={(e) => setBoostDays(+e.target.value)} style={{ width: '100%', accentColor: 'var(--sec-accent, #B8B8B8)' }} />
           </div>
         ) : null}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--sec-border)' }}>

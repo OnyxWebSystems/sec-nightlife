@@ -340,7 +340,7 @@ export default function HostedTableHostCard({
 
         {!isPast && !t.boosted && t.status === 'ACTIVE' ? (
           <button type="button" className="sec-btn sec-btn-secondary text-xs w-full py-2.5 rounded-xl" onClick={() => onBoost?.(t.id)}>
-            Boost visibility on Home (R200 / 7 days)
+            Boost on Home (R150/day)
           </button>
         ) : t.boosted ? (
           <p className="text-xs text-center" style={{ color: 'var(--sec-accent-bright)' }}>
