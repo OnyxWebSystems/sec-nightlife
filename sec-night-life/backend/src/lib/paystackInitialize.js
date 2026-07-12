@@ -40,6 +40,9 @@ export function slimMetadataForPaystack(meta = {}, userId) {
     'window_end',
     'windowEnd',
     'booking_date',
+    'boostDays',
+    'boost_days',
+    'sec_kind',
   ];
 
   for (const key of scalarKeys) {

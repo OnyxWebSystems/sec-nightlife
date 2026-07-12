@@ -104,7 +104,11 @@ export default function ImageCropDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`bg-[var(--sec-bg-card)] border-[var(--sec-border)] ${contentClassName || 'max-w-md'}`.trim()}>
+      <DialogContent
+        overlayClassName="z-[110]"
+        className={`z-[110] bg-[var(--sec-bg-card)] border-[var(--sec-border)] ${contentClassName || 'max-w-md'}`.trim()}
+        data-scroll-lock-scrollable=""
+      >
         <DialogHeader>
           <DialogTitle style={{ color: 'var(--sec-text-primary)' }}>{title}</DialogTitle>
         </DialogHeader>

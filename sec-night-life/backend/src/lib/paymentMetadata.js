@@ -135,6 +135,8 @@ export function isHostedTableVenuePayment(meta) {
 
 const EXCLUDED_ANALYTICS_TYPES = new Set([
   'TABLE_BOOST',
+  'EVENT_BOOST',
+  'VENUE_TABLE_BOOST',
   'HOUSE_PARTY_ENTRANCE',
   'HOUSE_PARTY_PUBLISH',
   'HOUSE_PARTY_BOOST',

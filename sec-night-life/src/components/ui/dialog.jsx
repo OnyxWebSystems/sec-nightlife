@@ -21,11 +21,12 @@ const DialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
 ))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
-const DialogContent = React.forwardRef(({ className, children, ...props }, ref) => (
+const DialogContent = React.forwardRef(({ className, children, overlayClassName, ...props }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       ref={ref}
+      data-scroll-lock-scrollable=""
       className={cn(
         "fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%]",
         "grid w-full max-w-lg gap-0",

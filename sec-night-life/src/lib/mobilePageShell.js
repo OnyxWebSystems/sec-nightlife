@@ -103,7 +103,7 @@ export const MOBILE_PAGE_TITLES = {
   Jobs: 'Jobs',
   Vendors: 'Vendors',
   VendorDetail: 'Vendor',
-  VendorBusinessSettings: 'My vendor business',
+  VendorBusinessSettings: 'My vendor businesses',
   Notifications: 'Notifications',
   Leaderboard: 'Leaderboard',
   Explore: 'Explore',

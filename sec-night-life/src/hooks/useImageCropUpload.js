@@ -19,7 +19,17 @@ export function useImageCropUpload({ onCropped }) {
 
   const onPickFile = useCallback(
     (file) => {
-      if (!file || !file.type.startsWith('image/')) return;
+      if (!file || !file.type.startsWith('image/')) {
+        if (file) {
+          // Soft feedback — callers may toast; keep hook free of sonner import.
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('sec-image-crop-rejected', { detail: { reason: 'not-image' } })
+            );
+          }
+        }
+        return;
+      }
       revokeCropSrc();
       const url = URL.createObjectURL(file);
       revokeRef.current = url;

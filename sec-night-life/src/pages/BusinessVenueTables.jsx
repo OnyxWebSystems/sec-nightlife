@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiPatch } from '@/api/client';
 import { toast } from 'sonner';
-import { Plus, Armchair, Settings, Loader2, Users, UserCheck, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Armchair, Settings, Loader2, Users, UserCheck, Trash2, ChevronDown, ChevronRight, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TableTierEditor from '@/components/business/TableTierEditor';
 import ServiceWeekdayPicker from '@/components/business/ServiceWeekdayPicker';
+import FeedBoostDialog, { maxBoostDaysUntil } from '@/components/business/FeedBoostDialog';
 import { resolveTierFeesForSave } from '@/lib/tierBookingFees';
 import { resolveTierMinSpends } from '@/lib/tierMinSpend';
 import { emptyServiceScheduleMap, scheduleMapFromApi, scheduleMapToApi, formatServiceScheduleSummary } from '@/lib/serviceSchedule';
@@ -24,6 +25,9 @@ import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import { businessVenueQuery } from '@/lib/businessVenueQuery';
 import { menuApiBase } from '@/lib/staffVenueApi';
+import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
+import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
+import * as authService from '@/services/authService';
 
 export default function BusinessVenueTables() {
   const navigate = useNavigate();
@@ -53,6 +57,16 @@ export default function BusinessVenueTables() {
     max_booking_duration_hours: '',
   });
   const [actionTableId, setActionTableId] = useState(null);
+  const [boostTarget, setBoostTarget] = useState(null);
+  const [boostBusy, setBoostBusy] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+
+  useEffect(() => {
+    loadPaystackScript().catch(() => {});
+    authService.getCurrentUser().then((u) => {
+      if (u?.email) setUserEmail(u.email);
+    }).catch(() => {});
+  }, []);
   const [editingTableId, setEditingTableId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [expandedTierKey, setExpandedTierKey] = useState(null);
@@ -746,6 +760,36 @@ export default function BusinessVenueTables() {
                         style={{ borderColor: 'var(--sec-border)', background: 'rgba(0,0,0,0.15)' }}
                       >
                         <div className="flex justify-end gap-2 flex-wrap pt-3">
+                          {(() => {
+                            const boostable =
+                              group.tables.find((t) => t.isActive && !t.isCustomListing) || sample;
+                            const anyBoosted = group.tables.some((t) => t.boosted);
+                            if (!boostable?.id || !boostable.isActive) return null;
+                            return (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                style={{
+                                  borderColor: anyBoosted ? 'var(--sec-warning)' : 'var(--sec-border)',
+                                  color: anyBoosted ? 'var(--sec-warning)' : undefined,
+                                }}
+                                onClick={() =>
+                                  setBoostTarget({
+                                    tableId: boostable.id,
+                                    name: group.tierName,
+                                    endAt:
+                                      boostable.serviceEndDate ||
+                                      boostable.serviceDate ||
+                                      null,
+                                  })
+                                }
+                              >
+                                <Zap size={12} className="mr-1" />
+                                {anyBoosted ? 'Extend boost' : 'Boost in feed'}
+                              </Button>
+                            );
+                          })()}
                           <Button
                             size="sm"
                             variant="outline"
@@ -1338,6 +1382,49 @@ export default function BusinessVenueTables() {
         </TabsContent>
       </Tabs>
       </div>
+      <FeedBoostDialog
+        open={Boolean(boostTarget)}
+        onOpenChange={(open) => {
+          if (!open) setBoostTarget(null);
+        }}
+        title={boostTarget ? `Boost “${boostTarget.name}”` : 'Boost listing'}
+        description="Boosted day listings appear more often under Available Tables on Home."
+        maxDays={maxBoostDaysUntil(boostTarget?.endAt)}
+        busy={boostBusy}
+        onConfirm={async (days) => {
+          if (!boostTarget?.tableId) return;
+          setBoostBusy(true);
+          try {
+            const pay = await apiPost(`/api/business/venue-tables/${boostTarget.tableId}/boost`, {
+              days,
+            });
+            if (!pay?.reference || !pay?.access_code) throw new Error('Could not start payment');
+            await launchPaystackInline({
+              email: userEmail,
+              amount: pay.amount_zar,
+              reference: pay.reference,
+              accessCode: pay.access_code,
+              authorizationUrl: pay.authorization_url,
+              onSuccess: async (payload) => {
+                await completePaystackCheckout({
+                  reference: pay.reference,
+                  payload,
+                  queryClient: qc,
+                  showToasts: false,
+                });
+                toast.success('Table boost is active');
+                setBoostTarget(null);
+                qc.invalidateQueries({ queryKey: ['biz-day-venue-tables'] });
+              },
+              onCancel: () => toast.message('Boost checkout cancelled'),
+            });
+          } catch (err) {
+            toast.error(err?.data?.error || err?.message || 'Boost failed');
+          } finally {
+            setBoostBusy(false);
+          }
+        }}
+      />
     </div>
   );
 }

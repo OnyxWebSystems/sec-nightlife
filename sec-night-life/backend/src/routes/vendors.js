@@ -130,12 +130,16 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
 router.get('/mine', authenticateToken, async (req, res, next) => {
   try {
-    const row = await prisma.vendorBusiness.findFirst({
+    const rows = await prisma.vendorBusiness.findMany({
       where: { userId: req.userId, deletedAt: null },
       include: vendorInclude,
       orderBy: { updatedAt: 'desc' },
     });
-    res.json({ vendor: formatVendor(row) });
+    res.json({
+      vendors: rows.map((r) => formatVendor(r)),
+      // Back-compat for older clients that expect a single listing
+      vendor: formatVendor(rows[0] || null),
+    });
   } catch (err) {
     next(err);
   }
@@ -176,13 +180,6 @@ router.post('/', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid vendor data', details: parsed.error.flatten() });
     }
     const data = parsed.data;
-
-    const existing = await prisma.vendorBusiness.findFirst({
-      where: { userId: req.userId, deletedAt: null },
-    });
-    if (existing) {
-      return res.status(409).json({ error: 'You already have a vendor listing. Update it instead.' });
-    }
 
     const row = await prisma.$transaction(async (tx) => {
       const created = await tx.vendorBusiness.create({

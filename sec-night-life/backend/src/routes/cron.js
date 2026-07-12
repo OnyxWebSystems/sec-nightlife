@@ -101,11 +101,23 @@ router.get('/expire-table-boosts', async (req, res, next) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     const now = new Date();
-    const r = await prisma.hostedTable.updateMany({
+    const hosted = await prisma.hostedTable.updateMany({
       where: { boosted: true, boostExpiresAt: { lt: now } },
       data: { boosted: false },
     });
-    res.json({ expired: r.count });
+    const events = await prisma.event.updateMany({
+      where: { boosted: true, boostExpiresAt: { lt: now } },
+      data: { boosted: false },
+    });
+    const venueTables = await prisma.venueTable.updateMany({
+      where: { boosted: true, boostExpiresAt: { lt: now } },
+      data: { boosted: false },
+    });
+    res.json({
+      expired: hosted.count,
+      eventsExpired: events.count,
+      venueTablesExpired: venueTables.count,
+    });
   } catch (err) {
     next(err);
   }

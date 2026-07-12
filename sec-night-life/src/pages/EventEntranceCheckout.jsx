@@ -160,9 +160,6 @@ export default function EventEntranceCheckout() {
               R{totalPrice.toFixed(0)}
             </span>
           </div>
-          <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>
-            SEC retains 15%; the venue receives 85%.
-          </p>
         </div>
 
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: 'var(--sec-text-primary)' }}>

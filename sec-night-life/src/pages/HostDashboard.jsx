@@ -8,7 +8,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Plus, Loader2, Armchair, Users, Star, Calendar } from 'lucide-react';
+import { Plus, Loader2, Armchair, Users, Star, Calendar, MapPin } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,16 @@ import { splitHostDashboardTables } from '@/lib/hostTableDashboard';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
+
+function formatVenueAddressForSubmit({ venueAddress, suburb, province }) {
+  const base = String(venueAddress || '').trim();
+  const parts = [base];
+  const sub = String(suburb || '').trim();
+  const prov = String(province || '').trim();
+  if (sub && !base.toLowerCase().includes(sub.toLowerCase())) parts.push(sub);
+  if (prov && !base.toLowerCase().includes(prov.toLowerCase())) parts.push(prov);
+  return parts.filter(Boolean).join(', ');
+}
 
 /** Hosted table row uses HostedTableStatus (DRAFT / ACTIVE / FULL). */
 const TABLE_HOST_STATUS_BADGE = {
@@ -50,6 +60,10 @@ export default function HostDashboard() {
     eventId: '',
     venueName: '',
     venueAddress: '',
+    suburb: '',
+    province: '',
+    latitude: null,
+    longitude: null,
     eventDate: '',
     eventTime: '21:00',
     guestQuantity: 4,
@@ -64,6 +78,7 @@ export default function HostDashboard() {
     desiredCompany: '',
     isPublic: true,
   });
+  const [locatingAddress, setLocatingAddress] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingTableId, setPendingTableId] = useState(null);
   const [inviteOpenTableId, setInviteOpenTableId] = useState(null);
@@ -153,6 +168,12 @@ export default function HostDashboard() {
   }, [inviteOpenTableId]);
 
   useBodyScrollLock(showTableModal);
+
+  useEffect(() => {
+    const onRejected = () => toast.error('Please choose an image file');
+    window.addEventListener('sec-image-crop-rejected', onRejected);
+    return () => window.removeEventListener('sec-image-crop-rejected', onRejected);
+  }, []);
 
   useEffect(() => {
     if (!showTableModal || !isMobile) return undefined;
@@ -281,7 +302,7 @@ export default function HostDashboard() {
         tableDescription: tableForm.tableDescription || null,
         eventType: tableForm.eventType,
         venueName: tableForm.venueName,
-        venueAddress: tableForm.venueAddress.trim(),
+        venueAddress: formatVenueAddressForSubmit(tableForm),
         eventDate: new Date(tableForm.eventDate).toISOString(),
         eventTime: tableForm.eventTime,
         guestQuantity: tableForm.guestQuantity,
@@ -737,16 +758,86 @@ export default function HostDashboard() {
       <div>
         <div className="text-sm font-medium mb-1">Address</div>
         <p className="text-xs text-[var(--sec-text-muted)] mb-2">Required so guests know exactly where to go.</p>
+        <button
+          type="button"
+          disabled={locatingAddress}
+          onClick={() => {
+            if (!navigator.geolocation) {
+              toast.error('Geolocation is not supported on this device.');
+              return;
+            }
+            setLocatingAddress(true);
+            navigator.geolocation.getCurrentPosition(
+              async (pos) => {
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                try {
+                  const { reverseGeocodeLatLngStructured } = await import('@/lib/reverseGeocode');
+                  const structured = await reverseGeocodeLatLngStructured(lat, lng);
+                  setTableForm((f) => ({
+                    ...f,
+                    venueAddress: structured.formattedAddress || f.venueAddress,
+                    suburb: structured.suburb || f.suburb,
+                    province: structured.province || f.province,
+                    latitude: lat,
+                    longitude: lng,
+                  }));
+                } catch {
+                  setTableForm((f) => ({
+                    ...f,
+                    venueAddress: f.venueAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                    latitude: lat,
+                    longitude: lng,
+                  }));
+                } finally {
+                  setLocatingAddress(false);
+                }
+              },
+              () => {
+                toast.error('Could not access location — enable permission in your browser.');
+                setLocatingAddress(false);
+              },
+              { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
+            );
+          }}
+          className="mb-2 flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-xl w-full justify-center"
+          style={{
+            background: 'var(--sec-bg-elevated)',
+            border: '1px solid var(--sec-border)',
+            color: 'var(--sec-text-primary)',
+            opacity: locatingAddress ? 0.7 : 1,
+          }}
+        >
+          <MapPin className="w-4 h-4" />
+          {locatingAddress ? 'Getting location…' : 'Use current location'}
+        </button>
         <GoogleAddressInput
-          value={tableForm.venueAddress}
+          value={{
+            formattedAddress: tableForm.venueAddress,
+            street: tableForm.venueAddress,
+            suburb: tableForm.suburb,
+            province: tableForm.province,
+            city: '',
+            country: 'ZA',
+            latitude: tableForm.latitude,
+            longitude: tableForm.longitude,
+          }}
           label="Address"
           placeholder="Start typing an address"
+          showSuburbProvince
           onChange={(structured) => {
-            const addr =
-              typeof structured === 'string'
-                ? structured
-                : structured?.formattedAddress || structured?.street || '';
-            setTableForm((f) => ({ ...f, venueAddress: addr }));
+            if (typeof structured === 'string') {
+              setTableForm((f) => ({ ...f, venueAddress: structured }));
+              return;
+            }
+            setTableForm((f) => ({
+              ...f,
+              venueAddress: structured?.formattedAddress || structured?.street || '',
+              suburb: structured?.suburb ?? f.suburb,
+              province: structured?.province ?? f.province,
+              latitude: structured?.latitude ?? f.latitude,
+              longitude: structured?.longitude ?? f.longitude,
+            }));
           }}
         />
       </div>

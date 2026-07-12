@@ -28,6 +28,15 @@ import {
 import { eventEndsAtFromEvent } from '../lib/ticketHelpers.js';
 import { repairGuestEventVenueTableBookingsForEvents } from '../lib/eventVenueBooking.js';
 import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
+import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
+import {
+  FEED_BOOST_ZAR_PER_DAY,
+  clampBoostDays,
+  isBoostActiveRow,
+  maxBoostDaysUntil,
+} from '../lib/feedBoost.js';
+import { z } from 'zod';
+import crypto from 'crypto';
 import {
   isRefundedPaymentRef,
   loadRefundedPaymentRefs,
@@ -556,6 +565,9 @@ function mapVenueTableManagementItem(t, hosted, goingCount = null) {
     startTime: t.startTime,
     endTime: t.endTime,
     description: t.description,
+    boosted: isBoostActiveRow(t),
+    boosted_at: t.boostedAt || null,
+    boost_expires_at: t.boostExpiresAt || null,
   };
 }
 
@@ -3265,6 +3277,117 @@ router.post('/venue-tables/:tableId/restore-to-listings', authenticateToken, asy
       data: { isActive: true },
     });
     res.json({ restored: true, tableId: table.id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const venueTableBoostBodySchema = z.object({
+  days: z.coerce.number().int().min(1).max(30),
+});
+
+/** Pay to boost a day-booking / venue table in Home Available Tables (R150/day). */
+router.post('/venue-tables/:tableId/boost', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = venueTableBoostBodySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    }
+
+    const table = await prisma.venueTable.findUnique({
+      where: { id: req.params.tableId },
+      include: { venue: { select: { id: true, ownerUserId: true, name: true } } },
+    });
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    const canManage = await staffHasVenuePermission(req.userId, table.venueId, 'venue_tables');
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+    if (!table.isActive) {
+      return res.status(400).json({ error: 'Only active listings can be boosted' });
+    }
+    if (table.isCustomListing) {
+      return res.status(400).json({ error: 'Custom request listings cannot be boosted' });
+    }
+
+    const endAt =
+      table.serviceEndDate ||
+      table.serviceDate ||
+      (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        d.setHours(23, 59, 59, 999);
+        return d;
+      })();
+    const maxDays = maxBoostDaysUntil(endAt);
+    if (maxDays < 1) {
+      return res.status(400).json({ error: 'This listing window has ended and cannot be boosted' });
+    }
+    const boostDays = clampBoostDays(parsed.data.days, maxDays);
+    if (boostDays < 1) {
+      return res.status(400).json({ error: `Choose between 1 and ${maxDays} boost days` });
+    }
+
+    const key = process.env.PAYSTACK_SECRET_KEY;
+    if (!key) return res.status(500).json({ error: 'Paystack is not configured' });
+
+    const owner = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true },
+    });
+    const reference = `vtboost_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const amountZar = FEED_BOOST_ZAR_PER_DAY * boostDays;
+    const amountInCents = Math.round(amountZar * 100);
+    const metadata = {
+      type: 'VENUE_TABLE_BOOST',
+      venueTableId: table.id,
+      venue_table_id: table.id,
+      venueId: table.venueId,
+      boostDays,
+      boost_days: boostDays,
+      user_id: req.userId,
+    };
+
+    await prisma.payment.create({
+      data: {
+        userId: req.userId,
+        email: owner?.email || 'user@secnightlife.app',
+        amount: amountZar,
+        reference,
+        status: 'pending',
+        type: 'other',
+        metadata,
+      },
+    });
+
+    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        buildPaystackInitializeBody({
+          email: owner?.email || 'user@secnightlife.app',
+          amountInCents,
+          reference,
+          metadata,
+          userId: req.userId,
+        }),
+      ),
+    });
+    const json = await response.json();
+    if (!response.ok || !json?.status) {
+      return res.status(400).json({ error: json?.message || 'Failed to initialize boost payment' });
+    }
+
+    res.json({
+      reference,
+      authorization_url: json.data.authorization_url,
+      access_code: json.data.access_code,
+      amount_zar: amountZar,
+      boost_days: boostDays,
+      max_boost_days: maxDays,
+      zar_per_day: FEED_BOOST_ZAR_PER_DAY,
+    });
   } catch (e) {
     next(e);
   }

@@ -97,6 +97,38 @@ function sortOfferings(list, friendIds, sessionSeed = 'default') {
   return prepared.map((x) => x.item);
 }
 
+/** Round-robin across offering kinds so one type cannot monopolize the carousel. */
+function interleaveByType(sortedList, limit) {
+  const buckets = {
+    venue_event: [],
+    venue_day: [],
+    hosted: [],
+  };
+  for (const item of sortedList) {
+    if (item.type === 'venue_event') buckets.venue_event.push(item);
+    else if (item.type === 'venue_day') buckets.venue_day.push(item);
+    else buckets.hosted.push(item);
+  }
+  const pattern = ['venue_event', 'hosted', 'venue_day', 'hosted', 'venue_event', 'venue_day'];
+  const out = [];
+  let pi = 0;
+  while (out.length < limit) {
+    let progressed = false;
+    for (let attempt = 0; attempt < pattern.length; attempt += 1) {
+      const kind = pattern[(pi + attempt) % pattern.length];
+      const bucket = buckets[kind];
+      if (bucket.length) {
+        out.push(bucket.shift());
+        pi = (pi + attempt + 1) % pattern.length;
+        progressed = true;
+        break;
+      }
+    }
+    if (!progressed) break;
+  }
+  return out;
+}
+
 /**
  * Grouped table offerings for Home / Tables browse.
  */
@@ -139,7 +171,22 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
       },
     },
   });
-  const openVenueRows = venueRows.filter((t) => t.currentOccupancy < t.guestCapacity);
+  const openVenueRows = venueRows.filter((t) => {
+    if (t.currentOccupancy >= t.guestCapacity) return false;
+    // Day listings: only current/upcoming service windows (not every active row forever).
+    if (!t.eventId) {
+      const end =
+        t.serviceEndDate ||
+        t.serviceDate ||
+        null;
+      if (end) {
+        const endDate = end instanceof Date ? new Date(end) : new Date(end);
+        endDate.setHours(23, 59, 59, 999);
+        if (endDate < today) return false;
+      }
+    }
+    return true;
+  });
 
   const hostedWhere = {
     status: 'ACTIVE',
@@ -235,13 +282,14 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
           tiers: [],
           totalSpots: 0,
           minBookingFeeZar: null,
-          boosted: false,
+          boosted: isBoostActive(t),
           hostUserId: null,
           tableCount: 0,
         });
       }
       const g = venueEventMap.get(key);
       g.tiers.push(tier);
+      if (isBoostActive(t)) g.boosted = true;
       if (!t.isCustomListing) {
         g.totalSpots += spots;
       }
@@ -268,13 +316,14 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
           tiers: [],
           totalSpots: 0,
           minBookingFeeZar: null,
-          boosted: false,
+          boosted: isBoostActive(t),
           hostUserId: null,
           tableCount: 0,
         });
       }
       const g = venueDayMap.get(key);
       g.tiers.push(tier);
+      if (isBoostActive(t)) g.boosted = true;
       if (!t.isCustomListing) {
         g.totalSpots += spots;
       }
@@ -357,11 +406,13 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
           minJoinFeeZar: null,
           maxJoinFeeZar: null,
           boosted: false,
+          isPublic: t.isPublic !== false,
           tableCount: 0,
         });
       }
       const g = hostedHostMap.get(key);
       g.tables.push(tableSummary);
+      if (t.isPublic === false) g.isPublic = false;
       g.totalSpots += spots;
       g.tableCount += 1;
       if (isVipHosted) g.hasVip = true;
@@ -415,7 +466,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
   for (const g of hostedHostMap.values()) offerings.push(g);
 
   const sorted = sortOfferings(offerings, friendIds, sessionSeed);
-  return sorted.slice(0, cappedLimit);
+  return interleaveByType(sorted, cappedLimit);
 }
 
 /**

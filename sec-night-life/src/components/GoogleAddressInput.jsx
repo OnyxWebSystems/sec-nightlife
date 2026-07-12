@@ -206,6 +206,8 @@ export default function GoogleAddressInput({
   onCoordinatesChange,
   placeholder = 'Enter address',
   label = 'Full Address',
+  /** Always show Suburb / Province fields (not only Maps fallback). */
+  showSuburbProvince = false,
 }) {
   const inputRef = useRef(null);
   const [autocomplete, setAutocomplete] = useState(null);
@@ -266,6 +268,33 @@ export default function GoogleAddressInput({
 
   const useFallback = mapsStatus === 'error';
 
+  const suburbProvinceFields = showSuburbProvince && !useFallback ? (
+    <div className="grid grid-cols-2 gap-4 mt-3">
+      <div>
+        <Label className="text-gray-400 text-xs">Suburb</Label>
+        <Input
+          placeholder="e.g. Sandton"
+          value={structuredValue?.suburb || ''}
+          onChange={(e) =>
+            onChange({ ...(structuredValue || toStructuredValue('')), suburb: e.target.value })
+          }
+          className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
+        />
+      </div>
+      <div>
+        <Label className="text-gray-400 text-xs">Province</Label>
+        <Input
+          placeholder="e.g. Gauteng"
+          value={structuredValue?.province || ''}
+          onChange={(e) =>
+            onChange({ ...(structuredValue || toStructuredValue('')), province: e.target.value })
+          }
+          className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
+        />
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div>
       <Label className="text-gray-400 text-sm flex items-center gap-2">
@@ -299,6 +328,7 @@ export default function GoogleAddressInput({
           <p className="text-xs text-gray-500 mt-1">
             {mapsStatus === 'loading' ? 'Loading maps...' : 'Start typing to see address suggestions'}
           </p>
+          {suburbProvinceFields}
         </>
       )}
     </div>

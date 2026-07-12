@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2, Armchair, Users, Crown, UserCheck,
+  Calendar, Plus, Edit2, Trash2, Eye, Search, Loader2, Armchair, Users, Crown, UserCheck, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiGet, apiPut, apiPost, uploadFile } from '@/api/client';
@@ -21,11 +21,14 @@ import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { tierFeeTogglesFromTier, resolveTierFeesForSave } from '@/lib/tierBookingFees';
 import { tierMinSpendsFromApi, resolveTierMinSpends } from '@/lib/tierMinSpend';
 import TierIncludedItemsEditor from '@/components/business/TierIncludedItemsEditor';
+import FeedBoostDialog, { maxBoostDaysUntil } from '@/components/business/FeedBoostDialog';
 import { isEventEnded } from '@/lib/eventLifecycle';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { menuApiBase } from '@/lib/staffVenueApi';
+import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
+import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 
 import { COVER_CROP_DIALOG_PROPS as EVENT_COVER_CROP_DIALOG_PROPS } from '@/lib/coverImageAspect';
 
@@ -141,6 +144,8 @@ export default function BusinessEvents() {
   const [importDayTiers, setImportDayTiers] = useState(false);
   const [importingDayTiers, setImportingDayTiers] = useState(false);
   const [selectedPromoterIds, setSelectedPromoterIds] = useState([]);
+  const [boostEvent, setBoostEvent] = useState(null);
+  const [boostBusy, setBoostBusy] = useState(false);
 
   const coverCrop = useImageCropUpload({
     onCropped: async (file) => {
@@ -156,6 +161,9 @@ export default function BusinessEvents() {
       }
     },
   });
+  useEffect(() => {
+    loadPaystackScript().catch(() => {});
+  }, []);
   useEffect(() => {
     (async () => {
       try { setUser(await authService.loadUserOrLogin()); }
@@ -456,7 +464,7 @@ export default function BusinessEvents() {
       payload.ticket_tiers = tiers;
       payload.has_entrance_fee = false;
       payload.entrance_fee_amount = null;
-      payload.allows_ticket_menu_addons = Boolean(form.allows_ticket_menu_addons);
+      payload.allows_ticket_menu_addons = false;
     } else {
       payload.allows_ticket_menu_addons = false;
     }
@@ -742,6 +750,9 @@ export default function BusinessEvents() {
                 >
                   {ended ? 'Ended' : evt.status}
                 </span>
+                {evt.boosted && !ended ? (
+                  <span className="sec-badge sec-badge-gold">Boosted</span>
+                ) : null}
                 <div className="sec-biz-list-card__actions">
                   <button
                     onClick={() => navigate(createPageUrl('EventDetails') + '?id=' + evt.id)}
@@ -750,6 +761,22 @@ export default function BusinessEvents() {
                   >
                     <Eye size={16} />
                   </button>
+                  {!ended && evt.status === 'published' ? (
+                  <button
+                    onClick={() => setBoostEvent(evt)}
+                    style={{
+                      padding: 8,
+                      borderRadius: 8,
+                      border: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: 'transparent',
+                      color: evt.boosted ? 'var(--sec-warning)' : 'var(--sec-text-muted)',
+                    }}
+                    title={evt.boosted ? 'Boosted — extend boost' : 'Boost in Home feed'}
+                  >
+                    <Zap size={16} />
+                  </button>
+                  ) : null}
                   {!ended && evt.status === 'published' && evt.event_format !== 'TICKETING_ONLY' ? (
                   <button
                     onClick={() => setTablesEventId(evt.id)}
@@ -997,22 +1024,7 @@ export default function BusinessEvents() {
                 <h3 className="text-sm font-semibold">Ticket tiers</h3>
                 <p className="text-xs text-gray-500">
                   Guests buy tickets only — no table hosting or entrance fee. Each ticket gets its own QR with tier details.
-                  Ticket sales split 4% to SEC and 96% to the venue (menu add-ons, if enabled, stay 15% / 85%).
                 </p>
-                <label className="flex items-start gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={Boolean(form.allows_ticket_menu_addons)}
-                    onCheckedChange={(v) =>
-                      setForm((p) => ({ ...p, allows_ticket_menu_addons: v === true }))
-                    }
-                  />
-                  <span>
-                    <span className="text-gray-200">Allow menu add-ons at ticket checkout</span>
-                    <span className="block text-xs text-gray-500 mt-0.5">
-                      When off, buyers pay for tickets only. When on, they can add items from your venue menu at checkout.
-                    </span>
-                  </span>
-                </label>
                 {(form.ticket_tiers || []).map((tier, idx) => (
                   <div
                     key={idx}
@@ -1936,6 +1948,54 @@ export default function BusinessEvents() {
         onCropped={coverCrop.handleCropped}
         outputFileName="event-cover.jpg"
         {...EVENT_COVER_CROP_DIALOG_PROPS}
+      />
+      <FeedBoostDialog
+        open={Boolean(boostEvent)}
+        onOpenChange={(open) => {
+          if (!open) setBoostEvent(null);
+        }}
+        title={boostEvent ? `Boost “${boostEvent.title}”` : 'Boost event'}
+        description="Boosted events show up more often on Home and in Discover while the boost is active."
+        maxDays={
+          boostEvent
+            ? maxBoostDaysUntil(
+                boostEvent.ends_at ||
+                  (boostEvent.date ? `${boostEvent.date}T23:59:59` : null),
+              )
+            : 1
+        }
+        busy={boostBusy}
+        onConfirm={async (days) => {
+          if (!boostEvent?.id) return;
+          setBoostBusy(true);
+          try {
+            const pay = await apiPost(`/api/events/${boostEvent.id}/boost`, { days });
+            if (!pay?.reference || !pay?.access_code) throw new Error('Could not start payment');
+            await launchPaystackInline({
+              email: user?.email,
+              amount: pay.amount_zar,
+              reference: pay.reference,
+              accessCode: pay.access_code,
+              authorizationUrl: pay.authorization_url,
+              onSuccess: async (payload) => {
+                await completePaystackCheckout({
+                  reference: pay.reference,
+                  payload,
+                  queryClient,
+                  showToasts: false,
+                });
+                toast.success('Event boost is active');
+                setBoostEvent(null);
+                queryClient.invalidateQueries({ queryKey: ['biz-events'] });
+              },
+              onCancel: () => toast.message('Boost checkout cancelled'),
+            });
+          } catch (err) {
+            toast.error(err?.data?.error || err?.message || 'Boost failed');
+          } finally {
+            setBoostBusy(false);
+          }
+        }}
       />
       </div>
     </div>

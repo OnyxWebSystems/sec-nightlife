@@ -24,6 +24,13 @@ import {
   normalizeEventCodeInput,
   validateEventCodeFormat,
 } from '../lib/eventCode.js';
+import { buildPaystackInitializeBody } from '../lib/paystackInitialize.js';
+import {
+  FEED_BOOST_ZAR_PER_DAY,
+  clampBoostDays,
+  maxBoostDaysUntil,
+} from '../lib/feedBoost.js';
+import crypto from 'crypto';
 
 const router = Router();
 
@@ -229,6 +236,9 @@ function mapEventRow(e) {
     venue_id: e.venueId,
     status: e.status,
     is_featured: e.isFeatured,
+    boosted: Boolean(e.boosted) && (!e.boostExpiresAt || new Date(e.boostExpiresAt) > new Date()),
+    boosted_at: e.boostedAt ? e.boostedAt.toISOString() : null,
+    boost_expires_at: e.boostExpiresAt ? e.boostExpiresAt.toISOString() : null,
     cover_image_url: e.coverImageUrl,
     ticket_tiers: e.ticketTiers,
     start_time: e.startTime,
@@ -518,6 +528,11 @@ function mapEventDetail(event, stats = null) {
     venue_id: event.venueId,
     status: event.status,
     is_featured: event.isFeatured,
+    boosted:
+      Boolean(event.boosted) &&
+      (!event.boostExpiresAt || new Date(event.boostExpiresAt) > new Date()),
+    boosted_at: event.boostedAt ? event.boostedAt.toISOString() : null,
+    boost_expires_at: event.boostExpiresAt ? event.boostExpiresAt.toISOString() : null,
     cover_image_url: event.coverImageUrl,
     banner_url: event.bannerUrl,
     ticket_tiers: event.ticketTiers,
@@ -1468,6 +1483,114 @@ router.delete('/:id', authenticateToken, async (req, res, next) => {
       data: { deletedAt: new Date() },
     });
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const boostBodySchema = z.object({
+  days: z.coerce.number().int().min(1).max(30),
+});
+
+/** Pay to boost an event in Home / Discover feeds (R150/day). */
+router.post('/:id/boost', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = boostBodySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
+    }
+
+    const event = await prisma.event.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      include: { venue: { select: { id: true, ownerUserId: true, name: true } } },
+    });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    const canManage = await staffHasVenuePermission(req.userId, event.venueId, 'events');
+    if (!canManage && !isStaff(req.userRole)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (event.status !== 'published') {
+      return res.status(400).json({ error: 'Only published events can be boosted' });
+    }
+
+    const endAt =
+      event.endsAt ||
+      (() => {
+        const d = event.date instanceof Date ? new Date(event.date) : new Date(event.date);
+        d.setHours(23, 59, 59, 999);
+        return d;
+      })();
+    const maxDays = maxBoostDaysUntil(endAt);
+    if (maxDays < 1) {
+      return res.status(400).json({ error: 'This event has ended and cannot be boosted' });
+    }
+    const boostDays = clampBoostDays(parsed.data.days, maxDays);
+    if (boostDays < 1) {
+      return res.status(400).json({ error: `Choose between 1 and ${maxDays} boost days` });
+    }
+
+    const key = process.env.PAYSTACK_SECRET_KEY;
+    if (!key) return res.status(500).json({ error: 'Paystack is not configured' });
+
+    const owner = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { email: true },
+    });
+    const reference = `evtboost_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const amountZar = FEED_BOOST_ZAR_PER_DAY * boostDays;
+    const amountInCents = Math.round(amountZar * 100);
+    const metadata = {
+      type: 'EVENT_BOOST',
+      eventId: event.id,
+      event_id: event.id,
+      venueId: event.venueId,
+      boostDays,
+      boost_days: boostDays,
+      user_id: req.userId,
+    };
+
+    await prisma.payment.create({
+      data: {
+        userId: req.userId,
+        email: owner?.email || 'user@secnightlife.app',
+        amount: amountZar,
+        reference,
+        status: 'pending',
+        type: 'other',
+        metadata,
+      },
+    });
+
+    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        buildPaystackInitializeBody({
+          email: owner?.email || 'user@secnightlife.app',
+          amountInCents,
+          reference,
+          metadata,
+          userId: req.userId,
+        }),
+      ),
+    });
+    const json = await response.json();
+    if (!response.ok || !json?.status) {
+      return res.status(400).json({ error: json?.message || 'Failed to initialize boost payment' });
+    }
+
+    res.json({
+      reference,
+      authorization_url: json.data.authorization_url,
+      access_code: json.data.access_code,
+      amount_zar: amountZar,
+      boost_days: boostDays,
+      max_boost_days: maxDays,
+      zar_per_day: FEED_BOOST_ZAR_PER_DAY,
+    });
   } catch (err) {
     next(err);
   }

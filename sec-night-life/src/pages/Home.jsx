@@ -558,6 +558,9 @@ export default function Home() {
     activeEventsOnly,
     (e) => e.venue_id,
     (a, b) => {
+      const aBoost = Boolean(a?.boosted);
+      const bBoost = Boolean(b?.boosted);
+      if (aBoost !== bBoost) return aBoost ? -1 : 1;
       const ad = a?.date ? new Date(a.date).getTime() : 0;
       const bd = b?.date ? new Date(b.date).getTime() : 0;
       return bd - ad;
@@ -575,7 +578,10 @@ export default function Home() {
   const verifiedVenues = filteredVenues.filter(v => v.is_verified);
   const otherVenues = filteredVenues.filter(v => !v.is_verified);
   const featuredEvents = useMemo(
-    () => prioritizedEvents.filter(e => e.is_featured).slice(0, 5),
+    () =>
+      prioritizedEvents
+        .filter((e) => e.is_featured || e.boosted)
+        .slice(0, 5),
     [prioritizedEvents]
   );
   const upcomingEvents = prioritizedEvents.slice(0, 6);

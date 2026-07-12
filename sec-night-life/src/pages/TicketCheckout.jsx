@@ -5,7 +5,6 @@ import { apiGet, apiPost } from '@/api/client';
 import * as authService from '@/services/authService';
 import { createPageUrl, getStoredPromoterRef } from '@/utils';
 import PageBackHeader from '@/components/layout/PageBackHeader';
-import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
@@ -28,22 +27,12 @@ export default function TicketCheckout() {
   const [selectedTier, setSelectedTier] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [holderNames, setHolderNames] = useState(['']);
-  const [menuSelected, setMenuSelected] = useState({});
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { data: event, isLoading: eventLoading } = useQuery({
     queryKey: ['event', eventId],
     queryFn: () => apiGet(`/api/events/${eventId}`),
     enabled: Boolean(eventId),
-  });
-
-  const menuEnabled = Boolean(event?.allows_ticket_menu_addons);
-  const venueId = event?.venue_id;
-
-  const { data: venueMenu = [], isLoading: menuLoading } = useQuery({
-    queryKey: ['venue-menu-public', venueId],
-    queryFn: () => apiGet(`/api/business/venues/${venueId}/menu-items/public`),
-    enabled: menuEnabled && Boolean(venueId),
   });
 
   useEffect(() => {
@@ -64,9 +53,7 @@ export default function TicketCheckout() {
   const maxQuantity = selectedTierData
     ? Math.min(selectedTierData.quantity - (selectedTierData.sold || 0), 10)
     : 1;
-  const ticketSubtotal = selectedTierData ? selectedTierData.price * quantity : 0;
-  const menuSubtotal = menuEnabled ? menuSelectionTotal(venueMenu, menuSelected) : 0;
-  const totalPrice = Math.round((ticketSubtotal + menuSubtotal) * 100) / 100;
+  const totalPrice = Math.round((selectedTierData ? selectedTierData.price * quantity : 0) * 100) / 100;
 
   function holderDisplayNameFromUser(u) {
     const n = u?.fullName || u?.username || u?.userProfile?.username;
@@ -105,7 +92,6 @@ export default function TicketCheckout() {
         quantity > 1
           ? holderNames.map((n) => String(n).trim())
           : [holderDisplayNameFromUser(user)];
-      const menuPayload = menuEnabled ? menuSelectionToPayload(venueMenu, menuSelected) : [];
       const metadata = {
         type: 'ticket',
         event_id: eventId,
@@ -113,7 +99,6 @@ export default function TicketCheckout() {
         quantity: String(quantity),
         holder_names: JSON.stringify(names),
       };
-      if (menuPayload.length > 0) metadata.selected_menu_items = menuPayload;
       const promoterRef = getStoredPromoterRef(eventId);
       if (promoterRef) metadata.promoter_user_id = promoterRef;
 
@@ -170,7 +155,7 @@ export default function TicketCheckout() {
           {event?.title}
         </h1>
         <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 20 }}>
-          Choose your ticket{menuEnabled ? ' and optionally add menu items' : ''}.
+          Choose your ticket.
         </p>
 
         <div style={{ marginBottom: 16 }}>
@@ -278,24 +263,7 @@ export default function TicketCheckout() {
             <span style={{ fontWeight: 600 }}>Total</span>
             <span style={{ fontWeight: 800, fontSize: 18 }}>R{totalPrice.toFixed(0)}</span>
           </div>
-          <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 8 }}>
-            Ticket sales: SEC retains 4%; the venue receives 96%.
-            {menuEnabled ? ' Menu add-ons stay at 15% SEC / 85% venue.' : ''}
-          </p>
         </div>
-
-        {menuEnabled && (
-          <>
-            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
-              Add from the menu (optional)
-            </h2>
-            {menuLoading ? (
-              <Loader2 className="animate-spin" style={{ marginBottom: 16 }} />
-            ) : (
-              <MenuPicker menuItems={venueMenu} selected={menuSelected} onChange={setMenuSelected} />
-            )}
-          </>
-        )}
 
         <RefundPolicyNote style={{ marginTop: 16 }} />
       </div>

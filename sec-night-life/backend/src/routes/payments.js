@@ -489,6 +489,76 @@ async function applyReferenceSideEffects(reference, paystackData) {
     }
   }
 
+  const eventBoostId = metadata.eventId || metadata.event_id;
+  if (metadata.type === 'EVENT_BOOST' && eventBoostId) {
+    const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
+    const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '1'), 10) || 1));
+    const boostExpiry = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
+    const evt = await prisma.event.findFirst({
+      where: { id: String(eventBoostId), deletedAt: null },
+      include: { venue: { select: { ownerUserId: true, name: true } } },
+    });
+    if (evt) {
+      await prisma.event.update({
+        where: { id: evt.id },
+        data: {
+          boosted: true,
+          boostedAt: new Date(),
+          boostExpiresAt: boostExpiry,
+          boostPaystackRef: reference,
+        },
+      });
+      if (amount > 0) {
+        await recordSecPlatformRevenue(reference, amount);
+      }
+      if (evt.venue?.ownerUserId) {
+        await createInAppNotification({
+          userId: evt.venue.ownerUserId,
+          type: 'EVENT_JOINED',
+          title: 'Event boost active',
+          body: `"${evt.title}" is boosted for ${boostDays} day${boostDays === 1 ? '' : 's'}.`,
+          referenceId: evt.id,
+          referenceType: 'EVENT',
+        });
+      }
+    }
+  }
+
+  const venueTableBoostId = metadata.venueTableId || metadata.venue_table_id;
+  if (metadata.type === 'VENUE_TABLE_BOOST' && venueTableBoostId) {
+    const boostDaysRaw = metadata.boostDays ?? metadata.boost_days;
+    const boostDays = Math.min(30, Math.max(1, parseInt(String(boostDaysRaw || '1'), 10) || 1));
+    const boostExpiry = new Date(Date.now() + boostDays * 24 * 60 * 60 * 1000);
+    const vt = await prisma.venueTable.findFirst({
+      where: { id: String(venueTableBoostId) },
+      include: { venue: { select: { ownerUserId: true, name: true } } },
+    });
+    if (vt) {
+      await prisma.venueTable.update({
+        where: { id: vt.id },
+        data: {
+          boosted: true,
+          boostedAt: new Date(),
+          boostExpiresAt: boostExpiry,
+          boostPaystackRef: reference,
+        },
+      });
+      if (amount > 0) {
+        await recordSecPlatformRevenue(reference, amount);
+      }
+      if (vt.venue?.ownerUserId) {
+        await createInAppNotification({
+          userId: vt.venue.ownerUserId,
+          type: 'EVENT_JOINED',
+          title: 'Table boost active',
+          body: `"${vt.tableName}" is boosted for ${boostDays} day${boostDays === 1 ? '' : 's'}.`,
+          referenceId: vt.id,
+          referenceType: 'VENUE_TABLE',
+        });
+      }
+    }
+  }
+
   if (metadata.type === 'HOSTED_TABLE_MENU' && userId) {
     const htid = metadata.hosted_table_id || metadata.hostedTableId;
     const memberId = metadata.hosted_table_member_id || metadata.hostedTableMemberId;

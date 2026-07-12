@@ -872,6 +872,10 @@ model Event {
   locationProvince  String?     @map("location_province")
   status            EventStatus @default(draft)
   isFeatured        Boolean     @default(false) @map("is_featured")
+  boosted            Boolean     @default(false)
+  boostedAt          DateTime?   @map("boosted_at")
+  boostExpiresAt     DateTime?   @map("boost_expires_at")
+  boostPaystackRef   String?     @map("boost_paystack_ref")
   coverImageUrl     String?     @map("cover_image_url")
   bannerUrl         String?     @map("banner_url")
   ticketTiers       Json?       @map("ticket_tiers")
@@ -915,6 +919,7 @@ model Event {
   @@index([endsAt])
   @@index([status])
   @@index([city])
+  @@index([boosted, boostExpiresAt])
   @@map("events")
 }
 
@@ -1887,6 +1892,10 @@ model VenueTable {
   hostUserId        String?          @map("host_user_id")
   status            VenueTableStatus @default(AVAILABLE)
   isActive          Boolean          @default(true) @map("is_active")
+  boosted           Boolean          @default(false)
+  boostedAt         DateTime?        @map("boosted_at")
+  boostExpiresAt    DateTime?        @map("boost_expires_at")
+  boostPaystackRef  String?          @map("boost_paystack_ref")
   /// Incremented each time venue releases/resets the slot for a new booking session.
   tableSessionNumber Int             @default(1) @map("table_session_number")
   /// SAST calendar date for tableSessionNumber (resets daily).
@@ -1906,6 +1915,7 @@ model VenueTable {
   @@index([venueId])
   @@index([status])
   @@index([hostUserId])
+  @@index([boosted, boostExpiresAt])
   @@map("venue_tables")
 }
 

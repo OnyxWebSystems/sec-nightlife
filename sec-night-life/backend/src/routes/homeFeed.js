@@ -125,7 +125,7 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
       }),
       prisma.event.findMany({
         where: { deletedAt: null, status: 'published', endsAt: { gte: now } },
-        orderBy: { date: 'asc' },
+        orderBy: [{ boosted: 'desc' }, { date: 'asc' }],
         take: 80,
         include: { venue: { select: { latitude: true, longitude: true } } },
       }),
@@ -166,8 +166,10 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
       ...shuffleCopy(organic, `${sessionId}|promO|${scopeSeed}`),
     ];
 
-    const eventItems = shuffleCopy(
-      feedEvents.map((e) => ({
+    const allEvents = feedEvents.map((e) => {
+      const boostActive =
+        Boolean(e.boosted) && (!e.boostExpiresAt || new Date(e.boostExpiresAt) > now);
+      return {
         kind: 'event',
         data: {
           id: e.id,
@@ -175,11 +177,17 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
           date: e.date.toISOString().slice(0, 10),
           city: e.city,
           cover_image_url: e.coverImageUrl,
-          is_featured: e.isFeatured,
+          is_featured: e.isFeatured || boostActive,
+          boosted: boostActive,
         },
-      })),
-      `${sessionId}|evt|${scopeSeed}`,
-    );
+      };
+    });
+    const boostedEvents = allEvents.filter((x) => x.data.boosted);
+    const organicEvents = allEvents.filter((x) => !x.data.boosted);
+    const eventItems = [
+      ...shuffleCopy(boostedEvents, `${sessionId}|evtB|${scopeSeed}`),
+      ...shuffleCopy(organicEvents, `${sessionId}|evtO|${scopeSeed}`),
+    ];
 
     const venueItems = shuffleCopy(
       feedVenues.map((v) => ({
