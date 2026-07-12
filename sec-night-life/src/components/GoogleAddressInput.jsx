@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label';
 import { MapPin } from 'lucide-react';
 
 import { useGoogleMaps } from '@/lib/GoogleMapsProvider';
+import { apiGet } from '@/api/client';
 
 function componentByType(addressComponents, typeName) {
   if (!Array.isArray(addressComponents)) return null;
@@ -39,7 +40,6 @@ function parsePlaceToStructured(place) {
   const lat = place.geometry?.location?.lat ? place.geometry.location.lat() : null;
   const lng = place.geometry?.location?.lng ? place.geometry.location.lng() : null;
 
-  // Normalize country to ZA if Google returns ZA/za.
   const normalizedCountry =
     typeof country === 'string' && country.toLowerCase() === 'za' ? 'ZA' : (country || 'ZA');
 
@@ -69,20 +69,147 @@ function toStructuredValue(value) {
       longitude: null,
     };
   }
-  // Assume already structured (best effort).
   return value;
 }
 
-export default function GoogleAddressInput({ 
-  value, 
-  onChange, 
-  onCoordinatesChange, 
-  placeholder = "Enter address",
-  label = "Full Address"
+function FallbackAddressInput({
+  draft,
+  setDraft,
+  structuredValue,
+  onChange,
+  onCoordinatesChange,
+  placeholder,
+  setStructuredFromDraft,
+}) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const blurTimer = useRef(null);
+
+  useEffect(() => {
+    const q = (draft || '').trim();
+    if (q.length < 3) {
+      setSuggestions([]);
+      setSearching(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const data = await apiGet(
+          `/api/map/search-places?q=${encodeURIComponent(q)}`,
+          { timeoutMs: 10000, skipAuth: true }
+        );
+        if (!cancelled) {
+          setSuggestions(Array.isArray(data?.results) ? data.results : []);
+          setOpen(true);
+        }
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [draft]);
+
+  const pickSuggestion = (item) => {
+    setDraft(item.formattedAddress || '');
+    onChange(item);
+    if (onCoordinatesChange) {
+      onCoordinatesChange({
+        latitude: item.latitude,
+        longitude: item.longitude,
+        address: item.formattedAddress,
+      });
+    }
+    setSuggestions([]);
+    setOpen(false);
+  };
+
+  return (
+    <div className="mt-2 space-y-4 relative">
+      <div>
+        <Input
+          placeholder={placeholder}
+          value={draft}
+          onChange={(e) => {
+            const next = e.target.value;
+            setDraft(next);
+            setStructuredFromDraft(next);
+            setOpen(true);
+          }}
+          onFocus={() => {
+            if (suggestions.length) setOpen(true);
+          }}
+          onBlur={() => {
+            blurTimer.current = setTimeout(() => setOpen(false), 180);
+          }}
+          className="mt-0 h-12 bg-[#141416] border-[#262629] rounded-xl"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          {searching ? 'Searching places…' : 'Start typing to see place suggestions'}
+        </p>
+        {open && suggestions.length > 0 ? (
+          <ul
+            className="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-auto rounded-xl border border-[#262629] bg-[#141416] shadow-lg"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            {suggestions.map((item) => (
+              <li key={`${item.latitude}-${item.longitude}-${item.formattedAddress}`}>
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2.5 text-sm text-gray-200 hover:bg-[#1c1c1f]"
+                  onClick={() => pickSuggestion(item)}
+                >
+                  {item.formattedAddress}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label className="text-gray-400 text-xs">Suburb</Label>
+          <Input
+            placeholder="e.g. Sandton"
+            value={structuredValue?.suburb || ''}
+            onChange={(e) => onChange({ ...(structuredValue || toStructuredValue('')), suburb: e.target.value })}
+            className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
+          />
+        </div>
+        <div>
+          <Label className="text-gray-400 text-xs">Province</Label>
+          <Input
+            placeholder="e.g. Gauteng"
+            value={structuredValue?.province || ''}
+            onChange={(e) => onChange({ ...(structuredValue || toStructuredValue('')), province: e.target.value })}
+            className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function GoogleAddressInput({
+  value,
+  onChange,
+  onCoordinatesChange,
+  placeholder = 'Enter address',
+  label = 'Full Address',
 }) {
   const inputRef = useRef(null);
   const [autocomplete, setAutocomplete] = useState(null);
-  const { status: mapsStatus, error: mapsError } = useGoogleMaps();
+  const { status: mapsStatus } = useGoogleMaps();
 
   const structuredValue = useMemo(() => toStructuredValue(value), [value]);
   const [draft, setDraft] = useState(structuredValue?.formattedAddress || '');
@@ -137,6 +264,8 @@ export default function GoogleAddressInput({
     }
   };
 
+  const useFallback = mapsStatus === 'error';
+
   return (
     <div>
       <Label className="text-gray-400 text-sm flex items-center gap-2">
@@ -144,51 +273,16 @@ export default function GoogleAddressInput({
         {label}
       </Label>
 
-      {mapsStatus === 'error' ? (
-        <div className="mt-2 space-y-4">
-          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200/90 text-sm">
-            Address suggestions are unavailable. Use “Use my current location” above, or type a place manually.
-            {mapsError?.message ? (
-              <div className="mt-1 text-xs text-amber-200/60">
-                {mapsError.message}
-              </div>
-            ) : null}
-          </div>
-
-          <div>
-            <Input
-              placeholder={placeholder}
-              value={draft}
-              onChange={(e) => {
-                const next = e.target.value;
-                setDraft(next);
-                setStructuredFromDraft(next);
-              }}
-              className="mt-0 h-12 bg-[#141416] border-[#262629] rounded-xl"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-gray-400 text-xs">Suburb</Label>
-              <Input
-                placeholder="e.g. Sandton"
-                value={structuredValue?.suburb || ''}
-                onChange={(e) => onChange({ ...(structuredValue || toStructuredValue('')), suburb: e.target.value })}
-                className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
-              />
-            </div>
-            <div>
-              <Label className="text-gray-400 text-xs">Province</Label>
-              <Input
-                placeholder="e.g. Gauteng"
-                value={structuredValue?.province || ''}
-                onChange={(e) => onChange({ ...(structuredValue || toStructuredValue('')), province: e.target.value })}
-                className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"
-              />
-            </div>
-          </div>
-        </div>
+      {useFallback ? (
+        <FallbackAddressInput
+          draft={draft}
+          setDraft={setDraft}
+          structuredValue={structuredValue}
+          onChange={onChange}
+          onCoordinatesChange={onCoordinatesChange}
+          placeholder={placeholder}
+          setStructuredFromDraft={setStructuredFromDraft}
+        />
       ) : (
         <>
           <Input
@@ -198,7 +292,6 @@ export default function GoogleAddressInput({
             onChange={(e) => {
               const nextDraft = e.target.value;
               setDraft(nextDraft);
-              // Update parent so registration isn't blocked even if the user doesn't select a suggestion.
               setStructuredFromDraft(nextDraft);
             }}
             className="mt-2 h-12 bg-[#141416] border-[#262629] rounded-xl"

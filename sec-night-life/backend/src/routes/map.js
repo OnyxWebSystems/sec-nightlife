@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { parseGeoQuery, distanceKm } from '../lib/geo.js';
+import { nominatimFetch, structuredFromNominatim } from '../lib/nominatim.js';
 
 const router = Router();
 
@@ -76,21 +77,7 @@ router.get('/reverse-geocode', optionalAuth, async (req, res, next) => {
     url.searchParams.set('zoom', '16');
     url.searchParams.set('addressdetails', '0');
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    let upstream;
-    try {
-      upstream = await fetch(url.toString(), {
-        signal: controller.signal,
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'SECNightlife/1.0 (https://secnightlife.com; support@secnightlife.com)',
-        },
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-
+    const upstream = await nominatimFetch(url);
     if (!upstream.ok) {
       return res.status(502).json({ error: 'Reverse geocode upstream failed' });
     }
@@ -103,6 +90,45 @@ router.get('/reverse-geocode', optionalAuth, async (req, res, next) => {
   } catch (err) {
     if (err?.name === 'AbortError') {
       return res.status(504).json({ error: 'Reverse geocode timed out' });
+    }
+    next(err);
+  }
+});
+
+/**
+ * Place search for address autocomplete when Google Maps is unavailable.
+ * Uses OpenStreetMap Nominatim (ZA-biased).
+ */
+router.get('/search-places', optionalAuth, async (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) {
+      return res.json({ results: [] });
+    }
+    if (q.length > 120) {
+      return res.status(400).json({ error: 'Query too long' });
+    }
+
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('q', q);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('addressdetails', '1');
+    url.searchParams.set('limit', '6');
+    url.searchParams.set('countrycodes', 'za');
+
+    const upstream = await nominatimFetch(url);
+    if (!upstream.ok) {
+      return res.status(502).json({ error: 'Place search upstream failed' });
+    }
+    const rows = await upstream.json();
+    const results = (Array.isArray(rows) ? rows : [])
+      .map((item) => structuredFromNominatim(item))
+      .filter((r) => r.formattedAddress);
+
+    return res.json({ results });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      return res.status(504).json({ error: 'Place search timed out' });
     }
     next(err);
   }
