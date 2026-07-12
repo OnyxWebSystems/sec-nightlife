@@ -1050,13 +1050,13 @@ export default function HostDashboard() {
         }
       }}
       imageSrc={createTablePhotoCrop.cropSrc || manageTablePhotoCrop.cropSrc}
-      title="Crop table photo"
+      title="Crop cover photo"
       onCropped={(file) => {
         if (createTablePhotoCrop.cropOpen) createTablePhotoCrop.handleCropped(file);
         else manageTablePhotoCrop.handleCropped(file);
       }}
-      outputFileName="hosted-table.jpg"
-      aspect={1}
+      outputFileName="hosted-table-cover.jpg"
+      {...COVER_CROP_DIALOG_PROPS}
     />
   );
 
