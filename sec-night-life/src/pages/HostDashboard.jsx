@@ -328,9 +328,22 @@ export default function HostDashboard() {
           reference: created.payment.reference,
           accessCode: created.payment.access_code,
           onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: created.payment.reference, payload, queryClient, showToasts: false });
-            queryClient.invalidateQueries(['host-tables']);
-            toast.success('Listing payment received — your listing is live.');
+            await completePaystackCheckout({
+              reference: created.payment.reference,
+              payload,
+              queryClient,
+              showToasts: false,
+              pollUntilFulfilled: true,
+              pollMaxMs: 45000,
+            });
+            queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+            queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] });
+            const asEvent = tableForm.listingSurface === 'EVENT';
+            toast.success(
+              asEvent
+                ? 'Listing is live — it appears under Upcoming Events on Home.'
+                : 'Listing is live — it appears under Available Tables on Home.',
+            );
             setShowTableModal(false);
             setSearchParams({}, { replace: true });
           },
@@ -383,6 +396,7 @@ export default function HostDashboard() {
             showToasts: false,
           });
           queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+          queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] });
           queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
           toast.success(`Listing boosted for ${days} day${days === 1 ? '' : 's'}`);
           setBoostTarget(null);
@@ -418,13 +432,21 @@ export default function HostDashboard() {
           reference: pay.reference,
           accessCode: pay.access_code,
           onSuccess: async (payload) => {
-            await completePaystackCheckout({ reference: pay.reference, payload, queryClient, showToasts: false });
+            await completePaystackCheckout({
+              reference: pay.reference,
+              payload,
+              queryClient,
+              showToasts: false,
+              pollUntilFulfilled: true,
+              pollMaxMs: 45000,
+            });
             queryClient.invalidateQueries({ queryKey: ['host-tables', user?.id] });
-            toast.success('Payment received — your table is live.');
+            queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] });
+            toast.success('Payment received — your listing is live on Home.');
           },
           onCancel: () => {
             toast.message('Checkout closed', {
-              description: 'Your table stays in draft until payment succeeds. You can retry from your tables list.',
+              description: 'Your listing stays in draft until payment succeeds. You can retry from My Tables/Events.',
             });
             queryClient.invalidateQueries({ queryKey: ['host-tables', user?.id] });
           },
@@ -1190,10 +1212,11 @@ export default function HostDashboard() {
         <TabsContent value="tables">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
             <div className="min-w-0">
-              <h2 className="font-semibold text-lg">My tables</h2>
+              <h2 className="font-semibold text-lg">My Tables/Events</h2>
               <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
-                Live and upcoming tables stay here. Day bookings move to Past after your booked window ends; SEC event
-                tables move after the event ends (or 24 hours after start for meet-ups).
+                Manage your own-place tables and events here after you pay to list them. They show on Home under
+                Available Tables or Upcoming Events, depending on what you chose when creating. Listings move to Past
+                after the date ends.
               </p>
             </div>
             <button
@@ -1201,7 +1224,7 @@ export default function HostDashboard() {
               onClick={() => setShowTableModal(true)}
               className="sec-btn sec-btn-primary text-sm py-2.5 px-3 inline-flex items-center gap-1 rounded-xl shrink-0 self-start sm:self-auto"
             >
-              <Plus size={16} /> Host table
+              <Plus size={16} /> Host table/event
             </button>
           </div>
           {loadT ? <Loader2 className="animate-spin mb-4" /> : null}

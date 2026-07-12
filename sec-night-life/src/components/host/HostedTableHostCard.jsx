@@ -90,7 +90,7 @@ export default function HostedTableHostCard({
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-[var(--sec-text-muted)]">
             <Camera className="w-8 h-8 opacity-40" />
-            <span className="text-xs">Add a table photo for group chat & discovery</span>
+            <span className="text-xs">Add a cover photo for group chat & discovery</span>
           </div>
         )}
         <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
@@ -127,7 +127,16 @@ export default function HostedTableHostCard({
           {t.windowEndsAt
             ? ` – ${format(typeof t.windowEndsAt === 'string' ? parseISO(t.windowEndsAt) : new Date(t.windowEndsAt), 'HH:mm')}`
             : ''}{' '}
-          · {!t.eventId ? 'Day booking' : t.tableType === 'IN_APP_EVENT' ? 'SEC event' : 'External meet-up'}
+          ·{' '}
+          {t.tableType === 'EXTERNAL_VENUE' && !t.eventId
+            ? t.listingSurface === 'EVENT'
+              ? 'Your own event'
+              : 'Your own table'
+            : !t.eventId
+              ? 'Day booking'
+              : t.tableType === 'IN_APP_EVENT'
+                ? 'SEC event'
+                : 'External meet-up'}
         </p>
 
         {t.tableDescription ? (

@@ -11,6 +11,10 @@ export function invalidatePostPaymentQueries(queryClient, { eventId } = {}) {
   queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
   queryClient.invalidateQueries({ queryKey: ['host-tickets'] });
   queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+  queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] });
+  queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+  queryClient.invalidateQueries({ queryKey: ['community-hosted-events'] });
+  queryClient.invalidateQueries({ queryKey: ['home-feed'] });
   queryClient.invalidateQueries({ queryKey: ['business-bookings'] });
   queryClient.invalidateQueries({ queryKey: ['biz-event-table-bookings'] });
   queryClient.invalidateQueries({ queryKey: ['venue-analytics'] });

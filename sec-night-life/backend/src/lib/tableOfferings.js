@@ -430,6 +430,9 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
       const isVenueDay = Boolean(linkedVt);
       const slotName = linkedVt?.tableName || t.tableName;
       const jf = t.hasJoiningFee ? Number(t.joiningFee || 0) : 0;
+      const externalTitle =
+        t.tableName ||
+        (host.username ? `@${host.username}` : host.fullName || 'Host');
       offerings.push({
         type: isVenueDay ? 'hosted_venue_day' : 'hosted_external',
         id: isVenueDay ? `hosted-venue-day-${t.id}` : `hosted-ext-${t.id}`,
@@ -438,12 +441,13 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
         hostedTableId: t.id,
         venueId: linkedVt?.venueId || null,
         venueTableId: t.venueTableId || null,
-        title: isVenueDay ? slotName : host.username ? `@${host.username}` : host.fullName || 'Host',
+        title: isVenueDay ? slotName : externalTitle,
         subtitle: isVenueDay
           ? linkedVt?.venue?.name || t.venueName || 'Venue'
-          : t.venueName || 'External meet-up',
+          : t.venueName || (host.username ? `@${host.username}` : 'Your own place'),
         imageUrl: t.photo || linkedVt?.venue?.coverImageUrl || null,
         city: linkedVt?.venue?.city || null,
+        listingSurface: t.listingSurface || 'TABLE',
         eventDate: t.eventDate,
         startTime: t.eventTime || linkedVt?.startTime || null,
         windowEndsAt: t.windowEndsAt || null,
@@ -502,6 +506,12 @@ export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
 
   return rows.map((t) => {
     const host = formatHost(t.host);
+    const addressBits = String(t.venueAddress || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const cityGuess =
+      addressBits.length >= 2 ? addressBits[addressBits.length - 2] : addressBits[0] || null;
     return {
       id: t.id,
       hostedTableId: t.id,
@@ -510,7 +520,7 @@ export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
       description: t.tableDescription || null,
       date: t.eventDate,
       startTime: t.eventTime,
-      city: null,
+      city: cityGuess,
       venueName: t.venueName,
       cover_image_url: t.photo || null,
       coverImageUrl: t.photo || null,

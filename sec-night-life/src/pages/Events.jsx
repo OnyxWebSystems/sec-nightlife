@@ -87,6 +87,35 @@ export default function Events() {
     queryFn: () => dataService.Event.filter({ status: 'published' }, 'date', 100),
   });
 
+  const { data: communityHostedRaw = [] } = useQuery({
+    queryKey: ['community-hosted-events'],
+    queryFn: async () => {
+      const res = await apiGet('/api/home/community-hosted-events?limit=24');
+      return res?.items || [];
+    },
+    staleTime: 60_000,
+  });
+
+  const communityHostedEvents = useMemo(
+    () =>
+      (communityHostedRaw || []).map((item) => ({
+        id: item.hostedTableId || item.id,
+        title: item.title,
+        date: item.date,
+        city: item.city || item.venueName || null,
+        cover_image_url: item.cover_image_url || item.coverImageUrl,
+        start_time: item.startTime || null,
+        isCommunityHosted: true,
+        hasJoiningFee: item.hasJoiningFee,
+        joiningFee: item.joiningFee,
+        venue_id: null,
+        ticket_tiers: item.hasJoiningFee && item.joiningFee != null
+          ? [{ price: Number(item.joiningFee) }]
+          : [],
+      })),
+    [communityHostedRaw],
+  );
+
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn: () => dataService.Venue.list(),
@@ -147,7 +176,12 @@ export default function Events() {
     return withIndex.map((x) => x.item);
   };
 
-  const filteredEventsRaw = events.filter((event) => {
+  const allEvents = useMemo(
+    () => [...events, ...communityHostedEvents],
+    [events, communityHostedEvents],
+  );
+
+  const filteredEventsRaw = allEvents.filter((event) => {
     const q = searchQuery.trim().toLowerCase();
     const venue = venuesMap[event.venue_id];
     const searchBlob = [
@@ -160,7 +194,10 @@ export default function Events() {
       .join(' ')
       .toLowerCase();
     const matchesSearch = !q || searchBlob.includes(q);
-    const matchesVenueType = filters.venueType === 'all' || venue?.venue_type === filters.venueType;
+    const matchesVenueType =
+      event.isCommunityHosted
+        ? filters.venueType === 'all'
+        : filters.venueType === 'all' || venue?.venue_type === filters.venueType;
     const eventCity = event.city || venue?.city || '';
     const matchesCity = filters.city === 'all' || eventCity === filters.city;
     const matchesPrice = matchesPriceRange(event, filters.priceRange);
@@ -187,7 +224,7 @@ export default function Events() {
   }).slice(0, 4);
 
   const cities = mergeCityOptions([
-    ...events.map((e) => e.city),
+    ...allEvents.map((e) => e.city),
     ...venues.map((v) => v.city),
   ]);
   const todayEvents = filteredEvents.filter(e => e.date && isToday(parseISO(e.date)));
@@ -453,7 +490,11 @@ function EventCard({ event }) {
 
   return (
     <Link
-      to={createPageUrl(`EventDetails?id=${event.id}`)}
+      to={
+        event.isCommunityHosted
+          ? createPageUrl(`TableDetails?id=${event.id}&source=hosted`)
+          : createPageUrl(`EventDetails?id=${event.id}`)
+      }
       className="sec-card"
       style={{ overflow: 'hidden', display: 'block', textDecoration: 'none' }}
     >

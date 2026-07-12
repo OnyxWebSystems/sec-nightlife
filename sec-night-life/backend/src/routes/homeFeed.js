@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
-import { buildTableOfferings } from '../lib/tableOfferings.js';
+import { buildTableOfferings, buildCommunityHostedEvents } from '../lib/tableOfferings.js';
 import { parseGeoQuery, distanceKm } from '../lib/geo.js';
 
 import { buildHomeBootstrap } from '../lib/homeBootstrap.js';
@@ -256,6 +256,17 @@ router.get('/table-offerings', optionalAuth, async (req, res, next) => {
       limit,
       sessionSeed: `${sessionSeed}|tables`,
     });
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Paid “Your own venue” listings marked as Events — Home / Events browse. */
+router.get('/community-hosted-events', optionalAuth, async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 30);
+    const items = await buildCommunityHostedEvents({ limit });
     res.json({ items });
   } catch (err) {
     next(err);

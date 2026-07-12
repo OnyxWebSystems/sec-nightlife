@@ -1961,6 +1961,18 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
     return Boolean(ticket);
   }
 
+  if (type === 'HOSTED_TABLE_EXTERNAL_LISTING') {
+    const htid = paidMeta.hosted_table_id || paidMeta.hostedTableId;
+    if (!htid) return false;
+    const ht = await prisma.hostedTable.findFirst({
+      where: { id: String(htid) },
+      select: { status: true, externalListingPaystackRef: true },
+    });
+    if (ht?.status === 'ACTIVE') return true;
+    const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+    return Boolean(ticket);
+  }
+
   return Boolean(paidMeta.side_effects_applied);
 }
 

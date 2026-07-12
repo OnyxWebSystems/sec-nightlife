@@ -432,7 +432,7 @@ export default function Home() {
         headers: { 'x-session-id': sessionId },
       });
     } catch (err) {
-      const [announcementsRes, tableRes, promoRes, followedRes] = await Promise.allSettled([
+      const [announcementsRes, tableRes, promoRes, followedRes, communityRes] = await Promise.allSettled([
         apiGet('/api/home/announcements'),
         apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}`, {
           headers: { 'x-session-id': sessionId },
@@ -442,6 +442,7 @@ export default function Home() {
           skipAuth: true,
         }),
         apiGet('/api/home/followed-promoters'),
+        apiGet('/api/home/community-hosted-events?limit=12'),
       ]);
       return {
         announcements:
@@ -458,7 +459,8 @@ export default function Home() {
           items:
             followedRes.status === 'fulfilled' ? followedRes.value?.items || [] : [],
         },
-        communityHostedEvents: [],
+        communityHostedEvents:
+          communityRes.status === 'fulfilled' ? communityRes.value?.items || [] : [],
       };
     }
   }, [sessionId, homeFeedScopeAll, homeFeedGeoKey, geoCoords, homeFeedCity, locPrefs?.radiusKm]);
@@ -606,13 +608,14 @@ export default function Home() {
       cover_image_url: item.cover_image_url || item.coverImageUrl,
       href: createPageUrl(`TableDetails?id=${item.hostedTableId || item.id}&source=hosted`),
     }));
-    return [...venueRows, ...communityRows]
-      .sort((a, b) => {
-        const ad = a.date ? new Date(a.date).getTime() : 0;
-        const bd = b.date ? new Date(b.date).getTime() : 0;
-        return ad - bd;
-      })
-      .slice(0, 8);
+    // Reserve Home slots for paid own-venue events so they are not crowded out.
+    const communityTake = communityRows.slice(0, 4);
+    const venueTake = venueRows.slice(0, Math.max(0, 8 - communityTake.length));
+    return [...venueTake, ...communityTake].sort((a, b) => {
+      const ad = a.date ? new Date(a.date).getTime() : 0;
+      const bd = b.date ? new Date(b.date).getTime() : 0;
+      return ad - bd;
+    });
   }, [upcomingEvents, communityHostedEvents]);
 
   const featuredEventIds = useMemo(() => featuredEvents.map((e) => e.id).join(','), [featuredEvents]);
@@ -909,7 +912,7 @@ export default function Home() {
                             );
                           })()}
                           {event.city && <span>{event.city}</span>}
-                          {event.kind === 'community_hosted' ? <span>Community</span> : null}
+                          {event.kind === 'community_hosted' ? <span>Hosted</span> : null}
                         </div>
                       </div>
                       <div className="sec-list-row__action">
