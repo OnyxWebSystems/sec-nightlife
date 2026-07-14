@@ -21,6 +21,8 @@ import SeatingPlanViewer from '@/components/seating/SeatingPlanViewer';
 import { normalizeGuestSeatingPlans } from '@/lib/seatingPlanUtils';
 import EventShareModal from '@/components/events/EventShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
+import HostedTableExperience from '@/components/tables/HostedTableExperience';
+import { isHostedEventListing } from '@/lib/hostedListingUrl';
 
 export default function EventDetails() {
   const navigate = useNavigate();
@@ -38,6 +40,10 @@ export default function EventDetails() {
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
   const refPromoterId = urlParams.get('ref');
+  const source = urlParams.get('source');
+  const isHostedSource = source === 'hosted';
+  const autoJoin = urlParams.get('join');
+  const checkoutParam = urlParams.get('checkout');
 
   useEffect(() => {
     loadUser();
@@ -74,10 +80,30 @@ export default function EventDetails() {
     }
   };
 
+  const { data: hostedTable, isLoading: hostedLoading } = useQuery({
+    queryKey: ['hosted-table-detail', eventId],
+    queryFn: async () => {
+      try {
+        return await apiGet(`/api/host/hosted-tables/${eventId}`);
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!eventId && isHostedSource,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!isHostedSource || !hostedTable?.kind) return;
+    if (!isHostedEventListing(hostedTable)) {
+      navigate(buildPageUrl('TableDetails', { id: eventId, source: 'hosted' }), { replace: true });
+    }
+  }, [isHostedSource, hostedTable, eventId, navigate]);
+
   const { data: event, isLoading } = useQuery({
     queryKey: ['event', eventId],
     queryFn: () => apiGet(`/api/events/${eventId}`),
-    enabled: !!eventId,
+    enabled: !!eventId && !isHostedSource,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
@@ -158,6 +184,39 @@ export default function EventDetails() {
       }
     },
   });
+
+  if (isHostedSource) {
+    if (hostedLoading) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
+          <div className="sec-spinner" />
+        </div>
+      );
+    }
+    if (hostedTable?.kind === 'hosted' && isHostedEventListing(hostedTable)) {
+      return (
+        <HostedTableExperience
+          tableId={eventId}
+          hostedTable={hostedTable}
+          user={user}
+          userProfile={userProfile}
+          autoOpenJoin={autoJoin === '1' || autoJoin === 'true'}
+          autoOpenCheckout={checkoutParam === '1'}
+          onBack={() => navigate(-1)}
+        />
+      );
+    }
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12 }}>Event not found</h2>
+          <Link to={createPageUrl('Events')} className="sec-link" style={{ color: 'var(--sec-text-secondary)' }}>
+            Browse Events
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

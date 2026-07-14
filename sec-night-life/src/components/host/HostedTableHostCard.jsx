@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import { hostedListingDetailsPath, hostedListingSettingsLabel } from '@/lib/hostedListingUrl';
 
 const TABLE_HOST_STATUS_BADGE = {
   DRAFT: { label: 'Awaiting listing payment', bg: 'var(--sec-warning-muted)', color: 'var(--sec-text-primary)' },
@@ -61,6 +62,8 @@ export default function HostedTableHostCard({
   isPast = false,
 }) {
   const [deleting, setDeleting] = useState(false);
+  const settingsLabel = hostedListingSettingsLabel(t);
+  const detailsHref = hostedListingDetailsPath(t);
   const badge = t.hostRefundStatus === 'REFUNDED'
     ? TABLE_HOST_STATUS_BADGE.REFUNDED
     : isPast
@@ -159,10 +162,11 @@ export default function HostedTableHostCard({
 
         <div className="flex flex-wrap gap-2 text-sm">
           <Link
-            to={createPageUrl(`TableDetails?id=${t.id}&source=hosted`)}
+            to={detailsHref}
             className="px-2.5 py-1 rounded-lg bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] hover:border-[var(--sec-accent-border)] transition-colors"
           >
-            Members {t.memberCount ?? t._count?.members ?? 0}
+            {t.listingSurface === 'EVENT' ? 'Going' : 'Members'}{' '}
+            {t.memberCount ?? t._count?.members ?? 0}
           </Link>
           {t.hostFeePaystackRef ? (
             <Link
@@ -233,7 +237,7 @@ export default function HostedTableHostCard({
                 className="text-xs sec-btn sec-btn-secondary py-2 px-3 rounded-xl"
                 onClick={() => onManageToggle?.(t)}
               >
-                {isManaging ? 'Close settings' : 'Table settings'}
+                {isManaging ? 'Close settings' : settingsLabel}
               </button>
               {(t.pendingJoinCount ?? 0) > 0 && (
                 <button
@@ -262,9 +266,12 @@ export default function HostedTableHostCard({
                 style={{ background: 'var(--sec-bg-card)', color: 'var(--sec-text-primary)' }}
               >
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this table?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    Delete this {t.listingSurface === 'EVENT' ? 'event' : 'table'}?
+                  </AlertDialogTitle>
                   <AlertDialogDescription style={{ color: 'var(--sec-text-muted)' }}>
-                    This removes the table from your dashboard. Group chat history may still exist for members who joined.
+                    This removes the listing from your dashboard. Group chat history may still exist for people who
+                    joined.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -274,7 +281,7 @@ export default function HostedTableHostCard({
                     onClick={handleDelete}
                     className="bg-[var(--sec-error)] text-white hover:opacity-90"
                   >
-                    {deleting ? 'Deleting…' : 'Delete table'}
+                    {deleting ? 'Deleting…' : t.listingSurface === 'EVENT' ? 'Delete event' : 'Delete table'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -290,7 +297,7 @@ export default function HostedTableHostCard({
 
         {!isPast && t.status === 'ACTIVE' && isManaging && (
           <div className="rounded-xl border border-[var(--sec-accent-border)] bg-[var(--sec-bg-elevated)] p-4 space-y-4">
-            <p className="text-sm font-semibold">Table settings</p>
+            <p className="text-sm font-semibold">{settingsLabel}</p>
             <div>
               <label className="text-xs text-[var(--sec-text-muted)] block mb-2">
                 Table photo — group chat avatar, browse cards, and Home when boosted

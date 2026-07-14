@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { createPageUrl, getPublicAppOrigin } from '@/utils';
+import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost, apiPatch, apiDelete } from '@/api/client';
@@ -424,12 +425,11 @@ export default function HostDashboard() {
   };
 
   const copyHostedTableLink = async (tableId) => {
-    const url = `${getPublicAppOrigin()}${createPageUrl(
-      `TableDetails?id=${encodeURIComponent(tableId)}&source=hosted`,
-    )}`;
+    const row = (tables || []).find((t) => t.id === tableId) || { id: tableId };
+    const url = `${getPublicAppOrigin()}${hostedListingDetailsPath(row)}`;
     try {
       await navigator.clipboard.writeText(url);
-      toast.success('Table link copied');
+      toast.success(row.listingSurface === 'EVENT' ? 'Event link copied' : 'Table link copied');
     } catch {
       toast.error('Could not copy link');
     }

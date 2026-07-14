@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet } from '@/api/client';
@@ -492,7 +493,7 @@ function EventCard({ event }) {
     <Link
       to={
         event.isCommunityHosted
-          ? createPageUrl(`TableDetails?id=${event.id}&source=hosted`)
+          ? hostedListingDetailsPath({ id: event.id, listingSurface: 'EVENT', isCommunityHosted: true })
           : createPageUrl(`EventDetails?id=${event.id}`)
       }
       className="sec-card"

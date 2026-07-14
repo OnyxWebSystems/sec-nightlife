@@ -182,12 +182,13 @@ export async function buildHomeBootstrap(req) {
   const userId = req.userId || null;
   const city = await resolveCity({ userId, overrideCity, scopeAll, geo });
 
-  const [announcements, tableItems, promotions, followedPromoters, communityHostedEvents] = await Promise.all([
+  // Isolate failures so promotions/geo errors cannot wipe Available Tables.
+  const [announcementsRes, tableRes, promotionsRes, followedRes, communityRes] = await Promise.allSettled([
     fetchAnnouncements(),
     buildTableOfferings({
       userId,
       limit: tableLimit,
-      sessionSeed: `${sessionId}|tables`,
+      sessionSeed: `${sessionId}|${new Date().toISOString().slice(0, 10)}|tables`,
     }),
     fetchPromotionsPage({ userId, city, scopeAll: scopeAll || !!geo, limit: promoLimit }),
     userId ? fetchFollowedPromoters(userId) : Promise.resolve([]),
@@ -195,10 +196,14 @@ export async function buildHomeBootstrap(req) {
   ]);
 
   return {
-    announcements,
-    tableOfferings: tableItems,
-    promotions: { results: promotions },
-    followedPromoters: { items: followedPromoters },
-    communityHostedEvents,
+    announcements: announcementsRes.status === 'fulfilled' ? announcementsRes.value : [],
+    tableOfferings: tableRes.status === 'fulfilled' ? tableRes.value : [],
+    promotions: {
+      results: promotionsRes.status === 'fulfilled' ? promotionsRes.value : [],
+    },
+    followedPromoters: {
+      items: followedRes.status === 'fulfilled' ? followedRes.value : [],
+    },
+    communityHostedEvents: communityRes.status === 'fulfilled' ? communityRes.value : [],
   };
 }

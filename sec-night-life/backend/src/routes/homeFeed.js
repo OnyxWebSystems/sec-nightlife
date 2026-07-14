@@ -325,7 +325,7 @@ router.get('/table-offerings', optionalAuth, async (req, res, next) => {
     const items = await buildTableOfferings({
       userId: req.userId || null,
       limit,
-      sessionSeed: `${sessionSeed}|tables`,
+      sessionSeed: `${sessionSeed}|${new Date().toISOString().slice(0, 10)}|tables`,
     });
     res.json({ items });
   } catch (err) {

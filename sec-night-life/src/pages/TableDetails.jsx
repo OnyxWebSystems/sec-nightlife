@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createPageUrl, getStoredPromoterRef } from '@/utils';
+import { createPageUrl, buildPageUrl, getStoredPromoterRef } from '@/utils';
+import { isHostedEventListing } from '@/lib/hostedListingUrl';
 import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
@@ -228,6 +229,13 @@ export default function TableDetails() {
         (isVenueSource && !venueLoading && !venueTable)),
     retry: false,
   });
+
+  useEffect(() => {
+    if (!hostedTable?.kind || hostedTable.kind !== 'hosted') return;
+    if (isHostedEventListing(hostedTable)) {
+      navigate(buildPageUrl('EventDetails', { id: tableId, source: 'hosted' }), { replace: true });
+    }
+  }, [hostedTable, tableId, navigate]);
 
   const hostedEventId =
     hostedTable?.event_id ||
@@ -833,6 +841,13 @@ export default function TableDetails() {
         );
       }
       if (hostedTable?.kind === 'hosted') {
+        if (isHostedEventListing(hostedTable)) {
+          return (
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
+              <div className="sec-spinner" />
+            </div>
+          );
+        }
         return (
           <HostedTableExperience
             tableId={tableId}
@@ -1362,6 +1377,13 @@ export default function TableDetails() {
   }
 
   if (!isVenueSource && !table && hostedTable?.kind === 'hosted') {
+    if (isHostedEventListing(hostedTable)) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--sec-bg-base)' }}>
+          <div className="sec-spinner" />
+        </div>
+      );
+    }
     return (
       <HostedTableExperience
         tableId={tableId}

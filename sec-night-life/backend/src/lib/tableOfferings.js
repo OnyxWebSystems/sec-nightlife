@@ -65,33 +65,37 @@ function isEventEndedForListing(event) {
   return false;
 }
 
+function hashString(input) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function seededRandom(seed) {
+  let state = (seed >>> 0) || 1;
+  return () => {
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+/**
+ * Weighted shuffle: boosted items get more weight but every item still rotates
+ * per session via a per-item seed (not a shared PRNG stream).
+ */
 function sortOfferings(list, friendIds, sessionSeed = 'default') {
-  const BOOSTED_WEIGHT = 3;
+  const BOOSTED_WEIGHT = 8;
   const ORGANIC_WEIGHT = 1;
 
-  function hashString(input) {
-    let h = 2166136261;
-    for (let i = 0; i < input.length; i += 1) {
-      h ^= input.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
-  }
-
-  function seededRandom(seed) {
-    let state = (seed >>> 0) || 1;
-    return () => {
-      state = (Math.imul(1664525, state) + 1013904223) >>> 0;
-      return state / 4294967296;
-    };
-  }
-
-  const rand = seededRandom(hashString(String(sessionSeed)));
   const prepared = list.map((item) => {
     const aFriend = item.hostUserId && friendIds.has(item.hostUserId);
     const weight = item.boosted ? BOOSTED_WEIGHT : ORGANIC_WEIGHT;
+    const rand = seededRandom(hashString(`${sessionSeed}|${item.id}`));
     const u = Math.max(rand(), Number.EPSILON);
-    const key = Math.pow(u, 1 / weight) + (aFriend ? 0.001 : 0);
+    const key = Math.pow(u, 1 / weight) + (aFriend ? 0.002 : 0);
     return { item, key };
   });
 
@@ -106,28 +110,46 @@ function sortOfferings(list, friendIds, sessionSeed = 'default') {
   return prepared.map((x) => x.item);
 }
 
-/** Round-robin across offering kinds so one type cannot monopolize the carousel. */
+/**
+ * Round-robin across kinds; within each kind alternate boosted/organic so
+ * boosted get more play without locking the carousel.
+ */
 function interleaveByType(sortedList, limit) {
   const buckets = {
-    venue_event: [],
-    venue_day: [],
-    hosted: [],
+    venue_event: { boosted: [], organic: [] },
+    venue_day: { boosted: [], organic: [] },
+    hosted: { boosted: [], organic: [] },
   };
   for (const item of sortedList) {
-    if (item.type === 'venue_event') buckets.venue_event.push(item);
-    else if (item.type === 'venue_day') buckets.venue_day.push(item);
-    else buckets.hosted.push(item);
+    const kind =
+      item.type === 'venue_event' ? 'venue_event' : item.type === 'venue_day' ? 'venue_day' : 'hosted';
+    if (item.boosted) buckets[kind].boosted.push(item);
+    else buckets[kind].organic.push(item);
   }
+
   const pattern = ['venue_event', 'hosted', 'venue_day', 'hosted', 'venue_event', 'venue_day'];
   const out = [];
   let pi = 0;
+  let pickCount = 0;
+  const takeFromKind = (kind) => {
+    const b = buckets[kind];
+    if (!b) return null;
+    // Prefer boosted ~2 of every 3 picks from a kind, but always leave room for organic.
+    const preferBoosted = pickCount % 3 !== 2;
+    if (preferBoosted && b.boosted.length) return b.boosted.shift();
+    if (b.organic.length) return b.organic.shift();
+    if (b.boosted.length) return b.boosted.shift();
+    return null;
+  };
+
   while (out.length < limit) {
     let progressed = false;
     for (let attempt = 0; attempt < pattern.length; attempt += 1) {
       const kind = pattern[(pi + attempt) % pattern.length];
-      const bucket = buckets[kind];
-      if (bucket.length) {
-        out.push(bucket.shift());
+      const next = takeFromKind(kind);
+      if (next) {
+        out.push(next);
+        pickCount += 1;
         pi = (pi + attempt + 1) % pattern.length;
         progressed = true;
         break;
@@ -143,7 +165,7 @@ function interleaveByType(sortedList, limit) {
  */
 export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'default' } = {}) {
   const cappedLimit = Math.min(Math.max(limit, 1), 60);
-  const rowCap = Math.min(cappedLimit * 8, 240);
+  const rowCap = Math.min(cappedLimit * 12, 360);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -160,26 +182,41 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
     isActive: true,
     status: { in: ['AVAILABLE', 'PARTIALLY_FILLED'] },
   };
-  const venueRows = await prisma.venueTable.findMany({
-    where: venueWhere,
-    take: rowCap,
-    orderBy: { updatedAt: 'desc' },
-    include: {
-      venue: { select: { id: true, name: true, city: true, coverImageUrl: true } },
-      event: {
-        select: {
-          id: true,
-          title: true,
-          date: true,
-          startTime: true,
-          endsAt: true,
-          city: true,
-          coverImageUrl: true,
-          status: true,
-        },
+  const venueInclude = {
+    venue: { select: { id: true, name: true, city: true, coverImageUrl: true } },
+    event: {
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        startTime: true,
+        endsAt: true,
+        city: true,
+        coverImageUrl: true,
+        status: true,
       },
     },
-  });
+  };
+  // Merge boosted + recently updated so open tables are not starved by rowCap sampling.
+  const [boostedVenueRows, recentVenueRows] = await Promise.all([
+    prisma.venueTable.findMany({
+      where: { ...venueWhere, boosted: true },
+      take: 120,
+      orderBy: [{ boostExpiresAt: 'desc' }, { updatedAt: 'desc' }],
+      include: venueInclude,
+    }),
+    prisma.venueTable.findMany({
+      where: venueWhere,
+      take: rowCap,
+      orderBy: { updatedAt: 'desc' },
+      include: venueInclude,
+    }),
+  ]);
+  const venueById = new Map();
+  for (const row of [...boostedVenueRows, ...recentVenueRows]) {
+    if (!venueById.has(row.id)) venueById.set(row.id, row);
+  }
+  const venueRows = [...venueById.values()];
   const openVenueRows = venueRows.filter((t) => {
     if (t.currentOccupancy >= t.guestCapacity) return false;
     // Day listings: only current/upcoming service windows (not every active row forever).

@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { MapPin, Star, Users } from 'lucide-react';
 import { createPageUrl } from '@/utils';
+import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
 
 export default function HostedTableCard({
   table,
@@ -124,7 +125,7 @@ export default function HostedTableCard({
             {joinLabel}
           </button>
           <Link
-            to={createPageUrl(`TableDetails?id=${table.id}&source=hosted`)}
+            to={hostedListingDetailsPath(table)}
             className={`sec-btn sec-btn-secondary ${isPageLayout ? 'sec-btn-lg sec-btn-full' : 'sec-btn-md'}`}
             style={{
               flex: isPageLayout ? undefined : 1,

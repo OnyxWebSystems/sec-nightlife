@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPost } from '@/api/client';
 import { useAuth, hasStoredAuthTokens } from '@/lib/AuthContext';
@@ -493,14 +494,34 @@ export default function Home() {
     enabled: !!user?.id,
   });
 
-  const tableOfferings = useMemo(() => {
+  const bootstrapTableItems = useMemo(() => {
     const items = homeBootstrap?.tableOfferings || [];
     return items.filter((o) => {
       if (o.type !== 'venue_event') return true;
       return !isEventEnded({ date: o.eventDate, ends_at: o.eventEndsAt, endsAt: o.eventEndsAt });
     });
   }, [homeBootstrap?.tableOfferings]);
-  const tablesLoading = bootstrapLoading;
+
+  // Retry Available Tables if bootstrap returned empty (partial failure / race).
+  const { data: fallbackTableOfferings, isLoading: fallbackTablesLoading } = useQuery({
+    queryKey: ['home-table-offerings', sessionId],
+    queryFn: () =>
+      apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}`, {
+        headers: { 'x-session-id': sessionId },
+      }),
+    enabled: !!user?.id && !bootstrapLoading && bootstrapTableItems.length === 0,
+    staleTime: listStale,
+  });
+
+  const tableOfferings = useMemo(() => {
+    if (bootstrapTableItems.length > 0) return bootstrapTableItems;
+    const items = fallbackTableOfferings?.items || [];
+    return items.filter((o) => {
+      if (o.type !== 'venue_event') return true;
+      return !isEventEnded({ date: o.eventDate, ends_at: o.eventEndsAt, endsAt: o.eventEndsAt });
+    });
+  }, [bootstrapTableItems, fallbackTableOfferings?.items]);
+  const tablesLoading = bootstrapLoading || (bootstrapTableItems.length === 0 && fallbackTablesLoading);
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -606,7 +627,11 @@ export default function Home() {
       date: item.date,
       city: item.venueName || item.city || null,
       cover_image_url: item.cover_image_url || item.coverImageUrl,
-      href: createPageUrl(`TableDetails?id=${item.hostedTableId || item.id}&source=hosted`),
+      href: hostedListingDetailsPath({
+        id: item.hostedTableId || item.id,
+        listingSurface: 'EVENT',
+        isCommunityHosted: true,
+      }),
     }));
     // Reserve Home slots for paid own-venue events so they are not crowded out.
     const communityTake = communityRows.slice(0, 4);
@@ -862,7 +887,7 @@ export default function Home() {
                 </div>
                 <p style={{ color: 'var(--sec-text-muted)', fontSize: 14, marginBottom: 20 }}>No open tables right now</p>
                 <Link to={`${createPageUrl('HostDashboard')}?create=table`} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', padding: '10px 24px', textDecoration: 'none' }}>
-                  Host a Table
+                  Host table/event
                 </Link>
               </div>
             )}
@@ -1021,9 +1046,11 @@ export default function Home() {
                   )}
                   {row.kind === 'community_event' && (
                     <Link
-                      to={createPageUrl(
-                        `TableDetails?id=${row.data.hostedTableId || row.data.id}&source=hosted`,
-                      )}
+                      to={hostedListingDetailsPath({
+                        id: row.data.hostedTableId || row.data.id,
+                        listingSurface: 'EVENT',
+                        isCommunityHosted: true,
+                      })}
                       className="sec-card"
                       style={{
                         display: 'flex',

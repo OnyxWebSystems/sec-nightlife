@@ -1,4 +1,5 @@
 import { createPageUrl } from '@/utils';
+import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
 
 /**
  * Profile / ticket history link to the correct table or event detail page.
@@ -16,9 +17,13 @@ export function ticketDetailHrefFromTicket(ticket) {
 
   if (
     ticket.hosted_table_id &&
-    (kind === 'HOSTED_TABLE_JOIN' || kind === 'TABLE_HOST_FEE' || kind === 'VENUE_TABLE_JOIN')
+    (kind === 'HOSTED_TABLE_JOIN' || kind === 'TABLE_HOST_FEE' || kind === 'VENUE_TABLE_JOIN' || kind === 'EXTERNAL_HOSTED_LISTING')
   ) {
-    return createPageUrl(`TableDetails?id=${ticket.hosted_table_id}&source=hosted`);
+    return hostedListingDetailsPath({
+      id: ticket.hosted_table_id,
+      listingSurface: ticket.listing_surface || ticket.listingSurface,
+      is_community_event: ticket.is_community_event,
+    });
   }
 
   if (kind === 'VENUE_TABLE_JOIN' && ticket.venue_table_id) {
@@ -26,7 +31,11 @@ export function ticketDetailHrefFromTicket(ticket) {
   }
 
   if (ticket.hosted_table_id) {
-    return createPageUrl(`TableDetails?id=${ticket.hosted_table_id}&source=hosted`);
+    return hostedListingDetailsPath({
+      id: ticket.hosted_table_id,
+      listingSurface: ticket.listing_surface || ticket.listingSurface,
+      is_community_event: ticket.is_community_event,
+    });
   }
   if (ticket.venue_table_id) {
     return createPageUrl(`TableDetails?id=${ticket.venue_table_id}&source=venue`);
@@ -39,7 +48,11 @@ export function ticketDetailHrefFromTicket(ticket) {
 export function tableHistoryDetailHref(row) {
   if (!row) return null;
   if (row.hostedTableId) {
-    return createPageUrl(`TableDetails?id=${row.hostedTableId}&source=hosted`);
+    return hostedListingDetailsPath({
+      id: row.hostedTableId,
+      listingSurface: row.listingSurface || row.listing_surface,
+      is_community_event: row.is_community_event || row.isCommunityHosted,
+    });
   }
   if (row.venueTableId) {
     return createPageUrl(`TableDetails?id=${row.venueTableId}&source=venue`);

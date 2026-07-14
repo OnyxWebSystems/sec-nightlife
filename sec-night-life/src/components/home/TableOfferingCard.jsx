@@ -5,6 +5,7 @@ import { createPageUrl } from '@/utils';
 import { format, parseISO, isToday, isTomorrow, isValid } from 'date-fns';
 import { MapPin, Users, Sparkles, Crown } from 'lucide-react';
 import { getEventImage, NIGHTLIFE_PLACEHOLDERS } from '@/lib/placeholders';
+import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
 
 function offeringHref(offering) {
   if (!offering) return createPageUrl('Tables');
@@ -22,7 +23,12 @@ function offeringHref(offering) {
   }
   if (offering.type === 'hosted_external' && offering.hostUserId) {
     const first = offering.hostedTableId || offering.tables?.[0]?.id;
-    if (first) return createPageUrl(`TableDetails?id=${first}&source=hosted`);
+    if (first) {
+      return hostedListingDetailsPath({
+        id: first,
+        listingSurface: offering.listingSurface || 'TABLE',
+      });
+    }
     return createPageUrl(`EventHostTables?hostUserId=${offering.hostUserId}`);
   }
   return createPageUrl('Tables');
