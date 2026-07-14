@@ -71,6 +71,18 @@ export function visibleUntilAfterParty(party) {
 }
 
 export function visibleUntilAfterHostedTable(t) {
+  if (t?.windowEndsAt) {
+    const w = t.windowEndsAt instanceof Date ? t.windowEndsAt : new Date(t.windowEndsAt);
+    if (!Number.isNaN(w.getTime())) return w;
+  }
+  if (t?.tableType === 'EXTERNAL_VENUE' && !t?.venueTableId) {
+    const endDate = t.eventEndDate || t.eventDate;
+    const endTime = t.eventEndTime || '23:59';
+    if (endDate && /^\d{2}:\d{2}$/.test(String(endTime))) {
+      const end = parseWindowInstant(endDate, endTime);
+      if (end) return end;
+    }
+  }
   const d = t.eventDate instanceof Date ? t.eventDate : new Date(t.eventDate);
   const end = new Date(d.getTime());
   const parts = String(t.eventTime || '').split(':');

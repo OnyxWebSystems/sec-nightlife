@@ -137,6 +137,28 @@ router.get('/expire-day-table-sessions', async (req, res, next) => {
   }
 });
 
+/** Close own-place external listings after their user-set end datetime. */
+router.get('/expire-external-listings', async (req, res, next) => {
+  try {
+    if (!isCronAuthorized(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const now = new Date();
+    const result = await prisma.hostedTable.updateMany({
+      where: {
+        status: { in: ['ACTIVE', 'FULL'] },
+        tableType: 'EXTERNAL_VENUE',
+        venueTableId: null,
+        windowEndsAt: { lte: now },
+      },
+      data: { status: 'CLOSED' },
+    });
+    res.json({ expired: result.count });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** T-3h reminders for users who saved venue events as interested (deduped per user+event). */
 router.get('/event-interest-reminders', async (req, res, next) => {
   try {

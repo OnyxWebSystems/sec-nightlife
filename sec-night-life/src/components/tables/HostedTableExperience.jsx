@@ -131,6 +131,16 @@ export default function HostedTableExperience({
     tableStatus === 'ACTIVE' && spotsRemaining > 0 && !isPendingMember;
   const venueMenu = hostedTable.venue_menu || [];
   const goingMembers = (hostedTable.members || []).filter((m) => m.status === 'GOING');
+  const isCommunityEvent =
+    Boolean(hostedTable.is_community_event) ||
+    (hostedTable.tableType === 'EXTERNAL_VENUE' &&
+      hostedTable.listingSurface === 'EVENT' &&
+      !hostedTable.eventId);
+  const goingCount = Number(stats.member_count ?? goingMembers.length) || 0;
+  const joiningFeeZar =
+    hostedTable.hasJoiningFee && Number(hostedTable.joiningFee || joinZ || 0) > 0
+      ? Number(hostedTable.joiningFee || joinZ)
+      : 0;
   const mapQuery = hostedTable.resolvedAddress || hostedTable.venueAddress || hostedTable.venueName || '';
 
   const completeJoinPayment = async (menuPayload = []) => {
@@ -396,9 +406,12 @@ export default function HostedTableExperience({
             border: '1px solid var(--sec-accent-border)',
           }}
         >
-          <StatPill icon={<Users size={14} />} label={`${stats.spots_remaining ?? hostedTable.spotsRemaining ?? 0} spots left`} />
-          <StatPill icon={<Users size={14} />} label={`${stats.member_count ?? goingMembers.length} members`} />
-          {(stats.pending_invite_count ?? 0) > 0 && (
+          <StatPill icon={<Users size={14} />} label={`${spotsRemaining} spots left`} />
+          <StatPill
+            icon={<Users size={14} />}
+            label={isCommunityEvent ? `${goingCount} going` : `${goingCount} members`}
+          />
+          {!isCommunityEvent && (stats.pending_invite_count ?? 0) > 0 && (
             <StatPill label={`${stats.pending_invite_count} pending`} muted />
           )}
         </div>
@@ -427,76 +440,104 @@ export default function HostedTableExperience({
           </div>
         )}
 
-        <div style={cardStyle}>
-          <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 10 }}>
-            Guests at this table
-          </p>
-          {goingMembers.length === 0 ? (
-            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No guests yet</p>
-          ) : (
-            goingMembers.map((m) => (
-              <Link
-                key={m.userId}
-                to={profileHref(m.user?.id || m.userId) || '#'}
-                onClick={(e) => { if (!m.user?.id && !m.userId) e.preventDefault(); }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '8px 0',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  borderBottom: '1px solid rgba(255,255,255,0.04)',
-                }}
-              >
-                <MemberAvatar user={m.user} />
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontWeight: 500, fontSize: 14 }}>{m.user?.full_name || m.user?.username || 'Guest'}</p>
-                  {m.user?.username && (
-                    <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>@{m.user.username}</p>
-                  )}
-                </div>
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    padding: '3px 8px',
-                    borderRadius: 999,
-                    background: m.role === 'HOST' ? 'var(--sec-accent-muted)' : 'rgba(255,255,255,0.06)',
-                    color: m.role === 'HOST' ? 'var(--sec-accent)' : 'var(--sec-text-muted)',
-                  }}
-                >
-                  {m.role === 'HOST' ? 'Host' : 'Guest'}
-                </span>
-              </Link>
-            ))
-          )}
-        </div>
-
-        <div style={cardStyle}>
-          <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 12 }}>
-            Table orders
-          </p>
-          {hostedTable.host_orders && (
-            <div style={{ marginBottom: 14 }}>
-              <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-accent)' }}>Host</p>
-              <MenuLinesBlock
-                lines={hostedTable.host_orders.menuLines}
-                minSpendZar={hostedTable.host_orders.minSpendZar}
-              />
+        {isCommunityEvent && joiningFeeZar > 0 ? (
+          <div
+            style={{
+              ...cardStyle,
+              background:
+                'linear-gradient(135deg, rgba(192,192,192,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(192,192,192,0.08) 100%)',
+              border: '1px solid var(--sec-accent-border)',
+            }}
+          >
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8 }}>
+              Joining fee
+            </p>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--sec-text-primary)' }}>
+                R{joiningFeeZar.toFixed(0)}
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>per guest</span>
             </div>
-          )}
-          {goingMembers
-            .filter((m) => m.role !== 'HOST')
-            .map((m) => (
-              <div key={m.userId} style={{ marginBottom: 12 }}>
-                <p style={{ fontWeight: 600, fontSize: 14 }}>{m.user?.full_name || m.user?.username || 'Guest'}</p>
-                <MenuLinesBlock lines={m.menuLines} />
-              </div>
-            ))}
-        </div>
+            <p style={{ fontSize: 12, color: 'var(--sec-text-secondary)', marginTop: 8, lineHeight: 1.45 }}>
+              Pay to join this event. Spots update as guests join or leave.
+            </p>
+          </div>
+        ) : null}
+
+        {!isCommunityEvent ? (
+          <>
+            <div style={cardStyle}>
+              <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 10 }}>
+                Guests at this table
+              </p>
+              {goingMembers.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>No guests yet</p>
+              ) : (
+                goingMembers.map((m) => (
+                  <Link
+                    key={m.userId}
+                    to={profileHref(m.user?.id || m.userId) || '#'}
+                    onClick={(e) => { if (!m.user?.id && !m.userId) e.preventDefault(); }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '8px 0',
+                      textDecoration: 'none',
+                      color: 'inherit',
+                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    }}
+                  >
+                    <MemberAvatar user={m.user} />
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontWeight: 500, fontSize: 14 }}>{m.user?.full_name || m.user?.username || 'Guest'}</p>
+                      {m.user?.username && (
+                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>@{m.user.username}</p>
+                      )}
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.06em',
+                        textTransform: 'uppercase',
+                        padding: '3px 8px',
+                        borderRadius: 999,
+                        background: m.role === 'HOST' ? 'var(--sec-accent-muted)' : 'rgba(255,255,255,0.06)',
+                        color: m.role === 'HOST' ? 'var(--sec-accent)' : 'var(--sec-text-muted)',
+                      }}
+                    >
+                      {m.role === 'HOST' ? 'Host' : 'Guest'}
+                    </span>
+                  </Link>
+                ))
+              )}
+            </div>
+
+            <div style={cardStyle}>
+              <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 12 }}>
+                Table orders
+              </p>
+              {hostedTable.host_orders && (
+                <div style={{ marginBottom: 14 }}>
+                  <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-accent)' }}>Host</p>
+                  <MenuLinesBlock
+                    lines={hostedTable.host_orders.menuLines}
+                    minSpendZar={hostedTable.host_orders.minSpendZar}
+                  />
+                </div>
+              )}
+              {goingMembers
+                .filter((m) => m.role !== 'HOST')
+                .map((m) => (
+                  <div key={m.userId} style={{ marginBottom: 12 }}>
+                    <p style={{ fontWeight: 600, fontSize: 14 }}>{m.user?.full_name || m.user?.username || 'Guest'}</p>
+                    <MenuLinesBlock lines={m.menuLines} />
+                  </div>
+                ))}
+            </div>
+          </>
+        ) : null}
 
         <div style={{ ...cardStyle, opacity: 0.85 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -517,7 +558,7 @@ export default function HostedTableExperience({
               )}
             </div>
           </div>
-          {(hostedTable.hosting_tier_name || hostedTable.hosting_category) && (
+          {!isCommunityEvent && (hostedTable.hosting_tier_name || hostedTable.hosting_category) && (
             <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 12 }}>
               {[hostedTable.hosting_category, hostedTable.hosting_tier_name].filter(Boolean).join(' · ')}
             </p>

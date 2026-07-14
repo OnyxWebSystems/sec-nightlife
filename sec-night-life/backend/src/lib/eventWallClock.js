@@ -4,6 +4,7 @@
  */
 import { eventStartsAtFromEvent, eventStartsAtFromHostedTable, eventEndsAtFromEvent } from './ticketHelpers.js';
 import { isDayVenueHostedTable, dayBookingHideAfterUtc, formatYmdSast } from './dayBookingWindows.js';
+import { externalListingEndsAt } from './externalListingSchedule.js';
 
 const MS_24H = 24 * 60 * 60 * 1000;
 
@@ -31,10 +32,15 @@ export function isExternalMeetupInFuture(eventDate, eventTime, now = new Date())
   return s.getTime() > now.getTime();
 }
 
-/** When this hosted table should drop off the host's "My tables" list (event end, or legacy start + 24h). */
+/** When this hosted table should drop off the host's "My tables" list. */
 export function hostDashboardHideAfterUtc(hostedRow, eventRow, now = new Date()) {
   if (isDayVenueHostedTable(hostedRow)) {
     return dayBookingHideAfterUtc(hostedRow);
+  }
+
+  // Own-place listings: user-set end datetime (not start + 24h).
+  if (hostedRow?.tableType === 'EXTERNAL_VENUE' && !hostedRow?.venueTableId) {
+    return externalListingEndsAt(hostedRow);
   }
 
   if (hostedRow?.windowEndsAt) {

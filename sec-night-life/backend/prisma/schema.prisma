@@ -1724,6 +1724,10 @@ model HostedTable {
   venueAddress     String?           @map("venue_address")
   eventDate                   DateTime                @map("event_date")
   eventTime                   String                  @map("event_time")
+  /// Optional end calendar date for EXTERNAL_VENUE own-place listings (defaults to eventDate).
+  eventEndDate                DateTime?               @map("event_end_date")
+  /// Optional end clock HH:mm (SAST) for EXTERNAL_VENUE own-place listings.
+  eventEndTime                String?                 @map("event_end_time")
   joiningFee                  Float?                  @map("joining_fee")
   hasJoiningFee               Boolean                 @default(false) @map("has_joining_fee")
   guestGenderPreference       GuestGenderPreference   @default(ANY) @map("guest_gender_preference")
@@ -1749,7 +1753,7 @@ model HostedTable {
   hostFeePaystackRef     String?             @unique @map("host_fee_paystack_ref")
   /// Day-booking inventory slot this session occupies (null for event/external tables).
   venueTableId           String?             @map("venue_table_id")
-  /// Canonical end instant for day-booking session expiry (SAST-aligned).
+  /// Canonical end instant for day-booking / own-place listing expiry (SAST-aligned).
   windowEndsAt           DateTime?           @map("window_ends_at")
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")

@@ -124,8 +124,22 @@ export default function HostedTableHostCard({
 
         <p className="text-xs text-[var(--sec-text-muted)]">
           {format(parseISO(t.eventDate), 'EEE d MMM')} · {t.eventTime}
-          {t.windowEndsAt
-            ? ` – ${format(typeof t.windowEndsAt === 'string' ? parseISO(t.windowEndsAt) : new Date(t.windowEndsAt), 'HH:mm')}`
+          {t.eventEndDate || t.eventEndTime || t.windowEndsAt
+            ? ` → ${
+                t.eventEndDate
+                  ? format(parseISO(t.eventEndDate), 'EEE d MMM')
+                  : t.windowEndsAt
+                    ? format(
+                        typeof t.windowEndsAt === 'string' ? parseISO(t.windowEndsAt) : new Date(t.windowEndsAt),
+                        'EEE d MMM',
+                      )
+                    : ''
+              } · ${t.eventEndTime || (t.windowEndsAt
+                ? format(
+                    typeof t.windowEndsAt === 'string' ? parseISO(t.windowEndsAt) : new Date(t.windowEndsAt),
+                    'HH:mm',
+                  )
+                : '')}`
             : ''}{' '}
           ·{' '}
           {t.tableType === 'EXTERNAL_VENUE' && !t.eventId
@@ -286,17 +300,63 @@ export default function HostedTableHostCard({
                 <p className="text-[11px] text-[var(--sec-text-muted)] mt-2">Save settings to apply a new photo.</p>
               ) : null}
             </div>
+            <div>
+              <label className="text-xs text-[var(--sec-text-muted)] block mb-1">Name (updates group chat)</label>
+              <Input
+                value={rulesForm.tableName}
+                onChange={(e) => setRulesForm((f) => ({ ...f, tableName: e.target.value }))}
+                className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+                maxLength={60}
+              />
+            </div>
+            {t.tableType === 'EXTERNAL_VENUE' && !t.venueTableId && !t.eventId ? (
+              <div className="space-y-3">
+                <p className="text-xs text-[var(--sec-text-muted)]">
+                  Edit start and end schedule. QR codes expire at the end date and time.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-[var(--sec-text-muted)] block mb-1">Start date</label>
+                    <Input
+                      type="date"
+                      value={rulesForm.eventDate || ''}
+                      onChange={(e) => setRulesForm((f) => ({ ...f, eventDate: e.target.value }))}
+                      className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-[var(--sec-text-muted)] block mb-1">Start time</label>
+                    <Input
+                      type="time"
+                      value={rulesForm.eventTime || ''}
+                      onChange={(e) => setRulesForm((f) => ({ ...f, eventTime: e.target.value }))}
+                      className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-[var(--sec-text-muted)] block mb-1">End date</label>
+                    <Input
+                      type="date"
+                      value={rulesForm.eventEndDate || ''}
+                      min={rulesForm.eventDate || undefined}
+                      onChange={(e) => setRulesForm((f) => ({ ...f, eventEndDate: e.target.value }))}
+                      className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-[var(--sec-text-muted)] block mb-1">End time</label>
+                    <Input
+                      type="time"
+                      value={rulesForm.eventEndTime || ''}
+                      onChange={(e) => setRulesForm((f) => ({ ...f, eventEndTime: e.target.value }))}
+                      className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {t.tableType === 'IN_APP_EVENT' && (
               <>
-                <div>
-                  <label className="text-xs text-[var(--sec-text-muted)] block mb-1">Table name (updates group chat)</label>
-                  <Input
-                    value={rulesForm.tableName}
-                    onChange={(e) => setRulesForm((f) => ({ ...f, tableName: e.target.value }))}
-                    className="bg-[var(--sec-bg-card)] border-[var(--sec-border)]"
-                    maxLength={60}
-                  />
-                </div>
                 <label className="flex items-start gap-2 text-sm cursor-pointer">
                   <input
                     type="checkbox"
@@ -349,11 +409,11 @@ export default function HostedTableHostCard({
 
         {!isPast && !t.boosted && t.status === 'ACTIVE' ? (
           <button type="button" className="sec-btn sec-btn-secondary text-xs w-full py-2.5 rounded-xl" onClick={() => onBoost?.(t.id)}>
-            Boost on Home (R150/day)
+            Boost on Home & Discover (R150/day)
           </button>
         ) : t.boosted ? (
           <p className="text-xs text-center" style={{ color: 'var(--sec-accent-bright)' }}>
-            Showing on Home feed with your table photo
+            Promoted on Home and For You Discover
           </p>
         ) : null}
       </div>

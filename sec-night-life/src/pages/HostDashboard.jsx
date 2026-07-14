@@ -71,6 +71,8 @@ export default function HostDashboard() {
     longitude: null,
     eventDate: '',
     eventTime: '21:00',
+    eventEndDate: '',
+    eventEndTime: '23:59',
     guestQuantity: 4,
     hostingCategory: 'GENERAL',
     hostingTierIndex: 0,
@@ -98,6 +100,10 @@ export default function HostDashboard() {
     joiningFee: '',
     photo: '',
     photoPublicId: '',
+    eventDate: '',
+    eventTime: '',
+    eventEndDate: '',
+    eventEndTime: '',
   });
   const [rulesPhotoPreview, setRulesPhotoPreview] = useState('');
   const [savingRules, setSavingRules] = useState(false);
@@ -302,6 +308,11 @@ export default function HostDashboard() {
         setSaving(false);
         return;
       }
+      if (!tableForm.eventEndDate || !tableForm.eventEndTime) {
+        toast.error('Add an end date and end time for your listing');
+        setSaving(false);
+        return;
+      }
       const created = await apiPost('/api/host/tables', {
         tableType: 'EXTERNAL_VENUE',
         listingSurface: tableForm.listingSurface === 'EVENT' ? 'EVENT' : 'TABLE',
@@ -312,6 +323,8 @@ export default function HostDashboard() {
         venueAddress: formatVenueAddressForSubmit(tableForm),
         eventDate: new Date(tableForm.eventDate).toISOString(),
         eventTime: tableForm.eventTime,
+        eventEndDate: new Date(tableForm.eventEndDate).toISOString(),
+        eventEndTime: tableForm.eventEndTime,
         guestQuantity: tableForm.guestQuantity,
         hasJoiningFee: tableForm.hasJoiningFee,
         joiningFee: tableForm.hasJoiningFee ? Number(tableForm.joiningFee) : null,
@@ -507,6 +520,12 @@ export default function HostDashboard() {
           setManageTableId(opening ? row.id : null);
           setRulesPhotoPreview('');
           if (opening) {
+            const startYmd = row.eventDate
+              ? String(row.eventDate).slice(0, 10)
+              : '';
+            const endYmd = row.eventEndDate
+              ? String(row.eventEndDate).slice(0, 10)
+              : startYmd;
             setRulesForm({
               tableName: row.tableName || '',
               isPublic: row.isPublic !== false,
@@ -514,6 +533,10 @@ export default function HostDashboard() {
               joiningFee: row.joiningFee ? String(row.joiningFee) : '',
               photo: row.photo || '',
               photoPublicId: row.photoPublicId || '',
+              eventDate: startYmd,
+              eventTime: row.eventTime || '21:00',
+              eventEndDate: endYmd,
+              eventEndTime: row.eventEndTime || '23:59',
             });
           }
         }}
@@ -525,24 +548,33 @@ export default function HostDashboard() {
           try {
             const payload = {
               ...(rulesForm.photo ? { photo: rulesForm.photo, photoPublicId: rulesForm.photoPublicId || null } : {}),
+              tableName: rulesForm.tableName.trim() || row.tableName,
             };
             if (row.tableType === 'IN_APP_EVENT') {
               Object.assign(payload, {
-                tableName: rulesForm.tableName.trim(),
                 isPublic: rulesForm.isPublic,
                 hasJoiningFee: rulesForm.hasJoiningFee,
                 joiningFee: rulesForm.hasJoiningFee ? Number(rulesForm.joiningFee) || 10 : null,
               });
-            } else if (rulesForm.photo) {
-              Object.assign(payload, { tableName: rulesForm.tableName.trim() || row.tableName });
+            } else if (row.tableType === 'EXTERNAL_VENUE' && !row.venueTableId && !row.eventId) {
+              Object.assign(payload, {
+                eventDate: rulesForm.eventDate ? new Date(rulesForm.eventDate).toISOString() : undefined,
+                eventTime: rulesForm.eventTime,
+                eventEndDate: rulesForm.eventEndDate
+                  ? new Date(rulesForm.eventEndDate).toISOString()
+                  : undefined,
+                eventEndTime: rulesForm.eventEndTime,
+              });
             }
             await apiPatch(`/api/host/tables/${row.id}`, payload);
-            toast.success('Table settings updated');
+            toast.success('Listing settings updated');
             setRulesPhotoPreview('');
             queryClient.invalidateQueries({ queryKey: ['host-tables'] });
+            queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] });
             queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+            queryClient.invalidateQueries({ queryKey: ['home-feed'] });
           } catch (err) {
-            toast.error(err?.message || 'Could not save settings');
+            toast.error(err?.data?.error || err?.message || 'Could not save settings');
           } finally {
             setSavingRules(false);
           }
@@ -905,16 +937,22 @@ export default function HostDashboard() {
 
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm font-medium">
-          Date
+          Start date
           <input
             type="date"
             className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
             value={tableForm.eventDate}
-            onChange={(e) => setTableForm((f) => ({ ...f, eventDate: e.target.value }))}
+            onChange={(e) =>
+              setTableForm((f) => ({
+                ...f,
+                eventDate: e.target.value,
+                eventEndDate: f.eventEndDate || e.target.value,
+              }))
+            }
           />
         </label>
         <label className="block text-sm font-medium">
-          Meet time
+          Start time
           <input
             type="time"
             className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
@@ -923,6 +961,30 @@ export default function HostDashboard() {
           />
         </label>
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-sm font-medium">
+          End date
+          <input
+            type="date"
+            className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+            value={tableForm.eventEndDate}
+            min={tableForm.eventDate || undefined}
+            onChange={(e) => setTableForm((f) => ({ ...f, eventEndDate: e.target.value }))}
+          />
+        </label>
+        <label className="block text-sm font-medium">
+          End time
+          <input
+            type="time"
+            className="w-full mt-1.5 px-3 py-2.5 rounded-xl bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)] text-[16px]"
+            value={tableForm.eventEndTime}
+            onChange={(e) => setTableForm((f) => ({ ...f, eventEndTime: e.target.value }))}
+          />
+        </label>
+      </div>
+      <p className="text-[11px] text-[var(--sec-text-muted)] -mt-1">
+        QR codes and your listing stay live until this end date and time, then move to Past.
+      </p>
 
       <label className="block text-sm font-medium">
         Title / name
@@ -1216,7 +1278,7 @@ export default function HostDashboard() {
               <p className="text-xs text-[var(--sec-text-muted)] mt-0.5">
                 Manage your own-place tables and events here after you pay to list them. They show on Home under
                 Available Tables or Upcoming Events, depending on what you chose when creating. Listings move to Past
-                after the date ends.
+                after the end date and time you set.
               </p>
             </div>
             <button

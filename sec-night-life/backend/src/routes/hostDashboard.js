@@ -18,9 +18,9 @@ import { signCloudinaryUrl, privateDownloadUrl } from '../lib/cloudinarySignedUr
 import { normalizeGuestGenderPreference } from '../lib/genderPreference.js';
 import {
   isInAppEventInFuture,
-  isExternalMeetupInFuture,
   shouldShowHostedTableOnHostDashboard,
 } from '../lib/eventWallClock.js';
+import { buildExternalListingSchedule } from '../lib/externalListingSchedule.js';
 import {
   normalizeBookingDateSast,
   resolveHostMemberForHostedTable,
@@ -541,8 +541,13 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       venueName: t.venueName,
       venueAddress: t.venueAddress,
       resolvedAddress,
+      tableType: t.tableType,
+      listingSurface: t.listingSurface,
       eventDate: t.eventDate,
       eventTime: t.eventTime,
+      eventEndDate: t.eventEndDate,
+      eventEndTime: t.eventEndTime,
+      windowEndsAt: t.windowEndsAt,
       eventId: t.eventId,
       eventLocation,
       event: t.event
@@ -569,6 +574,9 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
       guestQuantity: effectiveGuestQty,
       hasJoiningFee: t.hasJoiningFee,
       joiningFee: t.joiningFee,
+      is_own_place_listing: t.tableType === 'EXTERNAL_VENUE' && !t.venueTableId && !t.eventId,
+      is_community_event:
+        t.tableType === 'EXTERNAL_VENUE' && t.listingSurface === 'EVENT' && !t.venueTableId,
       tier_min_spend_zar: tierMin,
       hosting_category: t.hostingCategory,
       hosting_tier_name: tierName,
@@ -584,30 +592,36 @@ router.get('/hosted-tables/:tableId', optionalAuth, async (req, res, next) => {
         price: m.price,
         image_url: m.image_url,
       })),
-      members: membersWithMenu.map((m) => ({
-        userId: m.userId,
-        status: m.status,
-        role: m.userId === t.hostUserId ? 'HOST' : 'GUEST',
-        selectedMenuItems: m.selectedMenuItems,
-        menuLines: m.menuLines || [],
-        menuLineTotalZar: m.menuLineTotalZar || 0,
-        menuSpendPaid: m.menuSpendPaid,
-        user: m.user
-          ? {
-              id: m.user.id,
-              username: m.user.userProfile?.username || m.user.username,
-              full_name: m.user.fullName,
-              avatar_url: m.user.userProfile?.avatarUrl,
-            }
-          : null,
-      })),
-      host_orders: hostMember
-        ? {
-            menuLines: hostMember.menuLines || [],
-            menuLineTotalZar: hostMember.menuLineTotalZar || 0,
-            minSpendZar: tierMin,
-          }
-        : null,
+      members:
+        t.tableType === 'EXTERNAL_VENUE' && t.listingSurface === 'EVENT' && !t.venueTableId && uid !== t.hostUserId
+          ? []
+          : membersWithMenu.map((m) => ({
+              userId: m.userId,
+              status: m.status,
+              role: m.userId === t.hostUserId ? 'HOST' : 'GUEST',
+              selectedMenuItems: m.selectedMenuItems,
+              menuLines: m.menuLines || [],
+              menuLineTotalZar: m.menuLineTotalZar || 0,
+              menuSpendPaid: m.menuSpendPaid,
+              user: m.user
+                ? {
+                    id: m.user.id,
+                    username: m.user.userProfile?.username || m.user.username,
+                    full_name: m.user.fullName,
+                    avatar_url: m.user.userProfile?.avatarUrl,
+                  }
+                : null,
+            })),
+      host_orders:
+        t.tableType === 'EXTERNAL_VENUE' && t.listingSurface === 'EVENT' && !t.venueTableId
+          ? null
+          : hostMember
+            ? {
+                menuLines: hostMember.menuLines || [],
+                menuLineTotalZar: hostMember.menuLineTotalZar || 0,
+                minSpendZar: tierMin,
+              }
+            : null,
       my_membership: myMembership
         ? {
             status: myMembership.status,
@@ -1267,6 +1281,8 @@ const createTableSchema = z.object({
   venueAddress: z.string().optional().nullable(),
   eventDate: z.coerce.date(),
   eventTime: z.string().min(1),
+  eventEndDate: z.coerce.date().optional().nullable(),
+  eventEndTime: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
   hasJoiningFee: z.boolean().default(false),
   joiningFee: z.number().min(10, 'joiningFee must be at least R10').optional().nullable(),
   photo: z.string().url().optional().nullable(),
@@ -1311,8 +1327,17 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
       return res.status(400).json({ error: 'venueAddress is required for external venue tables' });
     }
     if (!d.venueName) return res.status(400).json({ error: 'venueName required for external venue' });
-    if (!isExternalMeetupInFuture(d.eventDate, d.eventTime)) {
-      return res.status(400).json({ error: 'Meet-up date and time must be in the future.' });
+    if (!d.eventEndDate || !d.eventEndTime) {
+      return res.status(400).json({ error: 'End date and end time are required for your listing.' });
+    }
+    const schedule = buildExternalListingSchedule({
+      eventDate: d.eventDate,
+      eventTime: d.eventTime,
+      eventEndDate: d.eventEndDate,
+      eventEndTime: d.eventEndTime,
+    });
+    if (!schedule.ok) {
+      return res.status(400).json({ error: schedule.error });
     }
     const t = await prisma.$transaction(async (tx) =>
       tx.hostedTable.create({
@@ -1325,8 +1350,11 @@ router.post('/tables', authenticateToken, requireVerified, async (req, res, next
           eventId: null,
           venueName: d.venueName,
           venueAddress: d.venueAddress.trim(),
-          eventDate: d.eventDate,
-          eventTime: d.eventTime,
+          eventDate: schedule.eventDate,
+          eventTime: schedule.eventTime,
+          eventEndDate: schedule.eventEndDate,
+          eventEndTime: schedule.eventEndTime,
+          windowEndsAt: schedule.windowEndsAt,
           hasJoiningFee: d.hasJoiningFee,
           joiningFee: d.hasJoiningFee ? d.joiningFee : null,
           guestGenderPreference: normalizeGuestGenderPreference(d.guestGenderPreference),
@@ -1499,6 +1527,8 @@ router.get('/tables', authenticateToken, async (req, res, next) => {
         venueAddress: true,
         eventDate: true,
         eventTime: true,
+        eventEndDate: true,
+        eventEndTime: true,
         hostFeePaystackRef: true,
         windowEndsAt: true,
         guestQuantity: true,
@@ -1923,7 +1953,10 @@ const patchTableSchema = z.object({
   photo: z.string().url().optional().nullable(),
   photoPublicId: z.string().optional().nullable(),
   guestQuantity: z.number().int().min(1).max(100000).optional(),
-  eventTime: z.string().optional(),
+  eventDate: z.coerce.date().optional(),
+  eventTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  eventEndDate: z.coerce.date().optional(),
+  eventEndTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   isPublic: z.boolean().optional(),
   venueAddress: z.string().trim().min(1).optional().nullable(),
   guestGenderPreference: z.enum(['ANY', 'MALE_ONLY', 'FEMALE_ONLY', 'OTHER_ONLY']).optional(),
@@ -1941,6 +1974,30 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
     if (t.tableType === 'EXTERNAL_VENUE' && d.venueAddress != null && !d.venueAddress.trim()) {
       return res.status(400).json({ error: 'venueAddress cannot be empty' });
     }
+
+    const scheduleTouched =
+      d.eventDate != null || d.eventTime != null || d.eventEndDate != null || d.eventEndTime != null;
+    if (scheduleTouched) {
+      const isOwnPlaceExternal = t.tableType === 'EXTERNAL_VENUE' && !t.venueTableId && !t.eventId;
+      if (!isOwnPlaceExternal) {
+        return res.status(400).json({
+          error: 'Start/end schedule can only be edited for your own place tables and events.',
+        });
+      }
+      const schedule = buildExternalListingSchedule({
+        eventDate: d.eventDate ?? t.eventDate,
+        eventTime: d.eventTime ?? t.eventTime,
+        eventEndDate: d.eventEndDate ?? t.eventEndDate ?? d.eventDate ?? t.eventDate,
+        eventEndTime: d.eventEndTime ?? t.eventEndTime ?? '23:59',
+      });
+      if (!schedule.ok) return res.status(400).json({ error: schedule.error });
+      d.eventDate = schedule.eventDate;
+      d.eventTime = schedule.eventTime;
+      d.eventEndDate = schedule.eventEndDate;
+      d.eventEndTime = schedule.eventEndTime;
+      d.windowEndsAt = schedule.windowEndsAt;
+    }
+
     if (d.eventTime != null && t.eventId) {
       const ev = await prisma.event.findFirst({ where: { id: t.eventId, deletedAt: null } });
       if (ev) {
@@ -1998,6 +2055,15 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
           spotsRemaining: d.guestQuantity - going,
         },
       });
+      if (scheduleTouched) {
+        await prisma.ticket.updateMany({
+          where: { hostedTableId: t.id },
+          data: {
+            visibleUntil: visibleUntilAfterHostedTable(updated),
+            eventStartsAt: eventStartsAtFromHostedTable(updated),
+          },
+        });
+      }
       if (d.tableName != null && d.tableName !== t.tableName) {
         await prisma.hostedTableGroupChat.updateMany({
           where: { hostedTableId: t.id },
@@ -2014,6 +2080,15 @@ router.patch('/tables/:tableId', authenticateToken, async (req, res, next) => {
       data.venueAddress = data.venueAddress.trim();
     }
     const updated = await prisma.hostedTable.update({ where: { id: t.id }, data });
+    if (scheduleTouched) {
+      await prisma.ticket.updateMany({
+        where: { hostedTableId: t.id },
+        data: {
+          visibleUntil: visibleUntilAfterHostedTable(updated),
+          eventStartsAt: eventStartsAtFromHostedTable(updated),
+        },
+      });
+    }
     if (d.tableName != null && d.tableName !== t.tableName) {
       await prisma.hostedTableGroupChat.updateMany({
         where: { hostedTableId: t.id },

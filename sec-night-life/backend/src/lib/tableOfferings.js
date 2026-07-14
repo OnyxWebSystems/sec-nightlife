@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { buildEventTableTiers } from './eventTableTiers.js';
+import { externalListingEndsAt } from './externalListingSchedule.js';
 
 function isBoostActive(row) {
   if (!row?.boosted) return false;
@@ -8,6 +9,14 @@ function isBoostActive(row) {
   return row.boostExpiresAt instanceof Date
     ? row.boostExpiresAt > new Date()
     : new Date(row.boostExpiresAt) > new Date();
+}
+
+function isHostedListingStillLive(t, now = new Date()) {
+  if (t.tableType === 'EXTERNAL_VENUE' && !t.venueTableId) {
+    const end = externalListingEndsAt(t);
+    return end ? end.getTime() > now.getTime() : true;
+  }
+  return true;
 }
 
 async function getFriendIds(userId) {
@@ -188,13 +197,17 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
     return true;
   });
 
+  const now = new Date();
   const hostedWhere = {
     status: 'ACTIVE',
     spotsRemaining: { gt: 0 },
-    eventDate: { gte: today },
+    OR: [
+      { windowEndsAt: { gt: now } },
+      { windowEndsAt: null, eventDate: { gte: today } },
+    ],
   };
 
-  const hostedRows = await prisma.hostedTable.findMany({
+  const hostedRowsRaw = await prisma.hostedTable.findMany({
     where: hostedWhere,
     take: rowCap,
     orderBy: { eventDate: 'asc' },
@@ -219,6 +232,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
       },
     },
   });
+  const hostedRows = hostedRowsRaw.filter((t) => isHostedListingStillLive(t, now));
 
   const linkedVenueTableIds = [
     ...new Set(hostedRows.map((t) => t.venueTableId).filter(Boolean)),
@@ -480,18 +494,22 @@ export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
   const cappedLimit = Math.min(Math.max(limit, 1), 30);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const now = new Date();
 
-  const rows = await prisma.hostedTable.findMany({
+  const rowsRaw = await prisma.hostedTable.findMany({
     where: {
       status: 'ACTIVE',
       spotsRemaining: { gt: 0 },
-      eventDate: { gte: today },
       tableType: 'EXTERNAL_VENUE',
       listingSurface: 'EVENT',
       venueTableId: null,
+      OR: [
+        { windowEndsAt: { gt: now } },
+        { windowEndsAt: null, eventDate: { gte: today } },
+      ],
     },
-    take: cappedLimit,
-    orderBy: { eventDate: 'asc' },
+    take: Math.min(cappedLimit * 3, 60),
+    orderBy: [{ boosted: 'desc' }, { eventDate: 'asc' }],
     include: {
       host: {
         select: {
@@ -503,6 +521,7 @@ export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
       },
     },
   });
+  const rows = rowsRaw.filter((t) => isHostedListingStillLive(t, now)).slice(0, cappedLimit);
 
   return rows.map((t) => {
     const host = formatHost(t.host);
@@ -512,6 +531,7 @@ export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
       .filter(Boolean);
     const cityGuess =
       addressBits.length >= 2 ? addressBits[addressBits.length - 2] : addressBits[0] || null;
+    const boosted = isBoostActive(t);
     return {
       id: t.id,
       hostedTableId: t.id,
@@ -520,6 +540,8 @@ export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
       description: t.tableDescription || null,
       date: t.eventDate,
       startTime: t.eventTime,
+      endTime: t.eventEndTime || null,
+      endsAt: t.windowEndsAt || externalListingEndsAt(t),
       city: cityGuess,
       venueName: t.venueName,
       cover_image_url: t.photo || null,
@@ -534,6 +556,7 @@ export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
       hostAvatarUrl: host.avatarUrl || null,
       listingSurface: 'EVENT',
       isCommunityHosted: true,
+      boosted,
     };
   });
 }

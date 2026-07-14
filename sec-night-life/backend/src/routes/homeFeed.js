@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { buildTableOfferings, buildCommunityHostedEvents } from '../lib/tableOfferings.js';
 import { parseGeoQuery, distanceKm } from '../lib/geo.js';
+import { isBoostActiveRow } from '../lib/feedBoost.js';
+import { externalListingEndsAt } from '../lib/externalListingSchedule.js';
 
 import { buildHomeBootstrap } from '../lib/homeBootstrap.js';
 
@@ -99,7 +101,10 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
 
     const now = new Date();
 
-    const [promotionRows, eventRows, venueRows, followedRows] = await Promise.all([
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [promotionRows, eventRows, venueRows, followedRows, communityRows] = await Promise.all([
       prisma.promotion.findMany({
         where: {
           deletedAt: null,
@@ -137,6 +142,39 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
       req.userId
         ? prisma.venueFollow.findMany({ where: { userId: req.userId }, select: { venueId: true } })
         : Promise.resolve([]),
+      prisma.hostedTable.findMany({
+        where: {
+          status: 'ACTIVE',
+          spotsRemaining: { gt: 0 },
+          tableType: 'EXTERNAL_VENUE',
+          listingSurface: 'EVENT',
+          venueTableId: null,
+          boosted: true,
+          OR: [
+            { windowEndsAt: { gt: now } },
+            { windowEndsAt: null, eventDate: { gte: today } },
+          ],
+        },
+        take: 40,
+        orderBy: [{ boostExpiresAt: 'desc' }, { eventDate: 'asc' }],
+        select: {
+          id: true,
+          tableName: true,
+          eventDate: true,
+          eventTime: true,
+          eventEndDate: true,
+          eventEndTime: true,
+          windowEndsAt: true,
+          venueName: true,
+          venueAddress: true,
+          photo: true,
+          boosted: true,
+          boostExpiresAt: true,
+          spotsRemaining: true,
+          hasJoiningFee: true,
+          joiningFee: true,
+        },
+      }),
     ]);
 
     const followedSet = new Set(followedRows.map((r) => r.venueId));
@@ -212,20 +250,53 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
 
     venueItems.sort((a, b) => Number(b.data.followed) - Number(a.data.followed));
 
+    const communityItems = communityRows
+      .filter((t) => isBoostActiveRow(t, now))
+      .filter((t) => {
+        const end = externalListingEndsAt(t);
+        return !end || end.getTime() > now.getTime();
+      })
+      .map((t) => {
+        const addressBits = String(t.venueAddress || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const cityGuess =
+          addressBits.length >= 2 ? addressBits[addressBits.length - 2] : addressBits[0] || t.venueName;
+        return {
+          kind: 'community_event',
+          data: {
+            id: t.id,
+            hostedTableId: t.id,
+            title: t.tableName,
+            date: t.eventDate?.toISOString?.()?.slice(0, 10) || t.eventDate,
+            city: cityGuess,
+            cover_image_url: t.photo,
+            boosted: true,
+            spotsRemaining: t.spotsRemaining,
+            hasJoiningFee: t.hasJoiningFee,
+            joiningFee: t.joiningFee,
+          },
+        };
+      });
+    const communityQ = shuffleCopy(communityItems, `${sessionId}|cEvt|${scopeSeed}`);
+
     const promQ = [...promItems];
     const evtQ = [...eventItems];
     const venQ = [...venueItems];
     const merged = [];
-    /** Boosted-first prom queue + extra promo slots so paid boosts surface more often. */
-    const slotPattern = ['prom', 'prom', 'event', 'prom', 'venue', 'event'];
+    /** Boosted-first prom queue + community (boosted own-venue) events in Discover. */
+    const slotPattern = ['prom', 'community', 'event', 'prom', 'venue', 'event', 'community'];
     let slotIdx = 0;
-    while (promQ.length || evtQ.length || venQ.length) {
+    while (promQ.length || evtQ.length || venQ.length || communityQ.length) {
       const slot = slotPattern[slotIdx % slotPattern.length];
       slotIdx += 1;
       if (slot === 'prom' && promQ.length) merged.push(promQ.shift());
+      else if (slot === 'community' && communityQ.length) merged.push(communityQ.shift());
       else if (slot === 'event' && evtQ.length) merged.push(evtQ.shift());
       else if (slot === 'venue' && venQ.length) merged.push(venQ.shift());
       else if (promQ.length) merged.push(promQ.shift());
+      else if (communityQ.length) merged.push(communityQ.shift());
       else if (evtQ.length) merged.push(evtQ.shift());
       else if (venQ.length) merged.push(venQ.shift());
       if (merged.length >= 200) break;

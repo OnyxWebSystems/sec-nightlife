@@ -1019,6 +1019,37 @@ export default function Home() {
                       <ChevronRight style={{ flexShrink: 0 }} size={18} strokeWidth={1.5} />
                     </Link>
                   )}
+                  {row.kind === 'community_event' && (
+                    <Link
+                      to={createPageUrl(
+                        `TableDetails?id=${row.data.hostedTableId || row.data.id}&source=hosted`,
+                      )}
+                      className="sec-card"
+                      style={{
+                        display: 'flex',
+                        gap: 12,
+                        padding: 14,
+                        textDecoration: 'none',
+                        color: 'inherit',
+                        alignItems: 'center',
+                        borderColor: row.data.boosted ? 'var(--sec-accent-border)' : undefined,
+                      }}
+                    >
+                      <div style={{ width: 88, height: 88, borderRadius: 12, overflow: 'hidden', flexShrink: 0, background: 'var(--sec-bg-hover)' }}>
+                        <img src={getEventImage(row.data.cover_image_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span className="sec-label">{row.data.boosted ? 'Promoted event' : 'Hosted event'}</span>
+                        <div style={{ fontWeight: 600 }}>{row.data.title}</div>
+                        <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                          {[row.data.city, row.data.spotsRemaining != null ? `${row.data.spotsRemaining} spots left` : null]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      </div>
+                      <ChevronRight style={{ flexShrink: 0 }} size={18} strokeWidth={1.5} />
+                    </Link>
+                  )}
                   {row.kind === 'venue' && (() => {
                     const { followed: _fol, ...venueRest } = row.data;
                     return <VenueCard venue={venueRest} />;
