@@ -310,6 +310,14 @@ if (isProd) {
   app.get('/api/health/db', optionalAuth, healthDbHandler);
 }
 
+// Always JSON 404s — never Express HTML error pages (SPA/client expects JSON).
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not found',
+    path: req.originalUrl || req.url,
+  });
+});
+
 // Error handler
 app.use(errorHandler);
 

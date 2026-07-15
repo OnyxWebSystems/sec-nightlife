@@ -277,10 +277,13 @@ export async function api(method, path, body = null, opts = {}) {
   } catch {
     const trimmed = (text || '').trim();
     if (trimmed.startsWith('<!') || trimmed.startsWith('<html')) {
+      const expressMiss = /Cannot (GET|POST|PUT|PATCH|DELETE) /i.test(trimmed);
       const err = new Error(
-        'Received a web page instead of API data. Set VITE_API_URL in your Vercel (or hosting) environment to your backend URL so /api calls reach the API, then redeploy.'
+        expressMiss
+          ? 'API route not found on the server. The backend may need a redeploy — try again in a minute.'
+          : 'Received a web page instead of API data. Set VITE_API_URL in your Vercel (or hosting) environment to your backend URL so /api calls reach the API, then redeploy.'
       );
-      err.data = { code: 'HTML_INSTEAD_OF_JSON' };
+      err.data = { code: expressMiss ? 'API_ROUTE_MISSING' : 'HTML_INSTEAD_OF_JSON' };
       throw err;
     }
     data = null;
