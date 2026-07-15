@@ -1,3 +1,18 @@
+/** Legal / help documents readable without signup (and outside app chrome for guests). */
+export const PUBLIC_DOCUMENT_PAGES = [
+  'UserAgreement',
+  'TermsOfService',
+  'PrivacyPolicy',
+  'CookiePolicy',
+  'CommunityGuidelines',
+  'GbvConsequences',
+  'RefundPolicy',
+  'VenueComplianceCharter',
+  'PromoterCodeOfConduct',
+  'HelpCenter',
+  'AgeVerificationDeclaration',
+];
+
 /** Pages that skip onboarding / auth gate (camelCase from pages.config). */
 export const ONBOARDING_EXEMPT_PAGES = new Set([
   'Onboarding',
@@ -13,18 +28,7 @@ export const ONBOARDING_EXEMPT_PAGES = new Set([
   'PaymentSuccess',
   'TicketSuccess',
   'TicketVerify',
-  // Legal / help — readable before signup and during onboarding
-  'UserAgreement',
-  'TermsOfService',
-  'PrivacyPolicy',
-  'CookiePolicy',
-  'CommunityGuidelines',
-  'GbvConsequences',
-  'RefundPolicy',
-  'VenueComplianceCharter',
-  'PromoterCodeOfConduct',
-  'HelpCenter',
-  'AgeVerificationDeclaration',
+  ...PUBLIC_DOCUMENT_PAGES,
 ]);
 
 /** Kebab-case URLs used in email links and dedicated routes. */
@@ -42,12 +46,17 @@ const AUTH_BOOTSTRAP_SKIP_SEGMENTS = new Set([
   'login',
   'register',
   'ticketverify',
+  ...PUBLIC_DOCUMENT_PAGES.map((p) => p.toLowerCase()),
 ]);
 
 function firstPathSegment(pathname) {
   const normalized = String(pathname || '/').replace(/\/+$/, '') || '/';
   if (normalized === '/') return '';
   return normalized.replace(/^\//, '').split('/')[0];
+}
+
+export function isPublicDocumentPage(pageName) {
+  return PUBLIC_DOCUMENT_PAGES.includes(pageName);
 }
 
 export function isPublicAppPath(pathname) {

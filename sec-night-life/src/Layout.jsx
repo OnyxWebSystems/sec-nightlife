@@ -24,6 +24,7 @@ import { enterPartygoerMode } from '@/lib/activeViewMode';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import CookieNoticeBanner from '@/components/legal/CookieNoticeBanner';
 import GuestAgeGate from '@/components/legal/GuestAgeGate';
+import { isPublicDocumentPage } from '@/lib/publicAuthPaths';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
   LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2, Shield, RotateCcw, Armchair, Store,
@@ -305,6 +306,7 @@ export default function Layout({ children, currentPageName }) {
 
   const hideNav =
     ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register', 'VerifyEmail', 'ForgotPassword', 'ResetPassword'].includes(currentPageName) ||
+    isPublicDocumentPage(currentPageName) ||
     (currentPageName === 'Home' && !user);
   if (hideNav) {
     return (

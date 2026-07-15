@@ -2,12 +2,22 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
+import { createPageUrl } from '@/utils';
 
 /**
  * Standard shell: back header + branded document surface for legal / policy pages.
+ * Back returns to Enter / onboarding / register (browser history), or Home if none.
  */
 export default function LegalDocumentPage({ title, effectiveDate, children }) {
   const navigate = useNavigate();
+
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate(createPageUrl('Home'));
+  };
 
   return (
     <div
@@ -46,7 +56,7 @@ export default function LegalDocumentPage({ title, effectiveDate, children }) {
         <div className="px-4 py-3.5 flex items-center gap-3 max-w-2xl mx-auto">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={handleBack}
             className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-colors"
             style={{
               backgroundColor: 'var(--sec-bg-card)',
