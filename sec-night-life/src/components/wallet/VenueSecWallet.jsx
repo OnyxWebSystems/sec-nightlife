@@ -203,18 +203,18 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
               Look up user payout details
             </h4>
             <p className="text-xs text-gray-500">Paste a party goer&apos;s Sec Wallet ID to view bank details for off-app payment.</p>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 value={lookupCode}
                 onChange={(e) => setLookupCode(e.target.value.toUpperCase())}
                 placeholder="SEC-U-XXXXXXXX"
-                className="flex-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white font-mono text-sm"
+                className="min-w-0 w-full flex-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white font-mono text-sm"
               />
               <button
                 type="button"
                 disabled={lookupLoading || !lookupCode.trim()}
                 onClick={runLookup}
-                className="px-4 py-2.5 rounded-xl bg-[var(--sec-accent)] text-black font-semibold text-sm disabled:opacity-50"
+                className="w-full sm:w-auto shrink-0 px-4 py-2.5 rounded-xl bg-[var(--sec-accent)] text-black font-semibold text-sm disabled:opacity-50"
               >
                 {lookupLoading ? '...' : 'Look up'}
               </button>
@@ -222,10 +222,10 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
 
             {lookupResult && (
               <div className="rounded-xl border border-[#262629] bg-[#0A0A0B] p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium">{lookupResult.user?.fullName || lookupResult.user?.username}</span>
-                  <span className="text-xs text-gray-500">@{lookupResult.user?.username}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <User className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="font-medium truncate">{lookupResult.user?.fullName || lookupResult.user?.username}</span>
+                  <span className="text-xs text-gray-500 shrink-0 truncate">@{lookupResult.user?.username}</span>
                 </div>
                 {lookupResult.payout ? (
                   <div className="space-y-2 text-sm">

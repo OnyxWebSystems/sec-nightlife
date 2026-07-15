@@ -13,6 +13,18 @@ export const ONBOARDING_EXEMPT_PAGES = new Set([
   'PaymentSuccess',
   'TicketSuccess',
   'TicketVerify',
+  // Legal / help — readable before signup and during onboarding
+  'UserAgreement',
+  'TermsOfService',
+  'PrivacyPolicy',
+  'CookiePolicy',
+  'CommunityGuidelines',
+  'GbvConsequences',
+  'RefundPolicy',
+  'VenueComplianceCharter',
+  'PromoterCodeOfConduct',
+  'HelpCenter',
+  'AgeVerificationDeclaration',
 ]);
 
 /** Kebab-case URLs used in email links and dedicated routes. */

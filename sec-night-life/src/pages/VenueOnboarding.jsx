@@ -35,6 +35,7 @@ import SecLogo from '@/components/ui/SecLogo';
 import OnboardingStepIndicator from '@/components/onboarding/OnboardingStepIndicator';
 import { markOnboardingComplete } from '@/lib/sessionCache';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
+import PayoutTrustBanner from '@/components/wallet/PayoutTrustBanner';
 import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
@@ -1354,9 +1355,10 @@ export default function VenueOnboarding() {
              <div className="text-center mb-5 sm:mb-8">
                <h1 className="text-xl sm:text-2xl font-bold mb-1.5" style={{ color: 'var(--sec-text-primary)' }}>Set up payouts</h1>
                <p style={{ color: 'var(--sec-text-muted)' }}>Optional now. You can also add this later in your Sec Wallet on the Business Dashboard.</p>
-               <div className="mt-3 max-w-md mx-auto text-left">
+               <div className="mt-3 max-w-md mx-auto text-left space-y-3">
+                 <PayoutTrustBanner compact />
                  <RefundPolicyNote />
-                 <p className="text-xs mt-2" style={{ color: 'var(--sec-text-muted)' }}>
+                 <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
                    Venue obligations:{' '}
                    <Link to={createPageUrl('VenueComplianceCharter')} className="underline font-medium" style={{ color: 'var(--sec-accent)' }}>
                      Venue Compliance Charter

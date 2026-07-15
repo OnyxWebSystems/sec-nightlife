@@ -34,6 +34,7 @@ import OnboardingStepIndicator from '@/components/onboarding/OnboardingStepIndic
 import { markOnboardingComplete } from '@/lib/sessionCache';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
 import VendorListingForm, { isVendorListingValid } from '@/components/vendors/VendorListingForm';
+import PayoutTrustBanner from '@/components/wallet/PayoutTrustBanner';
 
 const CITIES = [
   'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Sandton',
@@ -986,7 +987,8 @@ export default function ProfileSetup() {
                   border: '1px solid var(--sec-border)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+                <PayoutTrustBanner className="mb-4" />
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                   <Lock size={20} strokeWidth={1.5} style={{ color: 'var(--sec-accent-muted)', flexShrink: 0 }} />
                   <div>
                     <p style={{ fontSize: 14, color: 'var(--sec-text-primary)', margin: '0 0 8px 0' }}>

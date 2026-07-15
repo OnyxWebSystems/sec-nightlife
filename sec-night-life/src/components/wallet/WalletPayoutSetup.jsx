@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { apiPatch, apiPost } from '@/api/client';
 import { CheckCircle2, AlertCircle, CreditCard, Landmark } from 'lucide-react';
 import { toast } from 'sonner';
+import PayoutTrustBanner from '@/components/wallet/PayoutTrustBanner';
 
 function InputField({ label, value, onChange, placeholder }) {
   return (
@@ -51,6 +52,7 @@ export function UserPayoutSetup({ profile, onProfileUpdated }) {
 
   return (
     <div className="rounded-xl border border-[#262629] bg-[#141416] p-4 space-y-3">
+      <PayoutTrustBanner compact />
       <div className="flex items-center gap-2 text-xs">
         {complete ? (
           <>
@@ -115,6 +117,7 @@ export function VenuePayoutSetup({ venues, selectedVenueId, onVenueChange, onVen
 
   return (
     <div className="rounded-xl border border-[#262629] bg-[#141416] p-4 space-y-3">
+      <PayoutTrustBanner compact />
       {venues.length > 1 ? (
         <label className="block">
           <span className="text-xs text-gray-500">Venue</span>
