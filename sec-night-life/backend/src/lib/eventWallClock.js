@@ -3,10 +3,9 @@
  * Uses the same UTC convention as {@link eventStartsAtFromEvent} / {@link eventStartsAtFromHostedTable} in ticketHelpers.
  */
 import { eventStartsAtFromEvent, eventStartsAtFromHostedTable, eventEndsAtFromEvent } from './ticketHelpers.js';
-import { isDayVenueHostedTable, dayBookingHideAfterUtc, formatYmdSast } from './dayBookingWindows.js';
+import { isDayVenueHostedTable, dayBookingHideAfterUtc, formatYmdSast, parseWindowInstant } from './dayBookingWindows.js';
 import { externalListingEndsAt } from './externalListingSchedule.js';
-
-const MS_24H = 24 * 60 * 60 * 1000;
+import { prisma } from './prisma.js';
 
 /** SEC in-app event row → start instant (null if unusable). */
 export function inAppEventStartUtc(ev) {
@@ -32,7 +31,7 @@ export function isExternalMeetupInFuture(eventDate, eventTime, now = new Date())
   return s.getTime() > now.getTime();
 }
 
-/** When this hosted table should drop off the host's "My tables" list. */
+/** When this hosted table should drop off the host's "My tables" Upcoming list. */
 export function hostDashboardHideAfterUtc(hostedRow, eventRow, now = new Date()) {
   if (isDayVenueHostedTable(hostedRow)) {
     return dayBookingHideAfterUtc(hostedRow);
@@ -51,27 +50,80 @@ export function hostDashboardHideAfterUtc(hostedRow, eventRow, now = new Date())
     const end = eventEndsAtFromEvent(eventRow);
     if (end && !Number.isNaN(end.getTime())) return end;
   }
-  const start =
-    hostedRow?.tableType === 'IN_APP_EVENT' && eventRow
-      ? eventStartsAtFromEvent(eventRow)
-      : eventStartsAtFromHostedTable(hostedRow);
-  if (!start || Number.isNaN(start.getTime())) return null;
-  return new Date(start.getTime() + MS_24H);
+
+  // Fallback: end of start calendar day 23:59 SAST (never start + 24h).
+  const startDate =
+    hostedRow?.tableType === 'IN_APP_EVENT' && eventRow?.date
+      ? eventRow.date
+      : hostedRow?.eventDate;
+  if (startDate) {
+    return parseWindowInstant(startDate, '23:59');
+  }
+  return null;
 }
 
+/**
+ * Upcoming (show on Host Dashboard "Upcoming") while before hide-after.
+ * CLOSED alone does not force Past — only end datetime (or refund) does.
+ */
 export function shouldShowHostedTableOnHostDashboard(hostedRow, eventRow, now = new Date()) {
   if (hostedRow?.hostRefundStatus === 'REFUNDED') return false;
-  if (hostedRow?.status === 'CLOSED') return false;
 
-  const hideAfter = hostDashboardHideAfterUtc(hostedRow, eventRow);
+  const hideAfter = hostDashboardHideAfterUtc(hostedRow, eventRow, now);
   if (!hideAfter) {
     if (isDayVenueHostedTable(hostedRow)) {
       if (hostedRow?.eventDate) {
         return formatYmdSast(hostedRow.eventDate) >= formatYmdSast(now);
       }
-      return hostedRow?.status !== 'CLOSED';
+      return true;
     }
     return true;
   }
   return now.getTime() < hideAfter.getTime();
+}
+
+/**
+ * Reopen own-place listings that were CLOSED before their user-set end datetime.
+ * Restores Home feed visibility (ACTIVE-only) and Host Upcoming.
+ */
+export async function reopenPrematurelyClosedExternalListings({ hostUserId = null, limit = 100 } = {}) {
+  const now = new Date();
+  const candidates = await prisma.hostedTable.findMany({
+    where: {
+      status: 'CLOSED',
+      tableType: 'EXTERNAL_VENUE',
+      venueTableId: null,
+      ...(hostUserId ? { hostUserId } : {}),
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: Math.min(limit, 200),
+    select: {
+      id: true,
+      windowEndsAt: true,
+      eventDate: true,
+      eventTime: true,
+      eventEndDate: true,
+      eventEndTime: true,
+      tableType: true,
+      venueTableId: true,
+      status: true,
+    },
+  });
+
+  const toReopen = [];
+  for (const row of candidates) {
+    const ends = externalListingEndsAt(row);
+    if (ends && ends.getTime() > now.getTime()) {
+      toReopen.push(row.id);
+    }
+  }
+
+  if (!toReopen.length) return { reopened: 0, scanned: candidates.length };
+
+  const result = await prisma.hostedTable.updateMany({
+    where: { id: { in: toReopen }, status: 'CLOSED' },
+    data: { status: 'ACTIVE' },
+  });
+
+  return { reopened: result.count, scanned: candidates.length };
 }

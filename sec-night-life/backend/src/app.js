@@ -172,7 +172,16 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: createRedisRateLimitStore({ prefix: 'sec-rl-auth' }),
-  message: { error: 'Too many requests. Try again in a few minutes.' }
+  message: { error: 'Too many requests. Try again in a few minutes.' },
+  // Session keep-alive must not share the login brute-force budget.
+  skip: (req) => {
+    const url = String(req.originalUrl || req.url || '');
+    return (
+      url.includes('/api/auth/refresh') ||
+      url.includes('/api/auth/me') ||
+      url.includes('/api/auth/logout')
+    );
+  },
 });
 
 const resendLimiter = rateLimit({

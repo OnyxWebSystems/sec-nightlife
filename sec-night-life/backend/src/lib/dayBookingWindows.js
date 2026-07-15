@@ -272,43 +272,29 @@ export function parseWindowInstant(date, hhmm) {
   return Number.isNaN(instant.getTime()) ? null : instant;
 }
 
-const MS_24H = 24 * 60 * 60 * 1000;
-
 /** When a day-booking host session moves from Upcoming to Past on the host dashboard. */
 export function dayBookingHideAfterUtc(hostedRow) {
-  let hideAfter = null;
-
-  if (hostedRow?.eventDate && hostedRow?.eventTime) {
-    const start = parseWindowInstant(hostedRow.eventDate, hostedRow.eventTime);
-    if (start && !Number.isNaN(start.getTime())) {
-      if (hostedRow?.windowEndsAt) {
-        const stored =
-          hostedRow.windowEndsAt instanceof Date ? hostedRow.windowEndsAt : new Date(hostedRow.windowEndsAt);
-        if (!Number.isNaN(stored.getTime()) && stored.getTime() >= start.getTime()) {
-          hideAfter = stored;
-        } else {
-          hideAfter = new Date(start.getTime() + MS_24H);
-        }
-      } else {
-        hideAfter = new Date(start.getTime() + MS_24H);
-      }
-    }
-  }
-
-  if (!hideAfter && hostedRow?.windowEndsAt) {
-    const end =
+  // Prefer booked window end — never start + 24h.
+  if (hostedRow?.windowEndsAt) {
+    const stored =
       hostedRow.windowEndsAt instanceof Date ? hostedRow.windowEndsAt : new Date(hostedRow.windowEndsAt);
-    if (!Number.isNaN(end.getTime())) hideAfter = end;
+    if (!Number.isNaN(stored.getTime())) return stored;
   }
 
-  if (!hideAfter && hostedRow?.eventDate) {
+  if (hostedRow?.eventDate && hostedRow?.eventTime && hostedRow?.eventEndTime) {
+    const end = windowEndInstant(hostedRow.eventDate, hostedRow.eventTime, hostedRow.eventEndTime);
+    if (end && !Number.isNaN(end.getTime())) return end;
+  }
+
+  if (hostedRow?.eventDate) {
     const ymd = formatYmdSast(hostedRow.eventDate);
+    // End of booking calendar day in SAST (midnight next day).
     const endOfBookingDay = new Date(`${ymd}T00:00:00+02:00`);
     endOfBookingDay.setUTCDate(endOfBookingDay.getUTCDate() + 1);
-    hideAfter = endOfBookingDay;
+    return endOfBookingDay;
   }
 
-  return hideAfter;
+  return null;
 }
 
 export function windowEndInstant(date, startTime, endTime) {

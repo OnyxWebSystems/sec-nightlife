@@ -14,6 +14,8 @@ import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.
 import {
   createRefreshTokenRow,
   findRefreshTokenRecord,
+  findRecentRefreshTokenForUser,
+  parseRefreshTokenUserId,
   pruneUserRefreshTokens,
   revokeRefreshToken,
   rotateRefreshToken,
@@ -893,20 +895,25 @@ router.post('/refresh', async (req, res, next) => {
     }
     const { refreshToken: rawToken } = parsed.data;
 
-    const matched = await findRefreshTokenRecord(rawToken);
+    let matched = await findRefreshTokenRecord(rawToken);
     if (!matched) {
-      return res.status(401).json({ error: 'Invalid or expired refresh token' });
+      // Concurrent tab/app refresh often rotates the token first; heal within grace window.
+      const userIdHint = parseRefreshTokenUserId(rawToken);
+      matched = userIdHint ? await findRecentRefreshTokenForUser(userIdHint, 45_000) : null;
+      if (!matched) {
+        return res.status(401).json({ error: 'Invalid or expired refresh token' });
+      }
     }
 
     const user = await prisma.user.findUnique({
       where: { id: matched.userId, deletedAt: null }
     });
     if (!user) {
-      await prisma.refreshToken.delete({ where: { id: matched.id } });
+      await prisma.refreshToken.delete({ where: { id: matched.id } }).catch(() => {});
       return res.status(401).json({ error: 'User not found' });
     }
     if (user.suspendedAt) {
-      await prisma.refreshToken.delete({ where: { id: matched.id } });
+      await prisma.refreshToken.delete({ where: { id: matched.id } }).catch(() => {});
       return res.status(403).json({ error: 'Account suspended. Contact support.' });
     }
 

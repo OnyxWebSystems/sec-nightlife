@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/retry-payouts",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/expire-external-listings",
+      "schedule": "15 * * * *"
     }
   ]
 }

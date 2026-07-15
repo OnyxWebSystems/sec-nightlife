@@ -125,3 +125,21 @@ export async function rotateRefreshToken(matchedRecord, refreshExpiry) {
 
   return rawRefresh;
 }
+
+/**
+ * After a concurrent rotation, the presented token may already be deleted.
+ * If this user has a refresh row created within graceMs, treat as rotation race
+ * and return that row so the caller can rotate again and issue a fresh pair.
+ */
+export async function findRecentRefreshTokenForUser(userId, graceMs = 45_000) {
+  if (!userId) return null;
+  const since = new Date(Date.now() - graceMs);
+  return prisma.refreshToken.findFirst({
+    where: {
+      userId,
+      expiresAt: { gt: new Date() },
+      createdAt: { gte: since },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}

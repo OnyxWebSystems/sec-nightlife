@@ -19,6 +19,7 @@ import { normalizeGuestGenderPreference } from '../lib/genderPreference.js';
 import {
   isInAppEventInFuture,
   shouldShowHostedTableOnHostDashboard,
+  reopenPrematurelyClosedExternalListings,
 } from '../lib/eventWallClock.js';
 import { buildExternalListingSchedule } from '../lib/externalListingSchedule.js';
 import {
@@ -1510,6 +1511,8 @@ router.post('/tables/:tableId/retry-listing-payment', authenticateToken, require
 router.get('/tables', authenticateToken, async (req, res, next) => {
   try {
     if (!assertHostEligibleRole(req, res)) return;
+    // Restore listings closed before their user-set end (Home + Upcoming visibility).
+    await reopenPrematurelyClosedExternalListings({ hostUserId: req.userId, limit: 50 }).catch(() => {});
     const tables = await prisma.hostedTable.findMany({
       where: { hostUserId: req.userId },
       orderBy: { createdAt: 'desc' },

@@ -132,28 +132,29 @@ async function doRefreshAccessToken(opts = {}) {
 
   if (!res.ok || !data?.accessToken) {
     if (res.status === 401 || res.status === 403) {
-      if (attempt < 3) {
-        await sleep(350 * (attempt + 1));
-        const latest = getRefreshToken();
-        if (latest) {
-          return doRefreshAccessToken({ ...opts, _attempt: attempt + 1, refreshToken: latest });
+      if (attempt < 4) {
+        await sleep(400 * (attempt + 1));
+        if (getRefreshToken()) {
+          return doRefreshAccessToken({ ...opts, _attempt: attempt + 1 });
         }
       }
       if (!opts._storageRetry) {
-        await sleep(400);
+        await sleep(600);
         const latest = getRefreshToken();
         if (latest && latest !== refreshToken) {
           return doRefreshAccessToken({ ...opts, _storageRetry: true, _attempt: 0 });
         }
-        await waitForPeerRefresh(3000);
+        await waitForPeerRefresh(5000);
         const afterPeer = getRefreshToken();
         if (afterPeer && afterPeer !== refreshToken) {
           return doRefreshAccessToken({ ...opts, _storageRetry: true, _attempt: 0 });
         }
+        // Final grace attempt (backend may heal concurrent rotation).
+        return doRefreshAccessToken({ ...opts, _storageRetry: true, _finalGrace: true, _attempt: 0 });
       }
       clearRefreshLock();
-      const stillCurrent = getRefreshToken() === refreshToken;
-      if (stillCurrent) {
+      // Clear only after final grace failure with the same dead refresh token still stored.
+      if (opts._finalGrace && getRefreshToken() === refreshToken) {
         clearTokens();
       }
     } else {

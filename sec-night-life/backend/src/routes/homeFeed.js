@@ -365,12 +365,22 @@ router.get('/table-offerings', optionalAuth, async (req, res, next) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 60);
     const sessionSeed =
       req.headers['x-session-id'] || req.query.sessionId || req.query.session_id || 'anon-session';
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const cacheKey = !req.userId
+      ? `home:table-offerings:v1:${limit}:${String(sessionSeed).slice(0, 24)}:${dayKey}`
+      : null;
+    if (cacheKey) {
+      const cached = await cacheGetJson(cacheKey);
+      if (cached) return res.json(cached);
+    }
     const items = await buildTableOfferings({
       userId: req.userId || null,
       limit,
-      sessionSeed: `${sessionSeed}|${new Date().toISOString().slice(0, 10)}|tables`,
+      sessionSeed: `${sessionSeed}|${dayKey}|tables`,
     });
-    res.json({ items });
+    const payload = { items };
+    if (cacheKey) await cacheSetJson(cacheKey, payload, 20);
+    res.json(payload);
   } catch (err) {
     next(err);
   }
@@ -380,8 +390,13 @@ router.get('/table-offerings', optionalAuth, async (req, res, next) => {
 router.get('/community-hosted-events', optionalAuth, async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 30);
+    const cacheKey = `home:community-events:v1:${limit}`;
+    const cached = await cacheGetJson(cacheKey);
+    if (cached) return res.json(cached);
     const items = await buildCommunityHostedEvents({ limit });
-    res.json({ items });
+    const payload = { items };
+    await cacheSetJson(cacheKey, payload, 20);
+    res.json(payload);
   } catch (err) {
     next(err);
   }

@@ -137,12 +137,14 @@ router.get('/expire-day-table-sessions', async (req, res, next) => {
   }
 });
 
-/** Close own-place external listings after their user-set end datetime. */
+/** Close own-place external listings after their user-set end datetime; reopen premature CLOSED. */
 router.get('/expire-external-listings', async (req, res, next) => {
   try {
     if (!isCronAuthorized(req)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const { reopenPrematurelyClosedExternalListings } = await import('../lib/eventWallClock.js');
+    const reopened = await reopenPrematurelyClosedExternalListings({ limit: 200 });
     const now = new Date();
     const result = await prisma.hostedTable.updateMany({
       where: {
@@ -153,7 +155,7 @@ router.get('/expire-external-listings', async (req, res, next) => {
       },
       data: { status: 'CLOSED' },
     });
-    res.json({ expired: result.count });
+    res.json({ expired: result.count, reopened: reopened.reopened });
   } catch (err) {
     next(err);
   }

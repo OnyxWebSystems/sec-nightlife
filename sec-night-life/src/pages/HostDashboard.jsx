@@ -1320,7 +1320,7 @@ export default function HostDashboard() {
                 {pastTables.map((t) => renderHostedTableCard(t, { isPast: true }))}
                 {pastTables.length === 0 && !loadT && (
                   <p className="text-sm text-[var(--sec-text-muted)] text-center py-10 col-span-full">
-                    No past tables yet. Finished SEC event tables and your own venue tables (after 24 hours) appear here.
+                    No past tables yet. Finished SEC event tables and your own venue tables (after the end date and time you set) appear here.
                   </p>
                 )}
               </div>

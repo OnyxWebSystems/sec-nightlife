@@ -1,8 +1,9 @@
 /**
  * Refresh session when the app returns from background (Capacitor native + web tab).
+ * Only refreshes when the access token is near expiry — keepalive owns the timer loop.
  */
 import { Capacitor } from '@capacitor/core';
-import { refreshAccessToken, getRefreshToken } from '@/api/client';
+import { accessTokenNeedsRefresh, getRefreshToken, refreshAccessToken } from '@/api/client';
 
 let resumeCallback = null;
 
@@ -13,7 +14,9 @@ export function setSessionResumeCallback(fn) {
 async function onAppResume() {
   if (!getRefreshToken()) return;
   try {
-    await refreshAccessToken();
+    if (accessTokenNeedsRefresh()) {
+      await refreshAccessToken();
+    }
   } catch {
     // Keep tokens on transient failure — AuthContext will retry.
   }
