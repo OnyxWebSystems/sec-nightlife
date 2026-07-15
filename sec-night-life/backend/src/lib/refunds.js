@@ -229,7 +229,8 @@ async function paymentHasFulfillmentProof({ userId, reference, baseRef }) {
 }
 
 /**
- * Load a payment for refund flows; promote fulfilled pending Paystack rows to success.
+ * Load a payment for refund flows. Only successful Paystack-settled payments qualify.
+ * Does not promote pending → success based on fulfillment proof alone.
  * @param {{ userId: string, reference: string }} opts
  */
 export async function resolvePaymentForRefund({ userId, reference }) {
@@ -245,18 +246,7 @@ export async function resolvePaymentForRefund({ userId, reference }) {
   });
   if (!payment) return null;
   if (payment.status === 'success') return payment;
-
-  const hasProof = await paymentHasFulfillmentProof({
-    userId,
-    reference: payment.reference,
-    baseRef,
-  });
-  if (!hasProof) return null;
-
-  return prisma.payment.update({
-    where: { id: payment.id },
-    data: { status: 'success' },
-  });
+  return null;
 }
 
 function subtractMenuItems(existingItems, removeItems) {
@@ -671,14 +661,20 @@ export async function cancelBookingsForRefund(tx, { req, baseRef, guestsRetained
  */
 export async function applyRefundApproval(tx, refundRequest) {
   const now = new Date();
-  const req = await tx.refundRequest.update({
-    where: { id: refundRequest.id },
+  const claimed = await tx.refundRequest.updateMany({
+    where: { id: refundRequest.id, status: 'PENDING' },
     data: {
       status: 'APPROVED',
       approvedAt: now,
       approvedByUserId: refundRequest.approvedByUserId,
     },
   });
+  if (claimed.count !== 1) {
+    const err = new Error('This request has already been processed');
+    err.status = 400;
+    throw err;
+  }
+  const req = await tx.refundRequest.findUnique({ where: { id: refundRequest.id } });
 
   const baseRef = basePaymentReference(req.paymentReference);
   const payment = await tx.payment.findFirst({
@@ -695,6 +691,21 @@ export async function applyRefundApproval(tx, refundRequest) {
       },
     });
   }
+
+  // Manual venue→guest refund: mark ledgers so wallet/analytics do not treat as normal earnings.
+  await tx.payoutLedger.updateMany({
+    where: {
+      OR: [
+        { paymentReference: { in: [req.paymentReference, baseRef, `${baseRef}:join`, `${baseRef}:menu`] } },
+        { paymentReference: { startsWith: `${baseRef}:` } },
+      ],
+      status: { not: 'REFUNDED_MANUAL' },
+    },
+    data: {
+      status: 'REFUNDED_MANUAL',
+      errorMessage: 'Marked after venue-approved manual guest refund (no Paystack clawback).',
+    },
+  });
 
   const ticketIds = Array.isArray(req.ticketIds) ? req.ticketIds : [];
   if (ticketIds.length) {

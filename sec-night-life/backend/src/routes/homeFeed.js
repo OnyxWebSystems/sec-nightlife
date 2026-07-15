@@ -7,6 +7,7 @@ import { isBoostActiveRow } from '../lib/feedBoost.js';
 import { externalListingEndsAt } from '../lib/externalListingSchedule.js';
 
 import { buildHomeBootstrap } from '../lib/homeBootstrap.js';
+import { cacheGetJson, cacheSetJson } from '../lib/redis.js';
 
 const router = Router();
 
@@ -78,6 +79,15 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
       (typeof req.headers['x-session-id'] === 'string' && req.headers['x-session-id'].trim()) ||
       (typeof req.query.sessionId === 'string' && req.query.sessionId.trim()) ||
       'anon-session';
+
+    const cacheKey =
+      !req.userId && !geo
+        ? `home:feed:v2:${scopeAll ? 'all' : overrideCity || 'none'}:${cursor}:${limit}:${sessionId.slice(0, 24)}`
+        : null;
+    if (cacheKey) {
+      const cached = await cacheGetJson(cacheKey);
+      if (cached) return res.json(cached);
+    }
 
     let city = '';
     if (scopeAll && !geo) {
@@ -196,6 +206,35 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const feedVenues = useGeoScope ? filteredVenues : venueRows;
     const scopeSeed = useGeoScope ? 'geo' : city || 'all';
 
+    const venueIds = feedVenues.map((v) => v.id);
+    const [reviewGroups, followerGroups] = venueIds.length
+      ? await Promise.all([
+          prisma.venueReview.groupBy({
+            by: ['venueId'],
+            where: { venueId: { in: venueIds } },
+            _avg: { rating: true },
+            _count: { _all: true },
+          }),
+          prisma.venueFollow.groupBy({
+            by: ['venueId'],
+            where: { venueId: { in: venueIds } },
+            _count: { _all: true },
+          }),
+        ])
+      : [[], []];
+    const reviewByVenue = new Map(
+      reviewGroups.map((r) => [
+        r.venueId,
+        {
+          average: Number(r._avg.rating || 0),
+          count: r._count._all || 0,
+        },
+      ]),
+    );
+    const followersByVenue = new Map(
+      followerGroups.map((r) => [r.venueId, r._count._all || 0]),
+    );
+
     const allProm = feedPromotions.map(promotionItemFromRow);
     const boosted = allProm.filter((x) => x.data.boosted);
     const organic = allProm.filter((x) => !x.data.boosted);
@@ -239,9 +278,9 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
           logo_url: v.logoUrl,
           cover_image_url: v.coverImageUrl,
           rating: v.rating,
-          review_average: 0,
-          review_count: 0,
-          follower_count: 0,
+          review_average: Number(reviewByVenue.get(v.id)?.average || v.rating || 0),
+          review_count: Number(reviewByVenue.get(v.id)?.count || 0),
+          follower_count: Number(followersByVenue.get(v.id) || 0),
           followed: followedSet.has(v.id),
         },
       })),
@@ -305,12 +344,16 @@ router.get('/feed', optionalAuth, async (req, res, next) => {
     const slice = merged.slice(cursor, cursor + limit);
     const nextCursor = cursor + slice.length < merged.length ? String(cursor + slice.length) : null;
 
-    res.json({
+    const payload = {
       items: slice,
       nextCursor,
       total: merged.length,
       feedScope: useGeoScope ? 'local' : geo ? 'nationwide' : city ? 'city' : 'nationwide',
-    });
+    };
+    if (cacheKey) {
+      await cacheSetJson(cacheKey, payload, 25);
+    }
+    res.json(payload);
   } catch (err) {
     next(err);
   }

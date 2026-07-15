@@ -233,7 +233,22 @@ async function deleteUserOrphans(tx, userId) {
   await tx.promotionImpression.deleteMany({ where: { userId } });
   await tx.notification.deleteMany({ where: { userId } });
   await tx.transaction.deleteMany({ where: { userId } });
-  await tx.payment.deleteMany({ where: { userId } });
+  // Retain payments for dispute/audit — anonymize PII only
+  await tx.payment.updateMany({
+    where: { userId },
+    data: {
+      email: `deleted+${String(userId).slice(0, 8)}@secnightlife.invalid`,
+    },
+  });
+  // Retain refund requests — anonymize and detach user
+  await tx.refundRequest.updateMany({
+    where: { userId },
+    data: {
+      userId: null,
+      userReason: '[redacted — account deleted]',
+      userWalletCode: 'DELETED',
+    },
+  });
   await tx.message.deleteMany({ where: { senderId: userId } });
   await tx.profileView.deleteMany({
     where: { OR: [{ viewerId: userId }, { viewedId: userId }] }

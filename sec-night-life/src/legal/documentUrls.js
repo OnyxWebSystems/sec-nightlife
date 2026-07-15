@@ -8,6 +8,7 @@ export const LEGAL_ACCEPT_VERSION = {
 export const LEGAL_PAGE = {
   termsOfService: 'TermsOfService',
   privacyPolicy: 'PrivacyPolicy',
+  cookiePolicy: 'CookiePolicy',
   promoterCodeOfConduct: 'PromoterCodeOfConduct',
   userAgreement: 'UserAgreement',
   communityGuidelines: 'CommunityGuidelines',

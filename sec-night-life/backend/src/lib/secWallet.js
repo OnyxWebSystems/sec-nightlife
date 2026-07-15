@@ -56,7 +56,7 @@ export async function ensureSecWallet(ownerType, ownerId) {
   return wallet;
 }
 
-const PENDING_STATUSES = ['PENDING', 'SKIPPED_NO_RECIPIENT', 'FAILED'];
+const PENDING_STATUSES = ['PENDING', 'PROCESSING'];
 
 export async function aggregateWalletSummary({
   userId = null,

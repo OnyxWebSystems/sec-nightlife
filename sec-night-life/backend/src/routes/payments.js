@@ -92,7 +92,16 @@ function parseTicketMenuItems(meta) {
   return [];
 }
 import { notifyPaymentSuccess } from '../lib/paymentNotifications.js';
-import { recordPayoutAndMaybeTransfer, recordSecPlatformRevenue, resolveRecipientCodeForUser, resolveRecipientCodeForVenue, splitSecPlatform } from '../lib/paystackPayout.js';
+import {
+  recordPayoutAndMaybeTransfer,
+  recordSecPlatformRevenue,
+  resolveRecipientCodeForUser,
+  resolveRecipientCodeForVenue,
+  splitSecPlatform,
+  applyTransferWebhookEvent,
+  expectedPlatformProductAmountZar,
+  EXTERNAL_HOSTED_LISTING_ZAR,
+} from '../lib/paystackPayout.js';
 import { ensureHostedTableLiveAfterListingPayment } from '../lib/hostedTableAfterListingPaid.js';
 import { addUserToHostedTableGroupChat } from '../lib/hostedTableGroupChat.js';
 import {
@@ -106,8 +115,6 @@ import {
 } from '../lib/paystackInitialize.js';
 
 const router = Router();
-
-const EXTERNAL_HOSTED_LISTING_ZAR = 200;
 
 const tableCreateFromPaymentSchema = z.object({
   event_id: z.string().uuid(),
@@ -2344,6 +2351,14 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
           expected_zar: expected,
         });
       }
+    } else {
+      const platformExpected = expectedPlatformProductAmountZar(meta);
+      if (platformExpected != null && Math.abs(Number(d.amount) - platformExpected) >= 0.02) {
+        return res.status(400).json({
+          error: 'Payment amount does not match product price.',
+          expected_zar: platformExpected,
+        });
+      }
     }
 
     if (type === 'table' && !(await userHasIdentityVerified(req.userId))) {
@@ -2475,6 +2490,14 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         return res.status(400).json({
           error: 'Payment amount does not match checkout total.',
           expected_zar: expected,
+        });
+      }
+    } else {
+      const platformExpected = expectedPlatformProductAmountZar(meta);
+      if (platformExpected != null && Math.abs(Number(d.amount) - platformExpected) >= 0.02) {
+        return res.status(400).json({
+          error: 'Payment amount does not match product price.',
+          expected_zar: platformExpected,
         });
       }
     }
@@ -2647,6 +2670,52 @@ export async function paystackWebhookHandler(req, res) {
 
   const event = payload?.event;
   const data = payload?.data;
+
+  if (event === 'transfer.success' || event === 'transfer.failed' || event === 'transfer.reversed') {
+    try {
+      await applyTransferWebhookEvent(event, data || {});
+    } catch (e) {
+      console.error('Paystack webhook transfer event error:', e?.message);
+    }
+    return res.status(200).send('ok');
+  }
+
+  if (event === 'charge.dispute.create' || event === 'charge.dispute.remind' || event === 'charge.dispute.resolve') {
+    try {
+      const reference = data?.transaction?.reference || data?.reference || null;
+      if (reference) {
+        const existing = await prisma.payment.findUnique({ where: { reference } });
+        if (existing) {
+          const meta =
+            existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+              ? { ...existing.metadata }
+              : {};
+          meta.dispute = {
+            event,
+            status: data?.status || null,
+            id: data?.id || null,
+            updatedAt: new Date().toISOString(),
+          };
+          await prisma.payment.update({
+            where: { id: existing.id },
+            data: { metadata: meta },
+          });
+        }
+      }
+      const adminEmail = String(process.env.SUPER_ADMIN_EMAIL || '').trim();
+      if (adminEmail) {
+        await sendEmail({
+          to: adminEmail,
+          subject: `Paystack dispute: ${event}`,
+          text: `Dispute event ${event} for reference ${reference || 'unknown'}.\nStatus: ${data?.status || 'n/a'}\nReview in Paystack dashboard.`,
+        }).catch(() => {});
+      }
+    } catch (e) {
+      console.error('Paystack webhook dispute error:', e?.message);
+    }
+    return res.status(200).send('ok');
+  }
+
   const reference = data?.reference;
   if (!reference) return res.status(200).send('ok');
 

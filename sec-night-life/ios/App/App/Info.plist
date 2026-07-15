@@ -47,5 +47,19 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SEC uses your location to show nearby venues, events, and map pins.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>SEC uses your location to show nearby venues, events, and map pins.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SEC uses the camera so you can take photos for your profile, venue branding, and uploads.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SEC needs photo library access so you can upload profile photos, venue images, and documents.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>SEC may save images you choose to share from the app.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>

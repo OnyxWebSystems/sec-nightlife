@@ -32,10 +32,11 @@ Production readiness improved from **~62/100** to **~78/100** via safe, low-risk
 ## Phase 2 — Partial / deferred
 
 - **`GET /api/home/bootstrap`** — implemented (announcements, tables, promos, followed promoters)
-- Upstash Redis for public feeds + distributed rate limits
+- **Upstash Redis** — home feed cache + Redis-backed rate limits when `UPSTASH_REDIS_REST_*` set
 - Short-lived auth suspension cache
 - FCM push **delivery** from backend (token storage implemented)
 - Lazy Layout shell refactor
+- Pusher real-time chat (optional paid)
 
 ## Phase 1.5 — Launch hardening (latest)
 

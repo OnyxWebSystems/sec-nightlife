@@ -21,12 +21,22 @@ const checks = [
   {
     name: 'Android assetlinks.json',
     url: `${FRONTEND}/.well-known/assetlinks.json`,
-    expectJson: (j) => Array.isArray(j) && j[0]?.target?.package_name === 'com.secnightlife.app',
+    expectJson: (j) => {
+      const fp = j?.[0]?.target?.sha256_cert_fingerprints?.[0];
+      if (!Array.isArray(j) || j[0]?.target?.package_name !== 'com.secnightlife.app') return false;
+      if (!fp || String(fp).includes('FOUNDER_')) return false;
+      return true;
+    },
   },
   {
     name: 'Apple app site association',
     url: `${FRONTEND}/.well-known/apple-app-site-association`,
-    expectJson: (j) => j?.applinks?.details?.length > 0,
+    expectJson: (j) => {
+      const appID = j?.applinks?.details?.[0]?.appID;
+      if (!j?.applinks?.details?.length) return false;
+      if (!appID || String(appID).includes('FOUNDER_')) return false;
+      return true;
+    },
   },
   {
     name: 'Frontend SPA',

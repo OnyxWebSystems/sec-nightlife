@@ -5,6 +5,7 @@ function baseLegalDocs(t) {
     { key: 'userAgreement', page: LEGAL_PAGE.userAgreement, label: t('userAgreement') },
     { key: 'termsOfService', page: LEGAL_PAGE.termsOfService, label: t('termsOfService') },
     { key: 'privacyPolicy', page: LEGAL_PAGE.privacyPolicy, label: t('privacyPolicy') },
+    { key: 'cookiePolicy', page: LEGAL_PAGE.cookiePolicy, label: t('cookiePolicy') },
     { key: 'communityGuidelines', page: LEGAL_PAGE.communityGuidelines, label: t('communityGuidelines') },
     { key: 'gbvConsequences', page: LEGAL_PAGE.gbvConsequences, label: t('gbvConsequences') },
     { key: 'refundPolicy', page: LEGAL_PAGE.refundPolicy, label: t('refundPolicy') },

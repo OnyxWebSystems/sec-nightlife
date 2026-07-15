@@ -21,6 +21,7 @@ export const translations = {
     helpCenter: 'Help Center',
     termsOfService: 'Terms of Service',
     privacyPolicy: 'Privacy Policy',
+    cookiePolicy: 'Cookie Policy',
     userAgreement: 'User Agreement',
     communityGuidelines: 'Community Guidelines',
     gbvConsequences: 'GBV & Safety Consequences',

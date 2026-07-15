@@ -344,4 +344,17 @@ function getIsoWeek(date) {
   return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
 }
 
+router.get('/retry-payouts', async (req, res, next) => {
+  try {
+    if (!isCronAuthorized(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { retryStuckPayouts } = await import('../lib/paystackPayout.js');
+    const result = await retryStuckPayouts({ limit: 50 });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

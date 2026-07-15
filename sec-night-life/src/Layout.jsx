@@ -21,6 +21,8 @@ import { MOBILE_MAIN_PADDING_BOTTOM } from '@/lib/layoutConstants';
 import { useMobileNavFormHide } from '@/hooks/useMobileNavFormHide';
 import { enterPartygoerMode } from '@/lib/activeViewMode';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import CookieNoticeBanner from '@/components/legal/CookieNoticeBanner';
+import GuestAgeGate from '@/components/legal/GuestAgeGate';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
   LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2, Shield, RotateCcw, Armchair, Store
@@ -308,6 +310,8 @@ export default function Layout({ children, currentPageName }) {
         style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}
       >
         {children}
+        {!user && currentPageName === 'Home' ? <GuestAgeGate /> : null}
+        <CookieNoticeBanner />
       </div>
     );
   }
@@ -670,6 +674,7 @@ export default function Layout({ children, currentPageName }) {
           onPrefetch={prefetchNav}
         />
       ) : null}
+      <CookieNoticeBanner />
     </div>
   );
 }

@@ -194,13 +194,71 @@ router.post('/lookup', authenticateToken, lookupLimiter, async (req, res, next) 
       },
       payout: {
         account_name: payout.account_name,
-        account_number: payout.account_number,
         account_number_masked: maskAccountNumber(payout.account_number),
         bank_code: payout.bank_code,
         bank_name: payout.bank_name,
         currency: payout.currency,
       },
       targetWalletId: targetWallet.id,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    next(err);
+  }
+});
+
+/** POST /api/wallet/lookup/reveal — explicit reveal of full account number for refund payout */
+router.post('/lookup/reveal', authenticateToken, lookupLimiter, async (req, res, next) => {
+  try {
+    const body = z
+      .object({
+        wallet_code: z.string().min(6).max(40),
+        venue_id: z.string().uuid(),
+      })
+      .parse(req.body ?? {});
+
+    await assertVenueOwner(body.venue_id, req.userId);
+
+    const targetWallet = await prisma.secWallet.findUnique({
+      where: { walletCode: body.wallet_code.trim().toUpperCase() },
+      include: {
+        user: {
+          select: {
+            id: true,
+            paystackRecipientCode: true,
+            userProfile: { select: { paymentSetupComplete: true } },
+          },
+        },
+      },
+    });
+
+    if (!targetWallet || targetWallet.ownerType !== 'USER' || !targetWallet.userId) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+
+    const targetUser = targetWallet.user;
+    if (!targetUser?.paystackRecipientCode || !targetUser?.userProfile?.paymentSetupComplete) {
+      return res.status(400).json({
+        error: 'This user has not completed payout setup yet.',
+      });
+    }
+
+    const payout = await fetchPayoutDetailsFromPaystack(targetUser.paystackRecipientCode);
+
+    await prisma.walletLookupLog.create({
+      data: {
+        venueId: body.venue_id,
+        targetUserId: targetUser.id,
+        lookedUpById: req.userId,
+      },
+    });
+
+    res.json({
+      account_number: payout.account_number,
+      account_number_masked: maskAccountNumber(payout.account_number),
+      account_name: payout.account_name,
+      bank_code: payout.bank_code,
+      bank_name: payout.bank_name,
     });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
@@ -243,7 +301,6 @@ router.get('/venue/:venueId/recipients', authenticateToken, async (req, res, nex
           const p = await fetchPayoutDetailsFromPaystack(u.paystackRecipientCode);
           payout = {
             account_name: p.account_name,
-            account_number: p.account_number,
             account_number_masked: maskAccountNumber(p.account_number),
             bank_code: p.bank_code,
             bank_name: p.bank_name,

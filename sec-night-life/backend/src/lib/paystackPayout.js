@@ -1,8 +1,13 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { splitPlatformGross } from './platformSplit.js';
+import { FEED_BOOST_ZAR_PER_DAY, clampBoostDays } from './feedBoost.js';
 
 export { splitPlatformGross, splitPlatformGross as splitSecPlatform } from './platformSplit.js';
+
+export const EXTERNAL_HOSTED_LISTING_ZAR = 200;
+export const PROMOTION_PUBLISH_ZAR_PER_DAY = 50;
+export const PROMOTION_BOOST_ZAR_PER_DAY = 150;
 
 function requirePaystackKey() {
   const key = process.env.PAYSTACK_SECRET_KEY;
@@ -36,8 +41,31 @@ async function paystackFetch(path, { method = 'GET', body } = {}) {
 }
 
 /**
- * Record ledger row and attempt Paystack transfer of recipient share to a transfer recipient code.
+ * Server-side expected amount for platform fee / boost / listing checkouts.
+ * Returns null when type is not a fixed-price platform product.
  */
+export function expectedPlatformProductAmountZar(meta = {}) {
+  const type = String(meta.type || meta.sec_kind || '');
+  const boostDays = clampBoostDays(meta.boost_days ?? meta.boostDays ?? meta.days ?? 1);
+
+  if (type === 'HOSTED_TABLE_EXTERNAL_LISTING') {
+    return EXTERNAL_HOSTED_LISTING_ZAR;
+  }
+  if (type === 'TABLE_BOOST' || type === 'EVENT_BOOST' || type === 'VENUE_TABLE_BOOST' || type === 'HOUSE_PARTY_BOOST') {
+    return FEED_BOOST_ZAR_PER_DAY * boostDays;
+  }
+  if (type === 'BOOST' || type === 'PROMOTION_BOOST') {
+    return PROMOTION_BOOST_ZAR_PER_DAY * boostDays;
+  }
+  if (type === 'PROMOTION_PUBLISH' || meta.sec_kind === 'PROMOTION_PUBLISH') {
+    const publishDays = Math.max(1, Math.min(90, Number(meta.publish_days ?? meta.publishDays ?? 1) || 1));
+    const boostPart = Number(meta.boost_days ?? meta.boostDays ?? 0) || 0;
+    const boostZar = boostPart > 0 ? PROMOTION_BOOST_ZAR_PER_DAY * clampBoostDays(boostPart) : 0;
+    return publishDays * PROMOTION_PUBLISH_ZAR_PER_DAY + boostZar;
+  }
+  return null;
+}
+
 /** Record 100% SEC revenue (promotions, boosts, platform fees) — no recipient transfer. */
 export async function recordSecPlatformRevenue(paymentReference, grossZar) {
   const gross = Number(grossZar) || 0;
@@ -51,13 +79,11 @@ export async function recordSecPlatformRevenue(paymentReference, grossZar) {
   });
 }
 
-/** Record ledger row and attempt Paystack transfer of recipient share to a transfer recipient code. */
+/**
+ * Claim-or-create ledger row by unique paymentReference, then initiate transfer.
+ * Sync API success → PROCESSING until transfer.success webhook confirms TRANSFERRED.
+ */
 export async function recordPayoutAndMaybeTransfer(opts) {
-  const existing = await prisma.payoutLedger.findFirst({ where: { paymentReference: opts.paymentReference } });
-  if (existing) {
-    return { status: existing.status, ledgerId: existing.id, skipped: true };
-  }
-
   const {
     paymentReference,
     grossZar,
@@ -69,25 +95,99 @@ export async function recordPayoutAndMaybeTransfer(opts) {
     paystackRecipientCode = null,
   } = opts;
 
+  const existing = await prisma.payoutLedger.findUnique({
+    where: { paymentReference },
+  });
+  if (existing) {
+    if (['TRANSFERRED', 'PROCESSING', 'REFUNDED_MANUAL', 'SKIPPED_NO_RECIPIENT'].includes(existing.status)) {
+      return { status: existing.status, ledgerId: existing.id, skipped: true };
+    }
+    if (existing.status === 'PENDING' || existing.status === 'FAILED') {
+      return retryPayoutLedgerTransfer(existing.id);
+    }
+    return { status: existing.status, ledgerId: existing.id, skipped: true };
+  }
+
   if (recipientType === 'PLATFORM' || recipientAmount <= 0) {
-    await prisma.payoutLedger.create({
-      data: {
-        paymentReference,
-        grossAmount: grossZar,
-        secAmount,
-        recipientAmount,
-        recipientType: 'PLATFORM',
-        recipientUserId: null,
-        recipientVenueId: null,
-        status: 'SKIPPED_NO_RECIPIENT',
-        errorMessage: null,
-      },
-    });
-    return { status: 'SKIPPED_NO_RECIPIENT' };
+    try {
+      const row = await prisma.payoutLedger.create({
+        data: {
+          paymentReference,
+          grossAmount: grossZar,
+          secAmount,
+          recipientAmount,
+          recipientType: 'PLATFORM',
+          recipientUserId: null,
+          recipientVenueId: null,
+          status: 'SKIPPED_NO_RECIPIENT',
+          errorMessage: null,
+        },
+      });
+      return { status: 'SKIPPED_NO_RECIPIENT', ledgerId: row.id };
+    } catch (e) {
+      if (e?.code === 'P2002') {
+        const again = await prisma.payoutLedger.findUnique({ where: { paymentReference } });
+        return { status: again?.status, ledgerId: again?.id, skipped: true };
+      }
+      throw e;
+    }
   }
 
   if (!paystackRecipientCode) {
-    const row = await prisma.payoutLedger.create({
+    try {
+      const row = await prisma.payoutLedger.create({
+        data: {
+          paymentReference,
+          grossAmount: grossZar,
+          secAmount,
+          recipientAmount,
+          recipientType,
+          recipientUserId,
+          recipientVenueId,
+          status: 'PENDING',
+          errorMessage: 'Missing paystack recipient code — configure payouts in account settings.',
+        },
+      });
+      logger.warn('payout pending: no recipient code', { paymentReference, recipientUserId, recipientVenueId });
+      return { status: 'PENDING', ledgerId: row.id };
+    } catch (e) {
+      if (e?.code === 'P2002') {
+        const again = await prisma.payoutLedger.findUnique({ where: { paymentReference } });
+        return { status: again?.status, ledgerId: again?.id, skipped: true };
+      }
+      throw e;
+    }
+  }
+
+  const amountKobo = Math.round(recipientAmount * 100);
+  if (amountKobo < 100) {
+    try {
+      const row = await prisma.payoutLedger.create({
+        data: {
+          paymentReference,
+          grossAmount: grossZar,
+          secAmount,
+          recipientAmount,
+          recipientType,
+          recipientUserId,
+          recipientVenueId,
+          status: 'FAILED',
+          errorMessage: 'Recipient amount below minimum transfer',
+        },
+      });
+      return { status: 'FAILED', ledgerId: row.id };
+    } catch (e) {
+      if (e?.code === 'P2002') {
+        const again = await prisma.payoutLedger.findUnique({ where: { paymentReference } });
+        return { status: again?.status, ledgerId: again?.id, skipped: true };
+      }
+      throw e;
+    }
+  }
+
+  let row;
+  try {
+    row = await prisma.payoutLedger.create({
       data: {
         paymentReference,
         grossAmount: grossZar,
@@ -97,43 +197,43 @@ export async function recordPayoutAndMaybeTransfer(opts) {
         recipientUserId,
         recipientVenueId,
         status: 'PENDING',
+      },
+    });
+  } catch (e) {
+    if (e?.code === 'P2002') {
+      const again = await prisma.payoutLedger.findUnique({ where: { paymentReference } });
+      if (again && (again.status === 'PENDING' || again.status === 'FAILED')) {
+        return retryPayoutLedgerTransfer(again.id);
+      }
+      return { status: again?.status, ledgerId: again?.id, skipped: true };
+    }
+    throw e;
+  }
+
+  return initiateTransferForLedger(row, paystackRecipientCode);
+}
+
+async function initiateTransferForLedger(row, paystackRecipientCode) {
+  const amountKobo = Math.round(Number(row.recipientAmount) * 100);
+  if (!paystackRecipientCode) {
+    await prisma.payoutLedger.update({
+      where: { id: row.id },
+      data: {
+        status: 'PENDING',
         errorMessage: 'Missing paystack recipient code — configure payouts in account settings.',
       },
     });
-    logger.warn('payout pending: no recipient code', { paymentReference, recipientUserId, recipientVenueId });
     return { status: 'PENDING', ledgerId: row.id };
   }
-
-  const amountKobo = Math.round(recipientAmount * 100);
   if (amountKobo < 100) {
-    await prisma.payoutLedger.create({
-      data: {
-        paymentReference,
-        grossAmount: grossZar,
-        secAmount,
-        recipientAmount,
-        recipientType,
-        recipientUserId,
-        recipientVenueId,
-        status: 'FAILED',
-        errorMessage: 'Recipient amount below minimum transfer',
-      },
+    await prisma.payoutLedger.update({
+      where: { id: row.id },
+      data: { status: 'FAILED', errorMessage: 'Recipient amount below minimum transfer' },
     });
-    return { status: 'FAILED' };
+    return { status: 'FAILED', ledgerId: row.id };
   }
 
-  const row = await prisma.payoutLedger.create({
-    data: {
-      paymentReference,
-      grossAmount: grossZar,
-      secAmount,
-      recipientAmount,
-      recipientType,
-      recipientUserId,
-      recipientVenueId,
-      status: 'PENDING',
-    },
-  });
+  const transferReference = `${row.paymentReference}-payout-${row.id}`.slice(0, 100);
 
   try {
     const transfer = await paystackFetch('/transfer', {
@@ -142,25 +242,180 @@ export async function recordPayoutAndMaybeTransfer(opts) {
         source: 'balance',
         amount: amountKobo,
         recipient: paystackRecipientCode,
-        reason: `SEC payout ${paymentReference}`,
-        reference: `${paymentReference}-payout-${row.id}`.slice(0, 100),
+        reason: `SEC payout ${row.paymentReference}`,
+        reference: transferReference,
       },
     });
-    const ref = transfer?.data?.reference || transfer?.data?.transfer_code || null;
+    const ref = transfer?.data?.reference || transfer?.data?.transfer_code || transferReference;
     await prisma.payoutLedger.update({
       where: { id: row.id },
-      data: { status: 'TRANSFERRED', paystackTransferRef: ref, errorMessage: null },
+      data: {
+        status: 'PROCESSING',
+        paystackTransferRef: ref,
+        errorMessage: null,
+      },
     });
-    return { status: 'TRANSFERRED', ledgerId: row.id, transferRef: ref };
+    return { status: 'PROCESSING', ledgerId: row.id, transferRef: ref };
   } catch (e) {
     const msg = e?.message || String(e);
     await prisma.payoutLedger.update({
       where: { id: row.id },
       data: { status: 'FAILED', errorMessage: msg.slice(0, 2000) },
     });
-    logger.error('paystack transfer failed', { paymentReference, err: msg });
+    logger.error('paystack transfer failed', { paymentReference: row.paymentReference, err: msg });
     return { status: 'FAILED', ledgerId: row.id, error: msg };
   }
+}
+
+/**
+ * Retry PENDING/FAILED ledger when recipient is now available.
+ */
+export async function retryPayoutLedgerTransfer(ledgerId) {
+  const row = await prisma.payoutLedger.findUnique({ where: { id: ledgerId } });
+  if (!row) return { skipped: true, reason: 'not_found' };
+  if (['TRANSFERRED', 'PROCESSING', 'REFUNDED_MANUAL', 'SKIPPED_NO_RECIPIENT'].includes(row.status)) {
+    return { status: row.status, ledgerId: row.id, skipped: true };
+  }
+  if (row.recipientType === 'PLATFORM' || Number(row.recipientAmount) <= 0) {
+    return { status: row.status, ledgerId: row.id, skipped: true };
+  }
+
+  let code = null;
+  if (row.recipientVenueId) {
+    code = await resolveRecipientCodeForVenue(row.recipientVenueId);
+  } else if (row.recipientUserId) {
+    code = await resolveRecipientCodeForUser(row.recipientUserId);
+  }
+  if (!code) {
+    await prisma.payoutLedger.update({
+      where: { id: row.id },
+      data: {
+        status: 'PENDING',
+        errorMessage: 'Missing paystack recipient code — configure payouts in account settings.',
+      },
+    });
+    return { status: 'PENDING', ledgerId: row.id, skipped: true, reason: 'no_recipient' };
+  }
+
+  return initiateTransferForLedger(row, code);
+}
+
+/**
+ * Apply transfer webhook events to ledger rows.
+ */
+export async function applyTransferWebhookEvent(event, data) {
+  const transferRef =
+    data?.reference ||
+    data?.transfer_code ||
+    data?.transfer_reference ||
+    null;
+  const paymentHint = typeof transferRef === 'string' && transferRef.includes('-payout-')
+    ? transferRef.split('-payout-')[0]
+    : null;
+
+  let row = null;
+  if (transferRef) {
+    row = await prisma.payoutLedger.findFirst({
+      where: {
+        OR: [
+          { paystackTransferRef: transferRef },
+          ...(paymentHint ? [{ paymentReference: paymentHint }] : []),
+        ],
+      },
+    });
+  }
+  if (!row && paymentHint) {
+    row = await prisma.payoutLedger.findUnique({ where: { paymentReference: paymentHint } });
+  }
+  if (!row) {
+    logger.warn('transfer webhook: ledger not found', { event, transferRef });
+    return { matched: false };
+  }
+  if (row.status === 'REFUNDED_MANUAL') {
+    return { matched: true, ledgerId: row.id, status: row.status, skipped: true };
+  }
+
+  if (event === 'transfer.success') {
+    await prisma.payoutLedger.update({
+      where: { id: row.id },
+      data: {
+        status: 'TRANSFERRED',
+        paystackTransferRef: transferRef || row.paystackTransferRef,
+        errorMessage: null,
+      },
+    });
+    return { matched: true, ledgerId: row.id, status: 'TRANSFERRED' };
+  }
+
+  if (event === 'transfer.failed' || event === 'transfer.reversed') {
+    await prisma.payoutLedger.update({
+      where: { id: row.id },
+      data: {
+        status: 'FAILED',
+        paystackTransferRef: transferRef || row.paystackTransferRef,
+        errorMessage: (data?.reason || data?.message || event).toString().slice(0, 2000),
+      },
+    });
+    return { matched: true, ledgerId: row.id, status: 'FAILED' };
+  }
+
+  return { matched: true, ledgerId: row.id, status: row.status };
+}
+
+/** Mark ledgers for a payment as manually refunded (no Paystack clawback). */
+export async function markPayoutsRefundedManual(paymentReference) {
+  const refs = [
+    paymentReference,
+    `${paymentReference}:join`,
+    `${paymentReference}:menu`,
+  ];
+  const result = await prisma.payoutLedger.updateMany({
+    where: {
+      OR: [
+        { paymentReference: { in: refs } },
+        { paymentReference: { startsWith: `${paymentReference}:` } },
+      ],
+      status: { not: 'REFUNDED_MANUAL' },
+    },
+    data: {
+      status: 'REFUNDED_MANUAL',
+      errorMessage: 'Marked after venue-approved manual guest refund (no Paystack clawback).',
+    },
+  });
+  return result;
+}
+
+/**
+ * Cron/admin: retry PENDING/FAILED payouts that now have recipient codes.
+ */
+export async function retryStuckPayouts({ limit = 50 } = {}) {
+  const rows = await prisma.payoutLedger.findMany({
+    where: {
+      status: { in: ['PENDING', 'FAILED'] },
+      recipientType: { in: ['USER', 'VENUE'] },
+      recipientAmount: { gt: 0 },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: Math.min(limit, 100),
+  });
+
+  let retried = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    try {
+      const result = await retryPayoutLedgerTransfer(row.id);
+      if (result.skipped) skipped += 1;
+      else if (result.status === 'FAILED') failed += 1;
+      else retried += 1;
+    } catch (e) {
+      failed += 1;
+      logger.error('retryStuckPayouts row failed', { id: row.id, err: e?.message });
+    }
+  }
+
+  return { scanned: rows.length, retried, skipped, failed };
 }
 
 export async function resolveRecipientCodeForUser(userId) {
@@ -196,7 +451,7 @@ export async function ensureVenueTablePayoutLedger({ reference, amountZar, venue
     return { skipped: true, reason: 'invalid_input' };
   }
 
-  const existing = await prisma.payoutLedger.findFirst({ where: { paymentReference: reference } });
+  const existing = await prisma.payoutLedger.findUnique({ where: { paymentReference: reference } });
   if (existing) {
     return { skipped: true, status: existing.status, ledgerId: existing.id };
   }
@@ -241,7 +496,7 @@ export async function repairMissingVenueTablePayouts({ sinceDays = 60, limit = 8
     const memberId = meta.venueTableMemberId ?? meta.venue_table_member_id;
     if (!venueId || !memberId) continue;
 
-    const ledger = await prisma.payoutLedger.findFirst({ where: { paymentReference: pay.reference } });
+    const ledger = await prisma.payoutLedger.findUnique({ where: { paymentReference: pay.reference } });
     if (ledger) {
       skipped += 1;
       continue;
@@ -292,7 +547,7 @@ export async function repairMissingHostedTableJoinPayouts({ sinceDays = 90, limi
     }
 
     const joinRef = `${pay.reference}:join`;
-    const ledger = await prisma.payoutLedger.findFirst({ where: { paymentReference: joinRef } });
+    const ledger = await prisma.payoutLedger.findUnique({ where: { paymentReference: joinRef } });
     if (ledger) {
       skipped += 1;
       continue;

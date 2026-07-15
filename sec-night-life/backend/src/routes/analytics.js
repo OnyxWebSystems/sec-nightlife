@@ -64,37 +64,50 @@ router.get('/venue/:venueId', authenticateToken, requireVerified, requireRole('A
       if (!ok) return res.status(403).json({ error: 'Not authorized to view this venue analytics' });
     }
 
-    const [events, tables, reviews] = await Promise.all([
+    const [events, tables, reviews, attendanceAgg] = await Promise.all([
       prisma.event.findMany({
         where: { venueId, deletedAt: null },
-        include: { attendees: true }
+        select: { id: true, title: true, date: true, status: true },
+        take: 200,
       }),
       prisma.table.findMany({
-        where: { venueId, deletedAt: null }
+        where: { venueId, deletedAt: null },
+        select: { id: true, name: true, status: true },
+        take: 200,
       }),
-      prisma.venueReview.findMany({ where: { venueId } })
+      prisma.venueReview.findMany({
+        where: { venueId },
+        select: { rating: true },
+        take: 500,
+      }),
+      prisma.eventAttendance.groupBy({
+        by: ['eventId'],
+        where: { event: { venueId, deletedAt: null } },
+        _count: { _all: true },
+      }),
     ]);
 
     const totalEvents = events.length;
-    const totalAttendees = events.reduce((sum, e) => sum + e.attendees.length, 0);
-    const confirmedAttendees = events.reduce(
-      (sum, e) => sum + e.attendees.filter(a => a.confirmed).length, 0
-    );
+    const totalAttendees = attendanceAgg.reduce((sum, row) => sum + (row._count._all || 0), 0);
+    const confirmedAgg = await prisma.eventAttendance.groupBy({
+      by: ['eventId'],
+      where: { confirmed: true, event: { venueId, deletedAt: null } },
+      _count: { _all: true },
+    });
+    const confirmedAttendees = confirmedAgg.reduce((sum, row) => sum + (row._count._all || 0), 0);
     const attendanceRate = totalAttendees > 0
       ? Math.round((confirmedAttendees / totalAttendees) * 100)
       : 0;
 
-    // Repeat attendees: users who attended more than one event
-    const attendeeMap = {};
-    events.forEach(e => {
-      e.attendees.forEach(a => {
-        attendeeMap[a.userId] = (attendeeMap[a.userId] || 0) + 1;
-      });
+    const multiAttend = await prisma.eventAttendance.groupBy({
+      by: ['userId'],
+      where: { event: { venueId, deletedAt: null } },
+      _count: { _all: true },
     });
-    const repeatAttendees = Object.values(attendeeMap).filter(c => c > 1).length;
+    const repeatAttendees = multiAttend.filter((r) => (r._count._all || 0) > 1).length;
 
     const totalTables = tables.length;
-    const fullTables = tables.filter(t => t.status === 'full' || t.status === 'closed').length;
+    const fullTables = tables.filter((t) => t.status === 'full' || t.status === 'closed').length;
     const tableConversionRate = totalTables > 0
       ? Math.round((fullTables / totalTables) * 100)
       : 0;

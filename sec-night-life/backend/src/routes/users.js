@@ -665,7 +665,7 @@ const profileUpdateSchema = z.object({
     .optional()
     .nullable(),
   payment_setup_complete: z.boolean().optional().nullable(),
-  paystack_recipient_code: z.string().max(128).optional().nullable(),
+  paystack_recipient_code: z.string().max(128).optional().nullable(), // ignored on write — use payout-recipient API
   interests: z.array(z.string().max(30)).max(10).optional().nullable(),
   music_preferences: z.array(z.string().max(30)).max(10).optional().nullable(),
   friends: z.array(z.string()).optional().nullable(),
@@ -1314,12 +1314,7 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     if (data.age_verified != null) updates.ageVerified = data.age_verified;
     if (data.verification_status != null) updates.verificationStatus = data.verification_status;
     if (data.payment_setup_complete != null) updates.paymentSetupComplete = data.payment_setup_complete;
-    if (data.paystack_recipient_code !== undefined) {
-      await prisma.user.update({
-        where: { id: targetUserId },
-        data: { paystackRecipientCode: data.paystack_recipient_code || null },
-      });
-    }
+    // paystack_recipient_code may only be set via POST /api/payments/payout-recipient
     if (data.interests !== undefined) {
       updates.interests = data.interests === null ? [] : normalizeInterestList(data.interests);
     }
@@ -1380,6 +1375,108 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       followed_venues: updated.followedVenues ?? [],
       interested_events: updated.interestedEvents ?? [],
       onboarding_complete: updated.onboardingComplete
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Data export (Privacy Policy right of access) ─────────────────────────
+router.get('/me/export', authenticateToken, async (req, res, next) => {
+  try {
+    const userId = req.userId;
+    const [user, profile, payments, refunds, tickets, wallets] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          username: true,
+          role: true,
+          createdAt: true,
+          paystackRecipientCode: true,
+        },
+      }),
+      prisma.userProfile.findUnique({ where: { userId } }),
+      prisma.payment.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        select: {
+          id: true,
+          reference: true,
+          amount: true,
+          status: true,
+          type: true,
+          refundStatus: true,
+          createdAt: true,
+        },
+      }),
+      prisma.refundRequest.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: {
+          id: true,
+          paymentReference: true,
+          status: true,
+          refundType: true,
+          grossAmountZar: true,
+          createdAt: true,
+          approvedAt: true,
+          rejectedAt: true,
+        },
+      }),
+      prisma.ticket.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        select: {
+          id: true,
+          kind: true,
+          title: true,
+          paystackReference: true,
+          createdAt: true,
+          refundedAt: true,
+        },
+      }),
+      prisma.secWallet.findMany({
+        where: { userId },
+        select: { walletCode: true, ownerType: true, createdAt: true },
+      }),
+    ]);
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({
+      exportedAt: new Date().toISOString(),
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        username: user.username,
+        role: user.role,
+        createdAt: user.createdAt,
+        hasPayoutRecipient: Boolean(user.paystackRecipientCode),
+      },
+      profile: profile
+        ? {
+            bio: profile.bio,
+            city: profile.city,
+            dateOfBirth: profile.dateOfBirth,
+            gender: profile.gender,
+            interests: profile.interests,
+            musicPreferences: profile.musicPreferences,
+            verificationStatus: profile.verificationStatus,
+            paymentSetupComplete: profile.paymentSetupComplete,
+          }
+        : null,
+      wallets,
+      payments,
+      refundRequests: refunds,
+      tickets,
+      note: 'Bank account numbers are not included. They are held by our payment partner (Paystack).',
     });
   } catch (err) {
     next(err);

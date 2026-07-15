@@ -38,6 +38,7 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
   const selectedVenue = venues.find((v) => v.id === selectedVenueId);
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupLoading, setLookupLoading] = useState(false);
+  const [revealLoading, setRevealLoading] = useState(false);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['sec-wallet-venue', selectedVenueId],
@@ -87,6 +88,33 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
       toast.error(e?.data?.error || e?.message || 'Lookup failed');
     } finally {
       setLookupLoading(false);
+    }
+  };
+
+  const revealAccountNumber = async () => {
+    if (!lookupCode.trim() || !selectedVenueId || !lookupResult) return;
+    setRevealLoading(true);
+    try {
+      const res = await apiPost('/api/wallet/lookup/reveal', {
+        wallet_code: lookupCode.trim(),
+        venue_id: selectedVenueId,
+      });
+      setLookupResult((prev) => ({
+        ...prev,
+        payout: {
+          ...(prev?.payout || {}),
+          account_number: res.account_number,
+          account_number_masked: res.account_number_masked,
+          account_name: res.account_name || prev?.payout?.account_name,
+          bank_code: res.bank_code || prev?.payout?.bank_code,
+          bank_name: res.bank_name || prev?.payout?.bank_name,
+        },
+      }));
+      toast.success('Full account number revealed for refund payout');
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Could not reveal account number');
+    } finally {
+      setRevealLoading(false);
     }
   };
 
@@ -202,10 +230,24 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
                 {lookupResult.payout ? (
                   <div className="space-y-2 text-sm">
                     <PayoutCopyRow label="Account name" value={lookupResult.payout.account_name} />
-                    <PayoutCopyRow label="Account number" value={lookupResult.payout.account_number} masked={lookupResult.payout.account_number_masked} />
+                    <PayoutCopyRow
+                      label="Account number"
+                      value={lookupResult.payout.account_number || lookupResult.payout.account_number_masked}
+                      masked={lookupResult.payout.account_number ? null : lookupResult.payout.account_number_masked}
+                    />
                     <PayoutCopyRow label="Bank code" value={lookupResult.payout.bank_code} />
                     {lookupResult.payout.bank_name && (
                       <p className="text-xs text-gray-500">Bank: {lookupResult.payout.bank_name}</p>
+                    )}
+                    {!lookupResult.payout.account_number && (
+                      <button
+                        type="button"
+                        disabled={revealLoading}
+                        onClick={revealAccountNumber}
+                        className="w-full py-2 rounded-lg border border-[var(--sec-accent)]/40 text-sm text-[var(--sec-accent)] disabled:opacity-50"
+                      >
+                        {revealLoading ? 'Revealing…' : 'Reveal full account number for refund'}
+                      </button>
                     )}
                   </div>
                 ) : (
@@ -248,7 +290,7 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
                     {r.payout && (
                       <div className="mt-2 space-y-1.5 text-xs">
                         <PayoutCopyRow label="Name" value={r.payout.account_name} compact />
-                        <PayoutCopyRow label="Account" value={r.payout.account_number} masked={r.payout.account_number_masked} compact />
+                        <PayoutCopyRow label="Account" value={r.payout.account_number_masked} compact />
                         <PayoutCopyRow label="Bank code" value={r.payout.bank_code} compact />
                       </div>
                     )}

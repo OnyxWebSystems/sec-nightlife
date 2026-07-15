@@ -248,9 +248,11 @@ enum PayoutRecipientType {
 
 enum PayoutLedgerStatus {
   PENDING
+  PROCESSING
   TRANSFERRED
   FAILED
   SKIPPED_NO_RECIPIENT
+  REFUNDED_MANUAL
 }
 
 enum TableSourceType {
@@ -1403,7 +1405,7 @@ model Ticket {
 
 model RefundRequest {
   id                 String              @id @default(cuid())
-  userId             String              @map("user_id")
+  userId             String?             @map("user_id")
   venueId            String              @map("venue_id")
   paymentReference   String              @map("payment_reference")
   refundType         RefundType          @map("refund_type")
@@ -1425,7 +1427,7 @@ model RefundRequest {
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
-  user       User     @relation("RefundRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  user       User?    @relation("RefundRequestUser", fields: [userId], references: [id], onDelete: SetNull)
   venue      Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
   approvedBy User?    @relation("RefundRequestApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
   payment    Payment?
@@ -1456,9 +1458,11 @@ model PayoutLedger {
   recipientUser  User?  @relation("PayoutRecipientUser", fields: [recipientUserId], references: [id], onDelete: SetNull)
   recipientVenue Venue? @relation("PayoutRecipientVenue", fields: [recipientVenueId], references: [id], onDelete: SetNull)
 
-  @@index([paymentReference])
+  @@unique([paymentReference])
   @@index([recipientUserId])
   @@index([recipientVenueId])
+  @@index([status])
+  @@index([createdAt])
   @@map("payout_ledgers")
 }
 

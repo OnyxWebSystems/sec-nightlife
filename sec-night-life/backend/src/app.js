@@ -10,6 +10,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { createRedisRateLimitStore } from './lib/redis.js';
 import { logger } from './lib/logger.js';
 import { defaultTicketVerifyOrigin } from './lib/ticketVerifyUrl.js';
 import authRoutes from './routes/auth.js';
@@ -132,8 +133,11 @@ app.use(cors({
     }
     const normalizedOrigin = origin.replace(/\/+$/, '');
     if (allowedOrigins.has(normalizedOrigin)) return cb(null, true);
-    // Allow any Vercel preview URL (*.vercel.app) for preview deployments
-    if (normalizedOrigin.endsWith('.vercel.app')) return cb(null, true);
+    // Preview deployments only when explicitly enabled (never open *.vercel.app in production by default)
+    const allowVercelPreview =
+      process.env.CORS_ALLOW_VERCEL_PREVIEW === 'true' ||
+      (!isProd && process.env.CORS_ALLOW_VERCEL_PREVIEW !== 'false');
+    if (allowVercelPreview && normalizedOrigin.endsWith('.vercel.app')) return cb(null, true);
     cb(new Error('CORS: origin not allowed'), false);
   },
   credentials: true,
@@ -150,12 +154,15 @@ app.post('/api/payments/paystack/webhook', express.raw({ type: 'application/json
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// Rate limiting
+// Rate limiting (Redis-backed when UPSTASH_* env is set)
+const rateLimitStore = createRedisRateLimitStore({ prefix: 'sec-rl' });
+
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isProd ? 100 : 1000,
   standardHeaders: true,
   legacyHeaders: false,
+  store: rateLimitStore,
   message: { error: 'Too many requests. Try again later.' }
 });
 
@@ -164,6 +171,7 @@ const authLimiter = rateLimit({
   max: isProd ? 20 : 200,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRedisRateLimitStore({ prefix: 'sec-rl-auth' }),
   message: { error: 'Too many requests. Try again in a few minutes.' }
 });
 
@@ -172,6 +180,7 @@ const resendLimiter = rateLimit({
   max: isProd ? 3 : 20,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRedisRateLimitStore({ prefix: 'sec-rl-resend' }),
   message: { error: 'Too many verification email requests. Try again in an hour.' }
 });
 
@@ -180,6 +189,7 @@ const paymentLimiter = rateLimit({
   max: isProd ? 20 : 100,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRedisRateLimitStore({ prefix: 'sec-rl-pay' }),
   message: { error: 'Too many payment requests. Try again later.' }
 });
 

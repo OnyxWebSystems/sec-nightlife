@@ -1031,7 +1031,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
               },
             },
           },
-          take: 8000,
+          take: 2000,
         })
       : Promise.resolve([]);
 
@@ -1069,7 +1069,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
               },
             },
           },
-          take: 5000,
+          take: 2000,
         })
       : Promise.resolve([]);
 
@@ -1093,6 +1093,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
             recipientVenueId: venueId,
             recipientType: 'VENUE',
             createdAt: { gte: cutoff },
+            status: { not: 'REFUNDED_MANUAL' },
           },
           select: {
             paymentReference: true,
@@ -1100,7 +1101,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
             recipientAmount: true,
             createdAt: true,
           },
-          take: isDayBookingsScope ? 5000 : 15000,
+          take: 3000,
         }),
         prisma.splitPaymentLog.findMany({
           where: {
@@ -1113,7 +1114,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
             venueAmount: true,
             createdAt: true,
           },
-          take: isDayBookingsScope ? 5000 : 15000,
+          take: 3000,
         }),
         isDayBookingsScope
           ? Promise.resolve([])
@@ -1126,7 +1127,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
                   eventId,
                 },
                 select: { amount: true, createdAt: true, stripeId: true, metadata: true },
-                take: 8000,
+                take: 3000,
               })
             : prisma.transaction.findMany({
                 where: {
@@ -1135,7 +1136,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
                   createdAt: { gte: cutoff },
                 },
                 select: { amount: true, createdAt: true, stripeId: true, metadata: true },
-                take: 8000,
+                take: 3000,
               }),
         dayMembersPromise,
         dayHostedGuestsPromise,

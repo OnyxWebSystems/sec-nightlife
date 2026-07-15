@@ -198,32 +198,35 @@ router.get('/eligible-payments', authenticateToken, async (req, res, next) => {
     const payments = await prisma.payment.findMany({
       where: {
         userId: req.userId,
-        status: { in: ['success', 'pending'] },
+        status: 'success',
         refundStatus: { in: ['NONE', 'PENDING'] },
       },
       orderBy: { createdAt: 'desc' },
-      take: 80,
+      take: 40,
       select: {
+        id: true,
         reference: true,
         amount: true,
         type: true,
         metadata: true,
         createdAt: true,
         refundStatus: true,
+        userId: true,
+        status: true,
       },
     });
 
     const items = [];
     const seenRefs = new Set();
 
-    for (const p of payments) {
-      const resolved = await resolvePaymentForRefund({ userId: req.userId, reference: p.reference });
-      if (!resolved) continue;
-      await appendEligiblePaymentItem(
-        items,
-        seenRefs,
-        { ...resolved, refundStatus: p.refundStatus ?? resolved.refundStatus },
-        req.userId,
+    // Batch validate in parallel (capped concurrency)
+    const chunkSize = 8;
+    for (let i = 0; i < payments.length; i += chunkSize) {
+      const chunk = payments.slice(i, i + chunkSize);
+      await Promise.all(
+        chunk.map(async (p) => {
+          await appendEligiblePaymentItem(items, seenRefs, p, req.userId);
+        }),
       );
     }
 

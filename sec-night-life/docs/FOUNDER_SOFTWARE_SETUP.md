@@ -31,8 +31,10 @@ Step-by-step guide for every service you need to launch SEC on **secnightlife.co
 
 | Service | Est. cost | Purpose |
 |---------|-----------|---------|
-| Upstash Redis | $10–30/mo | Feed caching |
+| Upstash Redis | $10–30/mo | Feed caching + distributed rate limits (wired in API) |
 | Pusher | $49+/mo | Real-time chat |
+
+**After deploying launch hardening, follow:** [POST_MERGE_FOUNDER_GUIDE.md](./POST_MERGE_FOUNDER_GUIDE.md)
 
 ---
 

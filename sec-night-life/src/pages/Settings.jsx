@@ -21,9 +21,12 @@ import {
   Key,
   Trash2,
   Store,
+  Download,
 } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { apiGet } from '@/api/client';
+import { toast } from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -97,6 +100,22 @@ export default function Settings() {
     }
   };
 
+  const handleExportData = async () => {
+    try {
+      const data = await apiGet('/api/users/me/export');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sec-nightlife-data-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Your data export downloaded');
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Could not export data');
+    }
+  };
+
   const supportLegalItems = getSettingsLegalNavItems(t).map((item) => ({
     icon: FileText,
     label: item.label,
@@ -111,6 +130,7 @@ export default function Settings() {
         { icon: Store, label: 'My vendor businesses', description: 'List services venues can hire', page: 'VendorBusinessSettings' },
         { icon: Bell, label: t('notifications'), description: t('managePushNotifications'), page: 'Notifications' },
         { icon: Shield, label: t('privacySecurity'), page: 'Privacy' },
+        { icon: Download, label: 'Download my data', description: 'Export a copy of your account data', exportAction: true },
         { icon: Mail, label: t('changeEmail'), page: 'ChangeEmail' },
         { icon: Key, label: t('changePassword'), page: 'ChangePassword' },
         { icon: Trash2, label: t('deleteAccount'), deleteAction: true },
@@ -290,6 +310,25 @@ export default function Settings() {
                     <item.icon className="w-5 h-5" style={{ color: 'var(--sec-error)' }} />
                     <div className="flex-1">
                       <p className="font-medium">{item.label}</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
+                  </button>
+                ) : item.exportAction ? (
+                  <button
+                    type="button"
+                    onClick={handleExportData}
+                    className="flex items-center gap-4 flex-1 w-full text-left"
+                  >
+                    <item.icon className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
+                    <div className="flex-1">
+                      <p className="font-medium" style={{ color: 'var(--sec-text-primary)' }}>
+                        {item.label}
+                      </p>
+                      {item.description && (
+                        <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                          {item.description}
+                        </p>
+                      )}
                     </div>
                     <ChevronRight className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
                   </button>

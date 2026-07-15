@@ -6,152 +6,127 @@ import { prisma } from '../lib/prisma.js';
 const router = Router();
 const SUPPORT_CONTACT_EMAIL = process.env.SUPPORT_CONTACT_EMAIL || 'support@secnightlife.com';
 const ADMIN_CONTACT_EMAIL = process.env.ADMIN_CONTACT_EMAIL || 'admin@secnightlife.com';
+const APP_PUBLIC_URL = String(process.env.APP_URL || 'https://secnightlife.com').replace(/\/+$/, '');
 
+/**
+ * Lawyer-reviewed legal copy lives on the frontend pages.
+ * This API exposes metadata + canonical public URLs (no stub body text).
+ */
 const LEGAL_DOCS = {
   privacy_policy: {
     type: 'PRIVACY_POLICY',
     title: 'Privacy Policy',
     version: '1.0',
-    effectiveDate: '2026-01-01',
+    effectiveDate: '2026-04-01',
+    path: '/PrivacyPolicy',
   },
   terms_of_service: {
     type: 'TERMS_OF_SERVICE',
     title: 'Terms of Service',
     version: '1.0',
-    effectiveDate: '2026-01-01',
+    effectiveDate: '2026-04-01',
+    path: '/TermsOfService',
+  },
+  cookie_policy: {
+    type: 'COOKIE_POLICY',
+    title: 'Cookie Policy',
+    version: '1.0',
+    effectiveDate: '2026-04-01',
+    path: '/CookiePolicy',
   },
   promoter_code_of_conduct: {
     type: 'PROMOTER_CODE_OF_CONDUCT',
     title: 'Promoter Code of Conduct',
     version: '1.1',
     effectiveDate: '2026-06-08',
+    path: '/PromoterCodeOfConduct',
   },
   age_verification_declaration: {
     type: 'AGE_VERIFICATION_DECLARATION',
     title: 'Age Verification Declaration',
     version: '1.0',
     effectiveDate: '2026-06-01',
+    path: '/AgeVerificationDeclaration',
+  },
+  user_agreement: {
+    type: 'USER_AGREEMENT',
+    title: 'User Agreement',
+    version: '1.0',
+    effectiveDate: '2026-04-01',
+    path: '/UserAgreement',
+  },
+  refund_policy: {
+    type: 'REFUND_POLICY',
+    title: 'Refund Policy',
+    version: '1.0',
+    effectiveDate: '2026-04-01',
+    path: '/RefundPolicy',
+  },
+  community_guidelines: {
+    type: 'COMMUNITY_GUIDELINES',
+    title: 'Community Guidelines',
+    version: '1.0',
+    effectiveDate: '2026-04-01',
+    path: '/CommunityGuidelines',
   },
 };
+
+function docPayload(key) {
+  const meta = LEGAL_DOCS[key];
+  return {
+    documentKey: key,
+    documentType: meta.type,
+    title: meta.title,
+    version: meta.version,
+    effectiveDate: meta.effectiveDate,
+    publicUrl: `${APP_PUBLIC_URL}${meta.path}`,
+    sourceOfTruth: 'frontend',
+    contact: {
+      support: SUPPORT_CONTACT_EMAIL,
+      admin: ADMIN_CONTACT_EMAIL,
+    },
+  };
+}
 
 function isMissingAcceptanceSchema(err) {
   return err?.code === 'P2022' || err?.code === 'P2021';
 }
 
 router.get('/privacy-policy', (req, res) => {
-  const meta = LEGAL_DOCS.privacy_policy;
-  res.json({
-    documentKey: 'privacy_policy',
-    documentType: meta.type,
-    title: meta.title,
-    version: meta.version,
-    effectiveDate: meta.effectiveDate,
-    content: [
-      {
-        heading: 'Information We Collect',
-        body: 'We collect information you provide when registering, including your name, email address, and profile details. We also collect usage data to improve our services.'
-      },
-      {
-        heading: 'How We Use Your Information',
-        body: 'We use your information to provide and improve the SEC Nightlife platform, send service notifications, and ensure platform safety.'
-      },
-      {
-        heading: 'Data Sharing',
-        body: 'We do not sell your personal data. We may share data with service providers necessary to operate the platform.'
-      },
-      {
-        heading: 'Account Deletion',
-        body: 'You may delete your account at any time from within the app. Upon deletion, your personal data will be removed from our active systems.'
-      },
-      {
-        heading: 'Contact',
-        body: `For privacy inquiries, contact us at ${ADMIN_CONTACT_EMAIL}. For general support, contact ${SUPPORT_CONTACT_EMAIL}.`
-      }
-    ],
-    note: 'This is a placeholder. Replace with full legal privacy policy before launch.'
-  });
+  res.json(docPayload('privacy_policy'));
 });
 
 router.get('/terms-of-service', (req, res) => {
-  const meta = LEGAL_DOCS.terms_of_service;
-  res.json({
-    documentKey: 'terms_of_service',
-    documentType: meta.type,
-    title: meta.title,
-    version: meta.version,
-    effectiveDate: meta.effectiveDate,
-    content: [
-      {
-        heading: 'Acceptance of Terms',
-        body: 'By using SEC Nightlife, you agree to these Terms of Service. If you do not agree, do not use the platform.'
-      },
-      {
-        heading: 'Eligibility',
-        body: 'You must be 18 years or older to use SEC Nightlife. By registering, you confirm you meet this requirement.'
-      },
-      {
-        heading: 'User Conduct',
-        body: 'You agree not to use the platform for illegal activities, harassment, or any conduct that violates our community guidelines.'
-      },
-      {
-        heading: 'Content',
-        body: 'You are responsible for content you post. SEC Nightlife reserves the right to remove content that violates our policies.'
-      },
-      {
-        heading: 'Account Termination',
-        body: 'We may suspend or terminate accounts that violate these terms. You may delete your account at any time.'
-      },
-      {
-        heading: 'Contact',
-        body: `For terms inquiries, contact us at ${ADMIN_CONTACT_EMAIL}. For general support, contact ${SUPPORT_CONTACT_EMAIL}.`
-      }
-    ],
-    note: 'This is a placeholder. Replace with full legal terms of service before launch.'
-  });
+  res.json(docPayload('terms_of_service'));
+});
+
+router.get('/cookie-policy', (req, res) => {
+  res.json(docPayload('cookie_policy'));
+});
+
+router.get('/age-verification-declaration', (req, res) => {
+  res.json(docPayload('age_verification_declaration'));
+});
+
+router.get('/user-agreement', (req, res) => {
+  res.json(docPayload('user_agreement'));
+});
+
+router.get('/refund-policy', (req, res) => {
+  res.json(docPayload('refund_policy'));
+});
+
+router.get('/community-guidelines', (req, res) => {
+  res.json(docPayload('community_guidelines'));
 });
 
 router.get('/promoter-code-of-conduct', (req, res) => {
-  const meta = LEGAL_DOCS.promoter_code_of_conduct;
+  res.json(docPayload('promoter_code_of_conduct'));
+});
+
+router.get('/documents', (_req, res) => {
   res.json({
-    documentKey: 'promoter_code_of_conduct',
-    documentType: meta.type,
-    title: meta.title,
-    version: meta.version,
-    effectiveDate: meta.effectiveDate,
-    content: [
-      {
-        heading: 'Purpose and Scope',
-        body: 'This Code of Conduct establishes the ethical and professional standards expected of all promoters operating on the SEC platform. Promoters play a critical role in the platform ecosystem and are expected to act with integrity and professionalism.',
-      },
-      {
-        heading: 'Accuracy and Transparency',
-        body: 'Promoters must ensure that all information related to events, including pricing, availability, and features, is accurate and not misleading. Misrepresentation of events is strictly prohibited.',
-      },
-      {
-        heading: 'Ethical Conduct',
-        body: 'Promoters must conduct themselves in a manner that is respectful, lawful, and professional at all times. This includes interactions with users, venues, and other stakeholders.',
-      },
-      {
-        heading: 'Financial Integrity',
-        body: 'Promoters must not engage in fraudulent practices, including ticket scams, misappropriation of funds, or unauthorized transactions outside the platform.',
-      },
-      {
-        heading: 'Compliance and Enforcement',
-        body: 'SEC reserves the right to monitor promoter activity and suspend or remove promoters who violate this Code.',
-      },
-      {
-        heading: 'Becoming a Verified Promoter',
-        body: 'Apply for and get hired on a venue Promoter role job. Accept this Code of Conduct in Settings. Get assigned events in the venue Events Manager. Promote using your personal SEC referral links only. Complete jobs and earn venue ratings (Profile Reviews count). Reach Promoter Standard (20 promoter hires) and stay active. SEC admin reviews your record and grants the Verified Promoter badge.',
-      },
-      {
-        heading: 'Verified Promoter Privileges',
-        body: 'Verified promoters can appear on the Promoter Leaderboard, receive a follow button on their profile, and be featured when assigned to promote events. Followers see those events on their home feed.',
-      },
-      {
-        heading: 'Attribution and Referral Rules',
-        body: 'Only use official SEC event links with your referral ID. Do not misrepresent events or prices. Self-referrals and fraudulent conversions may void leaderboard points. Ticket purchases and table joins through your link earn conversion points for leaderboard ranking.',
-      },
-    ],
+    documents: Object.keys(LEGAL_DOCS).map((key) => docPayload(key)),
   });
 });
 
@@ -176,11 +151,38 @@ router.get('/acceptance-status', authenticateToken, async (req, res, next) => {
 router.post('/acceptances', authenticateToken, async (req, res, next) => {
   try {
     const schema = z.object({
-      document_key: z.enum(['privacy_policy', 'terms_of_service', 'promoter_code_of_conduct', 'age_verification_declaration']),
+      document_key: z.enum([
+        'privacy_policy',
+        'terms_of_service',
+        'promoter_code_of_conduct',
+        'age_verification_declaration',
+        'cookie_policy',
+        'user_agreement',
+        'refund_policy',
+        'community_guidelines',
+      ]),
       version: z.string().min(1).max(30),
     });
     const parsed = schema.parse(req.body || {});
     const docMeta = LEGAL_DOCS[parsed.document_key];
+    if (!docMeta?.type) {
+      return res.status(400).json({ error: 'Unknown document' });
+    }
+    // Only enum-backed types can be stored; others acknowledge without DB row
+    const storable = new Set([
+      'PRIVACY_POLICY',
+      'TERMS_OF_SERVICE',
+      'PROMOTER_CODE_OF_CONDUCT',
+      'AGE_VERIFICATION_DECLARATION',
+    ]);
+    if (!storable.has(docMeta.type)) {
+      return res.status(201).json({
+        acknowledged: true,
+        documentType: docMeta.type,
+        version: parsed.version,
+        stored: false,
+      });
+    }
     const created = await prisma.legalDocumentAcceptance.create({
       data: {
         userId: req.userId,
@@ -195,6 +197,7 @@ router.post('/acceptances', authenticateToken, async (req, res, next) => {
       documentType: created.documentType,
       version: created.version,
       acceptedAt: created.acceptedAt,
+      stored: true,
     });
   } catch (err) {
     if (isMissingAcceptanceSchema(err)) {
