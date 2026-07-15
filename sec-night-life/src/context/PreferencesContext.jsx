@@ -198,6 +198,20 @@ export function PreferencesProvider({ children }) {
     });
   }, []);
 
+  const setPreferredGeoCoords = useCallback((coords) => {
+    if (
+      coords &&
+      typeof coords.lat === 'number' &&
+      typeof coords.lng === 'number' &&
+      Number.isFinite(coords.lat) &&
+      Number.isFinite(coords.lng)
+    ) {
+      setGeoCoords({ lat: coords.lat, lng: coords.lng });
+      return;
+    }
+    setGeoCoords(null);
+  }, []);
+
   useEffect(() => {
     if (!prefs.location?.useLocation) {
       setGeoCoords(null);
@@ -262,6 +276,7 @@ export function PreferencesProvider({ children }) {
     privacy,
     geoCoords,
     requestGeoCoords,
+    setPreferredGeoCoords,
     setTheme,
     toggleTheme,
     setLanguage,

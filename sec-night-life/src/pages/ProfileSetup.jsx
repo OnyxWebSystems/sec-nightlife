@@ -52,11 +52,40 @@ const GENDER_OPTIONS = [
   { value: 'other', label: 'Other' },
 ];
 
+function profileSetupDraftKey(userId) {
+  return `sec-profile-setup-draft:${userId}`;
+}
+
+function loadProfileSetupDraft(userId) {
+  if (!userId) return null;
+  try {
+    const raw = localStorage.getItem(profileSetupDraftKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearProfileSetupDraft(userId) {
+  if (!userId) return;
+  try {
+    localStorage.removeItem(profileSetupDraftKey(userId));
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function ProfileSetup() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isEditMode = searchParams.get('edit') === '1';
-  const [step, setStep] = useState(1);
+  const stepFromUrl = Number(searchParams.get('step'));
+  const [step, setStep] = useState(() =>
+    Number.isFinite(stepFromUrl) && stepFromUrl >= 1 && stepFromUrl <= 5 ? stepFromUrl : 1
+  );
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -76,6 +105,7 @@ export default function ProfileSetup() {
     website: '',
     images: [],
   });
+  const [draftReady, setDraftReady] = useState(false);
 
   const [formData, setFormData] = useState({
     username: '',
@@ -88,6 +118,8 @@ export default function ProfileSetup() {
     latitude: null,
     longitude: null,
     location_label: '',
+    suburb: '',
+    province: '',
     payout_account_name: '',
     payout_account_number: '',
     payout_bank_code: '',
@@ -102,22 +134,74 @@ export default function ProfileSetup() {
     { number: 5, title: 'Payout', icon: CreditCard },
   ];
 
+  // Keep step in the URL (replace) so policy-page back returns to the same step.
+  useEffect(() => {
+    if (loading) return;
+    const current = searchParams.get('step');
+    if (String(step) === current) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('step', String(step));
+    setSearchParams(next, { replace: true });
+  }, [step, loading, searchParams, setSearchParams]);
+
+  // Persist draft so remount after reading a policy does not reset progress.
+  useEffect(() => {
+    if (!draftReady || !user?.id || isEditMode) return undefined;
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          profileSetupDraftKey(user.id),
+          JSON.stringify({
+            step,
+            formData,
+            cityMode,
+            customCity,
+            hasVendorBusiness,
+            vendorDraft,
+            ageDeclarationAccepted,
+          })
+        );
+      } catch {
+        /* ignore */
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    draftReady,
+    user?.id,
+    isEditMode,
+    step,
+    formData,
+    cityMode,
+    customCity,
+    hasVendorBusiness,
+    vendorDraft,
+    ageDeclarationAccepted,
+  ]);
+
   useEffect(() => {
     checkAuth();
   }, []);
+
+  const applyCityFromProfile = (profileCity) => {
+    const isListed = CITIES.includes(profileCity);
+    setCityMode(profileCity ? (isListed ? profileCity : CITY_OTHER) : '');
+    setCustomCity(isListed ? '' : profileCity);
+  };
 
   const checkAuth = async () => {
     try {
       const { user: currentUser } = await authService.requireAuthOrLogin(createPageUrl('ProfileSetup'));
       setUser(currentUser);
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
+      const draft = !isEditMode ? loadProfileSetupDraft(currentUser.id) : null;
+      const urlStep = Number(searchParams.get('step'));
+
       if (profiles.length > 0) {
         const profile = profiles[0];
         setUserProfile(profile);
         const profileCity = profile.city || '';
-        const isListed = CITIES.includes(profileCity);
-        setCityMode(profileCity ? (isListed ? profileCity : CITY_OTHER) : '');
-        setCustomCity(isListed ? '' : profileCity);
+        applyCityFromProfile(profileCity);
         setFormData((prev) => ({
           ...prev,
           username: profile.username || '',
@@ -130,12 +214,37 @@ export default function ProfileSetup() {
           latitude: profile.latitude ?? null,
           longitude: profile.longitude ?? null,
           location_label: profile.location_label || '',
+          suburb: prev.suburb || '',
+          province: prev.province || '',
         }));
         if (profile.has_vendor_interest) setHasVendorBusiness(true);
         if (profile.age_verified || profile.verification_status === 'verified' || profile.verification_status === 'approved') {
           setAgeDeclarationAccepted(true);
         }
       }
+
+      if (draft?.formData && typeof draft.formData === 'object') {
+        setFormData((prev) => ({ ...prev, ...draft.formData }));
+        if (draft.formData.city) applyCityFromProfile(draft.formData.city);
+      }
+      if (typeof draft?.cityMode === 'string') setCityMode(draft.cityMode);
+      if (typeof draft?.customCity === 'string') setCustomCity(draft.customCity);
+      if (draft?.hasVendorBusiness === true || draft?.hasVendorBusiness === false) {
+        setHasVendorBusiness(draft.hasVendorBusiness);
+      }
+      if (draft?.vendorDraft && typeof draft.vendorDraft === 'object') {
+        setVendorDraft((prev) => ({ ...prev, ...draft.vendorDraft }));
+      }
+      if (draft?.ageDeclarationAccepted) setAgeDeclarationAccepted(true);
+
+      // URL step wins (back from policy); else draft step; else keep initial.
+      if (Number.isFinite(urlStep) && urlStep >= 1 && urlStep <= 5) {
+        setStep(urlStep);
+      } else if (typeof draft?.step === 'number' && draft.step >= 1 && draft.step <= 5) {
+        setStep(draft.step);
+      }
+
+      setDraftReady(true);
     } catch {
       // requireAuthOrLogin redirects when no session remains
     } finally {
@@ -229,7 +338,6 @@ export default function ProfileSetup() {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         // Save GPS immediately — nearby discovery only needs coords.
-        // Labeling can fail when Google Maps auth is broken.
         setFormData((prev) => ({
           ...prev,
           latitude: lat,
@@ -237,14 +345,35 @@ export default function ProfileSetup() {
           location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
         }));
         try {
-          const { reverseGeocodeLatLng } = await import('@/lib/reverseGeocode');
-          const label = await reverseGeocodeLatLng(lat, lng);
-          setFormData((prev) => ({
-            ...prev,
-            latitude: lat,
-            longitude: lng,
-            location_label: label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-          }));
+          const { reverseGeocodeLatLngStructured } = await import('@/lib/reverseGeocode');
+          const structured = await reverseGeocodeLatLngStructured(lat, lng);
+          const label =
+            structured?.formattedAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          const geoCity = (structured?.city || '').trim();
+          setFormData((prev) => {
+            const next = {
+              ...prev,
+              latitude: lat,
+              longitude: lng,
+              location_label: label,
+              suburb: structured?.suburb || prev.suburb || '',
+              province: structured?.province || prev.province || '',
+            };
+            if (geoCity && (!prev.city || CITIES.includes(geoCity))) {
+              next.city = geoCity;
+            }
+            return next;
+          });
+          if (geoCity && CITIES.includes(geoCity)) {
+            setCityMode(geoCity);
+            setCustomCity('');
+          } else if (geoCity) {
+            setCityMode((mode) => {
+              if (mode && mode !== '' && mode !== CITY_OTHER) return mode;
+              setCustomCity(geoCity);
+              return CITY_OTHER;
+            });
+          }
         } catch {
           setFormData((prev) => ({
             ...prev,
@@ -336,6 +465,7 @@ export default function ProfileSetup() {
         setError(vendorErr?.message || 'Profile saved but vendor listing failed. You can finish in Settings.');
         if (markComplete && user?.id) {
           markOnboardingComplete(user.id);
+          clearProfileSetupDraft(user.id);
           await authService.persistSessionCache().catch(() => {});
         }
         setIsSubmitting(false);
@@ -345,6 +475,7 @@ export default function ProfileSetup() {
 
       if (markComplete && user?.id) {
         markOnboardingComplete(user.id);
+        clearProfileSetupDraft(user.id);
         await authService.persistSessionCache().catch(() => {});
       }
       navigate(createPageUrl(isEditMode ? 'Profile' : 'Home'));
@@ -725,12 +856,15 @@ export default function ProfileSetup() {
                 <GoogleAddressInput
                   label="Or enter a place"
                   placeholder="Suburb, street, or landmark"
+                  showSuburbProvince
                   value={
-                    formData.location_label
+                    formData.location_label || formData.suburb || formData.province
                       ? {
                           formattedAddress: formData.location_label,
                           latitude: formData.latitude,
                           longitude: formData.longitude,
+                          suburb: formData.suburb || '',
+                          province: formData.province || '',
                         }
                       : null
                   }
@@ -740,6 +874,8 @@ export default function ProfileSetup() {
                       location_label: addr?.formattedAddress || '',
                       latitude: addr?.latitude ?? null,
                       longitude: addr?.longitude ?? null,
+                      suburb: addr?.suburb || '',
+                      province: addr?.province || '',
                     }));
                   }}
                 />

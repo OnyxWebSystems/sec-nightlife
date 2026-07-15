@@ -257,7 +257,7 @@ function normalizeOptionalWebsite(value) {
 
 export default function VenueOnboarding() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isEditMode = searchParams.get('edit') === '1';
   const isNewVenue = searchParams.get('new') === '1';
   const venueScope = useBusinessVenueScope();
@@ -265,7 +265,10 @@ export default function VenueOnboarding() {
   const isStaffEdit = Boolean(staffCtxToken) && isEditMode && !isNewVenue;
   const staffVenueBase = staffVenueApiBase(staffCtxToken);
   const maxStep = isStaffEdit ? 3 : 5;
-  const [step, setStep] = useState(1);
+  const stepFromUrl = Number(searchParams.get('step'));
+  const [step, setStep] = useState(() =>
+    Number.isFinite(stepFromUrl) && stepFromUrl >= 1 && stepFromUrl <= 5 ? stepFromUrl : 1
+  );
   const [user, setUser] = useState(null);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -461,6 +464,16 @@ export default function VenueOnboarding() {
     };
   }, [bootstrapped, user?.id, step, selectedPlan, formData, isNewVenue]);
 
+  // Keep step in the URL so policy-page back returns to the same step.
+  useEffect(() => {
+    if (!bootstrapped) return;
+    const current = searchParams.get('step');
+    if (String(step) === current) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('step', String(step));
+    setSearchParams(next, { replace: true });
+  }, [bootstrapped, step, searchParams, setSearchParams]);
+
   const checkAuth = async () => {
     try {
       const { user: currentUser } = await authService.requireAuthOrLogin(createPageUrl('VenueOnboarding'));
@@ -532,6 +545,11 @@ export default function VenueOnboarding() {
           setSelectedPlan(draft.selectedPlan);
         }
         toast.info('Continue where you left off — your draft was restored.');
+      }
+
+      const urlStep = Number(searchParams.get('step'));
+      if (Number.isFinite(urlStep) && urlStep >= 1 && urlStep <= maxStep) {
+        setStep(urlStep);
       }
     } catch {
       // requireAuthOrLogin redirects when no session remains

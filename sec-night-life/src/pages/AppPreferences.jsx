@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronRight,
@@ -7,11 +7,16 @@ import {
   MapPin,
   Ruler,
   Shield,
+  LocateFixed,
+  Loader2,
 } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { usePreferences } from '@/context/PreferencesContext';
+import { useAuth } from '@/lib/AuthContext';
 import { Switch } from '@/components/ui/switch';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import GoogleAddressInput from '@/components/GoogleAddressInput';
+import { apiPatch } from '@/api/client';
 import { toast } from 'sonner';
 
 function SectionCard({ title, children }) {
@@ -55,18 +60,50 @@ function SettingRow({ icon: Icon, label, description, children }) {
 export default function AppPreferences() {
   const {
     language,
-    setLanguage,
     t,
     notifications: notif,
     setNotification,
     setLocation,
     location: loc,
     requestGeoCoords,
+    setPreferredGeoCoords,
+    geoCoords,
   } = usePreferences();
+  const { userProfile, checkAppState } = useAuth();
+  const [locating, setLocating] = useState(false);
+  const [placeDraft, setPlaceDraft] = useState(() => ({
+    formattedAddress: userProfile?.location_label || '',
+    latitude: userProfile?.latitude ?? null,
+    longitude: userProfile?.longitude ?? null,
+    suburb: '',
+    province: '',
+  }));
 
   const radiusKm = Number(loc?.radiusKm) || 25;
   const radiusDisplay = loc?.distanceUnit === 'mi' ? Math.round(radiusKm * 0.621371) : radiusKm;
   const radiusUnit = loc?.distanceUnit === 'mi' ? 'mi' : 'km';
+
+  const savePreferredCoords = async ({ lat, lng, label, suburb, province }) => {
+    await apiPatch('/api/users/profile', {
+      latitude: lat,
+      longitude: lng,
+      location_label: label || null,
+    });
+    setPreferredGeoCoords({ lat, lng });
+    setPlaceDraft({
+      formattedAddress: label || '',
+      latitude: lat,
+      longitude: lng,
+      suburb: suburb || '',
+      province: province || '',
+    });
+    setLocation('useLocation', true);
+    try {
+      await checkAppState?.({ soft: true });
+    } catch {
+      /* ignore */
+    }
+  };
 
   const onLocationToggle = async (enabled) => {
     setLocation('useLocation', enabled);
@@ -79,12 +116,74 @@ export default function AppPreferences() {
     }
   };
 
+  const useLiveLocation = async () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported on this device');
+      return;
+    }
+    setLocating(true);
+    try {
+      const coords = await requestGeoCoords();
+      let label = `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`;
+      let suburb = '';
+      let province = '';
+      try {
+        const { reverseGeocodeLatLngStructured } = await import('@/lib/reverseGeocode');
+        const structured = await reverseGeocodeLatLngStructured(coords.lat, coords.lng);
+        label = structured?.formattedAddress || label;
+        suburb = structured?.suburb || '';
+        province = structured?.province || '';
+      } catch {
+        /* keep coordinate fallback */
+      }
+      await savePreferredCoords({
+        lat: coords.lat,
+        lng: coords.lng,
+        label,
+        suburb,
+        province,
+      });
+      toast.success('Live location saved for nearby discovery');
+    } catch {
+      toast.error('Could not access location — enable permission in your browser');
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const onPlaceChange = async (addr) => {
+    setPlaceDraft({
+      formattedAddress: addr?.formattedAddress || '',
+      latitude: addr?.latitude ?? null,
+      longitude: addr?.longitude ?? null,
+      suburb: addr?.suburb || '',
+      province: addr?.province || '',
+    });
+    if (addr?.latitude == null || addr?.longitude == null) return;
+    try {
+      await savePreferredCoords({
+        lat: addr.latitude,
+        lng: addr.longitude,
+        label: addr.formattedAddress || '',
+        suburb: addr.suburb,
+        province: addr.province,
+      });
+      toast.success('Preferred location updated');
+    } catch {
+      toast.error('Could not save preferred location');
+    }
+  };
+
+  const activeLabel =
+    placeDraft.formattedAddress ||
+    userProfile?.location_label ||
+    (geoCoords ? `${geoCoords.lat.toFixed(4)}, ${geoCoords.lng.toFixed(4)}` : null);
+
   return (
     <div className="min-h-screen pb-8" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
       <PageBackHeader title={t('appPreferences')} fallbackTo="Settings" pageName="AppPreferences" />
 
       <div className="px-4 py-6 max-w-xl mx-auto space-y-6">
-        {/* Language */}
         <SectionCard title={t('language')}>
           <SettingRow
             icon={Globe}
@@ -97,7 +196,6 @@ export default function AppPreferences() {
           </SettingRow>
         </SectionCard>
 
-        {/* Notifications */}
         <SectionCard title={t('notifications')}>
           <SettingRow
             icon={Bell}
@@ -163,7 +261,6 @@ export default function AppPreferences() {
           </div>
         </SectionCard>
 
-        {/* Location */}
         <SectionCard title={t('locationSettings')}>
           <SettingRow
             icon={MapPin}
@@ -175,9 +272,49 @@ export default function AppPreferences() {
               onCheckedChange={(v) => void onLocationToggle(v)}
             />
           </SettingRow>
+
+          <div className="px-4 py-4 space-y-3" style={{ borderBottom: '1px solid var(--sec-border)' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--sec-text-primary)' }}>
+              Preferred location
+            </p>
+            <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
+              Set your live GPS or a place you choose so Home and Map can filter venues and events near you.
+            </p>
+            <button
+              type="button"
+              onClick={() => void useLiveLocation()}
+              disabled={locating}
+              className="w-full h-11 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+              style={{
+                backgroundColor: 'var(--sec-bg-elevated)',
+                border: '1px solid rgba(192, 192, 192, 0.25)',
+                color: 'var(--sec-text-primary)',
+              }}
+            >
+              {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <LocateFixed className="w-4 h-4" />}
+              {locating ? 'Getting location…' : 'Use my current location'}
+            </button>
+            <GoogleAddressInput
+              label="Or enter a place"
+              placeholder="Suburb, street, or landmark"
+              showSuburbProvince
+              value={
+                placeDraft.formattedAddress || placeDraft.latitude != null
+                  ? placeDraft
+                  : null
+              }
+              onChange={(addr) => void onPlaceChange(addr)}
+            />
+            {activeLabel ? (
+              <p className="text-xs" style={{ color: 'var(--sec-accent)' }}>
+                Active: {activeLabel}
+              </p>
+            ) : null}
+          </div>
+
           {loc?.useLocation ? (
             <div className="px-4 pb-4" style={{ borderBottom: '1px solid var(--sec-border)' }}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 pt-3">
                 <span className="text-sm" style={{ color: 'var(--sec-text-secondary)' }}>
                   Nearby radius
                 </span>
@@ -206,6 +343,7 @@ export default function AppPreferences() {
           >
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={() => setLocation('distanceUnit', 'km')}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                 style={{
@@ -217,6 +355,7 @@ export default function AppPreferences() {
                 km
               </button>
               <button
+                type="button"
                 onClick={() => setLocation('distanceUnit', 'mi')}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                 style={{
@@ -231,7 +370,6 @@ export default function AppPreferences() {
           </SettingRow>
         </SectionCard>
 
-        {/* Quick link to Privacy */}
         <Link
           to={createPageUrl('Privacy')}
           className="flex items-center gap-4 p-4 rounded-2xl transition-colors"
