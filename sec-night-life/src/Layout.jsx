@@ -11,6 +11,7 @@ import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import SecLogo from '@/components/ui/SecLogo';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import MobileBottomNav from '@/components/layout/MobileBottomNav';
+import MobileMoreSheet from '@/components/layout/MobileMoreSheet';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 import { shouldShowMobileBackHeader, getMobilePageTitle } from '@/lib/mobilePageShell';
@@ -25,7 +26,8 @@ import CookieNoticeBanner from '@/components/legal/CookieNoticeBanner';
 import GuestAgeGate from '@/components/legal/GuestAgeGate';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
-  LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2, Shield, RotateCcw, Armchair, Store
+  LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2, Shield, RotateCcw, Armchair, Store,
+  LayoutGrid,
 } from 'lucide-react';
 
 const iconProps = { size: 22, strokeWidth: 1.5 };
@@ -67,6 +69,7 @@ export default function Layout({ children, currentPageName }) {
   const [activeMode, setActiveMode] = useState(null);
   const [userRoles, setUserRoles] = useState({ partygoer: true, host: false, business: false });
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
   const [complianceAccess, setComplianceAccess] = useState({ canReview: false, isSuperAdmin: false });
   const [hasStaffAssignments, setHasStaffAssignments] = useState(false);
 
@@ -406,7 +409,7 @@ export default function Layout({ children, currentPageName }) {
     if (page === 'AdminDashboard') enterPartygoerMode();
   };
 
-  // Mobile: Unified 5-tab bottom nav — stay party-goer during staff sessions
+  // Mobile: Unified 5-tab bottom nav — stay party-goer during staff sessions; 5th slot = More
   const effectiveNavMode = staffAccess.inStaffSession ? 'partygoer' : mode;
   let mobileNav = effectiveNavMode === 'business'
     ? [
@@ -414,21 +417,58 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
         { name: 'Create', icon: Plus, page: null, isCreate: true },
         { name: 'Messages', icon: MessageCircle, page: 'BusinessMessages' },
-        { name: 'Profile', icon: User, page: 'Profile' },
+        { name: 'More', icon: LayoutGrid, page: null, isMore: true },
       ]
     : [
         { name: 'Home', icon: Home, page: 'Home' },
         { name: 'Host', icon: Crown, page: 'HostDashboard' },
         { name: 'Create', icon: Plus, page: 'HostDashboard', query: '?create=table' },
         { name: 'Messages', icon: MessageCircle, page: 'Messages' },
-        { name: 'Profile', icon: User, page: 'Profile' },
+        { name: 'More', icon: LayoutGrid, page: null, isMore: true },
       ];
   mobileNav = attachNavTargets(withMessageBadge(filterNavForStaff(mobileNav)));
+
+  // More sheet = desktop destinations not already on the bottom bar (Profile always included)
+  const mobileBarKeys = new Set(
+    mobileNav
+      .filter((i) => i.page && !i.isMore)
+      .map((i) => `${i.page}${i.query || ''}`),
+  );
+  // Create tab uses HostDashboard?create=table — still keep Host in More only if not bar'd without query
+  const moreSource = [
+    ...NAV[effectiveNavMode].primary,
+    ...NAV[effectiveNavMode].secondary,
+  ];
+  // Ensure Profile is always reachable from More
+  if (!moreSource.some((i) => i.page === 'Profile')) {
+    moreSource.push({ name: 'Profile', icon: User, page: 'Profile' });
+  }
+  const moreNavItems = attachNavTargets(
+    withMessageBadge(
+      filterNavForStaff(
+        moreSource.filter((item) => {
+          if (!item.page) return false;
+          const key = `${item.page}${item.query || ''}`;
+          // Keep Create out of More (already center tab); keep exact bar pages out
+          if (item.query === '?create=table') return false;
+          if (mobileBarKeys.has(key)) return false;
+          // Business Messages is on the bar — skip duplicate
+          if (effectiveNavMode === 'business' && item.page === 'BusinessMessages') return false;
+          if (effectiveNavMode === 'partygoer' && item.page === 'Messages') return false;
+          return true;
+        }),
+      ),
+    ),
+  );
 
   const isActive = (page) => {
     if (page === 'CreateJob' && currentPageName === 'CreateJob') return true;
     return currentPageName === page;
   };
+
+  const moreSheetActive =
+    showMoreSheet ||
+    moreNavItems.some((item) => item.page && isActive(item.page));
 
   if (currentPageName === 'TicketVerify') {
     return (
@@ -665,14 +705,33 @@ export default function Layout({ children, currentPageName }) {
       </Dialog>
 
       {!pageHidesNav ? (
-        <MobileBottomNav
-          items={mobileNav}
-          isActive={isActive}
-          hidden={navOverlayHidden}
-          availableModes={availableModes}
-          onOpenModeSwitcher={() => setShowModeSwitcher(true)}
-          onPrefetch={prefetchNav}
-        />
+        <>
+          <MobileBottomNav
+            items={mobileNav}
+            isActive={isActive}
+            hidden={navOverlayHidden}
+            availableModes={availableModes}
+            onOpenModeSwitcher={() => setShowModeSwitcher(true)}
+            onOpenMore={() => setShowMoreSheet(true)}
+            moreActive={moreSheetActive}
+            onPrefetch={prefetchNav}
+          />
+          <MobileMoreSheet
+            open={showMoreSheet}
+            onOpenChange={setShowMoreSheet}
+            items={moreNavItems}
+            isActive={isActive}
+            mode={effectiveNavMode}
+            availableModes={availableModes}
+            onSwitchMode={(nextMode) => {
+              switchMode(nextMode);
+              const dest = nextMode === 'business' ? 'BusinessDashboard' : 'Home';
+              navigate(createPageUrl(dest));
+            }}
+            onPrefetch={prefetchNav}
+            onAdminNavClick={onAdminNavClick}
+          />
+        </>
       ) : null}
       <CookieNoticeBanner />
     </div>

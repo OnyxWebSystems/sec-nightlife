@@ -153,8 +153,13 @@ async function doRefreshAccessToken(opts = {}) {
         return doRefreshAccessToken({ ...opts, _storageRetry: true, _finalGrace: true, _attempt: 0 });
       }
       clearRefreshLock();
-      // Clear only after final grace failure with the same dead refresh token still stored.
-      if (opts._finalGrace && getRefreshToken() === refreshToken) {
+      // Clear only after final grace failure with the same dead refresh token still stored
+      // AND the server explicitly rejected the refresh (never on network/timeouts).
+      const explicitReject =
+        data?.error === 'Invalid or expired refresh token' ||
+        data?.error === 'Invalid or expired token' ||
+        data?.error === 'Authentication required';
+      if (opts._finalGrace && explicitReject && getRefreshToken() === refreshToken) {
         clearTokens();
       }
     } else {

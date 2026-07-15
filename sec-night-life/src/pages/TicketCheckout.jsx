@@ -84,11 +84,7 @@ export default function TicketCheckout() {
     }
     setIsProcessing(true);
     try {
-      const user = await authService.getCurrentUser();
-      if (!user) {
-        authService.redirectToLogin(window.location.href);
-        return;
-      }
+      const { user } = await authService.resolveUserForAction(window.location.href);
       const names =
         quantity > 1
           ? holderNames.map((n) => String(n).trim())
@@ -125,6 +121,11 @@ export default function TicketCheckout() {
         onCancel: () => toast.message('Checkout cancelled'),
       });
     } catch (error) {
+      if (error?.name === 'AuthRequiredError') return;
+      if (error?.code === 'SESSION_SOFT_FAIL') {
+        toast.error('Still signing you in — try again in a moment.');
+        return;
+      }
       toast.error(error?.data?.error || error?.message || 'Failed to start checkout');
     } finally {
       setIsProcessing(false);

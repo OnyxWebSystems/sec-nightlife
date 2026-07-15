@@ -76,8 +76,11 @@ export const AuthProvider = ({ children }) => {
   );
   const [authError, setAuthError] = useState(null);
   const checkInFlight = useRef(false);
+  const hasBootstrapped = useRef(Boolean(initialSession.user) || (!hasTokens && !skipBootstrap));
+  const userRef = useRef(user);
+  userRef.current = user;
 
-  const checkAuth = useCallback(async () => {
+  const checkAuth = useCallback(async ({ soft = false } = {}) => {
     if (checkInFlight.current) return;
     checkInFlight.current = true;
 
@@ -91,6 +94,12 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingAuth(false);
       checkInFlight.current = false;
       return;
+    }
+
+    // Soft revalidate (route change / resume): never blank the UI or force Login.
+    const keepExistingUser = soft && Boolean(userRef.current);
+    if (!keepExistingUser && !userRef.current) {
+      setIsLoadingAuth(true);
     }
 
     if (!token && refreshToken) {
@@ -137,14 +146,16 @@ export const AuthProvider = ({ children }) => {
 
       const hadCachedUser = restoreCachedSession(setUser, setUserProfile, setIsAuthenticated);
 
+      // Never treat as auth_required while a refresh token still exists.
       if ((err?.status === 401 || err?.status === 403) && !refreshStillValid && !hadCachedUser) {
         clearSessionCache();
         setUser(null);
         setUserProfile(null);
         setIsAuthenticated(false);
         setAuthError({ type: 'auth_required', message: 'Please sign in' });
-      } else if (hadCachedUser || refreshStillValid) {
+      } else if (hadCachedUser || refreshStillValid || keepExistingUser) {
         setAuthError(null);
+        if (refreshStillValid) setIsAuthenticated(true);
       } else {
         setAuthError({ type: 'unknown', message: err?.message || 'Auth check failed' });
       }
@@ -159,17 +170,23 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingAuth(false);
       return;
     }
-    if (hasTokens) {
-      void checkAuth();
-    } else {
+    if (!hasTokens) {
       setIsLoadingAuth(false);
+      return;
+    }
+    // First bootstrap: full check. Later route changes: soft revalidate only.
+    if (!hasBootstrapped.current) {
+      hasBootstrapped.current = true;
+      void checkAuth({ soft: false });
+    } else {
+      void checkAuth({ soft: true });
     }
   }, [checkAuth, hasTokens, location.pathname]);
 
   useEffect(() => {
     setSessionResumeCallback(() => {
       if (shouldSkipAuthBootstrap(window.location.pathname)) return;
-      void checkAuth();
+      void checkAuth({ soft: true });
     });
     return startSessionResume();
   }, [checkAuth]);
@@ -183,7 +200,13 @@ export const AuthProvider = ({ children }) => {
   };
 
   const navigateToLogin = () => {
-    authService.redirectToLogin(window.location.href, { clearSession: false });
+    // Only hard-navigate when refresh is truly gone.
+    if (getRefreshToken()) {
+      setAuthError(null);
+      void checkAuth({ soft: true });
+      return;
+    }
+    authService.redirectToLogin(window.location.href, { clearSession: false, force: true });
   };
 
   const isRestoringSession = hasStoredAuthTokens() && !user && isLoadingAuth;

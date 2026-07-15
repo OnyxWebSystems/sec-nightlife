@@ -1,8 +1,13 @@
 /**
  * Auth service - uses backend API for registration, login, and session.
  */
-import { apiGet, apiPost, setTokens, clearTokens, refreshAccessToken } from '@/api/client';
-import { writeSessionCache, clearSessionCache } from '@/lib/sessionCache';
+import { apiGet, apiPost, setTokens, clearTokens, refreshAccessToken, getRefreshToken } from '@/api/client';
+import { writeSessionCache, clearSessionCache, readSessionCache, userFromSessionCache } from '@/lib/sessionCache';
+
+/** True when a refresh token is still stored (user should not be bounced to Login). */
+export function hasRefreshSession() {
+  return Boolean(getRefreshToken());
+}
 
 export async function getAuthSession() {
   const data = await apiGet('/api/auth/me');
@@ -91,29 +96,63 @@ function buildLoginUrl(returnUrl) {
   return target;
 }
 
-/** Navigate to login without clearing stored tokens (preserves refresh token for auto-login). */
-export function redirectToLogin(returnUrl, { clearSession = false } = {}) {
+/**
+ * Navigate to login. By default refuses to redirect while a refresh token remains
+ * (prevents false-logout flashes after payment / transient /me failures).
+ * Pass { force: true } only for explicit sign-out or confirmed dead session.
+ */
+export function redirectToLogin(returnUrl, { clearSession = false, force = false } = {}) {
+  if (!force && !clearSession && hasRefreshSession()) {
+    return false;
+  }
   if (clearSession) {
     clearTokens();
     clearSessionCache();
   }
   window.location.href = buildLoginUrl(returnUrl);
+  return true;
+}
+
+/**
+ * Resolve the current user for CTAs. Redirects to Login only when no refresh
+ * token remains. On transient failures with tokens still present, returns
+ * cached user when available (never hard-bounces to Sign In).
+ */
+export async function resolveUserForAction(returnUrl = window.location.href) {
+  if (!hasRefreshSession()) {
+    redirectToLogin(returnUrl, { force: true });
+    throw new AuthRequiredError();
+  }
+  try {
+    await ensureSession();
+    return await getAuthSession();
+  } catch (err) {
+    if (!hasRefreshSession()) {
+      redirectToLogin(returnUrl, { force: true });
+      throw new AuthRequiredError();
+    }
+    const cached = userFromSessionCache(readSessionCache());
+    if (cached.user) {
+      return { user: cached.user, userProfile: cached.profile };
+    }
+    // Tokens exist but session unreadable — stay on page; caller should toast/retry.
+    const soft = new Error(err?.message || 'Session temporarily unavailable');
+    soft.code = 'SESSION_SOFT_FAIL';
+    soft.cause = err;
+    throw soft;
+  }
 }
 
 /** Require a valid session; redirect to login only when no refresh token remains. */
 export async function requireAuthOrLogin(returnUrl) {
-  const hasRefresh =
-    localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
-  if (!hasRefresh) {
-    redirectToLogin(returnUrl);
+  if (!hasRefreshSession()) {
+    redirectToLogin(returnUrl, { force: true });
     throw new AuthRequiredError();
   }
   const ok = await ensureSession();
   if (!ok) {
-    const stillHasRefresh =
-      localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
-    if (!stillHasRefresh) {
-      redirectToLogin(returnUrl);
+    if (!hasRefreshSession()) {
+      redirectToLogin(returnUrl, { force: true });
       throw new AuthRequiredError();
     }
   }
@@ -121,11 +160,13 @@ export async function requireAuthOrLogin(returnUrl) {
     return await getAuthSession();
   } catch (err) {
     if (err?.status === 401 || err?.status === 403) {
-      const stillHasRefresh =
-        localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
-      if (!stillHasRefresh) {
-        redirectToLogin(returnUrl);
+      if (!hasRefreshSession()) {
+        redirectToLogin(returnUrl, { force: true });
         throw new AuthRequiredError();
+      }
+      const cached = userFromSessionCache(readSessionCache());
+      if (cached.user) {
+        return { user: cached.user, userProfile: cached.profile };
       }
     }
     throw err;

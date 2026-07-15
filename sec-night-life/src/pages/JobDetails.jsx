@@ -78,7 +78,12 @@ export default function JobDetails() {
   });
 
   useEffect(() => {
-    authService.getCurrentUser().then(setUser).catch(() => setUser(null));
+    authService
+      .getCurrentUser()
+      .then(setUser)
+      .catch(() => {
+        if (!authService.hasRefreshSession()) setUser(null);
+      });
   }, []);
 
   const { data: job, isLoading } = useQuery({

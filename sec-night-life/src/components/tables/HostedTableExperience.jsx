@@ -250,7 +250,13 @@ export default function HostedTableExperience({
   };
 
   const authServiceRedirect = () => {
-    import('@/services/authService').then((m) => m.redirectToLogin(window.location.href));
+    import('@/services/authService').then((m) => {
+      if (m.hasRefreshSession()) {
+        toast.error('Still signing you in — try again in a moment.');
+        return;
+      }
+      m.redirectToLogin(window.location.href, { force: true });
+    });
   };
 
   const payHostedMenu = async () => {

@@ -35,12 +35,16 @@ Point uptime monitors at `/api/health/ready`. Run `npm run verify:production` af
 
 1. Guest opens `/` — splash, age gate, cookie notice, no auth spinner
 2. Register → verify email → login OTP → Home loads
-3. Home loads in **≤5 API calls** on first paint (bootstrap + feed + events + featured-details; venues load on scroll)
-4. Map shows pins in nearby + all modes
-5. Send group chat message — appears within poll interval
-6. Native app: push token registers (`POST /api/users/push-token` returns 200)
-7. Cron: verify promotion expiry + retry-payouts ran (Vercel Cron logs)
-8. Settings → Download my data works
+3. Stay signed in across tab focus / app resume (no Sign In flash)
+4. Ticket buy → success → leave → buy again for same event (**no false logout / Login bounce**)
+5. Mobile: bottom **More** sheet reaches every desktop destination (partygoer + business); venue switcher + mode switch in More
+6. Admin: every tab loads via `?tab=`; compliance approve/reject; reports
+7. Home loads in **≤5 API calls** on first paint (bootstrap + feed + events + featured-details; venues load on scroll)
+8. Map shows pins in nearby + all modes
+9. Send group chat message — appears within poll interval
+10. Native app: push token registers (`POST /api/users/push-token` returns 200)
+11. Cron: verify promotion expiry + retry-payouts ran (Vercel Cron logs)
+12. Settings → Download my data works
 
 ## Payments (before paid launch)
 
@@ -59,10 +63,19 @@ Point uptime monitors at `/api/health/ready`. Run `npm run verify:production` af
 - [ ] FCM push delivery from backend — set `FIREBASE_SERVICE_ACCOUNT_JSON` (see `FIREBASE_PUSH_SETUP.md`)
 - [ ] Release build uses `aps-environment` = production
 
+## Founder-only before store submit (not done in app code)
+
+These fail `npm run verify:production` until you fill real values:
+
+- [ ] Replace `FOUNDER_*` placeholders in `.well-known/assetlinks.json` and `apple-app-site-association`
+- [ ] Live Paystack secret/public keys (test keys OK for soft launch smoke only)
+- [ ] Apple Developer + Google Play accounts, store listings, privacy questionnaire
+- [ ] Firebase APNs key + `FIREBASE_SERVICE_ACCOUNT_JSON` for production push
+- [ ] Confirm production env: no `SKIP_EMAIL_VERIFICATION`, no `CORS_ALLOW_VERCEL_PREVIEW`
+
 ## Deferred (optional scale)
 
 - Pusher for real-time chat (~$49+/mo) — only if chat polling feels laggy
-- AdminDashboard lazy sub-routes
 
 ## Related
 

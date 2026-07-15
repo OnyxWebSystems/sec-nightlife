@@ -23,6 +23,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import SecScrollTabs from '@/components/ui/SecScrollTabs';
+import { toast } from 'sonner';
 import { format, parseISO, isToday, isTomorrow, differenceInDays } from 'date-fns';
 import { motion } from 'framer-motion';
 import VenueReviewsSection from '@/components/reviews/VenueReviewsSection';
@@ -195,7 +196,11 @@ export default function VenueProfile() {
 
   const handleFollowClick = () => {
     if (!currentUser) {
-      authService.redirectToLogin(window.location.pathname + window.location.search);
+      if (authService.hasRefreshSession()) {
+        toast.error('Still signing you in — try again in a moment.');
+        return;
+      }
+      authService.redirectToLogin(window.location.pathname + window.location.search, { force: true });
       return;
     }
     if (!resolvedVenueId) return;

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { hostedListingDetailsPath } from '@/lib/hostedListingUrl';
 import { dataService } from '@/services/dataService';
+import * as authService from '@/services/authService';
 import { apiGet, apiPost } from '@/api/client';
 import { useAuth, hasStoredAuthTokens } from '@/lib/AuthContext';
 import { prefetchPage } from '@/pages.config';
@@ -341,11 +342,27 @@ export default function Home() {
   };
 
   const joinHostedTable = async (tableId) => {
-    if (!user?.id || !user?.email) {
-      const returnUrl = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
-      navigate(`${createPageUrl('Login')}?returnUrl=${returnUrl}`);
-      toast.message('Sign in to join a table');
-      return;
+    let sessionUser = user;
+    if (!sessionUser?.id || !sessionUser?.email) {
+      if (authService.hasRefreshSession()) {
+        try {
+          const { user: u } = await authService.resolveUserForAction(window.location.href);
+          if (!u?.id) {
+            toast.error('Still signing you in — try again in a moment.');
+            return;
+          }
+          sessionUser = u;
+        } catch (err) {
+          if (err?.name === 'AuthRequiredError') return;
+          toast.error('Still signing you in — try again in a moment.');
+          return;
+        }
+      } else {
+        const returnUrl = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+        navigate(`${createPageUrl('Login')}?returnUrl=${returnUrl}`);
+        toast.message('Sign in to join a table');
+        return;
+      }
     }
     try {
       const r = await apiPost(`/api/host/tables/${tableId}/join`, {});
@@ -358,7 +375,7 @@ export default function Home() {
       if (r?.pendingPayment && r?.reference && r?.access_code) {
         const amount = Number(r.amount_zar ?? 0);
         launchPaystackInline({
-          email: user.email,
+          email: sessionUser.email,
           amount,
           reference: r.reference,
           accessCode: r.access_code,

@@ -55,11 +55,12 @@ const AuthenticatedApp = () => {
     return <SecLoadingScreen message="Signing you in…" />;
   }
 
-  // Handle authentication errors (public pages like TicketVerify must stay reachable without login)
+  // Handle authentication errors (public pages like TicketVerify must stay reachable without login).
+  // auth_required is only set when refresh token is gone — navigateToLogin no-ops if tokens return.
   if (authError && !isPublicPage) {
     if (authError.type === 'user_not_registered') {
       return <UserNotRegisteredError />;
-    } else if (authError.type === 'auth_required') {
+    } else if (authError.type === 'auth_required' && !user) {
       navigateToLogin();
       return null;
     }

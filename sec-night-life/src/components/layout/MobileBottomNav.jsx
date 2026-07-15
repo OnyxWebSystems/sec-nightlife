@@ -9,6 +9,8 @@ export default function MobileBottomNav({
   hidden = false,
   availableModes = [],
   onOpenModeSwitcher,
+  onOpenMore,
+  moreActive = false,
   onPrefetch,
 }) {
   const navigate = useNavigate();
@@ -47,7 +49,8 @@ export default function MobileBottomNav({
         }}
       >
         {items.map((item) => {
-          const active = isActive(item.page);
+          const isMoreTab = Boolean(item.isMore);
+          const active = isMoreTab ? moreActive : isActive(item.page);
           const isCreateTab = item.isCreate || (item.name === 'Create' && item.query === '?create=table');
           const isProfile = item.page === 'Profile';
           const to = item.navTo || (item.query ? `${createPageUrl(item.page)}${item.query}` : createPageUrl(item.page));
@@ -133,6 +136,20 @@ export default function MobileBottomNav({
             textDecoration: 'none',
             color: active ? 'var(--sec-text-primary)' : 'var(--sec-text-muted)',
           };
+
+          if (isMoreTab) {
+            return (
+              <button
+                key="more"
+                type="button"
+                onClick={() => onOpenMore?.()}
+                style={commonStyle}
+                aria-label="More navigation"
+              >
+                {inner}
+              </button>
+            );
+          }
 
           if (isProfile) {
             return (

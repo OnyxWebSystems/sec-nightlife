@@ -833,7 +833,6 @@ export default function BusinessBookings() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
                   <StatTile label="Orders" value={ticketSummary?.orderCount ?? 0} accent />
                   <StatTile label="Tickets sold" value={ticketSummary?.ticketCount ?? 0} />
-                  <StatTile label="Admitted" value={ticketSummary?.admittedCount ?? 0} />
                   <StatTile label="Paid" value={`R${Number(ticketSummary?.totalGrossZar ?? ticketSummary?.totalRevenueZar ?? 0).toFixed(0)}`} accent />
                 </div>
 

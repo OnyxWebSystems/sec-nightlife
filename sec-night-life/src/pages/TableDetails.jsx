@@ -186,11 +186,21 @@ export default function TableDetails() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
+      if (!authService.hasRefreshSession()) return;
+      const { user: currentUser, userProfile: cachedProfile } = await authService.resolveUserForAction(
+        window.location.href,
+      );
       setUser(currentUser);
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) setUserProfile(profiles[0]);
-    } catch (e) {}
+      if (cachedProfile) setUserProfile(cachedProfile);
+      try {
+        const profiles = await dataService.User.filter({ created_by: currentUser.email });
+        if (profiles.length > 0) setUserProfile(profiles[0]);
+      } catch {
+        /* keep cached profile */
+      }
+    } catch (e) {
+      // Soft fail — never clear local user while refresh session may still exist.
+    }
   };
 
   const { data: table, isLoading } = useQuery({
@@ -543,8 +553,25 @@ export default function TableDetails() {
   }, [isVenueSource, venueTable?.id, venueTable?.myMembership, isHostCheckout, checkoutParam]);
 
   const joinVenueTable = async () => {
-    if (!user?.id) {
-      authService.redirectToLogin(window.location.href);
+    let actor = user;
+    if (!actor?.id) {
+      if (authService.hasRefreshSession()) {
+        try {
+          const { user: u } = await authService.resolveUserForAction(window.location.href);
+          setUser(u);
+          actor = u;
+        } catch (err) {
+          if (err?.name === 'AuthRequiredError') return;
+          toast.error('Still signing you in — try again in a moment.');
+          return;
+        }
+      } else {
+        authService.redirectToLogin(window.location.href, { force: true });
+        return;
+      }
+    }
+    if (!actor?.id) {
+      toast.error('Still signing you in — try again in a moment.');
       return;
     }
     const membership = venueTable?.myMembership;
@@ -689,7 +716,22 @@ export default function TableDetails() {
   });
 
   const handleJoinTable = async () => {
-    if (!userProfile) { authService.redirectToLogin(window.location.href); return; }
+    if (!userProfile) {
+      if (authService.hasRefreshSession()) {
+        try {
+          await loadUser();
+        } catch {
+          /* ignore */
+        }
+        if (!userProfile && !user) {
+          toast.error('Still signing you in — try again in a moment.');
+          return;
+        }
+      } else {
+        authService.redirectToLogin(window.location.href, { force: true });
+        return;
+      }
+    }
     if (table.joining_fee > 0) { setShowJoinDialog(false); setShowPaymentDialog(true); }
     else joinMutation.mutate();
   };
@@ -1797,10 +1839,13 @@ export default function TableDetails() {
             </button>
           ) : spotsLeft > 0 ? (
             <button
-              onClick={() => userProfile
-                ? navigate(createPageUrl(`TableJoinOnboarding?id=${tableId}`))
-                : authService.redirectToLogin(window.location.href)
-              }
+              onClick={() => {
+                if (userProfile || user || authService.hasRefreshSession()) {
+                  navigate(createPageUrl(`TableJoinOnboarding?id=${tableId}`));
+                  return;
+                }
+                authService.redirectToLogin(window.location.href, { force: true });
+              }}
               className="sec-btn sec-btn-primary sec-btn-full"
               style={{ height: 48, fontSize: 15 }}
             >

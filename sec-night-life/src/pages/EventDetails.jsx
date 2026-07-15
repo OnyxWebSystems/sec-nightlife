@@ -4,13 +4,14 @@ import { createPageUrl, buildPageUrl, storePromoterRef } from '@/utils';
 import { mobileBackNavigate } from '@/lib/mobileBackNavigation';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 import * as authService from '@/services/authService';
+import { useAuth } from '@/lib/AuthContext';
 import { dataService } from '@/services/dataService';
 import { apiGet, apiPatch } from '@/api/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ChevronLeft, Share2, Heart, Calendar, Clock, MapPin,
-  Users, Ticket, BadgeCheck, Music, Star, Plus, ChevronRight, Navigation, Sparkles,
+  Users, Ticket, BadgeCheck, Music, Star, ChevronRight, Navigation, Sparkles,
 } from 'lucide-react';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 
@@ -29,8 +30,9 @@ export default function EventDetails() {
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
-  const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
+  const { user: authUser, userProfile: authProfile, isAuthenticated } = useAuth();
+  const [user, setUser] = useState(authUser);
+  const [userProfile, setUserProfile] = useState(authProfile);
   const [isInterested, setIsInterested] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState(null);
@@ -46,21 +48,45 @@ export default function EventDetails() {
   const checkoutParam = urlParams.get('checkout');
 
   useEffect(() => {
+    if (authUser) setUser(authUser);
+    if (authProfile) setUserProfile(authProfile);
+  }, [authUser, authProfile]);
+
+  useEffect(() => {
     loadUser();
   }, [eventId]);
 
+  const requireSignedIn = () => {
+    if (user || authUser || isAuthenticated || authService.hasRefreshSession()) {
+      return true;
+    }
+    authService.redirectToLogin(window.location.href, { force: true });
+    return false;
+  };
+
   const loadUser = async () => {
     try {
-      const currentUser = await authService.getCurrentUser();
-      setUser(currentUser);
-      let profile = null;
+      let currentUser = authUser;
+      if (!currentUser) {
+        if (!authService.hasRefreshSession()) return;
+        try {
+          const session = await authService.resolveUserForAction(window.location.href);
+          currentUser = session.user;
+        } catch (err) {
+          if (err?.name === 'AuthRequiredError') return;
+          // Soft fail: keep AuthContext / cached user; never treat as logged out.
+          return;
+        }
+      }
+      if (currentUser) setUser(currentUser);
+      let profile = authProfile;
       try {
         const rows = await apiGet('/api/users/profile');
         profile = Array.isArray(rows) ? rows[0] : rows;
       } catch {
         /* fallback below */
       }
-      if (!profile) {
+      if (!profile && currentUser?.email) {
         try {
           const profiles = await dataService.User.filter({ created_by: currentUser.email });
           profile = profiles[0];
@@ -71,12 +97,11 @@ export default function EventDetails() {
       if (profile) {
         setUserProfile(profile);
         setIsInterested(!!eventId && profile.interested_events?.includes(eventId));
-      } else {
-        setUserProfile(null);
+      } else if (!authProfile) {
         setIsInterested(false);
       }
     } catch {
-      setUser(null);
+      // Never clear user while a refresh session may still exist.
     }
   };
 
@@ -148,8 +173,7 @@ export default function EventDetails() {
 
   const toggleInterestMutation = useMutation({
     mutationFn: async () => {
-      if (!user) {
-        authService.redirectToLogin(window.location.href);
+      if (!requireSignedIn()) {
         throw new Error('Sign in required');
       }
       const newInterested = !isInterested;
@@ -531,10 +555,7 @@ export default function EventDetails() {
               className="sec-btn sec-btn-primary"
               style={{ height: 36, padding: '0 14px', fontSize: 13 }}
               onClick={() => {
-                if (!user) {
-                  authService.redirectToLogin(window.location.href);
-                  return;
-                }
+                if (!requireSignedIn()) return;
                 navigate(createPageUrl(`EventEntranceCheckout?id=${eventId}`));
               }}
             >
@@ -563,10 +584,7 @@ export default function EventDetails() {
                 color: 'var(--sec-text-primary)',
               }}
               onClick={() => {
-                if (!user) {
-                  authService.redirectToLogin(window.location.href);
-                  return;
-                }
+                if (!requireSignedIn()) return;
                 navigate(createPageUrl(`EventEntranceCheckout?id=${eventId}`));
               }}
             >
@@ -836,10 +854,7 @@ export default function EventDetails() {
                   className="sec-btn sec-btn-primary"
                   style={{ flex: 1 }}
                   onClick={() => {
-                    if (!user) {
-                      authService.redirectToLogin(window.location.href);
-                      return;
-                    }
+                    if (!requireSignedIn()) return;
                     navigate(createPageUrl(`TicketCheckout?id=${eventId}`));
                   }}
                 >
@@ -890,10 +905,7 @@ export default function EventDetails() {
                       fontSize: 13,
                     }}
                     onClick={() => {
-                      if (!user) {
-                        authService.redirectToLogin(window.location.href);
-                        return;
-                      }
+                      if (!requireSignedIn()) return;
                       navigate(createPageUrl(`EventEntranceCheckout?id=${eventId}`));
                     }}
                   >
@@ -925,10 +937,7 @@ export default function EventDetails() {
                   type="button"
                   className="sec-btn sec-btn-primary sec-btn-full"
                   onClick={() => {
-                    if (!user) {
-                      authService.redirectToLogin(window.location.href);
-                      return;
-                    }
+                    if (!requireSignedIn()) return;
                     navigate(createPageUrl(`TicketCheckout?id=${eventId}`));
                   }}
                 >
@@ -943,11 +952,10 @@ export default function EventDetails() {
                   type="button"
                   className="sec-btn sec-btn-primary sec-btn-full"
                   disabled={toggleInterestMutation.isPending}
-                  onClick={() =>
-                    user
-                      ? toggleInterestMutation.mutate()
-                      : authService.redirectToLogin(window.location.href)
-                  }
+                  onClick={() => {
+                    if (!requireSignedIn()) return;
+                    toggleInterestMutation.mutate();
+                  }}
                   style={
                     isInterested
                       ? {

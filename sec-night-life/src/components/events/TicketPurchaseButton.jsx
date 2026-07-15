@@ -88,7 +88,7 @@ export default function TicketPurchaseButton({ event }) {
 
     setIsProcessing(true);
     try {
-      const user = await authService.getCurrentUser();
+      const { user } = await authService.resolveUserForAction(window.location.href);
       const names =
         quantity > 1
           ? holderNames.map((n) => String(n).trim())
@@ -134,6 +134,11 @@ export default function TicketPurchaseButton({ event }) {
         throw new Error('No payment URL returned');
       }
     } catch (error) {
+      if (error?.name === 'AuthRequiredError') return;
+      if (error?.code === 'SESSION_SOFT_FAIL') {
+        toast.error('Still signing you in — try again in a moment.');
+        return;
+      }
       console.error('Checkout error:', error);
       toast.error(error?.data?.error || error?.message || 'Failed to start checkout. Please try again.');
     } finally {
