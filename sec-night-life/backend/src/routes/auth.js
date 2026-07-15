@@ -137,6 +137,9 @@ function formatUserProfileForMe(user, p) {
     notification_prefs: p.notificationPrefs ?? null,
     privacy_settings: p.privacySettings ?? null,
     app_preferences: p.appPreferences ?? null,
+    latitude: p.latitude ?? null,
+    longitude: p.longitude ?? null,
+    location_label: p.locationLabel ?? null,
   };
 }
 

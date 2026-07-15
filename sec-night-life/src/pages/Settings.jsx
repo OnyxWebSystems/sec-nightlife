@@ -102,7 +102,7 @@ export default function Settings() {
 
   const handleExportData = async () => {
     try {
-      const data = await apiGet('/api/users/me/export');
+      const data = await apiGet('/api/users/me/export', { timeoutMs: 60_000 });
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

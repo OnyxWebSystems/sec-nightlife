@@ -1,8 +1,20 @@
 /**
  * API client for SEC Nightlife backend.
- * All requests go to VITE_API_URL (default http://localhost:4000).
+ * All requests go to VITE_API_URL (production: https://api.secnightlife.com).
  */
-const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+function resolveApiBase() {
+  const fromEnv = String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+  if (fromEnv) return fromEnv;
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase();
+    if (host === 'secnightlife.com' || host === 'www.secnightlife.com') {
+      return 'https://api.secnightlife.com';
+    }
+  }
+  return '';
+}
+
+const API_BASE = resolveApiBase();
 /** Default timeout for API requests (ms). Prevents hung requests on slow mobile networks. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 

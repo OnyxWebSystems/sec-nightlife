@@ -1112,7 +1112,9 @@ export default function ProfileSetup() {
                 <h1 className={stepTitleClass} style={{ color: 'var(--sec-text-primary)' }}>
                   Get paid faster
                 </h1>
-                <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>Add payout details now or later in your Sec Wallet on Profile</p>
+                <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                  Add payout details now or later in your Sec Wallet on Profile after you finish setup
+                </p>
               </div>
 
               <div
@@ -1131,11 +1133,7 @@ export default function ProfileSetup() {
                       Automatic payouts with Paystack
                     </p>
                     <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', margin: 0, lineHeight: 1.5 }}>
-                      If you earn from paid tables and activities, your payout can be transferred automatically when your payout details are set. You can skip now and add details later in{' '}
-                      <Link to={createPageUrl('Profile?tab=wallet')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
-                        Sec Wallet on Profile
-                      </Link>
-                      . See the{' '}
+                      If you earn from paid tables and activities, your payout can be transferred automatically when your payout details are set. You can skip now and add or update details later in Sec Wallet on Profile after onboarding. See the{' '}
                       <Link to={createPageUrl('RefundPolicy')} style={{ color: 'var(--sec-accent)', textDecoration: 'underline', fontWeight: 600 }}>
                         Refund Policy
                       </Link>

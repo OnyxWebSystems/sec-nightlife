@@ -18,7 +18,11 @@
       "destination": "/assets/$1"
     },
     {
-      "source": "/((?!assets/|\\.well-known/|paystack-demo).*)",
+      "source": "/api/(.*)",
+      "destination": "https://api.secnightlife.com/api/$1"
+    },
+    {
+      "source": "/((?!api/|assets/|\\.well-known/|paystack-demo).*)",
       "destination": "/index.html"
     }
   ],

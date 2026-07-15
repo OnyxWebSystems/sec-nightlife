@@ -5,9 +5,19 @@ import { useAuth } from '@/lib/AuthContext';
 import { isOnboardingMarkedComplete } from '@/lib/sessionCache';
 import RoutePageFallback from '@/components/RoutePageFallback';
 
+function onboardingDestination(user) {
+  const role = user?.role;
+  if (role === 'VENUE' || role === 'BUSINESS') return createPageUrl('VenueOnboarding');
+  return createPageUrl('ProfileSetup');
+}
+
 export default function RequireOnboardingComplete({ children }) {
   const navigate = useNavigate();
   const { user, userProfile, isLoadingAuth, isAuthenticated, navigateToLogin, isRestoringSession } = useAuth();
+
+  const onboardingDone =
+    Boolean(user?.id) &&
+    (isOnboardingMarkedComplete(user.id) || userProfile?.onboarding_complete === true);
 
   useEffect(() => {
     if (isLoadingAuth || isRestoringSession) return;
@@ -15,15 +25,21 @@ export default function RequireOnboardingComplete({ children }) {
       navigateToLogin();
       return;
     }
-    if (isOnboardingMarkedComplete(user.id)) return;
-    if (userProfile != null && userProfile.onboarding_complete === false) {
-      navigate(createPageUrl('ProfileSetup'), { replace: true });
-    }
-  }, [isLoadingAuth, isRestoringSession, isAuthenticated, user, userProfile, navigate, navigateToLogin]);
+    if (onboardingDone) return;
+    // Incomplete or unknown onboarding — keep users in setup, never open Profile/etc.
+    navigate(onboardingDestination(user), { replace: true });
+  }, [
+    isLoadingAuth,
+    isRestoringSession,
+    isAuthenticated,
+    user,
+    onboardingDone,
+    navigate,
+    navigateToLogin,
+  ]);
 
   if (isLoadingAuth || isRestoringSession) return <RoutePageFallback />;
   if (!isAuthenticated || !user) return <RoutePageFallback />;
-  if (isOnboardingMarkedComplete(user.id)) return children;
-  if (userProfile != null && userProfile.onboarding_complete === false) return <RoutePageFallback />;
+  if (!onboardingDone) return <RoutePageFallback />;
   return children;
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronRight,
@@ -57,6 +57,27 @@ function SettingRow({ icon: Icon, label, description, children }) {
   );
 }
 
+function placeFromProfile(profile) {
+  if (!profile) {
+    return {
+      formattedAddress: '',
+      latitude: null,
+      longitude: null,
+      suburb: '',
+      province: '',
+    };
+  }
+  const lat = typeof profile.latitude === 'number' ? profile.latitude : null;
+  const lng = typeof profile.longitude === 'number' ? profile.longitude : null;
+  return {
+    formattedAddress: profile.location_label || '',
+    latitude: lat,
+    longitude: lng,
+    suburb: '',
+    province: '',
+  };
+}
+
 export default function AppPreferences() {
   const {
     language,
@@ -71,13 +92,23 @@ export default function AppPreferences() {
   } = usePreferences();
   const { userProfile, checkAppState } = useAuth();
   const [locating, setLocating] = useState(false);
-  const [placeDraft, setPlaceDraft] = useState(() => ({
-    formattedAddress: userProfile?.location_label || '',
-    latitude: userProfile?.latitude ?? null,
-    longitude: userProfile?.longitude ?? null,
-    suburb: '',
-    province: '',
-  }));
+  const [placeDraft, setPlaceDraft] = useState(() => placeFromProfile(userProfile));
+  const userEditedPlaceRef = useRef(false);
+
+  useEffect(() => {
+    if (!userProfile || userEditedPlaceRef.current) return;
+    const next = placeFromProfile(userProfile);
+    if (next.latitude == null && next.longitude == null && !next.formattedAddress) return;
+    setPlaceDraft(next);
+    if (next.latitude != null && next.longitude != null) {
+      setPreferredGeoCoords({ lat: next.latitude, lng: next.longitude });
+    }
+  }, [
+    userProfile?.latitude,
+    userProfile?.longitude,
+    userProfile?.location_label,
+    setPreferredGeoCoords,
+  ]);
 
   const radiusKm = Number(loc?.radiusKm) || 25;
   const radiusDisplay = loc?.distanceUnit === 'mi' ? Math.round(radiusKm * 0.621371) : radiusKm;
@@ -109,7 +140,14 @@ export default function AppPreferences() {
     setLocation('useLocation', enabled);
     if (enabled) {
       try {
-        await requestGeoCoords();
+        if (
+          typeof userProfile?.latitude === 'number' &&
+          typeof userProfile?.longitude === 'number'
+        ) {
+          setPreferredGeoCoords({ lat: userProfile.latitude, lng: userProfile.longitude });
+        } else {
+          await requestGeoCoords();
+        }
       } catch {
         toast.error('Could not access location — enable permission in your browser');
       }
@@ -136,6 +174,7 @@ export default function AppPreferences() {
       } catch {
         /* keep coordinate fallback */
       }
+      userEditedPlaceRef.current = true;
       await savePreferredCoords({
         lat: coords.lat,
         lng: coords.lng,
@@ -152,6 +191,7 @@ export default function AppPreferences() {
   };
 
   const onPlaceChange = async (addr) => {
+    userEditedPlaceRef.current = true;
     setPlaceDraft({
       formattedAddress: addr?.formattedAddress || '',
       latitude: addr?.latitude ?? null,
@@ -178,6 +218,10 @@ export default function AppPreferences() {
     placeDraft.formattedAddress ||
     userProfile?.location_label ||
     (geoCoords ? `${geoCoords.lat.toFixed(4)}, ${geoCoords.lng.toFixed(4)}` : null);
+
+  const hasSavedPlace =
+    Boolean(placeDraft.formattedAddress) ||
+    (placeDraft.latitude != null && placeDraft.longitude != null);
 
   return (
     <div className="min-h-screen pb-8" style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}>
@@ -278,7 +322,9 @@ export default function AppPreferences() {
               Preferred location
             </p>
             <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
-              Set your live GPS or a place you choose so Home and Map can filter venues and events near you.
+              {hasSavedPlace
+                ? 'Saved from your profile (including onboarding). Update anytime with live GPS or a place search.'
+                : 'Set your live GPS or a place you choose so Home and Map can filter venues and events near you.'}
             </p>
             <button
               type="button"
@@ -292,17 +338,13 @@ export default function AppPreferences() {
               }}
             >
               {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <LocateFixed className="w-4 h-4" />}
-              {locating ? 'Getting location…' : 'Use my current location'}
+              {locating ? 'Getting location…' : hasSavedPlace ? 'Update with my current location' : 'Use my current location'}
             </button>
             <GoogleAddressInput
               label="Or enter a place"
               placeholder="Suburb, street, or landmark"
               showSuburbProvince
-              value={
-                placeDraft.formattedAddress || placeDraft.latitude != null
-                  ? placeDraft
-                  : null
-              }
+              value={hasSavedPlace ? placeDraft : null}
               onChange={(addr) => void onPlaceChange(addr)}
             />
             {activeLabel ? (
