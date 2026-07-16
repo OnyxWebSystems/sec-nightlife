@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" role="img" aria-labelledby="title desc">
+  <title id="title">Refund money flow</title>
+  <desc id="desc">Guest requests refund, venue pays guest share, SEC keeps platform fee</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#121214"/>
+      <stop offset="100%" stop-color="#050505"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="420" rx="24" fill="url(#bg)"/>
+  <rect x="1" y="1" width="718" height="418" rx="23" fill="none" stroke="#3a3a3e"/>
+  <text x="36" y="48" fill="#C0C0C0" font-family="system-ui,sans-serif" font-size="18" font-weight="600">Refund money flow</text>
+  <text x="36" y="74" fill="#8a8a90" font-family="system-ui,sans-serif" font-size="13">Approved refunds  venue pays guest; SEC keeps fee</text>
+
+  <rect x="40" y="120" width="180" height="100" rx="16" fill="#1a1a1d" stroke="#4a4a50"/>
+  <text x="130" y="165" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="15" font-weight="600">Party-Goer</text>
+  <text x="130" y="190" text-anchor="middle" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">Requests refund</text>
+
+  <rect x="270" y="120" width="180" height="100" rx="16" fill="#1a1a1d" stroke="#C0C0C0"/>
+  <text x="360" y="165" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="15" font-weight="600">Venue</text>
+  <text x="360" y="190" text-anchor="middle" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">Approves &amp; pays 85%</text>
+
+  <rect x="500" y="120" width="180" height="100" rx="16" fill="#1a1a1d" stroke="#4a4a50"/>
+  <text x="590" y="165" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="15" font-weight="600">SEC</text>
+  <text x="590" y="190" text-anchor="middle" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">Keeps ~15% fee</text>
+
+  <path d="M220 170 H262" stroke="#C0C0C0" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M450 155 H492" stroke="#6a6a70" stroke-width="2" stroke-dasharray="4 4"/>
+  <path d="M360 220 V280 H130 V220" fill="none" stroke="#C0C0C0" stroke-width="2"/>
+  <circle cx="130" cy="220" r="4" fill="#C0C0C0"/>
+
+  <rect x="80" y="300" width="560" height="72" rx="14" fill="#161618" stroke="#333338"/>
+  <text x="360" y="332" text-anchor="middle" fill="#e8e8ea" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Guest receives share via Sec Wallet lookup (off-app)</text>
+  <text x="360" y="354" text-anchor="middle" fill="#8a8a90" font-family="system-ui,sans-serif" font-size="12">QR / tickets invalidated · capacity restored · status ’ Paid by venue</text>
+</svg>

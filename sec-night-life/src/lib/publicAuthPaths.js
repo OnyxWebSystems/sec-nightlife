@@ -10,6 +10,7 @@ export const PUBLIC_DOCUMENT_PAGES = [
   'VenueComplianceCharter',
   'PromoterCodeOfConduct',
   'HelpCenter',
+  'HelpArticle',
   'AgeVerificationDeclaration',
 ];
 

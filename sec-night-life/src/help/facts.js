@@ -1,0 +1,17 @@
+/** Shared pricing / policy facts used across Help Center copy. */
+export const HELP_FACTS = {
+  platformFeePercent: 15,
+  recipientSharePercent: 85,
+  ticketFeePercent: 4,
+  ticketVenueSharePercent: 96,
+  externalListingZar: 200,
+  promotionPublishPerDayZar: 50,
+  boostPerDayZar: 150,
+  maxBoostDays: 30,
+  joiningFeeMinZar: 10,
+  coverMessageMinChars: 50,
+  dayBookingMinMinutes: 30,
+  promoterJobsForVerified: 20,
+  promoterMinRatings: 3,
+  promoterMinUniqueRaters: 2,
+};

@@ -1,58 +1,45 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import {
-  ChevronRight,
-  Mail,
-  Sparkles,
-  CreditCard,
-  Building2,
-  UserCircle,
-  LifeBuoy,
-} from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ChevronRight, Mail, LifeBuoy, BookOpen } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { usePreferences } from '@/context/PreferencesContext';
 import { getHelpCenterLegalNavItems } from '@/legal/legalNavItems';
 import { SUPPORT_EMAIL, ADMIN_EMAIL } from '@/constants/contactEmails';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import SecLogo from '@/components/ui/SecLogo';
-
-function PlaceholderTopic({ icon: Icon, title, description }) {
-  return (
-    <div
-      className="rounded-2xl p-4 flex gap-3"
-      style={{
-        backgroundColor: 'var(--sec-bg-card)',
-        border: '1px solid var(--sec-border)',
-        opacity: 0.92,
-      }}
-    >
-      <div
-        className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center"
-        style={{ backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)' }}
-      >
-        <Icon className="w-5 h-5" style={{ color: 'var(--sec-text-muted)' }} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold text-sm" style={{ color: 'var(--sec-text-primary)' }}>
-          {title}
-        </p>
-        <p className="text-xs mt-1" style={{ color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
-          {description}
-        </p>
-        <span
-          className="inline-block mt-2 text-[11px] font-medium uppercase tracking-wide"
-          style={{ color: 'var(--sec-text-muted)' }}
-        >
-          Coming soon
-        </span>
-      </div>
-    </div>
-  );
-}
+import HelpRoleTabs from '@/components/help/HelpRoleTabs';
+import HelpSearch from '@/components/help/HelpSearch';
+import HelpTopicCard from '@/components/help/HelpTopicCard';
+import HelpFaqList from '@/components/help/HelpFaqList';
+import { groupArticlesByCategory, resolveDefaultAudience, searchHelp } from '@/help/search';
 
 export default function HelpCenter() {
   const { t } = usePreferences();
   const legalLinks = getHelpCenterLegalNavItems(t);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [audience, setAudience] = useState(() => {
+    const fromUrl = searchParams.get('audience');
+    if (fromUrl === 'venue' || fromUrl === 'partygoer') return fromUrl;
+    return resolveDefaultAudience();
+  });
+  const [query, setQuery] = useState(searchParams.get('q') || '');
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (audience === 'venue') next.set('audience', 'venue');
+    if (query.trim()) next.set('q', query.trim());
+    setSearchParams(next, { replace: true });
+  }, [audience, query, setSearchParams]);
+
+  const { articles, faqs, isEmptyQuery } = useMemo(
+    () => searchHelp(query, audience),
+    [query, audience]
+  );
+
+  const groups = useMemo(() => groupArticlesByCategory(audience), [audience]);
+
+  const searching = !isEmptyQuery;
 
   return (
     <div
@@ -80,7 +67,7 @@ export default function HelpCenter() {
       <div className="relative z-10">
         <PageBackHeader
           title="Help Center"
-          subtitle="Guides and answers — expanding soon"
+          subtitle="Guides, FAQs, and support"
           pageName="HelpCenter"
         />
 
@@ -95,6 +82,10 @@ export default function HelpCenter() {
             </p>
           </div>
 
+          <HelpRoleTabs audience={audience} onChange={setAudience} />
+
+          <HelpSearch value={query} onChange={setQuery} />
+
           <div
             className="rounded-2xl p-6"
             style={{
@@ -108,7 +99,8 @@ export default function HelpCenter() {
               <div>
                 <p className="font-semibold">Contact support</p>
                 <p className="text-sm mt-1" style={{ color: 'var(--sec-text-secondary)' }}>
-                  For account issues, payments, or safety concerns, email us and we&apos;ll get back to you.
+                  For account issues, payments, or safety concerns, email us and we&apos;ll get back to
+                  you.
                 </p>
               </div>
             </div>
@@ -130,49 +122,71 @@ export default function HelpCenter() {
             </a>
           </div>
 
-          <div>
-            <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--sec-text-muted)' }}>
-              Browse topics (placeholders)
-            </h2>
-            <div className="space-y-3">
-              <PlaceholderTopic
-                icon={Sparkles}
-                title="Getting started"
-                description="Account setup, profile, notifications, and finding events. Full articles will appear here."
-              />
-              <PlaceholderTopic
-                icon={CreditCard}
-                title="Payments & refunds"
-                description="Paystack checkout, tables, tickets, boosts, and how refunds work with venues."
-              />
-              <PlaceholderTopic
-                icon={UserCircle}
-                title="Tables, hosts & jobs"
-                description="Joining tables, hosting house parties, and promoter applications."
-              />
-              <PlaceholderTopic
-                icon={Building2}
-                title="For venues & businesses"
-                description="Onboarding, compliance documents, promotions, and your dashboard."
-              />
+          {searching ? (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--sec-text-muted)' }}>
+                  <BookOpen className="w-4 h-4" />
+                  Guides ({articles.length})
+                </h2>
+                {articles.length ? (
+                  <div className="space-y-3">
+                    {articles.map((article) => (
+                      <HelpTopicCard key={article.id} article={article} audience={audience} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                    No guides match &ldquo;{query.trim()}&rdquo;. Try another keyword or clear search.
+                  </p>
+                )}
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--sec-text-muted)' }}>
+                  FAQs ({faqs.length})
+                </h2>
+                <HelpFaqList faqs={faqs} audience={audience} />
+              </div>
             </div>
-          </div>
+          ) : (
+            <>
+              <div>
+                <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--sec-text-muted)' }}>
+                  Browse topics
+                </h2>
+                <div className="space-y-6">
+                  {groups.map((group) => (
+                    <div key={group.id}>
+                      <div className="px-1 mb-2">
+                        <p className="text-sm font-semibold" style={{ color: 'var(--sec-text-primary)' }}>
+                          {group.label}
+                        </p>
+                        <p className="text-xs mt-0.5" style={{ color: 'var(--sec-text-muted)' }}>
+                          {group.description}
+                        </p>
+                      </div>
+                      <div className="space-y-3">
+                        {group.articles.map((article) => (
+                          <HelpTopicCard key={article.id} article={article} audience={audience} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-          <div
-            className="rounded-2xl p-5"
-            style={{
-              backgroundColor: 'var(--sec-bg-elevated)',
-              border: '1px dashed var(--sec-border)',
-            }}
-          >
-            <p className="text-sm font-medium mb-1" style={{ color: 'var(--sec-text-primary)' }}>
-              Search & FAQs
-            </p>
-            <p className="text-xs" style={{ color: 'var(--sec-text-muted)', lineHeight: 1.55 }}>
-              A searchable help library and frequently asked questions are not available yet. We&apos;re building this section
-              out—check back after the next app update.
-            </p>
-          </div>
+              <div>
+                <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--sec-text-muted)' }}>
+                  Search &amp; FAQs
+                </h2>
+                <p className="text-xs mb-3 px-1" style={{ color: 'var(--sec-text-muted)', lineHeight: 1.5 }}>
+                  Use the search box above, or browse common questions for{' '}
+                  {audience === 'venue' ? 'venues' : 'party-goers'}.
+                </p>
+                <HelpFaqList faqs={faqs} audience={audience} />
+              </div>
+            </>
+          )}
 
           <div>
             <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--sec-text-muted)' }}>

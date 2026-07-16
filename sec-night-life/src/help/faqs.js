@@ -1,0 +1,188 @@
+/** FAQ entries — filtered by audience on the Help Center hub. */
+export const HELP_FAQS = [
+  // Party-goer
+  {
+    id: 'faq-pg-refund-when',
+    audience: 'partygoer',
+    question: 'When can I request a refund?',
+    answer:
+      'When the payment is eligible (typically tables/tickets with refundable portions) and the venue has not already used or closed the booking outside policy. Open Profile → Tickets and use Request refund on eligible items.',
+    articleId: 'refunds-partygoer',
+  },
+  {
+    id: 'faq-pg-join-fee',
+    audience: 'partygoer',
+    question: 'Why wasn’t my joining fee refunded?',
+    answer:
+      'Joining fees are generally not refundable. If you prepaid menu items with the host, that menu portion may be eligible — the join fee itself is not.',
+    articleId: 'refunds-partygoer',
+  },
+  {
+    id: 'faq-pg-qr',
+    audience: 'partygoer',
+    question: 'How do I get my table or ticket QR?',
+    answer:
+      'After a successful payment, open Profile → Tickets. Host Dashboard also shows live tables you host.',
+    articleId: 'tickets-qr',
+  },
+  {
+    id: 'faq-pg-r200',
+    audience: 'partygoer',
+    question: 'What is the R200 listing fee?',
+    answer:
+      'It is the one-time SEC fee to publish a Host Dashboard listing at your own place or a venue not registered on SEC. It is not refundable.',
+    articleId: 'host-list-external-table',
+  },
+  {
+    id: 'faq-pg-auto-group',
+    audience: 'partygoer',
+    question: 'How do automatic groups work?',
+    answer:
+      'When you host (and payment succeeds), SEC creates a group chat. Joiners who become Going are added automatically. Find it under Messages.',
+    articleId: 'automatic-groups',
+  },
+  {
+    id: 'faq-pg-leave',
+    audience: 'partygoer',
+    question: 'How do I leave a table?',
+    answer:
+      'Use leave/manage controls on the hosted table or Host Dashboard where available. Leaving may remove you from the automatic group chat. Refund eligibility depends on payment type and venue policy.',
+    articleId: 'host-join-table',
+  },
+  {
+    id: 'faq-pg-promoter-job',
+    audience: 'partygoer',
+    question: 'How do I apply for a promoter job?',
+    answer:
+      'Open Jobs, filter or find Promoter roles, and apply with a cover message of at least 50 characters. Track status under My Job Applications.',
+    articleId: 'jobs-partygoer',
+  },
+  {
+    id: 'faq-pg-verified',
+    audience: 'partygoer',
+    question: 'What does verified promoter mean?',
+    answer:
+      'Admin-granted status after you are hired, accept the Code of Conduct, and meet job/rating milestones. Verified promoters are more prominent on leaderboards.',
+    articleId: 'verified-promoter',
+  },
+  {
+    id: 'faq-pg-non-sec',
+    audience: 'partygoer',
+    question: 'Can I list a table at a venue not on SEC?',
+    answer:
+      'Yes. Use Host Dashboard → List as Table (or List as Event), enter the address, and pay the R200 listing fee.',
+    articleId: 'host-list-external-table',
+  },
+  {
+    id: 'faq-pg-min-spend',
+    audience: 'partygoer',
+    question: 'What is minimum spend?',
+    answer:
+      'The amount you must prepay (menu or lump sum) to host or join certain tables. Checkout stays locked until you meet it.',
+    articleId: 'minimum-spend',
+  },
+  {
+    id: 'faq-pg-custom',
+    audience: 'partygoer',
+    question: 'How do custom table requests work?',
+    answer:
+      'If the venue allows them, submit guests, times, and proposed spend. After the venue approves, you pay and become the host for that session.',
+    articleId: 'custom-tables-partygoer',
+  },
+  {
+    id: 'faq-pg-vendor',
+    audience: 'partygoer',
+    question: 'How do I become a vendor?',
+    answer:
+      'Create a listing during onboarding or later under Settings → My vendor businesses, then publish it.',
+    articleId: 'vendors-become',
+  },
+  // Venue
+  {
+    id: 'faq-vn-pay-refund',
+    audience: 'venue',
+    question: 'How do I pay an approved refund?',
+    answer:
+      'After you approve, look up the guest by Sec Wallet code and pay their share off-app. Then mark the request as Paid by venue. SEC keeps the platform fee.',
+    articleId: 'refunds-venue',
+  },
+  {
+    id: 'faq-vn-remove',
+    audience: 'venue',
+    question: 'Why can’t I remove this table from listings?',
+    answer:
+      'Hide only works on empty, non-custom slots that are not in use. Custom-request listings and active hosted sessions cannot be hidden.',
+    articleId: 'remove-from-listings',
+  },
+  {
+    id: 'faq-vn-event-types',
+    audience: 'venue',
+    question: 'What’s the difference between table-hosting and ticketed events?',
+    answer:
+      'Table hosting sells host/join table tiers at your event. Ticketed only sells ticket tiers (optional menu add-ons) without table hosting.',
+    articleId: 'create-event',
+  },
+  {
+    id: 'faq-vn-promo-vs-boost',
+    audience: 'venue',
+    question: 'How do promotions vs boosts differ?',
+    answer:
+      'Promotions are creatives you publish (from R50/day). Boosts lift a table, event, or promotion higher in the feed (R150/day). Both are non-refundable platform products.',
+    articleId: 'promotions',
+  },
+  {
+    id: 'faq-vn-who-payout',
+    audience: 'venue',
+    question: 'Who receives payout money?',
+    answer:
+      'Your venue’s Paystack recipient receives the venue share of eligible bookings (typically 85%, or 96% on ticket tiers). Boosts and promo fees stay with SEC.',
+    articleId: 'payouts',
+  },
+  {
+    id: 'faq-vn-delete-job',
+    audience: 'venue',
+    question: 'What happens when I delete a job?',
+    answer:
+      'The job is soft-closed. Pending and shortlisted applications become Rejected. Hired relationships are managed separately (unhire/release).',
+    articleId: 'jobs-venue',
+  },
+  {
+    id: 'faq-vn-custom',
+    audience: 'venue',
+    question: 'How do custom table requests appear?',
+    answer:
+      'When custom requests are enabled, guests submit proposals. You review them under bookings/reservations, then approve or decline before they pay.',
+    articleId: 'custom-tables-venue',
+  },
+  {
+    id: 'faq-vn-payout-pending',
+    audience: 'venue',
+    question: 'Why is a payout pending?',
+    answer:
+      'Usually payout recipient details are missing or invalid on Venue Sec Wallet. Complete Paystack recipient setup to release transfers.',
+    articleId: 'payouts',
+  },
+  {
+    id: 'faq-vn-day',
+    audience: 'venue',
+    question: 'What are day bookings?',
+    answer:
+      'Bookings for a time window on a normal night (not only during a named event), within your opening hours, when day bookings are enabled.',
+    articleId: 'table-day-bookings',
+  },
+  {
+    id: 'faq-vn-staff',
+    audience: 'venue',
+    question: 'Can staff manage refunds?',
+    answer:
+      'Yes, if they have the refund_requests permission. Only grant this to trusted managers.',
+    articleId: 'venue-staff-permissions',
+  },
+];
+
+/**
+ * @param {'partygoer' | 'venue'} audience
+ */
+export function getFaqsForAudience(audience) {
+  return HELP_FAQS.filter((f) => f.audience === audience || f.audience === 'both');
+}

@@ -19,6 +19,7 @@ import RefundPolicy from './pages/RefundPolicy.jsx';
 import VenueComplianceCharter from './pages/VenueComplianceCharter.jsx';
 import PromoterCodeOfConduct from './pages/PromoterCodeOfConduct.jsx';
 import HelpCenter from './pages/HelpCenter.jsx';
+import HelpArticle from './pages/HelpArticle.jsx';
 import AgeVerificationDeclaration from './pages/AgeVerificationDeclaration.jsx';
 import { isStaleChunkLoadError, scheduleChunkReloadOnce } from './lib/chunkLoadRecovery';
 import { PUBLIC_DOCUMENT_PAGES } from './lib/publicAuthPaths';
@@ -81,6 +82,7 @@ const EAGER_IMPORTS = {
   VenueComplianceCharter,
   PromoterCodeOfConduct,
   HelpCenter,
+  HelpArticle,
   AgeVerificationDeclaration,
 };
 

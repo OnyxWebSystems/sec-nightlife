@@ -35,6 +35,7 @@ export const MOBILE_OWN_BACK_HEADER = new Set([
   'Friends',
   'Settings',
   'HelpCenter',
+  'HelpArticle',
   'Privacy',
   'CreateJob',
   'AppPreferences',
