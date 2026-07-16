@@ -8,29 +8,21 @@
   <rect width="720" height="280" rx="24" fill="url(#bg)"/>
   <rect x="1" y="1" width="718" height="278" rx="23" fill="none" stroke="#3a3a3e"/>
   <text x="36" y="42" fill="#C0C0C0" font-family="system-ui,sans-serif" font-size="16" font-weight="600">Custom table lifecycle</text>
-
   <rect x="24" y="80" width="150" height="88" rx="14" fill="#1a1a1d" stroke="#4a4a50"/>
   <text x="99" y="118" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="12" font-weight="600">Pending review</text>
   <text x="99" y="140" text-anchor="middle" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="11">Guest submits</text>
-
-  <text x="186" y="128" fill="#C0C0C0" font-size="18">’</text>
-
+  <text x="186" y="128" fill="#C0C0C0" font-size="18">&gt;</text>
   <rect x="210" y="80" width="150" height="88" rx="14" fill="#1a1a1d" stroke="#C0C0C0"/>
   <text x="285" y="118" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="12" font-weight="600">Approved</text>
   <text x="285" y="140" text-anchor="middle" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="11">Venue accepts</text>
-
-  <text x="372" y="128" fill="#C0C0C0" font-size="18">’</text>
-
+  <text x="372" y="128" fill="#C0C0C0" font-size="18">&gt;</text>
   <rect x="396" y="80" width="150" height="88" rx="14" fill="#1a1a1d" stroke="#4a4a50"/>
   <text x="471" y="118" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="12" font-weight="600">Pending payment</text>
   <text x="471" y="140" text-anchor="middle" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="11">Guest checks out</text>
-
-  <text x="558" y="128" fill="#C0C0C0" font-size="18">’</text>
-
+  <text x="558" y="128" fill="#C0C0C0" font-size="18">&gt;</text>
   <rect x="580" y="80" width="116" height="88" rx="14" fill="#1a1a1d" stroke="#8f8f96"/>
   <text x="638" y="118" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="12" font-weight="600">Confirmed</text>
   <text x="638" y="140" text-anchor="middle" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="11">Host session</text>
-
-  <text x="36" y="220" fill="#8a8a90" font-family="system-ui,sans-serif" font-size="12">Declined requests stop at review  guest can revise and resubmit if custom requests stay enabled.</text>
+  <text x="36" y="220" fill="#8a8a90" font-family="system-ui,sans-serif" font-size="12">Declined requests stop at review - guest can revise and resubmit if custom requests stay enabled.</text>
   <text x="36" y="244" fill="#8a8a90" font-family="system-ui,sans-serif" font-size="12">Venues may hide a standard empty slot to free the floor for an approved custom booking.</text>
 </svg>

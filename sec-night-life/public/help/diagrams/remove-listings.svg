@@ -9,20 +9,17 @@
   <rect x="1" y="1" width="718" height="358" rx="23" fill="none" stroke="#3a3a3e"/>
   <text x="36" y="44" fill="#C0C0C0" font-family="system-ui,sans-serif" font-size="16" font-weight="600">Remove from listings</text>
   <text x="36" y="68" fill="#8a8a90" font-family="system-ui,sans-serif" font-size="12">Soft-hide empty standard slots so guests cannot book them</text>
-
   <rect x="40" y="100" width="300" height="200" rx="16" fill="#1a1a1d" stroke="#C0C0C0"/>
   <text x="190" y="140" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="14" font-weight="600">Owner use</text>
   <text x="60" y="175" fill="#b0b0b6" font-family="system-ui,sans-serif" font-size="12">Venue needs the table for VIPs,</text>
   <text x="60" y="195" fill="#b0b0b6" font-family="system-ui,sans-serif" font-size="12">staff, or a private reservation.</text>
-  <text x="60" y="230" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">’ Hide slot · status Hidden</text>
-  <text x="60" y="255" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">’ Restore when free again</text>
-
+  <text x="60" y="230" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">Hide slot - status Hidden</text>
+  <text x="60" y="255" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">Restore when free again</text>
   <rect x="380" y="100" width="300" height="200" rx="16" fill="#1a1a1d" stroke="#4a4a50"/>
   <text x="530" y="140" text-anchor="middle" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="14" font-weight="600">Custom compensation</text>
   <text x="400" y="175" fill="#b0b0b6" font-family="system-ui,sans-serif" font-size="12">Approved custom table will use</text>
   <text x="400" y="195" fill="#b0b0b6" font-family="system-ui,sans-serif" font-size="12">this physical floor space.</text>
-  <text x="400" y="230" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">’ Hide matching empty slot</text>
-  <text x="400" y="255" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">’ Prevents double booking</text>
-
+  <text x="400" y="230" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">Hide matching empty slot</text>
+  <text x="400" y="255" fill="#9a9aa0" font-family="system-ui,sans-serif" font-size="12">Prevents double booking</text>
   <text x="36" y="330" fill="#8a8a90" font-family="system-ui,sans-serif" font-size="12">Blocked if: slot is in use, or the listing is the custom-request entry itself.</text>
 </svg>

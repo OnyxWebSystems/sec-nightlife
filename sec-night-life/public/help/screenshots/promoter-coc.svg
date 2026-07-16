@@ -20,5 +20,5 @@
   <rect x="48" y="302" width="304" height="64" rx="14" fill="#1a1a1d" stroke="#333338"/>
   <text x="68" y="330" fill="#f2f2f2" font-family="system-ui,sans-serif" font-size="14" font-weight="600">Verified</text>
   <text x="68" y="350" fill="#8a8a90" font-family="system-ui,sans-serif" font-size="11">Admin grants badge</text>
-  <text x="200" y="496" text-anchor="middle" fill="#55555a" font-family="system-ui,sans-serif" font-size="10">Illustrative UI · SEC Help</text>
+  <text x="200" y="496" text-anchor="middle" fill="#55555a" font-family="system-ui,sans-serif" font-size="10">Illustrative UI - SEC Help</text>
 </svg>

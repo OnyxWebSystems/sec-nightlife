@@ -22,7 +22,7 @@
       "destination": "https://api.secnightlife.com/api/$1"
     },
     {
-      "source": "/((?!api/|assets/|\\.well-known/|paystack-demo).*)",
+      "source": "/((?!api/|assets/|help/|Logo/|menu-catalog/|icons/|\\.well-known/|paystack-demo|.*\\.(?:svg|png|jpg|jpeg|webp|gif|ico|mp4|json|txt|xml|webmanifest)$).*)",
       "destination": "/index.html"
     }
   ],
