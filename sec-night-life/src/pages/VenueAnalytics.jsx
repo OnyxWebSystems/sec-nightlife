@@ -32,6 +32,7 @@ import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } fro
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
+import { useIsMobile } from '@/hooks/useIsDesktop';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -270,6 +271,7 @@ export default function VenueAnalytics() {
   const [revenueScope, setRevenueScope] = useState('all_events');
   const [selectedEventId, setSelectedEventId] = useState('');
   const [selectedEventCache, setSelectedEventCache] = useState(null);
+  const isMobile = useIsMobile(640);
 
   useEffect(() => {
     loadUser();
@@ -937,8 +939,19 @@ export default function VenueAnalytics() {
                     </p>
                   </div>
                 ) : (
-                  <ChartContainer config={REVENUE_CHART_CONFIG} className="h-48 sm:h-64 w-full aspect-auto overflow-x-auto">
-                    <AreaChart data={salesTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <ChartContainer
+                    config={REVENUE_CHART_CONFIG}
+                    className="h-52 sm:h-64 w-full aspect-auto"
+                  >
+                    <AreaChart
+                      data={salesTrend}
+                      margin={{
+                        top: 8,
+                        right: isMobile ? 4 : 8,
+                        left: 0,
+                        bottom: isMobile ? 12 : 4,
+                      }}
+                    >
                       <defs>
                         <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="#d4af37" stopOpacity={0.45} />
@@ -947,22 +960,48 @@ export default function VenueAnalytics() {
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--sec-border)" vertical={false} />
                       <XAxis
-                        dataKey="date"
-                        tick={{ fill: '#6b7280', fontSize: 11 }}
+                        dataKey="key"
+                        tick={{ fill: '#9ca3af', fontSize: isMobile ? 10 : 11 }}
                         tickLine={false}
                         axisLine={false}
-                        interval={periodDays <= 14 ? 0 : Math.floor(periodDays / 8)}
+                        interval={
+                          isMobile
+                            ? periodDays <= 7
+                              ? 0
+                              : Math.max(1, Math.ceil(periodDays / 6) - 1)
+                            : periodDays <= 14
+                              ? 0
+                              : Math.floor(periodDays / 8)
+                        }
+                        minTickGap={isMobile ? 28 : 12}
+                        angle={isMobile ? -35 : 0}
+                        textAnchor={isMobile ? 'end' : 'middle'}
+                        height={isMobile ? 52 : 30}
+                        dy={isMobile ? 6 : 0}
+                        tickFormatter={(value) => {
+                          const day = new Date(`${value}T12:00:00`);
+                          if (Number.isNaN(day.getTime())) return value;
+                          if (isMobile) {
+                            return periodDays <= 14 ? format(day, 'd/M') : format(day, 'd MMM');
+                          }
+                          return periodDays <= 14 ? format(day, 'MMM dd') : format(day, 'd MMM');
+                        }}
                       />
                       <YAxis
-                        tick={{ fill: '#6b7280', fontSize: 11 }}
+                        tick={{ fill: '#6b7280', fontSize: isMobile ? 10 : 11 }}
                         tickLine={false}
                         axisLine={false}
                         tickFormatter={(v) => `R${Math.round(v / 1000)}k`}
-                        width={48}
+                        width={isMobile ? 40 : 48}
                       />
                       <ChartTooltip
                         content={
                           <ChartTooltipContent
+                            labelFormatter={(label) => {
+                              const day = new Date(`${label}T12:00:00`);
+                              if (Number.isNaN(day.getTime())) return label;
+                              return format(day, 'MMM d, yyyy');
+                            }}
                             formatter={(value) => (
                               <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
                                 {`R${Math.round(Number(value)).toLocaleString()}`}
