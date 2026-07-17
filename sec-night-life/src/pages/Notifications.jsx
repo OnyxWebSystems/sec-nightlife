@@ -166,6 +166,15 @@ export default function Notifications() {
       return `${createPageUrl('Messages')}?dm=${n.referenceId}`;
     }
     if ((t === 'GROUP_MESSAGE' || t === 'JOIN_REQUEST_ACCEPTED') && n.referenceId) {
+      if (n.referenceType === 'HOSTED_TABLE_GROUP_CHAT') {
+        return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}&gk=HOSTED_TABLE`;
+      }
+      if (n.referenceType === 'GROUP_CHAT') {
+        return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}`;
+      }
+      if (n.referenceType === 'HOSTED_TABLE') {
+        return buildPageUrl('TableDetails', { id: n.referenceId, source: 'hosted', checkout: '1' });
+      }
       if (t === 'JOIN_REQUEST_ACCEPTED') {
         const tableId = extractTableIdFromNotification(n, actionUrl) || n.referenceId;
         if (tableId && !String(tableId).includes('/')) {
@@ -176,12 +185,6 @@ export default function Notifications() {
             ...(needsCheckout ? { checkout: '1' } : {}),
           });
         }
-      }
-      if (n.referenceType === 'HOSTED_TABLE_GROUP_CHAT') {
-        return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}&gk=HOSTED_TABLE`;
-      }
-      if (n.referenceType === 'HOSTED_TABLE') {
-        return buildPageUrl('TableDetails', { id: n.referenceId, source: 'hosted', checkout: '1' });
       }
       return `${createPageUrl('Messages')}?group=${encodeURIComponent(n.referenceId)}`;
     }

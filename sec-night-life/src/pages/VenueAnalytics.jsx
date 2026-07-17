@@ -599,7 +599,7 @@ export default function VenueAnalytics() {
   }, [selectedEventId, initialEventsPage]);
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--sec-bg)' }}>
+    <div className="min-h-screen pb-28 lg:pb-8" style={{ backgroundColor: 'var(--sec-bg)' }}>
       <PageBackHeader title="Analytics Dashboard" subtitle="Business insights and performance metrics" pageName="VenueAnalytics" />
       <div className="max-w-7xl mx-auto space-y-6 p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
@@ -1008,7 +1008,7 @@ export default function VenueAnalytics() {
                                 { label: d.name, color: EVENT_TYPE_COLORS[i % EVENT_TYPE_COLORS.length] },
                               ]),
                             )}
-                            className="h-44 w-full aspect-auto mx-auto max-w-[200px]"
+                            className="h-52 w-full min-h-[208px] aspect-auto mx-auto max-w-[200px]"
                           >
                             <PieChart>
                               <ChartTooltip
@@ -1067,7 +1067,7 @@ export default function VenueAnalytics() {
                                 { label: d.name, color: REVENUE_STREAM_COLORS[i % REVENUE_STREAM_COLORS.length] },
                               ]),
                             )}
-                            className="h-44 w-full aspect-auto mx-auto max-w-[200px]"
+                            className="h-52 w-full min-h-[208px] aspect-auto mx-auto max-w-[200px]"
                           >
                             <PieChart>
                               <ChartTooltip

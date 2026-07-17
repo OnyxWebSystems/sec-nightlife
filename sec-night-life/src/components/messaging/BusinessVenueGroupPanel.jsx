@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import { asArray } from '@/utils';
 import { toast } from 'sonner';
+import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Plus, Users, Trash2, LogOut, Shield, Search } from 'lucide-react';
-import EmojiPickerButton from '@/components/messaging/EmojiPickerButton';
+import { Loader2, Plus, Users, Trash2, LogOut, Shield, Search, Camera } from 'lucide-react';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
 import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
+import ChatComposer from '@/components/messaging/ChatComposer';
 import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 import {
   Sheet,
@@ -37,6 +38,8 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
   const [memberSearchQ, setMemberSearchQ] = useState('');
   const [avatarUploading, setAvatarUploading] = useState(false);
   const { replyingTo, setReplyingTo, clearReply } = useMessageReply();
+  const avatarFileInputRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
   const groupsBase = staffContextToken
     ? `/api/staff/context/${staffContextToken}/groups`
@@ -87,6 +90,7 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
 
   async function removeGroupAvatar() {
     if (!selectedGroupId || !groupsBase) return;
+    if (!window.confirm('Remove this group photo?')) return;
     setAvatarUploading(true);
     try {
       await apiPatch(`${groupsBase}/${selectedGroupId}`, { avatarUrl: null });
@@ -203,7 +207,24 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
   });
 
   const canManage = groupDetail?.canManage ?? selectedGroup?.canManage ?? false;
-  const isAdmin = groupDetail?.myRole === 'ADMIN' || groupDetail?.isOwner;
+  const isAdmin =
+    groupDetail?.myRole === 'ADMIN' ||
+    groupDetail?.isOwner ||
+    selectedGroup?.myRole === 'ADMIN';
+  const groupName = groupDetail?.name || selectedGroup?.name || 'Group';
+  const groupAvatarUrl = groupDetail?.avatarUrl || selectedGroup?.avatarUrl || null;
+  const memberCount = groupDetail?.memberCount ?? selectedGroup?.memberCount ?? groupDetail?.members?.length ?? 0;
+
+  function handleAvatarClick() {
+    if (!isAdmin || avatarUploading) return;
+    avatarFileInputRef.current?.click();
+  }
+
+  function handleSendMessage() {
+    const trimmed = messageBody.trim();
+    if (!trimmed || sendMutation.isPending) return;
+    sendMutation.mutate(trimmed);
+  }
 
   const { data: memberSearchResults = [] } = useQuery({
     queryKey: ['venue-group-user-search', searchUsersUrl, debouncedMemberQ],
@@ -274,61 +295,90 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
       </div>
 
       <div
-        className="sec-card p-4 border min-h-[320px] flex flex-col"
+        className="sec-card border min-h-[420px] max-h-[70vh] flex flex-col overflow-hidden p-0"
         style={{ borderColor: 'var(--sec-border)' }}
       >
         {!selectedGroupId ? (
-          <p className="text-sm text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>
+          <p className="text-sm text-center py-8 px-4" style={{ color: 'var(--sec-text-muted)' }}>
             Select a group to view messages.
           </p>
         ) : (
           <>
-            <div className="flex items-center justify-between gap-2 mb-3">
+            <div
+              className="flex items-center justify-between gap-2 p-3 border-b shrink-0"
+              style={{ borderColor: 'var(--sec-border)' }}
+            >
               <div className="flex items-center gap-2 min-w-0">
-                {(groupDetail?.avatarUrl || selectedGroup?.avatarUrl) ? (
-                  <img
-                    src={groupDetail?.avatarUrl || selectedGroup?.avatarUrl}
-                    alt=""
-                    className="w-10 h-10 rounded-full object-cover shrink-0"
+                <div className="relative shrink-0">
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      className="relative w-11 h-11 rounded-full overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sec-accent)]"
+                      onClick={handleAvatarClick}
+                      disabled={avatarUploading}
+                      aria-label="Change group photo"
+                    >
+                      {groupAvatarUrl ? (
+                        <img src={groupAvatarUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div
+                          className="w-full h-full flex items-center justify-center text-sm font-bold"
+                          style={{ background: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}
+                        >
+                          {groupName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="absolute bottom-0 right-0 w-5 h-5 rounded-full flex items-center justify-center bg-[var(--sec-bg-elevated)] border border-[var(--sec-border)]">
+                        <Camera size={10} style={{ color: 'var(--sec-accent)' }} />
+                      </span>
+                    </button>
+                  ) : groupAvatarUrl ? (
+                    <img
+                      src={groupAvatarUrl}
+                      alt=""
+                      className="w-11 h-11 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold"
+                      style={{ background: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}
+                    >
+                      {groupName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <input
+                    ref={avatarFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={avatarUploading}
+                    onChange={groupAvatarCrop.handleInputChange}
                   />
-                ) : (
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
-                    style={{ background: 'var(--sec-accent-muted)', color: 'var(--sec-accent)' }}
-                  >
-                    {(selectedGroup?.name || 'G').charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <h3 className="font-semibold truncate">{selectedGroup?.name || 'Group'}</h3>
-                {isAdmin ? (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <label className="text-xs text-[var(--sec-accent)] cursor-pointer">
-                      {avatarUploading ? '…' : 'Photo'}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        disabled={avatarUploading}
-                        onChange={groupAvatarCrop.handleInputChange}
-                      />
-                    </label>
-                    {(groupDetail?.avatarUrl || selectedGroup?.avatarUrl) ? (
-                      <button
-                        type="button"
-                        className="text-xs text-red-400"
-                        disabled={avatarUploading}
-                        onClick={removeGroupAvatar}
-                      >
-                        Remove
-                      </button>
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold truncate">{groupName}</p>
+                  <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
+                    {memberCount} {memberCount === 1 ? 'member' : 'members'}
+                    {isAdmin && groupAvatarUrl ? (
+                      <>
+                        {' · '}
+                        <button
+                          type="button"
+                          className="text-red-400 hover:underline"
+                          disabled={avatarUploading}
+                          onClick={removeGroupAvatar}
+                        >
+                          Remove photo
+                        </button>
+                      </>
                     ) : null}
-                  </div>
-                ) : null}
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
                 <Sheet>
                   <SheetTrigger asChild>
-                    <Button size="sm" variant="outline">
+                    <Button size="sm" variant="outline" className="min-h-[40px]">
                       <Users size={14} className="mr-1" />
                       Members
                     </Button>
@@ -426,11 +476,12 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
                   <Button
                     size="sm"
                     variant="outline"
-                    className="text-red-400"
+                    className="text-red-400 min-h-[40px]"
                     disabled={deleteGroupMutation.isPending}
                     onClick={() => {
                       if (window.confirm('Delete this group?')) deleteGroupMutation.mutate();
                     }}
+                    aria-label="Delete group"
                   >
                     <Trash2 size={14} />
                   </Button>
@@ -438,6 +489,7 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
                   <Button
                     size="sm"
                     variant="outline"
+                    className="min-h-[40px]"
                     disabled={leaveMutation.isPending}
                     onClick={() => leaveMutation.mutate()}
                   >
@@ -448,68 +500,70 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
               </div>
             </div>
 
-            <div className="flex-1 max-h-52 overflow-y-auto space-y-2 mb-3">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
               {messages.length === 0 ? (
-                <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                <p className="text-sm text-center py-8" style={{ color: 'var(--sec-text-muted)' }}>
                   No messages yet.
                 </p>
               ) : (
-                messages.map((m) => (
-                  <MessageBubble
-                    key={m.id}
-                    message={m}
-                    onReply={setReplyingTo}
-                    className="text-sm p-2 rounded-lg"
-                    style={{
-                      background: m.isMine ? 'var(--sec-accent-muted)' : 'var(--sec-bg-elevated)',
-                      border: '1px solid var(--sec-border)',
-                    }}
-                  >
-                    <div className="flex justify-between gap-2">
-                      <span className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>
-                        {m.senderLabel || m.sender?.username || 'User'}
-                      </span>
-                      {m.isMine ? (
-                        <button
-                          type="button"
-                          className="text-xs text-red-400"
-                          onClick={() => deleteMessageMutation.mutate(m.id)}
+                messages.map((m) => {
+                  const own = !!m.isMine;
+                  return (
+                    <div
+                      key={m.id}
+                      className={`flex w-full min-w-0 ${own ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[min(80%,calc(100%-2rem))] min-w-0 flex flex-col ${
+                          own ? 'items-end' : 'items-start'
+                        }`}
+                      >
+                        {!own ? (
+                          <span className="text-[10px] mb-0.5" style={{ color: 'var(--sec-text-muted)' }}>
+                            {m.senderLabel || 'User'}
+                          </span>
+                        ) : null}
+                        <MessageBubble
+                          message={m}
+                          onReply={setReplyingTo}
+                          className={`rounded-2xl px-3 py-2 text-sm ${
+                            own
+                              ? 'bg-[var(--sec-accent)] text-black'
+                              : 'bg-[var(--sec-bg-elevated)]'
+                          }`}
                         >
-                          Delete
-                        </button>
-                      ) : null}
+                          <div className="whitespace-pre-wrap">{linkifyMessageBody(m.body, { isOwn: own })}</div>
+                          {own ? (
+                            <button
+                              type="button"
+                              className="text-[10px] mt-1 opacity-70 hover:opacity-100"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteMessageMutation.mutate(m.id);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </MessageBubble>
+                        <span className="text-[10px] mt-0.5" style={{ color: 'var(--sec-text-muted)' }}>
+                          {m.createdAt ? format(new Date(m.createdAt), 'HH:mm') : ''}
+                        </span>
+                      </div>
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap">{linkifyMessageBody(m.body)}</div>
-                  </MessageBubble>
-                ))
+                  );
+                })
               )}
+              <div ref={messagesEndRef} />
             </div>
 
-            <MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />
-            <div className="flex gap-2 mt-auto">
-              <input
-                type="text"
-                className="sec-input flex-1 min-h-[44px]"
-                value={messageBody}
-                onChange={(e) => setMessageBody(e.target.value)}
-                placeholder="Type a message…"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (messageBody.trim()) sendMutation.mutate(messageBody.trim());
-                  }
-                }}
-              />
-              <EmojiPickerButton
-                onSelect={(emoji) => setMessageBody((prev) => `${prev}${emoji}`)}
-              />
-              <Button
-                disabled={!messageBody.trim() || sendMutation.isPending}
-                onClick={() => sendMutation.mutate(messageBody.trim())}
-              >
-                Send
-              </Button>
-            </div>
+            <ChatComposer
+              value={messageBody}
+              onChange={setMessageBody}
+              onSend={handleSendMessage}
+              disabled={sendMutation.isPending}
+              replyPreview={<MessageReplyPreview replyingTo={replyingTo} onClear={clearReply} />}
+            />
           </>
         )}
       </div>

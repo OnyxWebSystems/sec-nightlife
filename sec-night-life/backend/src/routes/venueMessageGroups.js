@@ -131,7 +131,11 @@ router.patch('/:groupId', authenticateToken, async (req, res, next) => {
 
     const updated = await prisma.venueMessageGroup.update({
       where: { id: groupId },
-      data: { avatarUrl: parsed.data.avatarUrl ?? undefined },
+      data: {
+        ...(Object.prototype.hasOwnProperty.call(parsed.data, 'avatarUrl')
+          ? { avatarUrl: parsed.data.avatarUrl }
+          : {}),
+      },
     });
     res.json({ id: updated.id, avatarUrl: updated.avatarUrl });
   } catch (e) {
@@ -236,6 +240,8 @@ router.get('/:groupId', authenticateToken, async (req, res, next) => {
     res.json({
       id: group.id,
       name: group.name,
+      avatarUrl: group.avatarUrl || null,
+      memberCount: group.members.length,
       ownerUserId: access.venue.ownerUserId,
       isOwner,
       myRole: isOwner ? 'ADMIN' : access.membership?.role || null,
