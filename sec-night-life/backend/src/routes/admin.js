@@ -532,35 +532,32 @@ function aggregateLedgersForPayments(payments, ledgers) {
 
 router.get('/payments', async (req, res, next) => {
   try {
-    const { ensureEventTicketsForPayment } = await import('../lib/issueEventTickets.js');
-    const stuckPending = await prisma.payment.findMany({
-      where: { status: 'pending' },
-      take: 40,
-      orderBy: { createdAt: 'desc' },
-      select: { reference: true },
-    });
-    await Promise.all(
-      stuckPending.map((p) =>
-        ensureEventTicketsForPayment(p.reference, { status: 'success' }).catch(() => null),
-      ),
-    );
+    // Side-effect repairs (ticket ensure / ledger backfill) used to run on every Money-tab
+    // load and routinely exceeded Vercel serverless timeouts (~10–12s+). Keep this GET
+    // read-only and fast; repairs belong to cron (/api/cron/retry-payouts) or ?repair=1.
+    const { status, type, limit = 50, offset = 0, from, to, repair } = req.query;
+    const wantRepair = String(repair || '') === '1' || String(repair || '').toLowerCase() === 'true';
+    if (wantRepair) {
+      try {
+        const { ensureEventTicketsForPayment } = await import('../lib/issueEventTickets.js');
+        const stuckPending = await prisma.payment.findMany({
+          where: { status: 'pending' },
+          take: 15,
+          orderBy: { createdAt: 'desc' },
+          select: { reference: true },
+        });
+        await Promise.all(
+          stuckPending.map((p) =>
+            ensureEventTicketsForPayment(p.reference, { status: 'success' }).catch(() => null),
+          ),
+        );
+        const { repairMissingVenueTablePayouts } = await import('../lib/paystackPayout.js');
+        await repairMissingVenueTablePayouts({ sinceDays: 30, limit: 20 }).catch(() => null);
+      } catch (repairErr) {
+        logger.warn('admin payments optional repair failed', { err: String(repairErr?.message || repairErr) });
+      }
+    }
 
-    const incompleteTicketPayments = await prisma.payment.findMany({
-      where: { status: 'success', type: { in: ['ticket', 'event'] } },
-      take: 30,
-      orderBy: { createdAt: 'desc' },
-      select: { reference: true },
-    });
-    await Promise.all(
-      incompleteTicketPayments.map((p) =>
-        ensureEventTicketsForPayment(p.reference, { status: 'success' }).catch(() => null),
-      ),
-    );
-
-    const { repairMissingVenueTablePayouts } = await import('../lib/paystackPayout.js');
-    await repairMissingVenueTablePayouts({ sinceDays: 60, limit: 50 }).catch(() => null);
-
-    const { status, type, limit = 50, offset = 0, from, to } = req.query;
     const where = {};
     const rawStatus = status != null && String(status) !== '' ? String(status) : '';
     if (rawStatus === 'all') {
@@ -571,37 +568,29 @@ router.get('/payments', async (req, res, next) => {
       where.status = { in: ['success', 'failed', 'pending'] };
     }
     if (type) where.type = String(type);
-    if (from || to) {
-      where.createdAt = {};
-      if (from) where.createdAt.gte = new Date(String(from));
-      if (to) where.createdAt.lte = new Date(String(to));
+    const dateRange = parseCreatedAtRange(from, to);
+    if (dateRange) {
+      // Reject invalid dates so Prisma does not throw and blank the Money tab.
+      if (
+        (dateRange.gte && Number.isNaN(dateRange.gte.getTime())) ||
+        (dateRange.lte && Number.isNaN(dateRange.lte.getTime()))
+      ) {
+        return res.status(400).json({ error: 'Invalid from/to date' });
+      }
+      where.createdAt = dateRange;
     }
 
-    const payments = await prisma.payment.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: Math.min(parseInt(limit) || 50, 200),
-      skip: parseInt(offset) || 0,
-    });
-    const total = await prisma.payment.count({ where });
+    const take = Math.min(parseInt(limit) || 50, 200);
+    const skip = parseInt(offset) || 0;
 
-    const refs = payments.map((p) => p.reference);
-    const ledgers =
-      refs.length > 0
-        ? await prisma.payoutLedger.findMany({
-            where: {
-              OR: refs.flatMap((ref) => [
-                { paymentReference: ref },
-                { paymentReference: { startsWith: `${ref}:` } },
-              ]),
-            },
-          })
-        : [];
-
-    const enriched = aggregateLedgersForPayments(payments, ledgers);
-
-    const dateRange = parseCreatedAtRange(from, to);
-    const [revenue, totalsByStatus] = await Promise.all([
+    const [payments, total, revenue, totalsByStatus] = await Promise.all([
+      prisma.payment.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      prisma.payment.count({ where }),
       computeMoneyRevenue(dateRange),
       prisma.payment.groupBy({
         by: ['status'],
@@ -610,6 +599,24 @@ router.get('/payments', async (req, res, next) => {
         _count: true,
       }),
     ]);
+
+    const refs = payments.map((p) => p.reference).filter(Boolean);
+    let ledgers = [];
+    if (refs.length > 0) {
+      const refSet = new Set(refs);
+      // Avoid hundreds of startsWith OR clauses (slow / timeout-prone on serverless).
+      const candidates = await prisma.payoutLedger.findMany({
+        where: {
+          OR: [{ paymentReference: { in: refs } }, { paymentReference: { contains: ':' } }],
+        },
+      });
+      ledgers = candidates.filter((row) => {
+        const base = basePaymentReference(row.paymentReference);
+        return refSet.has(row.paymentReference) || refSet.has(base);
+      });
+    }
+
+    const enriched = aggregateLedgersForPayments(payments, ledgers);
 
     res.json({
       payments: enriched,
