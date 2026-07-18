@@ -2276,18 +2276,26 @@ router.post('/payout-recipient', authenticateToken, async (req, res, next) => {
       });
     }
 
-    // Retry stuck payouts now that a recipient exists (do not block setup on retry failures).
+    // Retry stuck payouts now that a recipient exists so admin pending stats / reminder
+    // lists update as soon as transfers leave PENDING (best-effort; setup still succeeds).
+    let payoutRetry = null;
     try {
       const { retryStuckPayouts } = await import('../lib/paystackPayout.js');
       if (d.holder_type === 'VENUE') {
-        await retryStuckPayouts({ limit: 40, recipientVenueId });
+        payoutRetry = await retryStuckPayouts({ limit: 100, recipientVenueId });
       } else {
-        await retryStuckPayouts({
-          limit: 40,
+        payoutRetry = await retryStuckPayouts({
+          limit: 100,
           recipientUserId: req.userId,
           includeOwnerVenueFallback: true,
         });
       }
+      logger.info('post-wallet-setup payout retry', {
+        holder_type: d.holder_type,
+        venueId: recipientVenueId,
+        userId: d.holder_type === 'USER' ? req.userId : undefined,
+        ...payoutRetry,
+      });
     } catch (retryErr) {
       logger.warn('post-wallet-setup payout retry failed', { err: retryErr?.message });
     }
@@ -2327,6 +2335,7 @@ router.post('/payout-recipient', authenticateToken, async (req, res, next) => {
       // Never expose full bank account numbers to the client after save.
       details: null,
       wallet_set: true,
+      payout_retry: payoutRetry,
     });
   } catch (err) {
     next(err);

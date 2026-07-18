@@ -415,10 +415,14 @@ export async function retryStuckPayouts({
         select: { id: true },
       });
       const venueIds = ownedVenues.map((v) => v.id);
-      where.OR = [
-        { recipientUserId: userId },
-        ...(venueIds.length ? [{ recipientVenueId: { in: venueIds } }] : []),
-      ];
+      if (venueIds.length) {
+        where.OR = [
+          { recipientUserId: userId },
+          { recipientVenueId: { in: venueIds } },
+        ];
+      } else {
+        where.recipientUserId = userId;
+      }
     } else {
       where.recipientUserId = userId;
     }

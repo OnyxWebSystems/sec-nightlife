@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
-import { Mail } from 'lucide-react';
+import { Mail, RefreshCw } from 'lucide-react';
 import AdminEmptyState from './AdminEmptyState';
 
 function buildMonthOptions(monthsBack = 24) {
@@ -63,6 +63,22 @@ export default function AdminPaymentsPanel() {
     loadPayments();
   }, [loadPayments]);
 
+  // When an admin returns to this tab after a user/venue sets their wallet, refresh stats.
+  useEffect(() => {
+    const onFocus = () => {
+      loadPayments();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') onFocus();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [loadPayments]);
+
   const paymentBuckets = useMemo(() => {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -94,10 +110,14 @@ export default function AdminPaymentsPanel() {
     return buckets;
   }, [payments]);
 
-  const missingWalletRecipients = useMemo(
-    () => (paymentRevenue?.pendingRecipients || []).filter((r) => !r.hasPayoutSetup && Number(r.pendingZar) > 0),
-    [paymentRevenue],
-  );
+  const missingWalletRecipients = useMemo(() => {
+    if (Array.isArray(paymentRevenue?.missingWalletRecipients)) {
+      return paymentRevenue.missingWalletRecipients.filter((r) => Number(r.pendingZar) > 0);
+    }
+    return (paymentRevenue?.pendingRecipients || []).filter(
+      (r) => !r.hasPayoutSetup && Number(r.pendingZar) > 0,
+    );
+  }, [paymentRevenue]);
 
   const recipientKey = (r) =>
     r.recipientType === 'VENUE' ? `VENUE:${r.venueId}` : `USER:${r.userId}`;
@@ -145,9 +165,20 @@ export default function AdminPaymentsPanel() {
             ))}
           </select>
         </label>
-        {loading ? (
-          <span className="text-xs text-[var(--sec-text-muted)]">Updating…</span>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {loading ? (
+            <span className="text-xs text-[var(--sec-text-muted)]">Updating…</span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => loadPayments()}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#262629] text-xs text-[var(--sec-text-secondary)] hover:bg-[#1a1a1c] disabled:opacity-50 min-h-[44px]"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
@@ -172,6 +203,14 @@ export default function AdminPaymentsPanel() {
               {paymentRevenue.pendingTransfersCount === 1 ? '' : 's'}
             </p>
           ) : null}
+          {Number(paymentRevenue?.pendingBlockedByMissingWalletZar || 0) > 0 ? (
+            <p className="text-[10px] text-amber-400/90 mt-1">
+              R{Number(paymentRevenue.pendingBlockedByMissingWalletZar).toLocaleString()} blocked — wallet
+              not set
+            </p>
+          ) : (
+            <p className="text-[10px] text-[var(--sec-text-muted)] mt-1">No payouts blocked by missing wallet</p>
+          )}
         </div>
       </div>
 

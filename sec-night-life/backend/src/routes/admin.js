@@ -37,13 +37,57 @@ function parseCreatedAtRange(from, to) {
 
 /** Align with transfer resolution: usable Paystack recipient code is what matters. */
 function userHasPayoutSetup(user) {
-  return Boolean(user?.paystackRecipientCode);
+  return Boolean(user?.paystackRecipientCode && String(user.paystackRecipientCode).trim());
 }
 
 /** Venue code, or owner fallback (same as resolveRecipientCodeForVenue). */
 function venueHasPayoutSetup(venue) {
-  if (venue?.paystackRecipientCode) return true;
-  return Boolean(venue?.owner?.paystackRecipientCode);
+  if (venue?.paystackRecipientCode && String(venue.paystackRecipientCode).trim()) return true;
+  return Boolean(venue?.owner?.paystackRecipientCode && String(venue.owner.paystackRecipientCode).trim());
+}
+
+/**
+ * Fresh setup flags from DB (not only join payload on ledger rows).
+ * Ensures Money tab drops reminder rows as soon as a wallet is saved.
+ */
+async function loadPayoutSetupMaps(userIds, venueIds) {
+  const uniqueUserIds = [...new Set((userIds || []).filter(Boolean))];
+  const uniqueVenueIds = [...new Set((venueIds || []).filter(Boolean))];
+  const [users, venues] = await Promise.all([
+    uniqueUserIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: uniqueUserIds } },
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            paystackRecipientCode: true,
+          },
+        })
+      : [],
+    uniqueVenueIds.length
+      ? prisma.venue.findMany({
+          where: { id: { in: uniqueVenueIds }, deletedAt: null },
+          select: {
+            id: true,
+            name: true,
+            paystackRecipientCode: true,
+            ownerUserId: true,
+            owner: {
+              select: {
+                id: true,
+                email: true,
+                fullName: true,
+                paystackRecipientCode: true,
+              },
+            },
+          },
+        })
+      : [],
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const venueById = new Map(venues.map((v) => [v.id, v]));
+  return { userById, venueById };
 }
 
 /**
@@ -90,7 +134,6 @@ async function computeMoneyRevenue(dateRange) {
             email: true,
             fullName: true,
             paystackRecipientCode: true,
-            userProfile: { select: { paymentSetupComplete: true } },
           },
         },
         recipientVenue: {
@@ -126,9 +169,10 @@ async function computeMoneyRevenue(dateRange) {
         email: row.recipientUser?.email || null,
         notifyUserId: row.recipientUserId,
         pendingZar: 0,
-        hasPayoutSetup: userHasPayoutSetup(row.recipientUser),
       };
       existing.pendingZar += amount;
+      if (row.recipientUser?.fullName) existing.name = row.recipientUser.fullName;
+      if (row.recipientUser?.email) existing.email = row.recipientUser.email;
       byKey.set(key, existing);
     } else if (row.recipientType === 'VENUE' && row.recipientVenueId) {
       const key = `VENUE:${row.recipientVenueId}`;
@@ -141,16 +185,58 @@ async function computeMoneyRevenue(dateRange) {
         email: venue?.owner?.email || null,
         notifyUserId: venue?.ownerUserId || venue?.owner?.id || null,
         pendingZar: 0,
-        hasPayoutSetup: venueHasPayoutSetup(venue),
       };
       existing.pendingZar += amount;
+      if (venue?.name) existing.name = venue.name;
+      if (venue?.owner?.email) existing.email = venue.owner.email;
+      if (venue?.ownerUserId) {
+        existing.userId = venue.ownerUserId;
+        existing.notifyUserId = venue.ownerUserId;
+      }
       byKey.set(key, existing);
     }
   }
 
-  const pendingRecipients = [...byKey.values()]
-    .map((r) => ({ ...r, pendingZar: Math.round(r.pendingZar * 100) / 100 }))
+  const grouped = [...byKey.values()];
+  const { userById, venueById } = await loadPayoutSetupMaps(
+    grouped.map((r) => (r.recipientType === 'USER' ? r.userId : r.notifyUserId)),
+    grouped.filter((r) => r.recipientType === 'VENUE').map((r) => r.venueId),
+  );
+
+  const pendingRecipients = grouped
+    .map((r) => {
+      let hasPayoutSetup = false;
+      if (r.recipientType === 'USER' && r.userId) {
+        const user = userById.get(r.userId);
+        hasPayoutSetup = userHasPayoutSetup(user);
+        if (user?.fullName) r.name = user.fullName;
+        if (user?.email) r.email = user.email;
+      } else if (r.recipientType === 'VENUE' && r.venueId) {
+        const venue = venueById.get(r.venueId);
+        hasPayoutSetup = venueHasPayoutSetup(venue);
+        if (venue?.name) r.name = venue.name;
+        if (venue?.owner?.email) r.email = venue.owner.email;
+        if (venue?.ownerUserId) {
+          r.userId = venue.ownerUserId;
+          r.notifyUserId = venue.ownerUserId;
+        }
+      }
+      return {
+        ...r,
+        pendingZar: Math.round(r.pendingZar * 100) / 100,
+        hasPayoutSetup,
+      };
+    })
     .sort((a, b) => b.pendingZar - a.pendingZar);
+
+  // Reminder list: only recipients who still have no usable Sec Wallet payout destination.
+  const missingWalletRecipients = pendingRecipients.filter(
+    (r) => !r.hasPayoutSetup && Number(r.pendingZar) > 0,
+  );
+  const pendingBlockedByMissingWalletZar = missingWalletRecipients.reduce(
+    (sum, r) => sum + Number(r.pendingZar || 0),
+    0,
+  );
 
   const pendingTransfersZar = pendingAgg._sum?.recipientAmount ?? 0;
   const pendingTransfersCount = pendingAgg._count ?? 0;
@@ -161,9 +247,13 @@ async function computeMoneyRevenue(dateRange) {
     totalRecipientShareZar: ledgerAgg._sum?.recipientAmount ?? 0,
     pendingTransfersZar,
     pendingTransfersCount,
+    pendingBlockedByMissingWalletZar: Math.round(pendingBlockedByMissingWalletZar * 100) / 100,
     /** @deprecated use pendingTransfersZar — kept for older clients */
     pendingTransfers: pendingTransfersZar,
+    /** All pending recipients (includes those with wallet already set). */
     pendingRecipients,
+    /** Only recipients who still need a Sec Wallet reminder. */
+    missingWalletRecipients,
     paymentCount: grossAgg._count ?? 0,
   };
 }
