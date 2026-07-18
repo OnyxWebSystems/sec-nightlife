@@ -10,7 +10,7 @@ import { requireAdmin } from '../middleware/rbac.js';
 import { auditFromReq } from '../lib/audit.js';
 import { privateDownloadUrl, signCloudinaryUrl } from '../lib/cloudinarySignedUrl.js';
 import { createInAppNotification, notifyAllUsersPlatformAnnouncement } from '../lib/inAppNotifications.js';
-import { sendIdVerificationApprovedEmail } from '../lib/email.js';
+import { sendEmail, sendIdVerificationApprovedEmail } from '../lib/email.js';
 import { requireSuperAdmin } from '../middleware/complianceReviewer.js';
 import { getPromotersLeaderboard } from '../lib/leaderboard.js';
 import { logger } from '../lib/logger.js';
@@ -18,8 +18,154 @@ import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.
 
 const router = Router();
 
+const PENDING_TRANSFER_STATUSES = ['PENDING', 'PROCESSING', 'FAILED', 'SKIPPED_NO_RECIPIENT'];
+/** In-memory rate limit for wallet-setup reminders: key → last sent ms */
+const walletRemindLastSent = new Map();
+const WALLET_REMIND_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
+}
+
+function parseCreatedAtRange(from, to) {
+  if (!from && !to) return undefined;
+  const createdAt = {};
+  if (from) createdAt.gte = new Date(String(from));
+  if (to) createdAt.lte = new Date(String(to));
+  return createdAt;
+}
+
+/** Align with transfer resolution: usable Paystack recipient code is what matters. */
+function userHasPayoutSetup(user) {
+  return Boolean(user?.paystackRecipientCode);
+}
+
+/** Venue code, or owner fallback (same as resolveRecipientCodeForVenue). */
+function venueHasPayoutSetup(venue) {
+  if (venue?.paystackRecipientCode) return true;
+  return Boolean(venue?.owner?.paystackRecipientCode);
+}
+
+/**
+ * Money-tab revenue: gross from successful payments; SEC from ledger (excl. refunded);
+ * pending = recipient share still owed to USER/VENUE.
+ */
+async function computeMoneyRevenue(dateRange) {
+  const paymentWhere = { status: 'success' };
+  if (dateRange) paymentWhere.createdAt = dateRange;
+
+  const secWhere = {
+    status: { not: 'REFUNDED_MANUAL' },
+  };
+  if (dateRange) secWhere.createdAt = dateRange;
+
+  const pendingWhere = {
+    status: { in: PENDING_TRANSFER_STATUSES },
+    recipientType: { in: ['USER', 'VENUE'] },
+    recipientAmount: { gt: 0 },
+  };
+  if (dateRange) pendingWhere.createdAt = dateRange;
+
+  const [grossAgg, ledgerAgg, pendingAgg, pendingRows] = await Promise.all([
+    prisma.payment.aggregate({ where: paymentWhere, _sum: { amount: true }, _count: true }),
+    prisma.payoutLedger.aggregate({
+      where: secWhere,
+      _sum: { grossAmount: true, secAmount: true, recipientAmount: true },
+    }),
+    prisma.payoutLedger.aggregate({
+      where: pendingWhere,
+      _sum: { recipientAmount: true },
+      _count: true,
+    }),
+    prisma.payoutLedger.findMany({
+      where: pendingWhere,
+      select: {
+        recipientAmount: true,
+        recipientType: true,
+        recipientUserId: true,
+        recipientVenueId: true,
+        recipientUser: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            paystackRecipientCode: true,
+            userProfile: { select: { paymentSetupComplete: true } },
+          },
+        },
+        recipientVenue: {
+          select: {
+            id: true,
+            name: true,
+            paystackRecipientCode: true,
+            ownerUserId: true,
+            owner: {
+              select: {
+                id: true,
+                email: true,
+                fullName: true,
+                paystackRecipientCode: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const byKey = new Map();
+  for (const row of pendingRows) {
+    const amount = Number(row.recipientAmount) || 0;
+    if (row.recipientType === 'USER' && row.recipientUserId) {
+      const key = `USER:${row.recipientUserId}`;
+      const existing = byKey.get(key) || {
+        recipientType: 'USER',
+        userId: row.recipientUserId,
+        venueId: null,
+        name: row.recipientUser?.fullName || 'User',
+        email: row.recipientUser?.email || null,
+        notifyUserId: row.recipientUserId,
+        pendingZar: 0,
+        hasPayoutSetup: userHasPayoutSetup(row.recipientUser),
+      };
+      existing.pendingZar += amount;
+      byKey.set(key, existing);
+    } else if (row.recipientType === 'VENUE' && row.recipientVenueId) {
+      const key = `VENUE:${row.recipientVenueId}`;
+      const venue = row.recipientVenue;
+      const existing = byKey.get(key) || {
+        recipientType: 'VENUE',
+        userId: venue?.ownerUserId || null,
+        venueId: row.recipientVenueId,
+        name: venue?.name || 'Venue',
+        email: venue?.owner?.email || null,
+        notifyUserId: venue?.ownerUserId || venue?.owner?.id || null,
+        pendingZar: 0,
+        hasPayoutSetup: venueHasPayoutSetup(venue),
+      };
+      existing.pendingZar += amount;
+      byKey.set(key, existing);
+    }
+  }
+
+  const pendingRecipients = [...byKey.values()]
+    .map((r) => ({ ...r, pendingZar: Math.round(r.pendingZar * 100) / 100 }))
+    .sort((a, b) => b.pendingZar - a.pendingZar);
+
+  const pendingTransfersZar = pendingAgg._sum?.recipientAmount ?? 0;
+  const pendingTransfersCount = pendingAgg._count ?? 0;
+
+  return {
+    totalGrossZar: grossAgg._sum?.amount ?? 0,
+    totalSecRevenueZar: ledgerAgg._sum?.secAmount ?? 0,
+    totalRecipientShareZar: ledgerAgg._sum?.recipientAmount ?? 0,
+    pendingTransfersZar,
+    pendingTransfersCount,
+    /** @deprecated use pendingTransfersZar — kept for older clients */
+    pendingTransfers: pendingTransfersZar,
+    pendingRecipients,
+    paymentCount: grossAgg._count ?? 0,
+  };
 }
 
 // All admin routes require authentication + admin role
@@ -358,13 +504,15 @@ function aggregateLedgersForPayments(payments, ledgers) {
   return payments.map((p) => {
     const agg = byBase.get(p.reference);
     const statuses = agg?.statuses || [];
-    const pendingStatuses = new Set(['PENDING', 'FAILED', 'SKIPPED_NO_RECIPIENT']);
+    const pendingStatuses = new Set(['PENDING', 'FAILED', 'SKIPPED_NO_RECIPIENT', 'PROCESSING']);
     let transferStatus = null;
     if (statuses.length) {
       if (statuses.every((s) => s === 'COMPLETED' || s === 'TRANSFERRED' || s === 'SKIPPED_NO_RECIPIENT')) {
         transferStatus = statuses.some((s) => s === 'COMPLETED' || s === 'TRANSFERRED') ? 'COMPLETED' : 'SKIPPED';
+      } else if (statuses.every((s) => s === 'PROCESSING')) {
+        transferStatus = 'PROCESSING';
       } else if (statuses.some((s) => pendingStatuses.has(s))) {
-        transferStatus = 'PENDING';
+        transferStatus = statuses.some((s) => s === 'PROCESSING') ? 'PROCESSING' : 'PENDING';
       } else {
         transferStatus = 'MIXED';
       }
@@ -452,33 +600,22 @@ router.get('/payments', async (req, res, next) => {
 
     const enriched = aggregateLedgersForPayments(payments, ledgers);
 
-    const successWhere = { ...where, status: 'success' };
-    const [grossAgg, ledgerAgg, pendingTransfers] = await Promise.all([
-      prisma.payment.aggregate({ where: successWhere, _sum: { amount: true }, _count: true }),
-      prisma.payoutLedger.aggregate({
-        _sum: { grossAmount: true, secAmount: true, recipientAmount: true },
+    const dateRange = parseCreatedAtRange(from, to);
+    const [revenue, totalsByStatus] = await Promise.all([
+      computeMoneyRevenue(dateRange),
+      prisma.payment.groupBy({
+        by: ['status'],
+        where,
+        _sum: { amount: true },
+        _count: true,
       }),
-      prisma.payoutLedger.count({ where: { status: { in: ['PENDING', 'FAILED'] } } }),
     ]);
-
-    const totalsByStatus = await prisma.payment.groupBy({
-      by: ['status'],
-      where,
-      _sum: { amount: true },
-      _count: true,
-    });
 
     res.json({
       payments: enriched,
       total,
       summary: totalsByStatus,
-      revenue: {
-        totalGrossZar: grossAgg._sum?.amount ?? 0,
-        totalSecRevenueZar: ledgerAgg._sum?.secAmount ?? 0,
-        totalRecipientShareZar: ledgerAgg._sum?.recipientAmount ?? 0,
-        pendingTransfers,
-        paymentCount: grossAgg._count ?? 0,
-      },
+      revenue,
     });
   } catch (err) {
     next(err);
@@ -520,6 +657,170 @@ router.get('/payouts', async (req, res, next) => {
         totalRecipientShareZar: agg._sum?.recipientAmount ?? 0,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const remindWalletSchema = z.object({
+  recipientType: z.enum(['USER', 'VENUE']),
+  userId: z.string().min(1).optional().nullable(),
+  venueId: z.string().min(1).optional().nullable(),
+});
+
+router.post('/payouts/remind-wallet-setup', async (req, res, next) => {
+  try {
+    const parsed = remindWalletSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    }
+    const { recipientType, userId, venueId } = parsed.data;
+
+    let notifyUserId = null;
+    let email = null;
+    let displayName = 'there';
+    let helpAudience = 'partygoer';
+    let setupPath = '/Profile?tab=wallet';
+    let rateKey = null;
+
+    if (recipientType === 'USER') {
+      if (!userId) return res.status(400).json({ error: 'userId is required for USER reminders' });
+      const user = await prisma.user.findFirst({
+        where: { id: String(userId), deletedAt: null },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          paystackRecipientCode: true,
+        },
+      });
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      if (userHasPayoutSetup(user)) {
+        return res.status(400).json({ error: 'User already has Sec Wallet payout setup' });
+      }
+      const owed = await prisma.payoutLedger.aggregate({
+        where: {
+          recipientUserId: user.id,
+          recipientType: 'USER',
+          recipientAmount: { gt: 0 },
+          status: { in: PENDING_TRANSFER_STATUSES },
+        },
+        _sum: { recipientAmount: true },
+      });
+      if (!(Number(owed._sum?.recipientAmount) > 0)) {
+        return res.status(400).json({ error: 'User has no pending payouts to remind about' });
+      }
+      notifyUserId = user.id;
+      email = user.email;
+      displayName = user.fullName || 'there';
+      helpAudience = 'partygoer';
+      setupPath = '/Profile?tab=wallet';
+      rateKey = `USER:${user.id}`;
+    } else {
+      if (!venueId) return res.status(400).json({ error: 'venueId is required for VENUE reminders' });
+      const venue = await prisma.venue.findFirst({
+        where: { id: String(venueId), deletedAt: null },
+        select: {
+          id: true,
+          name: true,
+          paystackRecipientCode: true,
+          ownerUserId: true,
+          owner: {
+            select: {
+              id: true,
+              email: true,
+              fullName: true,
+              paystackRecipientCode: true,
+            },
+          },
+        },
+      });
+      if (!venue) return res.status(404).json({ error: 'Venue not found' });
+      if (venueHasPayoutSetup(venue)) {
+        return res.status(400).json({ error: 'Venue already has Sec Wallet payout setup' });
+      }
+      if (!venue.ownerUserId) return res.status(400).json({ error: 'Venue has no owner to notify' });
+      const owed = await prisma.payoutLedger.aggregate({
+        where: {
+          recipientVenueId: venue.id,
+          recipientType: 'VENUE',
+          recipientAmount: { gt: 0 },
+          status: { in: PENDING_TRANSFER_STATUSES },
+        },
+        _sum: { recipientAmount: true },
+      });
+      if (!(Number(owed._sum?.recipientAmount) > 0)) {
+        return res.status(400).json({ error: 'Venue has no pending payouts to remind about' });
+      }
+      notifyUserId = venue.ownerUserId;
+      email = venue.owner?.email || null;
+      displayName = venue.owner?.fullName || venue.name || 'there';
+      helpAudience = 'venue';
+      setupPath = '/BusinessDashboard';
+      rateKey = `VENUE:${venue.id}`;
+    }
+
+    const lastSent = walletRemindLastSent.get(rateKey) || 0;
+    if (Date.now() - lastSent < WALLET_REMIND_COOLDOWN_MS) {
+      return res.status(429).json({
+        error: 'A reminder was already sent in the last 24 hours for this recipient',
+        code: 'REMIND_COOLDOWN',
+      });
+    }
+
+    const appBase = (process.env.APP_URL || 'https://secnightlife.com').replace(/\/+$/, '');
+    const helpPath = `/HelpArticle?id=payouts&audience=${helpAudience}`;
+    const helpUrl = `${appBase}${helpPath}`;
+    const setupUrl = `${appBase}${setupPath}`;
+    const title = 'Set up your Sec Wallet to receive payouts';
+    const body =
+      recipientType === 'VENUE'
+        ? `Hi ${displayName}, you have pending SEC payouts waiting. Set up your venue Sec Wallet so funds can transfer automatically to your bank account. Guide: ${helpUrl}`
+        : `Hi ${displayName}, you have pending SEC payouts waiting. Set up your Sec Wallet so funds can transfer automatically to your bank account. Guide: ${helpUrl}`;
+
+    const notif = await createInAppNotification({
+      userId: notifyUserId,
+      venueId: recipientType === 'VENUE' ? venueId : undefined,
+      type: 'WALLET_SETUP_REMINDER',
+      title,
+      body: 'You have pending payouts. Set up your Sec Wallet so we can transfer funds to your bank account automatically.',
+      referenceId: helpPath,
+      referenceType: 'ROUTE',
+    });
+
+    let emailed = false;
+    if (email) {
+      try {
+        await sendEmail({
+          to: email,
+          subject: title,
+          text: `${body}\n\nSet up now: ${setupUrl}\nHow it works: ${helpUrl}`,
+          html: `<p>Hi ${displayName},</p>
+<p>You have pending SEC payouts waiting because your Sec Wallet bank details are not set up yet.</p>
+<p>Once you add your payout details, eligible earnings transfer automatically to your bank account.</p>
+<p><a href="${setupUrl}" style="color:#D4AF37;font-weight:600;">Set up Sec Wallet</a></p>
+<p><a href="${helpUrl}" style="color:#D4AF37;font-weight:600;">How to set up your Sec Wallet &amp; automatic transfers</a></p>`,
+        });
+        emailed = true;
+      } catch (err) {
+        logger.warn('wallet setup remind email failed', { email, err: err?.message });
+      }
+    }
+
+    if (!notif && !emailed) {
+      return res.status(502).json({ error: 'Could not deliver reminder via email or in-app notification' });
+    }
+
+    walletRemindLastSent.set(rateKey, Date.now());
+    await auditFromReq(req, {
+      userId: req.userId,
+      action: 'WALLET_SETUP_REMINDER',
+      entityType: recipientType === 'VENUE' ? 'venue' : 'user',
+      entityId: recipientType === 'VENUE' ? venueId : userId,
+      metadata: { notifyUserId, email: email || null, emailed, inApp: Boolean(notif) },
+    }).catch(() => {});
+
+    res.json({ success: true, notifiedUserId: notifyUserId, emailed, inApp: Boolean(notif) });
   } catch (err) {
     next(err);
   }
@@ -981,23 +1282,17 @@ router.get('/dashboard', async (req, res, next) => {
         fallback: 0,
       },
       {
-        name: 'paymentsAggregate',
-        run: () =>
-          prisma.payment.aggregate({ where: { status: 'success' }, _sum: { amount: true }, _count: true }),
-        fallback: { _sum: { amount: null }, _count: 0 },
-      },
-      {
-        name: 'ledgerAggregate',
-        run: () =>
-          prisma.payoutLedger.aggregate({
-            _sum: { grossAmount: true, secAmount: true, recipientAmount: true },
-          }),
-        fallback: { _sum: { grossAmount: null, secAmount: null, recipientAmount: null } },
-      },
-      {
-        name: 'pendingTransfers',
-        run: () => prisma.payoutLedger.count({ where: { status: { in: ['PENDING', 'FAILED'] } } }),
-        fallback: 0,
+        name: 'moneyRevenue',
+        run: () => computeMoneyRevenue(undefined),
+        fallback: {
+          totalGrossZar: 0,
+          totalSecRevenueZar: 0,
+          totalRecipientShareZar: 0,
+          pendingTransfersZar: 0,
+          pendingTransfersCount: 0,
+          pendingTransfers: 0,
+          paymentCount: 0,
+        },
       },
       {
         name: 'recentAuditLogs',
@@ -1030,9 +1325,7 @@ router.get('/dashboard', async (req, res, next) => {
       totalVenues,
       pendingVenues,
       pendingUserVerifications,
-      totalPaymentsSuccess,
-      ledgerAggregate,
-      pendingTransfers,
+      moneyRevenue,
       recentAuditLogs,
     ] = values;
 
@@ -1046,12 +1339,14 @@ router.get('/dashboard', async (req, res, next) => {
         criticalReports,
         highReports,
         pendingUserVerifications,
-        totalPaymentAmount: totalPaymentsSuccess._sum?.amount ?? 0,
-        totalPaymentCount: totalPaymentsSuccess._count ?? 0,
-        totalGrossZar: totalPaymentsSuccess._sum?.amount ?? 0,
-        totalSecRevenueZar: ledgerAggregate._sum?.secAmount ?? 0,
-        totalRecipientShareZar: ledgerAggregate._sum?.recipientAmount ?? 0,
-        pendingTransfers,
+        totalPaymentAmount: moneyRevenue.totalGrossZar ?? 0,
+        totalPaymentCount: moneyRevenue.paymentCount ?? 0,
+        totalGrossZar: moneyRevenue.totalGrossZar ?? 0,
+        totalSecRevenueZar: moneyRevenue.totalSecRevenueZar ?? 0,
+        totalRecipientShareZar: moneyRevenue.totalRecipientShareZar ?? 0,
+        pendingTransfersZar: moneyRevenue.pendingTransfersZar ?? 0,
+        pendingTransfersCount: moneyRevenue.pendingTransfersCount ?? 0,
+        pendingTransfers: moneyRevenue.pendingTransfersZar ?? 0,
       },
       recentActivity: recentAuditLogs,
     });

@@ -49,7 +49,7 @@ export default function AdminOverviewPanel({ onTabChange }) {
         <AdminStatCard
           icon={Building2}
           iconClassName="text-emerald-400"
-          value={s.pendingTransfers ?? 0}
+          value={`R${Number(s.pendingTransfersZar ?? s.pendingTransfers ?? 0).toLocaleString()}`}
           label="Pending transfers"
         />
         <AdminStatCard

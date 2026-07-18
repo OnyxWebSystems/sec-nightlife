@@ -90,6 +90,14 @@ export const HELP_FAQS = [
     articleId: 'custom-tables-partygoer',
   },
   {
+    id: 'faq-pg-wallet-setup',
+    audience: 'partygoer',
+    question: 'How do I set up my Sec Wallet for payouts?',
+    answer:
+      'Open Profile → Wallet, enter your bank details, and save. You will see “Sec wallet set” with a tick — account numbers are not shown again. Once set, eligible earnings transfer automatically. Tap Update Sec wallet to replace your payout details.',
+    articleId: 'payouts',
+  },
+  {
     id: 'faq-pg-vendor',
     audience: 'partygoer',
     question: 'How do I become a vendor?',
@@ -159,7 +167,15 @@ export const HELP_FAQS = [
     audience: 'venue',
     question: 'Why is a payout pending?',
     answer:
-      'Usually payout recipient details are missing or invalid on Venue Sec Wallet. Complete Paystack recipient setup to release transfers.',
+      'Usually Sec Wallet bank details are missing on Business Dashboard → Sec Wallet. Once set, eligible venue shares transfer automatically to your bank.',
+    articleId: 'payouts',
+  },
+  {
+    id: 'faq-vn-wallet-setup',
+    audience: 'venue',
+    question: 'How do I set up the venue Sec Wallet?',
+    answer:
+      'Open Business Dashboard → Sec Wallet, enter account name, account number, and bank code, then save. You will see “Venue Sec wallet set” — bank numbers are not shown again. Updating replaces the old payout destination.',
     articleId: 'payouts',
   },
   {

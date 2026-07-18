@@ -387,14 +387,45 @@ export async function markPayoutsRefundedManual(paymentReference) {
 
 /**
  * Cron/admin: retry PENDING/FAILED payouts that now have recipient codes.
+ * Optional filters scope retries after a user/venue sets up their Sec Wallet.
  */
-export async function retryStuckPayouts({ limit = 50 } = {}) {
+export async function retryStuckPayouts({
+  limit = 50,
+  recipientUserId = null,
+  recipientVenueId = null,
+  includeOwnerVenueFallback = false,
+} = {}) {
+  const where = {
+    status: { in: ['PENDING', 'FAILED'] },
+    recipientType: { in: ['USER', 'VENUE'] },
+    recipientAmount: { gt: 0 },
+  };
+
+  if (recipientVenueId) {
+    where.recipientVenueId = String(recipientVenueId);
+  } else if (recipientUserId) {
+    const userId = String(recipientUserId);
+    if (includeOwnerVenueFallback) {
+      const ownedVenues = await prisma.venue.findMany({
+        where: {
+          ownerUserId: userId,
+          deletedAt: null,
+          OR: [{ paystackRecipientCode: null }, { paystackRecipientCode: '' }],
+        },
+        select: { id: true },
+      });
+      const venueIds = ownedVenues.map((v) => v.id);
+      where.OR = [
+        { recipientUserId: userId },
+        ...(venueIds.length ? [{ recipientVenueId: { in: venueIds } }] : []),
+      ];
+    } else {
+      where.recipientUserId = userId;
+    }
+  }
+
   const rows = await prisma.payoutLedger.findMany({
-    where: {
-      status: { in: ['PENDING', 'FAILED'] },
-      recipientType: { in: ['USER', 'VENUE'] },
-      recipientAmount: { gt: 0 },
-    },
+    where,
     orderBy: { createdAt: 'asc' },
     take: Math.min(limit, 100),
   });

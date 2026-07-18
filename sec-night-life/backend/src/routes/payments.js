@@ -15,6 +15,7 @@ import { recordTableHistory, recordVenueHostParticipation, hostParticipationOccu
 import { upsertConfirmedAttendance } from '../lib/eventAttendance.js';
 import { sendEmail } from '../lib/email.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { logger } from '../lib/logger.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { expectedTotalFromMetadata } from '../lib/checkoutLines.js';
 import {
@@ -2222,28 +2223,37 @@ router.post('/payout-recipient', authenticateToken, async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
     const d = parsed.data;
 
-    let recipientUserId = req.userId;
     let recipientVenueId = null;
+    let previousRecipientCode = null;
     if (d.holder_type === 'VENUE') {
       if (!d.venue_id) return res.status(400).json({ error: 'venue_id is required for venue payout setup' });
       const venue = await prisma.venue.findFirst({
         where: { id: String(d.venue_id), deletedAt: null },
-        select: { id: true, ownerUserId: true },
+        select: { id: true, ownerUserId: true, paystackRecipientCode: true },
       });
       if (!venue) return res.status(404).json({ error: 'Venue not found' });
       if (venue.ownerUserId !== req.userId) return res.status(403).json({ error: 'Not authorized for this venue' });
       recipientVenueId = venue.id;
-      recipientUserId = null;
+      previousRecipientCode = venue.paystackRecipientCode || null;
+    } else {
+      const user = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { paystackRecipientCode: true },
+      });
+      previousRecipientCode = user?.paystackRecipientCode || null;
     }
 
+    // South Africa (ZAR) uses BASA recipients; nuban is Nigeria/NGN only.
+    const currency = String(d.currency || 'ZAR').toUpperCase();
+    const paystackRecipientType = currency === 'ZAR' ? 'basa' : 'nuban';
     const recipientResp = await paystackFetch('/transferrecipient', {
       method: 'POST',
       body: {
-        type: 'nuban',
+        type: paystackRecipientType,
         name: d.account_name,
         account_number: d.account_number,
         bank_code: d.bank_code,
-        currency: d.currency || 'ZAR',
+        currency,
       },
     });
     const recipientCode = recipientResp?.data?.recipient_code;
@@ -2266,12 +2276,57 @@ router.post('/payout-recipient', authenticateToken, async (req, res, next) => {
       });
     }
 
+    // Retry stuck payouts now that a recipient exists (do not block setup on retry failures).
+    try {
+      const { retryStuckPayouts } = await import('../lib/paystackPayout.js');
+      if (d.holder_type === 'VENUE') {
+        await retryStuckPayouts({ limit: 40, recipientVenueId });
+      } else {
+        await retryStuckPayouts({
+          limit: 40,
+          recipientUserId: req.userId,
+          includeOwnerVenueFallback: true,
+        });
+      }
+    } catch (retryErr) {
+      logger.warn('post-wallet-setup payout retry failed', { err: retryErr?.message });
+    }
+
+    // Deactivate previous recipient only when no in-flight transfers for this holder.
+    if (previousRecipientCode && previousRecipientCode !== recipientCode) {
+      const processingWhere =
+        d.holder_type === 'VENUE'
+          ? { recipientVenueId, status: 'PROCESSING' }
+          : { recipientUserId: req.userId, status: 'PROCESSING' };
+      const inFlight = await prisma.payoutLedger.count({ where: processingWhere });
+      if (inFlight === 0) {
+        try {
+          await paystackFetch(`/transferrecipient/${encodeURIComponent(previousRecipientCode)}`, {
+            method: 'DELETE',
+          });
+        } catch (delErr) {
+          // Ignore not-found / already-deleted; do not fail the new setup.
+          logger.warn('paystack transfer recipient delete failed', {
+            code: previousRecipientCode,
+            err: delErr?.message,
+          });
+        }
+      } else {
+        logger.info('skipped deleting previous paystack recipient while transfers PROCESSING', {
+          code: previousRecipientCode,
+          inFlight,
+        });
+      }
+    }
+
     return res.json({
       success: true,
       holder_type: d.holder_type,
       recipient_code: recipientCode,
       recipient_name: recipientResp?.data?.name || d.account_name,
-      details: recipientResp?.data?.details || null,
+      // Never expose full bank account numbers to the client after save.
+      details: null,
+      wallet_set: true,
     });
   } catch (err) {
     next(err);

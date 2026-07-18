@@ -238,21 +238,26 @@ export const secWalletPartygoer = {
   audience: 'partygoer',
   category: 'payments',
   title: 'Your Sec Wallet',
-  summary: 'Wallet code for refunds and payout details for earnings.',
+  summary: 'Wallet code for refunds and payout details for automatic earnings transfers.',
   readMinutes: 3,
-  keywords: ['sec wallet', 'wallet code', 'payout', 'refund payment'],
+  keywords: ['sec wallet', 'wallet code', 'payout', 'refund payment', 'automatic transfer'],
   sections: [
     {
       type: 'p',
-      text: 'Your Sec Wallet holds a lookup code venues use when paying approved refunds, plus payout recipient setup for earnings (for example host joining-fee share). Keep bank details current so refunds and payouts are not delayed.',
+      text: 'Your Sec Wallet holds a lookup code venues use when paying approved refunds, plus payout recipient setup for earnings (for example host joining-fee share). Once bank details are set, eligible earnings can transfer automatically to your account. After you save, you will see “Sec wallet set” — your full bank number is not shown again.',
     },
     {
       type: 'image',
       src: '/help/screenshots/wallet-payout.svg',
       alt: 'Sec Wallet overview',
       caption: 'Wallet code + payout setup in one place.',
-      path: 'Profile → Sec Wallet',
+      path: 'Profile → Wallet',
       illustrative: true,
+    },
+    {
+      type: 'tip',
+      title: 'Full setup guide',
+      text: 'See How to set up your Sec Wallet & receive payouts for step-by-step instructions and how automatic transfers work.',
     },
     {
       type: 'related',

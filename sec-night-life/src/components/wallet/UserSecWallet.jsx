@@ -93,7 +93,11 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
       <div>
         <h4 className="text-sm font-semibold text-gray-400 mb-2">Payout details</h4>
         <UserPayoutSetup
-          profile={userProfile}
+          profile={{
+            ...userProfile,
+            payment_setup_complete:
+              Boolean(userProfile?.payment_setup_complete) || Boolean(data?.payoutSetupComplete),
+          }}
           onProfileUpdated={(patch) => {
             onProfileUpdated?.(patch);
             refetch();
