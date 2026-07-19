@@ -346,6 +346,27 @@ function getIsoWeek(date) {
   return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
 }
 
+/** Re-apply domain fulfillment for Paystack-success payments that never finished (joins, tickets, listings, etc.). */
+router.get('/repair-payment-fulfillment', async (req, res, next) => {
+  try {
+    if (!isCronAuthorized(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { repairStuckSuccessPayments } = await import('./payments.js');
+    const limit = Math.min(80, Math.max(1, parseInt(String(req.query.limit || '40'), 10) || 40));
+    const sinceDays = Math.min(60, Math.max(1, parseInt(String(req.query.sinceDays || '14'), 10) || 14));
+    const result = await repairStuckSuccessPayments({ limit, sinceDays });
+    logger.info('repair-payment-fulfillment cron', {
+      scanned: result.scanned,
+      attempted: result.attempted,
+      repaired: result.repaired,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/retry-payouts', async (req, res, next) => {
   try {
     if (!isCronAuthorized(req)) {

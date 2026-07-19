@@ -45,6 +45,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/cron/repair-payment-fulfillment",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/expire-external-listings",
       "schedule": "15 8 * * *"
     }

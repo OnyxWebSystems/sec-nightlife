@@ -172,8 +172,10 @@ export async function verifyPaystackReferenceWithRetry(reference, options = {}) 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     const result = await verifyPaystackReference(reference);
     lastResult = result;
-    if (result?.status === 'paid') return result;
+    if (result?.status === 'paid' || result?.fulfillment?.applied === true) return result;
     if (result?.status === 'failed') return result;
+    // Keep retrying while Paystack succeeded but domain fulfillment is still processing
+    // (e.g. external listing still DRAFT after R200 listing fee).
     if (attempt === retries) break;
 
     const delayMs = baseDelayMs * (attempt + 1);

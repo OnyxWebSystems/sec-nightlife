@@ -1,9 +1,13 @@
 import { toast } from 'sonner';
-import { apiGet } from '@/api/client';
+import { apiGet, apiPost } from '@/api/client';
 import { verifyPaystackReference, verifyPaystackReferenceWithRetry } from '@/lib/paystackInline';
 
 export function fetchPaymentFulfillment(reference) {
   return apiGet(`/api/payments/${encodeURIComponent(reference)}/fulfillment`);
+}
+
+export function repairPaymentFulfillment(reference) {
+  return apiPost(`/api/payments/${encodeURIComponent(reference)}/repair-fulfillment`, {});
 }
 
 export function invalidatePostPaymentQueries(queryClient, { eventId } = {}) {
@@ -43,8 +47,21 @@ function isFulfilledResult(result) {
 export async function pollPaymentFulfillment(reference, { maxMs = 120000 } = {}) {
   const started = Date.now();
   let lastResult = null;
+  let pollCount = 0;
   while (Date.now() - started < maxMs) {
-    lastResult = await fetchPaymentFulfillment(reference);
+    pollCount += 1;
+    // Re-verify / explicit repair so stuck side effects re-apply for joins, tickets, listings, etc.
+    if (pollCount === 1 || pollCount % 4 === 0) {
+      lastResult = await verifyPaystackReference(reference);
+    } else if (pollCount === 3 || pollCount % 7 === 0) {
+      try {
+        lastResult = await repairPaymentFulfillment(reference);
+      } catch {
+        lastResult = await fetchPaymentFulfillment(reference);
+      }
+    } else {
+      lastResult = await fetchPaymentFulfillment(reference);
+    }
     if (isFulfilledResult(lastResult)) return { ...lastResult, fulfilled: true };
     if (lastResult?.status === 'failed') return { ...lastResult, fulfilled: false };
     if (lastResult?.fulfillment?.error) return { ...lastResult, fulfilled: false };

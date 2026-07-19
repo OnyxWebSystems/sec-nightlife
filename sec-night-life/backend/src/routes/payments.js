@@ -236,12 +236,19 @@ async function finalizePaymentIfFulfilled(reference, paystackData = null) {
   const meta = flattenPaymentMetadata(pay.metadata);
   if (pay.status === 'success' && meta.side_effects_applied) return;
 
-  const paystackOk = paystackData?.status === 'success';
+  // Only finalize when domain fulfillment is actually complete.
+  // Never mark a pending payment as success here — that stranded external listings
+  // when side effects were skipped but Paystack had already charged the card.
   const fulfillmentComplete = await isPaymentFulfillmentComplete(reference, meta);
-  if (!paystackOk && !fulfillmentComplete) return;
-  if (!fulfillmentComplete && pay.status === 'success') return;
+  if (!fulfillmentComplete) return;
 
-  const amount = paystackData?.amount ? paystackData.amount / 100 : Number(pay.amount) || 0;
+  const paystackOk = paystackData?.status === 'success' || pay.status === 'success';
+  if (!paystackOk) return;
+
+  const amount =
+    paystackData?.amount != null && Number(paystackData.amount) > 0
+      ? Number(paystackData.amount) / 100
+      : Number(pay.amount) || 0;
   const { side_effects_processing: _sp, side_effects_processing_at: _spa, ...metaBase } = meta;
   await prisma.payment.updateMany({
     where: { reference },
@@ -250,7 +257,7 @@ async function finalizePaymentIfFulfilled(reference, paystackData = null) {
       ...(amount > 0 ? { amount } : {}),
       metadata: {
         ...metaBase,
-        side_effects_applied: fulfillmentComplete,
+        side_effects_applied: true,
         side_effects_processing: false,
       },
     },
@@ -272,18 +279,18 @@ function sideEffectsProcessingIsStale(meta) {
 async function applyReferenceSideEffects(reference, paystackData) {
   const priorPay = await prisma.payment.findUnique({
     where: { reference },
-    select: { metadata: true, userId: true, email: true, type: true, status: true },
+    select: { metadata: true, userId: true, email: true, type: true, status: true, amount: true },
   });
   if (!priorPay) return;
   const priorMeta = flattenPaymentMetadata(priorPay.metadata);
   if (priorMeta.side_effects_applied) {
-    await runPaymentRepairPaths(reference, paystackData);
+    await runPaymentRepairPaths(reference, paystackData, { replayIncomplete: false });
     await finalizePaymentIfFulfilled(reference, paystackData);
     return;
   }
 
   if (priorMeta.side_effects_processing && !sideEffectsProcessingIsStale(priorMeta)) {
-    await runPaymentRepairPaths(reference, paystackData);
+    await runPaymentRepairPaths(reference, paystackData, { replayIncomplete: false });
     await finalizePaymentIfFulfilled(reference, paystackData);
     return;
   }
@@ -310,11 +317,11 @@ async function applyReferenceSideEffects(reference, paystackData) {
     });
     const latestMeta = flattenPaymentMetadata(latest?.metadata);
     if (latestMeta.side_effects_processing && !sideEffectsProcessingIsStale(latestMeta)) {
-      await runPaymentRepairPaths(reference, paystackData);
+      await runPaymentRepairPaths(reference, paystackData, { replayIncomplete: false });
       await finalizePaymentIfFulfilled(reference, paystackData);
       return;
     }
-    await runPaymentRepairPaths(reference, paystackData);
+    await runPaymentRepairPaths(reference, paystackData, { replayIncomplete: false });
     await finalizePaymentIfFulfilled(reference, paystackData);
     return;
   }
@@ -322,9 +329,12 @@ async function applyReferenceSideEffects(reference, paystackData) {
   const userId = priorPay.userId || metadata.user_id || metadata.userId || null;
   const email =
     paystackData?.customer?.email || priorPay.email || metadata.email || 'unknown@secnightlife.app';
-  const amount = paystackData?.amount
-    ? paystackData.amount / 100
-    : Number(priorPay?.amount) || 0;
+  // Prefer Paystack kobo amount; fall back to the Payment row (ZAR). Missing priorPay.amount
+  // previously collapsed to 0 and silently skipped EXTERNAL_LISTING activation.
+  const amount =
+    paystackData?.amount != null && Number(paystackData.amount) > 0
+      ? Number(paystackData.amount) / 100
+      : Number(priorPay?.amount) || 0;
   const type = metadata.type || 'other';
 
   try {
@@ -1149,6 +1159,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
             emailSubject: `Table host payment — ${hosted.tableName}`,
           });
           if (hosted.event?.venueId && hosted.eventId) {
+            const totalZar = Number(amount || entranceZar + hostFeeZar + menuZar);
             await recordEventVenueTableBooking({
               venueId: hosted.event.venueId,
               eventId: hosted.eventId,
@@ -1282,7 +1293,11 @@ async function applyReferenceSideEffects(reference, paystackData) {
     if (htid) {
       const ht = await prisma.hostedTable.findFirst({ where: { id: String(htid), hostUserId: String(userId) } });
       if (ht && ht.tableType === 'EXTERNAL_VENUE' && ht.status === 'DRAFT') {
-        if (Math.abs(Number(amount) - EXTERNAL_HOSTED_LISTING_ZAR) < 0.01) {
+        const dbAmount = Number(priorPay?.amount) || 0;
+        const amountOk =
+          Math.abs(Number(amount) - EXTERNAL_HOSTED_LISTING_ZAR) < 0.01 ||
+          Math.abs(dbAmount - EXTERNAL_HOSTED_LISTING_ZAR) < 0.01;
+        if (amountOk) {
           await prisma.hostedTable.update({
             where: { id: ht.id },
             data: {
@@ -1326,7 +1341,18 @@ async function applyReferenceSideEffects(reference, paystackData) {
             tableSpecsSummary: formatSpecsFromHostedTable(ht),
             eventStartsAt,
           });
-          await recordSecPlatformRevenue(reference, Number(amount || EXTERNAL_HOSTED_LISTING_ZAR));
+          await recordSecPlatformRevenue(
+            reference,
+            Number(amount || dbAmount || EXTERNAL_HOSTED_LISTING_ZAR),
+          );
+        } else {
+          console.error('HOSTED_TABLE_EXTERNAL_LISTING amount mismatch', {
+            reference,
+            amount,
+            dbAmount,
+            expected: EXTERNAL_HOSTED_LISTING_ZAR,
+          });
+          metadata.side_effects_error = `Listing fee amount mismatch: charged ${amount}, db ${dbAmount}, expected ${EXTERNAL_HOSTED_LISTING_ZAR}`;
         }
       }
     }
@@ -1439,13 +1465,80 @@ async function applyReferenceSideEffects(reference, paystackData) {
       const menuZar = Number(metadata.menu_zar || metadata.menu_total_zar || 0) || 0;
       const expected = entranceZar + joinZar + menuZar;
       const alreadyFulfilled =
-        member.status === 'GOING' && member.paystackReference === reference;
-      if (
-        member &&
-        !alreadyFulfilled &&
+        member?.status === 'GOING' && member.paystackReference === reference;
+      const amountOk =
         expected > 0 &&
-        Math.abs(Number(amount) - expected) < 0.01
-      ) {
+        (Math.abs(Number(amount) - expected) < 0.01 ||
+          Math.abs(Number(priorPay?.amount || 0) - expected) < 0.01);
+      const existingJoinTicket = alreadyFulfilled
+        ? await prisma.ticket.findUnique({ where: { paystackReference: reference } })
+        : null;
+      if (member && alreadyFulfilled && !existingJoinTicket && amountOk) {
+        // Hotfix: member marked GOING after pay, but ticket issuance never ran.
+        const htFinal = member.hostedTable;
+        const payer = await prisma.user.findUnique({
+          where: { id: String(userId) },
+          select: { email: true, fullName: true, username: true, userProfile: { select: { username: true } } },
+        });
+        const hostUser = await prisma.user.findUnique({
+          where: { id: htFinal.hostUserId },
+          select: { fullName: true, username: true, userProfile: { select: { username: true } } },
+        });
+        const linkedVenueTable = await prisma.venueTable.findFirst({
+          where: { hostedTableId: htFinal.id },
+          select: {
+            id: true,
+            venueId: true,
+            serviceDate: true,
+            serviceEndDate: true,
+            startTime: true,
+            endTime: true,
+          },
+        });
+        const vis = linkedVenueTable && !htEvent
+          ? visibleUntilForDayVenueTable(linkedVenueTable, new Date(), {
+              windowEndsAt: htFinal.windowEndsAt,
+            })
+          : visibleUntilAfterHostedTable(htFinal);
+        const eventStartsAt =
+          (htEvent && eventStartsAtFromEvent(htEvent)) ||
+          (linkedVenueTable && dayStartsAtFromVenueTable(linkedVenueTable)) ||
+          eventStartsAtFromHostedTable(htFinal);
+        const eventEndsAt = htEvent
+          ? eventEndsAtFromEvent(htEvent)
+          : linkedVenueTable
+            ? dayEndsAtFromVenueTable(linkedVenueTable)
+            : null;
+        const joinMenuItems = Array.isArray(metadata.selected_menu_items)
+          ? metadata.selected_menu_items
+          : Array.isArray(metadata.selectedMenuItems)
+            ? metadata.selectedMenuItems
+            : [];
+        const joinSummary = buildHostedTableJoinTicketSummary({
+          hostedTable: htFinal,
+          hostUser,
+          entranceZar,
+          joinZar,
+          menuItems: joinMenuItems,
+        });
+        await issueTicketAndNotify(prisma, {
+          userId: String(userId),
+          email: payer?.email || email,
+          paystackReference: reference,
+          kind: 'HOSTED_TABLE_JOIN',
+          title: `${htFinal.tableName} — Join ticket`,
+          subtitle: htFinal.venueName,
+          visibleUntil: vis,
+          hostedTableId: htFinal.id,
+          eventId: htEvent?.id || null,
+          quantity: 1,
+          holderDisplayName: holderDisplayNameFromUser(payer),
+          tableSpecsSummary: joinSummary,
+          eventStartsAt,
+          eventEndsAt,
+          promoterUserId: promoterUserIdFromMetadata(metadata),
+        });
+      } else if (member && !alreadyFulfilled && amountOk) {
           await prisma.$transaction(async (tx) => {
             const htRow = await tx.hostedTable.findUnique({ where: { id: String(htid) } });
             const mem = await tx.hostedTableMember.findUnique({ where: { id: member.id } });
@@ -1658,10 +1751,21 @@ async function applyReferenceSideEffects(reference, paystackData) {
               tableName: htFinal.tableName,
               eventTitle: htEvent?.title || null,
             });
+          } else {
+            metadata.side_effects_error = 'Hosted table join payment received but no spots remaining';
+            console.error('HOSTED_TABLE_JOIN no spots remaining', { reference, htid, memberId });
           }
-        }
+      } else if (member && expected > 0 && !amountOk) {
+        metadata.side_effects_error = `Join amount mismatch: charged ${amount}, db ${priorPay?.amount}, expected ${expected}`;
+        console.error('HOSTED_TABLE_JOIN amount mismatch', {
+          reference,
+          amount,
+          dbAmount: priorPay?.amount,
+          expected,
+        });
       }
     }
+  }
 
   const tableId = metadata.table_id;
   if (tableId && userId && metadata.type !== 'TABLE_HOST_FEE') {
@@ -1905,7 +2009,158 @@ async function ensureHostedTableJoinFulfillmentForPayment(reference, paystackDat
   return { repaired: true };
 }
 
-async function runPaymentRepairPaths(reference, paystackData) {
+const externalListingRepairInFlight = new Set();
+
+/** Re-apply side effects when R200 external listing payment succeeded but table stayed DRAFT. */
+async function ensureExternalListingFulfillmentForPayment(reference, paystackData = null) {
+  if (externalListingRepairInFlight.has(reference)) {
+    return { repaired: false, reason: 'reentrant' };
+  }
+  externalListingRepairInFlight.add(reference);
+  try {
+    const pay = await prisma.payment.findUnique({
+      where: { reference },
+      select: { userId: true, amount: true, metadata: true, status: true },
+    });
+    if (!pay) return { repaired: false, reason: 'payment_not_found' };
+
+    const paid = pay.status === 'success' || paystackData?.status === 'success';
+    if (!paid) return { repaired: false, reason: 'not_paid' };
+
+    const metadata = flattenPaymentMetadata(pay.metadata);
+    if (metadata.type !== 'HOSTED_TABLE_EXTERNAL_LISTING') return { repaired: false, reason: 'wrong_type' };
+
+    const htid = metadata.hosted_table_id || metadata.hostedTableId;
+    if (!htid) return { repaired: false, reason: 'missing_hosted_table' };
+
+    const ht = await prisma.hostedTable.findFirst({
+      where: { id: String(htid), hostUserId: String(pay.userId || metadata.user_id || '') },
+      select: { id: true, status: true, externalListingPaystackRef: true, tableType: true },
+    });
+    if (!ht) return { repaired: false, reason: 'table_not_found' };
+    if (ht.tableType !== 'EXTERNAL_VENUE') return { repaired: false, reason: 'wrong_table_type' };
+
+    const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+    if (ht.status === 'ACTIVE' && ht.externalListingPaystackRef === reference && ticket) {
+      return { repaired: false, reason: 'already_fulfilled' };
+    }
+
+    const needsRepair =
+      ht.status === 'DRAFT' ||
+      ht.externalListingPaystackRef !== reference ||
+      !ticket;
+    if (!needsRepair) return { repaired: false, reason: 'no_repair_needed' };
+
+    const priorMeta = flattenPaymentMetadata(pay.metadata);
+    await prisma.payment.updateMany({
+      where: { reference },
+      data: {
+        metadata: {
+          ...priorMeta,
+          side_effects_applied: false,
+          side_effects_processing: false,
+        },
+      },
+    });
+
+    const amountKobo =
+      paystackData?.amount != null && Number(paystackData.amount) > 0
+        ? Number(paystackData.amount)
+        : Math.round(Number(pay.amount || EXTERNAL_HOSTED_LISTING_ZAR) * 100);
+    await applyReferenceSideEffects(reference, {
+      status: 'success',
+      amount: amountKobo,
+      metadata: {
+        ...priorMeta,
+        type: 'HOSTED_TABLE_EXTERNAL_LISTING',
+        hosted_table_id: String(htid),
+        user_id: String(pay.userId || priorMeta.user_id || ''),
+      },
+    });
+
+    const fresh = await prisma.hostedTable.findUnique({
+      where: { id: ht.id },
+      select: { status: true, externalListingPaystackRef: true },
+    });
+    const freshTicket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+    return {
+      repaired: fresh?.status === 'ACTIVE' && fresh?.externalListingPaystackRef === reference,
+      reason:
+        fresh?.status === 'ACTIVE' && fresh?.externalListingPaystackRef === reference
+          ? freshTicket
+            ? 'ok'
+            : 'activated_without_ticket'
+          : 'still_not_active',
+    };
+  } finally {
+    externalListingRepairInFlight.delete(reference);
+  }
+}
+
+const incompletePaymentReplayInFlight = new Set();
+
+/**
+ * Generic self-heal: if Paystack succeeded but domain fulfillment is incomplete,
+ * clear the claim flags and re-run applyReferenceSideEffects for ANY payment type.
+ */
+async function ensureIncompletePaymentReplay(reference, paystackData = null) {
+  if (incompletePaymentReplayInFlight.has(reference)) {
+    return { repaired: false, reason: 'reentrant' };
+  }
+  incompletePaymentReplayInFlight.add(reference);
+  try {
+    const pay = await prisma.payment.findUnique({
+      where: { reference },
+      select: { status: true, amount: true, metadata: true, email: true },
+    });
+    if (!pay) return { repaired: false, reason: 'payment_not_found' };
+
+    const paid = pay.status === 'success' || paystackData?.status === 'success';
+    if (!paid) return { repaired: false, reason: 'not_paid' };
+
+    const meta = flattenPaymentMetadata(pay.metadata);
+    if (await isPaymentFulfillmentComplete(reference, meta)) {
+      return { repaired: false, reason: 'already_complete' };
+    }
+
+    await prisma.payment.updateMany({
+      where: { reference },
+      data: {
+        metadata: {
+          ...meta,
+          side_effects_applied: false,
+          side_effects_processing: false,
+        },
+      },
+    });
+
+    const amountKobo =
+      paystackData?.amount != null && Number(paystackData.amount) > 0
+        ? Number(paystackData.amount)
+        : Math.round(Number(pay.amount || 0) * 100);
+
+    await applyReferenceSideEffects(reference, {
+      status: 'success',
+      amount: amountKobo,
+      customer: { email: pay.email || paystackData?.customer?.email },
+      metadata: meta,
+    });
+
+    const refreshed = await prisma.payment.findUnique({
+      where: { reference },
+      select: { metadata: true },
+    });
+    const complete = await isPaymentFulfillmentComplete(
+      reference,
+      flattenPaymentMetadata(refreshed?.metadata),
+    );
+    return { repaired: complete, reason: complete ? 'ok' : 'still_incomplete' };
+  } finally {
+    incompletePaymentReplayInFlight.delete(reference);
+  }
+}
+
+async function runPaymentRepairPaths(reference, paystackData, { replayIncomplete = true } = {}) {
   await ensureEventTicketsForPayment(reference, paystackData).catch((e) => {
     console.warn('ensureEventTicketsForPayment repair failed', e?.message);
   });
@@ -1915,6 +2170,14 @@ async function runPaymentRepairPaths(reference, paystackData) {
   await ensureHostedTableJoinFulfillmentForPayment(reference, paystackData).catch((e) => {
     console.warn('ensureHostedTableJoinFulfillmentForPayment repair failed', e?.message);
   });
+  await ensureExternalListingFulfillmentForPayment(reference, paystackData).catch((e) => {
+    console.warn('ensureExternalListingFulfillmentForPayment repair failed', e?.message);
+  });
+  if (replayIncomplete) {
+    await ensureIncompletePaymentReplay(reference, paystackData).catch((e) => {
+      console.warn('ensureIncompletePaymentReplay repair failed', e?.message);
+    });
+  }
   await finalizePaymentIfFulfilled(reference, paystackData);
 }
 
@@ -1922,6 +2185,8 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
   if (paidMeta.side_effects_applied) return true;
 
   const type = paidMeta.type || '';
+  const secKind = String(paidMeta.sec_kind || paidMeta.secKind || '').toUpperCase();
+
   if (
     (type === 'ticket' || type === 'event') &&
     (paidMeta.ticket_tier_name || paidMeta.ticketTierName)
@@ -1959,6 +2224,15 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
         const member = await prisma.hostedTableMember.findUnique({ where: { id: String(memberId) } });
         if (member?.status !== 'GOING') return false;
       }
+    } else if (type === 'TABLE_HOST_FEE') {
+      const htid = paidMeta.hosted_table_id || paidMeta.hostedTableId;
+      if (htid) {
+        const ht = await prisma.hostedTable.findUnique({
+          where: { id: String(htid) },
+          select: { status: true, hostFeePaystackRef: true },
+        });
+        if (ht?.status === 'DRAFT' || ht?.hostFeePaystackRef !== reference) return false;
+      }
     }
     const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
     return Boolean(ticket);
@@ -1976,12 +2250,197 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
       where: { id: String(htid) },
       select: { status: true, externalListingPaystackRef: true },
     });
-    if (ht?.status === 'ACTIVE') return true;
+    if (ht?.status !== 'ACTIVE' || ht.externalListingPaystackRef !== reference) return false;
+    const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+    return Boolean(ticket);
+  }
+
+  if (type === 'HOSTED_TABLE_MENU') {
+    const ledger = await prisma.payoutLedger.findFirst({ where: { paymentReference: reference } });
+    if (ledger) return true;
+    const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+    return Boolean(ticket);
+  }
+
+  if (type === 'HOUSE_PARTY_PUBLISH') {
+    const partyId = paidMeta.house_party_id || paidMeta.housePartyId;
+    if (!partyId) return false;
+    const party = await prisma.houseParty.findUnique({
+      where: { id: String(partyId) },
+      select: { status: true, publishPaystackRef: true },
+    });
+    return Boolean(
+      party &&
+        ['PUBLISHED', 'COMPLETED'].includes(party.status) &&
+        party.publishPaystackRef === reference,
+    );
+  }
+
+  if (type === 'HOUSE_PARTY_BOOST') {
+    const partyId = paidMeta.house_party_id || paidMeta.housePartyId;
+    if (!partyId) return false;
+    const party = await prisma.houseParty.findUnique({
+      where: { id: String(partyId) },
+      select: { boostPaystackRef: true },
+    });
+    return party?.boostPaystackRef === reference;
+  }
+
+  if (type === 'HOUSE_PARTY_ENTRANCE') {
+    const attendeeId = paidMeta.attendee_id || paidMeta.attendeeId;
+    if (attendeeId) {
+      const att = await prisma.housePartyAttendee.findUnique({
+        where: { id: String(attendeeId) },
+        select: { status: true, paystackReference: true },
+      });
+      if (att?.status !== 'GOING' || att.paystackReference !== reference) return false;
+    }
+    const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
+    return Boolean(ticket);
+  }
+
+  if (type === 'TABLE_BOOST') {
+    const htid = paidMeta.hosted_table_id || paidMeta.hostedTableId;
+    if (!htid) return false;
+    const ht = await prisma.hostedTable.findUnique({
+      where: { id: String(htid) },
+      select: { boostPaystackRef: true },
+    });
+    return ht?.boostPaystackRef === reference;
+  }
+
+  if (type === 'EVENT_BOOST') {
+    const eventId = paidMeta.event_id || paidMeta.eventId;
+    if (!eventId) return false;
+    const evt = await prisma.event.findUnique({
+      where: { id: String(eventId) },
+      select: { boostPaystackRef: true },
+    });
+    return evt?.boostPaystackRef === reference;
+  }
+
+  if (type === 'VENUE_TABLE_BOOST') {
+    const vtid = paidMeta.venue_table_id || paidMeta.venueTableId;
+    if (!vtid) return false;
+    const vt = await prisma.venueTable.findUnique({
+      where: { id: String(vtid) },
+      select: { boostPaystackRef: true },
+    });
+    return vt?.boostPaystackRef === reference;
+  }
+
+  const promoId = resolvePromotionIdFromMetadata(paidMeta);
+  if (promoId && (type === 'BOOST' || secKind === 'BOOST')) {
+    const promo = await prisma.promotion.findFirst({
+      where: { id: String(promoId), deletedAt: null },
+      select: { boostPaystackRef: true },
+    });
+    return promo?.boostPaystackRef === reference;
+  }
+
+  if (promoId && (isPromotionPublishPayment(paidMeta) || secKind === 'PROMOTION_PUBLISH')) {
+    const promo = await prisma.promotion.findFirst({
+      where: { id: String(promoId), deletedAt: null },
+      select: { status: true },
+    });
+    return promo?.status === 'ACTIVE';
+  }
+
+  if (paidMeta.table_id && type !== 'TABLE_HOST_FEE') {
     const ticket = await prisma.ticket.findUnique({ where: { paystackReference: reference } });
     return Boolean(ticket);
   }
 
   return Boolean(paidMeta.side_effects_applied);
+}
+
+/** Re-run fulfillment for one Paystack reference (ops / cron / authenticated retry). */
+export async function repairPaymentFulfillmentByReference(reference, paystackData = null) {
+  const ref = String(reference || '').trim();
+  if (!ref) return { repaired: false, reason: 'missing_reference' };
+
+  const pay = await prisma.payment.findUnique({
+    where: { reference: ref },
+    select: { status: true, amount: true, metadata: true, email: true },
+  });
+  if (!pay) return { repaired: false, reason: 'payment_not_found' };
+
+  let verifyData = paystackData;
+  if (!verifyData || verifyData.status !== 'success') {
+    try {
+      const verified = await paystackFetch(`/transaction/verify/${encodeURIComponent(ref)}`);
+      if (verified?.data?.status === 'success') verifyData = verified.data;
+    } catch (e) {
+      console.warn('repairPaymentFulfillmentByReference verify failed', e?.message);
+    }
+  }
+
+  const amountKobo =
+    verifyData?.amount != null && Number(verifyData.amount) > 0
+      ? Number(verifyData.amount)
+      : Math.round(Number(pay.amount || 0) * 100);
+
+  const data = {
+    status: 'success',
+    amount: amountKobo,
+    customer: { email: pay.email || verifyData?.customer?.email },
+    metadata: flattenPaymentMetadata(pay.metadata),
+    ...(verifyData && typeof verifyData === 'object' ? verifyData : {}),
+    amount: amountKobo,
+    status: 'success',
+  };
+
+  await applyReferenceSideEffects(ref, data);
+  await runPaymentRepairPaths(ref, data, { replayIncomplete: true });
+
+  const refreshed = await prisma.payment.findUnique({
+    where: { reference: ref },
+    select: { metadata: true, status: true },
+  });
+  const meta = flattenPaymentMetadata(refreshed?.metadata);
+  const complete = await isPaymentFulfillmentComplete(ref, meta);
+  return {
+    repaired: complete,
+    reason: complete ? 'ok' : meta.side_effects_error || 'still_incomplete',
+    fulfillment_applied: complete,
+    payment_status: refreshed?.status || pay.status,
+  };
+}
+
+/** Batch-heal success payments whose domain fulfillment never finished. */
+export async function repairStuckSuccessPayments({ limit = 40, sinceDays = 14 } = {}) {
+  const since = new Date(Date.now() - Math.max(1, sinceDays) * 24 * 60 * 60 * 1000);
+  const take = Math.min(150, Math.max(1, limit) * 3);
+  const candidates = await prisma.payment.findMany({
+    where: {
+      status: 'success',
+      createdAt: { gte: since },
+    },
+    orderBy: { createdAt: 'desc' },
+    take,
+    select: { reference: true, metadata: true, amount: true, createdAt: true },
+  });
+
+  const results = [];
+  for (const row of candidates) {
+    if (results.length >= limit) break;
+    const meta = flattenPaymentMetadata(row.metadata);
+    if (meta.side_effects_applied === true) continue;
+    const complete = await isPaymentFulfillmentComplete(row.reference, meta);
+    if (complete) {
+      await finalizePaymentIfFulfilled(row.reference, { status: 'success', amount: Math.round(Number(row.amount || 0) * 100) });
+      continue;
+    }
+    const repair = await repairPaymentFulfillmentByReference(row.reference);
+    results.push({ reference: row.reference, ...repair });
+  }
+
+  return {
+    scanned: candidates.length,
+    attempted: results.length,
+    repaired: results.filter((r) => r.repaired).length,
+    results,
+  };
 }
 
 async function buildFulfillmentStatusResponse(reference) {
@@ -2610,6 +3069,20 @@ router.get('/:reference/fulfillment', authenticateToken, async (req, res, next) 
     const result = await buildFulfillmentStatusResponse(reference);
     if (!result) return res.status(404).json({ error: 'Payment reference not found' });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/payments/:reference/repair-fulfillment — re-apply side effects after Paystack success
+router.post('/:reference/repair-fulfillment', authenticateToken, async (req, res, next) => {
+  try {
+    const reference = req.params.reference;
+    const ownership = await assertPaymentOwnership(reference, req.userId);
+    if (!ownership.ok) return res.status(ownership.code).json({ error: ownership.error });
+    const repair = await repairPaymentFulfillmentByReference(reference);
+    const status = await buildFulfillmentStatusResponse(reference);
+    res.json({ ...repair, ...(status || {}) });
   } catch (err) {
     next(err);
   }
