@@ -1340,6 +1340,7 @@ async function applyReferenceSideEffects(reference, paystackData) {
             holderDisplayName: holderDisplayNameFromUser(payer),
             tableSpecsSummary: formatSpecsFromHostedTable(ht),
             eventStartsAt,
+            eventEndsAt: vis,
           });
           await recordSecPlatformRevenue(
             reference,

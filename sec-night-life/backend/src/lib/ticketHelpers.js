@@ -5,12 +5,14 @@ import {
   serviceScheduleFromTable,
 } from './serviceSchedule.js';
 import { windowEndInstant, parseWindowInstant } from './dayBookingWindows.js';
+import { externalListingEndsAt } from './externalListingSchedule.js';
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 
 /**
- * Resolve ticket visible_until for storage. Day venue tables (no event) must keep the
- * caller's buffered visibleUntil — not raw service end from eventEndsAt.
+ * Resolve ticket visible_until for storage.
+ * Prefer an explicit end (caller visibleUntil / eventEndsAt) over start+24h.
+ * Day venue tables (no event) must keep the caller's buffered visibleUntil.
  */
 export function resolveTicketVisibleUntil({
   venueTableId = null,
@@ -26,20 +28,28 @@ export function resolveTicketVisibleUntil({
         : new Date(visibleUntil)
       : null;
   const validVis = vis && !Number.isNaN(vis.getTime()) ? vis : null;
+  const ends =
+    eventEndsAt != null
+      ? eventEndsAt instanceof Date
+        ? eventEndsAt
+        : new Date(eventEndsAt)
+      : null;
+  const validEnds = ends && !Number.isNaN(ends.getTime()) ? ends : null;
 
   if (venueTableId && !eventId) {
     if (validVis) return validVis;
-    if (eventEndsAt && !Number.isNaN(eventEndsAt.getTime())) {
-      return new Date(eventEndsAt.getTime() + MS_DAY);
-    }
-    if (eventStartsAt && !Number.isNaN(eventStartsAt.getTime())) {
+    if (validEnds) return validEnds;
+    if (eventStartsAt && !Number.isNaN(new Date(eventStartsAt).getTime())) {
       return visibleUntilFromEventStartsAt(eventStartsAt);
     }
     return new Date(Date.now() + MS_DAY);
   }
 
-  if (eventEndsAt && !Number.isNaN(eventEndsAt.getTime())) return eventEndsAt;
-  if (eventStartsAt && !Number.isNaN(eventStartsAt.getTime())) {
+  // Explicit listing/event end wins (own-place tables, venue events with endsAt).
+  if (validEnds) return validEnds;
+  // Caller-computed visibleUntil (e.g. windowEndsAt / externalListingEndsAt) before start+24h.
+  if (validVis) return validVis;
+  if (eventStartsAt && !Number.isNaN(new Date(eventStartsAt).getTime())) {
     return visibleUntilFromEventStartsAt(eventStartsAt);
   }
   return validVis;
@@ -71,17 +81,13 @@ export function visibleUntilAfterParty(party) {
 }
 
 export function visibleUntilAfterHostedTable(t) {
+  if (t?.tableType === 'EXTERNAL_VENUE' && !t?.venueTableId) {
+    const externalEnd = externalListingEndsAt(t);
+    if (externalEnd) return externalEnd;
+  }
   if (t?.windowEndsAt) {
     const w = t.windowEndsAt instanceof Date ? t.windowEndsAt : new Date(t.windowEndsAt);
     if (!Number.isNaN(w.getTime())) return w;
-  }
-  if (t?.tableType === 'EXTERNAL_VENUE' && !t?.venueTableId) {
-    const endDate = t.eventEndDate || t.eventDate;
-    const endTime = t.eventEndTime || '23:59';
-    if (endDate && /^\d{2}:\d{2}$/.test(String(endTime))) {
-      const end = parseWindowInstant(endDate, endTime);
-      if (end) return end;
-    }
   }
   const d = t.eventDate instanceof Date ? t.eventDate : new Date(t.eventDate);
   const end = new Date(d.getTime());

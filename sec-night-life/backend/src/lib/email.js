@@ -1,7 +1,13 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Resend } from 'resend';
 import { logger } from './logger.js';
+import { SEC_EMAIL_LOGO_PNG_BASE64 } from './secEmailLogoBase64.js';
 
 const SEC_EMAIL_LOGO_PATH = '/Logo/sec-email-logo-transparent.png';
+const SEC_EMAIL_LOGO_CID = 'sec-email-logo';
+const __emailDir = path.dirname(fileURLToPath(import.meta.url));
 
 function getFromAddress() {
   return process.env.EMAIL_FROM || 'noreply@secnightlife.com';
@@ -14,9 +20,44 @@ function createResendClient() {
   return new Resend(process.env.RESEND_API_KEY);
 }
 
+/** Public SPA origin for links/assets. Prefer www — apex redirects break many email clients. */
 function getPublicAppBaseUrl() {
-  const raw = (process.env.APP_URL || 'https://secnightlife.com').trim();
-  return raw.replace(/\/+$/, '');
+  const raw = (
+    process.env.PUBLIC_ASSET_URL ||
+    process.env.APP_URL ||
+    'https://www.secnightlife.com'
+  ).trim();
+  let url = raw.replace(/\/+$/, '');
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'secnightlife.com') {
+      parsed.hostname = 'www.secnightlife.com';
+      url = parsed.origin;
+    }
+  } catch {
+    /* keep raw */
+  }
+  return url;
+}
+
+function loadSecEmailLogoBuffer() {
+  const candidates = [
+    path.resolve(__emailDir, '../../assets/sec-email-logo-transparent.png'),
+    path.resolve(process.cwd(), 'assets/sec-email-logo-transparent.png'),
+    path.resolve(process.cwd(), '../public/Logo/sec-email-logo-transparent.png'),
+    path.resolve(process.cwd(), 'public/Logo/sec-email-logo-transparent.png'),
+  ];
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) return fs.readFileSync(filePath);
+    } catch {
+      /* try next */
+    }
+  }
+  if (SEC_EMAIL_LOGO_PNG_BASE64) {
+    return Buffer.from(SEC_EMAIL_LOGO_PNG_BASE64, 'base64');
+  }
+  return null;
 }
 
 function escapeHtml(value) {
@@ -35,18 +76,21 @@ function formatTextAsHtml(text = '') {
     .join('');
 }
 
-function withSecEmailBranding(innerHtml) {
-  const logoUrl = `${getPublicAppBaseUrl()}${SEC_EMAIL_LOGO_PATH}`;
+function withSecEmailBranding(innerHtml, { logoSrc }) {
   return `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0f1011;color:#e9ecef;border:1px solid #232528;border-radius:16px;overflow:hidden;">
       <div style="padding:20px 20px 14px;border-bottom:1px solid #232528;background:#0b0c0d;">
-        <div style="display:inline-block;width:64px;height:64px;border-radius:999px;overflow:hidden;background:#0b0c0d;vertical-align:middle;">
-          <img src="${logoUrl}" alt="SEC logo" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:999px;border:0;outline:0;" />
-        </div>
-        <div style="display:inline-block;vertical-align:middle;margin-left:12px;">
-          <div style="font-size:18px;font-weight:700;line-height:1.2;color:#ffffff;">SEC Nightlife</div>
-          <div style="font-size:12px;line-height:1.4;color:#9aa0a6;">Your night. Simplified.</div>
-        </div>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td style="vertical-align:middle;padding:0;">
+              <img src="${logoSrc}" alt="SEC logo" width="64" height="64" style="display:block;width:64px;height:64px;border:0;outline:0;" />
+            </td>
+            <td style="vertical-align:middle;padding:0 0 0 12px;">
+              <div style="font-size:18px;font-weight:700;line-height:1.2;color:#ffffff;">SEC Nightlife</div>
+              <div style="font-size:12px;line-height:1.4;color:#9aa0a6;">Your night. Simplified.</div>
+            </td>
+          </tr>
+        </table>
       </div>
       <div style="padding:20px;background:#111315;color:#e9ecef;">
         ${innerHtml}
@@ -57,12 +101,29 @@ function withSecEmailBranding(innerHtml) {
 
 function prepareEmailPayload({ html, text, attachments }) {
   const bodyHtml = html || formatTextAsHtml(text || '');
-  const brandedHtml = bodyHtml ? withSecEmailBranding(bodyHtml) : undefined;
+  const logoBuffer = loadSecEmailLogoBuffer();
+  const remoteLogoUrl = `${getPublicAppBaseUrl()}${SEC_EMAIL_LOGO_PATH}`;
+  const logoSrc = logoBuffer ? `cid:${SEC_EMAIL_LOGO_CID}` : remoteLogoUrl;
+  const brandedHtml = bodyHtml ? withSecEmailBranding(bodyHtml, { logoSrc }) : undefined;
+
+  const nextAttachments = Array.isArray(attachments) ? [...attachments] : [];
+  if (logoBuffer) {
+    const alreadyAttached = nextAttachments.some(
+      (a) => a?.contentId === SEC_EMAIL_LOGO_CID || a?.inlineContentId === SEC_EMAIL_LOGO_CID,
+    );
+    if (!alreadyAttached) {
+      nextAttachments.unshift({
+        filename: 'sec-email-logo-transparent.png',
+        content: logoBuffer,
+        contentId: SEC_EMAIL_LOGO_CID,
+      });
+    }
+  }
 
   return {
     html: brandedHtml,
     text,
-    attachments,
+    attachments: nextAttachments,
   };
 }
 
