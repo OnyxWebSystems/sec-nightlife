@@ -136,6 +136,13 @@ export default function HostedTableExperience({
     (hostedTable.tableType === 'EXTERNAL_VENUE' &&
       hostedTable.listingSurface === 'EVENT' &&
       !hostedTable.eventId);
+  // Own-place / non-SEC venue listings have no venue menu — hide Table orders.
+  const isExternalOwnPlaceListing =
+    (hostedTable.tableType === 'EXTERNAL_VENUE' || hostedTable.table_type === 'EXTERNAL_VENUE') &&
+    !hostedTable.venueTableId &&
+    !hostedTable.venue_table_id &&
+    !hostedTable.eventId &&
+    !hostedTable.event_id;
   const goingCount = Number(stats.member_count ?? goingMembers.length) || 0;
   const joiningFeeZar =
     hostedTable.hasJoiningFee && Number(hostedTable.joiningFee || joinZ || 0) > 0
@@ -520,28 +527,30 @@ export default function HostedTableExperience({
               )}
             </div>
 
-            <div style={cardStyle}>
-              <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 12 }}>
-                Table orders
-              </p>
-              {hostedTable.host_orders && (
-                <div style={{ marginBottom: 14 }}>
-                  <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-accent)' }}>Host</p>
-                  <MenuLinesBlock
-                    lines={hostedTable.host_orders.menuLines}
-                    minSpendZar={hostedTable.host_orders.minSpendZar}
-                  />
-                </div>
-              )}
-              {goingMembers
-                .filter((m) => m.role !== 'HOST')
-                .map((m) => (
-                  <div key={m.userId} style={{ marginBottom: 12 }}>
-                    <p style={{ fontWeight: 600, fontSize: 14 }}>{m.user?.full_name || m.user?.username || 'Guest'}</p>
-                    <MenuLinesBlock lines={m.menuLines} />
+            {!isExternalOwnPlaceListing ? (
+              <div style={cardStyle}>
+                <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 12 }}>
+                  Table orders
+                </p>
+                {hostedTable.host_orders && (
+                  <div style={{ marginBottom: 14 }}>
+                    <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-accent)' }}>Host</p>
+                    <MenuLinesBlock
+                      lines={hostedTable.host_orders.menuLines}
+                      minSpendZar={hostedTable.host_orders.minSpendZar}
+                    />
                   </div>
-                ))}
-            </div>
+                )}
+                {goingMembers
+                  .filter((m) => m.role !== 'HOST')
+                  .map((m) => (
+                    <div key={m.userId} style={{ marginBottom: 12 }}>
+                      <p style={{ fontWeight: 600, fontSize: 14 }}>{m.user?.full_name || m.user?.username || 'Guest'}</p>
+                      <MenuLinesBlock lines={m.menuLines} />
+                    </div>
+                  ))}
+              </div>
+            ) : null}
           </>
         ) : null}
 
