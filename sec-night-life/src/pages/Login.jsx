@@ -107,11 +107,7 @@ export default function Login() {
     : createPageUrl('ForgotPassword');
 
   const redirectAfterLogin = async () => {
-    try {
-      await authService.persistSessionCache();
-    } catch {
-      // Tokens are set; AuthContext will hydrate on the next page.
-    }
+    // Login/OTP already wrote session cache via cacheSessionAfterTokens — skip extra /me.
     try {
       if (consumerIntent === 'VENUE') {
         localStorage.setItem('sec_active_mode', 'business');

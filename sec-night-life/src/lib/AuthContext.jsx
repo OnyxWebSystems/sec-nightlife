@@ -174,12 +174,10 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingAuth(false);
       return;
     }
-    // First bootstrap: full check. Later route changes: soft revalidate only.
+    // First bootstrap only on mount / token appearance — not on every route change.
     if (!hasBootstrapped.current) {
       hasBootstrapped.current = true;
       void checkAuth({ soft: false });
-    } else {
-      void checkAuth({ soft: true });
     }
   }, [checkAuth, hasTokens, location.pathname]);
 

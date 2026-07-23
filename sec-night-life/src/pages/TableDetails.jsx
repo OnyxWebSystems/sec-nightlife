@@ -191,7 +191,10 @@ export default function TableDetails() {
         window.location.href,
       );
       setUser(currentUser);
-      if (cachedProfile) setUserProfile(cachedProfile);
+      if (cachedProfile) {
+        setUserProfile(cachedProfile);
+        return;
+      }
       try {
         const profiles = await dataService.User.filter({ created_by: currentUser.email });
         if (profiles.length > 0) setUserProfile(profiles[0]);
@@ -404,7 +407,7 @@ export default function TableDetails() {
     ),
     refetchInterval: (query) =>
       hostFulfillmentPending || awaitingFulfillment || (paymentComplete && !query.state.data)
-        ? 2500
+        ? 4000
         : false,
   });
 
@@ -701,18 +704,29 @@ export default function TableDetails() {
 
   const { data: host } = useQuery({
     queryKey: ['table-host', table?.host_user_id],
-    queryFn: async () => { const u = await dataService.User.filter({ id: table.host_user_id }); return u[0]; },
+    queryFn: async () => {
+      const u = await dataService.User.filter({ id: table.host_user_id });
+      return u[0];
+    },
     enabled: !!table?.host_user_id,
+    staleTime: 120_000,
   });
 
   const { data: members = [] } = useQuery({
-    queryKey: ['table-members', table?.members],
+    queryKey: ['table-members', table?.id, (table?.members || []).map((m) => m.user_id).join(',')],
     queryFn: async () => {
       if (!table?.members?.length) return [];
-      const profiles = await Promise.all(table.members.map(m => dataService.User.filter({ id: m.user_id })));
-      return profiles.flat();
+      const ids = [...new Set(table.members.map((m) => m.user_id).filter(Boolean))];
+      const profiles = await Promise.all(ids.map((id) => dataService.User.filter({ id })));
+      const byId = new Map();
+      for (const rows of profiles) {
+        const u = Array.isArray(rows) ? rows[0] : rows;
+        if (u?.id) byId.set(u.id, u);
+      }
+      return table.members.map((m) => byId.get(m.user_id)).filter(Boolean);
     },
     enabled: !!table?.members?.length,
+    staleTime: 60_000,
   });
 
   const handleJoinTable = async () => {

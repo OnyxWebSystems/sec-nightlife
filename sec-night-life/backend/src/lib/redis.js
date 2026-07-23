@@ -5,6 +5,19 @@ import { Redis } from '@upstash/redis';
 import { logger } from './logger.js';
 
 let redis = null;
+let rateLimitScript = null;
+
+const RATE_LIMIT_WINDOW_SEC = 15 * 60;
+
+/** Single round-trip INCR + conditional EXPIRE + TTL for rate limiting. */
+const RATE_LIMIT_LUA = `
+local hits = redis.call('INCR', KEYS[1])
+if hits == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+local ttl = redis.call('TTL', KEYS[1])
+return {hits, ttl}
+`;
 
 export function getRedis() {
   if (redis) return redis;
@@ -18,6 +31,13 @@ export function getRedis() {
     logger.warn('Upstash Redis init failed', { err: e?.message });
     return null;
   }
+}
+
+function getRateLimitScript(client) {
+  if (!rateLimitScript) {
+    rateLimitScript = client.createScript(RATE_LIMIT_LUA);
+  }
+  return rateLimitScript;
 }
 
 export function redisConfigured() {
@@ -50,6 +70,18 @@ export async function cacheSetJson(key, value, ttlSeconds = 30) {
   }
 }
 
+export async function cacheDel(key) {
+  const client = getRedis();
+  if (!client) return false;
+  try {
+    await client.del(key);
+    return true;
+  } catch (e) {
+    logger.warn('redis cacheDel failed', { key, err: e?.message });
+    return false;
+  }
+}
+
 /**
  * Express-rate-limit compatible store backed by Upstash Redis.
  * Falls back to in-memory Map when Redis is not configured.
@@ -63,7 +95,10 @@ export function createRedisRateLimitStore({ prefix = 'rl' } = {}) {
       const fullKey = `${prefix}:${key}`;
       if (!client) {
         const now = Date.now();
-        const entry = memory.get(fullKey) || { totalHits: 0, resetTime: new Date(now + 15 * 60 * 1000) };
+        const entry = memory.get(fullKey) || {
+          totalHits: 0,
+          resetTime: new Date(now + RATE_LIMIT_WINDOW_SEC * 1000),
+        };
         entry.totalHits += 1;
         memory.set(fullKey, entry);
         return {
@@ -72,17 +107,16 @@ export function createRedisRateLimitStore({ prefix = 'rl' } = {}) {
         };
       }
       try {
-        const hits = await client.incr(fullKey);
-        if (hits === 1) {
-          await client.expire(fullKey, 15 * 60);
-        }
-        const ttl = await client.ttl(fullKey);
+        const script = getRateLimitScript(client);
+        const result = await script.eval([fullKey], [String(RATE_LIMIT_WINDOW_SEC)]);
+        const hits = Number(Array.isArray(result) ? result[0] : 1);
+        const ttl = Number(Array.isArray(result) ? result[1] : RATE_LIMIT_WINDOW_SEC);
         const resetTime = new Date(Date.now() + Math.max(ttl, 1) * 1000);
         return { totalHits: hits, resetTime };
       } catch (e) {
         logger.warn('redis rate limit increment failed', { err: e?.message });
         const now = Date.now();
-        return { totalHits: 1, resetTime: new Date(now + 15 * 60 * 1000) };
+        return { totalHits: 1, resetTime: new Date(now + RATE_LIMIT_WINDOW_SEC * 1000) };
       }
     },
     async decrement(key) {

@@ -32,7 +32,14 @@ Do this **after** the launch-hardening PR is deployed. Keep Paystack on **test k
    ```
 4. When you see timeouts or slow Analytics/Home under load → upgrade to **Neon Scale**.
 
-### 2. Vercel
+### 2. Vercel (two projects — required)
+
+| Project | Domain | Root Directory | Role |
+|---------|--------|----------------|------|
+| **`sec-nightlife`** | `secnightlife.com` | `sec-night-life` | Vite SPA only (`dist/`) |
+| **`sec-nightlife-2io4`** | `api.secnightlife.com` | `sec-night-life/backend` | Express API |
+
+**If the frontend card says “No Production Deployment”:** open `sec-nightlife` → ensure Root Directory is `sec-night-life`, Framework Vite, Output `dist`, then **Redeploy → Production**. Do **not** point the frontend project at `backend/`. Local CLI `.vercel/project.json` must link to the **frontend** project when deploying the SPA (not `sec-nightlife-2io4`).
 
 1. Upgrade to **Pro** if cron or limits are flaky.
 2. API project env (Production):
@@ -42,18 +49,20 @@ Do this **after** the launch-hardening PR is deployed. Keep Paystack on **test k
    - **Do not** set `CORS_ALLOW_VERCEL_PREVIEW` in production
    - **Unset** `SKIP_EMAIL_VERIFICATION` / `ALLOW_UNVERIFIED_LOGIN`
    - `CRON_SECRET` set
-3. Frontend project: `VITE_API_URL`, `VITE_PUBLIC_APP_URL`, Cloudinary, Maps.
-4. Redeploy **both** projects after env changes.
-5. Confirm cron includes `/api/cron/retry-payouts` (every 6 hours).
+   - **Region:** set Functions region to match Neon (e.g. `fra1` if Neon is Frankfurt)
+3. Frontend project: `VITE_API_URL=https://api.secnightlife.com`, `VITE_PUBLIC_APP_URL=https://secnightlife.com`, Cloudinary, Maps.
+4. Redeploy **both** projects after env changes. Confirm frontend dashboard shows a Production deployment (not “No Production Deployment”).
+5. Confirm cron includes `/api/cron/retry-payouts` and `/api/cron/repair-payment-fulfillment`.
 
-### 3. Upstash Redis (performance)
+### 3. Upstash Redis (performance — required for paid speed)
 
-1. Create a Redis database at [upstash.com](https://upstash.com).
+1. Create a Redis database at [upstash.com](https://upstash.com) in the **same region as Neon** (e.g. Frankfurt/EU — not Cape Town if Neon is EU).
 2. Copy **REST URL** + **REST TOKEN**.
-3. Set on API Vercel:
+3. Set on **API** Vercel Production (not frontend):
    - `UPSTASH_REDIS_REST_URL`
    - `UPSTASH_REDIS_REST_TOKEN`
-4. Redeploy API. Guest home feed caching + Redis rate limits activate automatically.
+4. Redeploy API. Home bootstrap/feed cache, auth user cache, and Redis rate limits activate automatically.
+5. Confirm in Upstash console that keys appear after loading Home once (e.g. `home:bootstrap:*`, `auth:user:*`).
 
 ### 4. Cloudinary hardening
 

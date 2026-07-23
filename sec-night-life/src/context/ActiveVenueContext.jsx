@@ -25,6 +25,27 @@ export function ActiveVenueProvider({ children }) {
   const queryClient = useQueryClient();
   const location = useLocation();
   const [activeVenueId, setActiveVenueIdState] = useState(null);
+  const [modeTick, setModeTick] = useState(0);
+
+  useEffect(() => {
+    const onMode = () => setModeTick((n) => n + 1);
+    window.addEventListener('sec_active_mode_changed', onMode);
+    return () => window.removeEventListener('sec_active_mode_changed', onMode);
+  }, []);
+
+  const needsBizVenues = useMemo(() => {
+    if (!user?.id) return false;
+    if (user.role === 'VENUE') return true;
+    let mode = null;
+    try {
+      mode = localStorage.getItem('sec_active_mode');
+    } catch {
+      /* ignore */
+    }
+    if (mode === 'business') return true;
+    const path = `${location.pathname || ''}${location.search || ''}`;
+    return /Business|VenueAnalytics|VenueProfile|CreateJob|FeedbackInsights/i.test(path);
+  }, [user?.id, user?.role, location.pathname, location.search, modeTick]);
 
   const urlVenueId = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -35,7 +56,7 @@ export function ActiveVenueProvider({ children }) {
   const { data: venuesRaw, isLoading, refetch } = useQuery({
     queryKey: ['biz-venues', user?.id],
     queryFn: () => dataService.Venue.mine(),
-    enabled: !!user?.id,
+    enabled: !!user?.id && needsBizVenues,
     staleTime: 5 * 60_000,
   });
   const venues = useMemo(

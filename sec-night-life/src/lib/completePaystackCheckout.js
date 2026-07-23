@@ -50,10 +50,10 @@ export async function pollPaymentFulfillment(reference, { maxMs = 120000 } = {})
   let pollCount = 0;
   while (Date.now() - started < maxMs) {
     pollCount += 1;
-    // Re-verify / explicit repair so stuck side effects re-apply for joins, tickets, listings, etc.
-    if (pollCount === 1 || pollCount % 4 === 0) {
+    // Verify once up front, then poll fulfillment only. Repair only if still stuck after ~12s.
+    if (pollCount === 1) {
       lastResult = await verifyPaystackReference(reference);
-    } else if (pollCount === 3 || pollCount % 7 === 0) {
+    } else if (pollCount === 8) {
       try {
         lastResult = await repairPaymentFulfillment(reference);
       } catch {

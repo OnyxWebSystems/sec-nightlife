@@ -1,7 +1,81 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
-import { buildEventTableTiers } from './eventTableTiers.js';
 import { externalListingEndsAt } from './externalListingSchedule.js';
+
+/**
+ * Batch-compute total open spots per event (replaces N× buildEventTableTiers).
+ * Uses venue table capacity + hosted GOING counts in a few queries.
+ */
+async function batchEventTotalSpots(eventIds) {
+  const result = new Map();
+  if (!eventIds?.length) return result;
+
+  const [venueTables, hostedTables] = await Promise.all([
+    prisma.venueTable.findMany({
+      where: {
+        eventId: { in: eventIds },
+        isActive: true,
+        isCustomListing: false,
+      },
+      select: {
+        eventId: true,
+        guestCapacity: true,
+        currentOccupancy: true,
+        hostedTableId: true,
+      },
+    }),
+    prisma.hostedTable.findMany({
+      where: {
+        eventId: { in: eventIds },
+        tableType: 'IN_APP_EVENT',
+        status: { in: ['ACTIVE', 'FULL'] },
+      },
+      select: {
+        id: true,
+        eventId: true,
+        guestQuantity: true,
+        spotsRemaining: true,
+      },
+    }),
+  ]);
+
+  const hostedIds = hostedTables.map((h) => h.id);
+  const goingByHostedId = new Map();
+  if (hostedIds.length > 0) {
+    const goingRows = await prisma.hostedTableMember.groupBy({
+      by: ['hostedTableId'],
+      where: { hostedTableId: { in: hostedIds }, status: 'GOING' },
+      _count: { _all: true },
+    });
+    for (const row of goingRows) {
+      goingByHostedId.set(row.hostedTableId, row._count._all);
+    }
+  }
+
+  const linkedHostedIds = new Set(
+    venueTables.map((vt) => vt.hostedTableId).filter(Boolean),
+  );
+
+  for (const eventId of eventIds) {
+    let total = 0;
+    for (const vt of venueTables) {
+      if (vt.eventId !== eventId) continue;
+      total += Math.max(0, Number(vt.guestCapacity) - Number(vt.currentOccupancy));
+    }
+    for (const ht of hostedTables) {
+      if (ht.eventId !== eventId) continue;
+      if (linkedHostedIds.has(ht.id)) continue;
+      const going = goingByHostedId.get(ht.id);
+      const spots =
+        going != null
+          ? Math.max(0, Number(ht.guestQuantity) - going)
+          : Math.max(0, Number(ht.spotsRemaining) || 0);
+      total += spots;
+    }
+    result.set(eventId, total);
+  }
+  return result;
+}
 
 function isBoostActive(row) {
   if (!row?.boosted) return false;
@@ -392,23 +466,14 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
 
   const venueEventIds = [...venueEventMap.keys()];
   if (venueEventIds.length > 0) {
-    const tierResults = await Promise.all(
-      venueEventIds.map(async (eventId) => {
-        try {
-          const payload = await buildEventTableTiers(eventId);
-          const tiers = payload?.tiers || [];
-          const totalSpots = tiers.reduce((sum, t) => sum + (Number(t.totalSpotsRemaining) || 0), 0);
-          return { eventId, totalSpots };
-        } catch (e) {
-          logger.warn('buildEventTableTiers failed in buildTableOfferings', { eventId, err: e?.message });
-          return { eventId, totalSpots: null };
-        }
-      }),
-    );
-    for (const { eventId, totalSpots } of tierResults) {
-      if (totalSpots == null) continue;
-      const g = venueEventMap.get(eventId);
-      if (g) g.totalSpots = totalSpots;
+    try {
+      const spotsByEvent = await batchEventTotalSpots(venueEventIds);
+      for (const [eventId, totalSpots] of spotsByEvent) {
+        const g = venueEventMap.get(eventId);
+        if (g) g.totalSpots = totalSpots;
+      }
+    } catch (e) {
+      logger.warn('batchEventTotalSpots failed in buildTableOfferings', { err: e?.message });
     }
   }
 

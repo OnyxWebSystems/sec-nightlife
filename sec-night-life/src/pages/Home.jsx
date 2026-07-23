@@ -400,6 +400,7 @@ export default function Home() {
 
   const listStale = 120_000;
 
+  const feedScopeKey = homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity || 'all';
   const {
     data: feedPages,
     fetchNextPage,
@@ -407,11 +408,16 @@ export default function Home() {
     isFetchingNextPage,
     isLoading: feedLoading,
   } = useInfiniteQuery({
-    queryKey: ['home-feed', sessionId, homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity],
+    queryKey: ['home-feed', sessionId, feedScopeKey],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
+      const cursor = pageParam ?? 0;
+      if (cursor === 0) {
+        const boot = queryClient.getQueryData(['home-bootstrap', sessionId, feedScopeKey]);
+        if (boot?.feed?.items) return boot.feed;
+      }
       const params = new URLSearchParams({
-        cursor: String(pageParam ?? 0),
+        cursor: String(cursor),
         limit: '12',
         sessionId,
       });
@@ -429,7 +435,7 @@ export default function Home() {
     staleTime: 60_000,
   });
 
-  const bootstrapScopeKey = homeFeedScopeAll ? 'all' : homeFeedGeoKey || homeFeedCity || 'all';
+  const bootstrapScopeKey = feedScopeKey;
 
   const fetchHomeBootstrap = useCallback(async () => {
     const params = new URLSearchParams({
@@ -490,6 +496,17 @@ export default function Home() {
     staleTime: 60_000,
   });
 
+  useEffect(() => {
+    if (!homeBootstrap?.feed?.items) return;
+    queryClient.setQueryData(['home-feed', sessionId, bootstrapScopeKey], {
+      pages: [homeBootstrap.feed],
+      pageParams: [0],
+    });
+    if (homeBootstrap.featuredEvents) {
+      queryClient.setQueryData(['featured-events-details', 'auto'], homeBootstrap.featuredEvents);
+    }
+  }, [homeBootstrap, queryClient, sessionId, bootstrapScopeKey]);
+
   const followedPromoterEvents = homeBootstrap?.followedPromoters?.items || [];
   const platformAnnouncements = homeBootstrap?.announcements || [];
   const homePromotions = homeBootstrap?.promotions?.results || [];
@@ -504,12 +521,19 @@ export default function Home() {
         ? 'Showing venues and events across SEC — few venues near you. Order changes each session.'
         : 'Order changes based on your area and session.';
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['featured-events'],
-    queryFn: () => dataService.Event.filter({ status: 'published' }, '-date', 10),
-    staleTime: listStale,
-    enabled: !!user?.id,
-  });
+  // Upcoming/featured come from bootstrap + feed (no extra Event.filter / featured-details).
+  const events = useMemo(() => {
+    const fromFeed = (feedPages?.pages || [])
+      .flatMap((p) => p.items || [])
+      .filter((row) => row?.kind === 'event')
+      .map((row) => row.data);
+    const fromFeatured = homeBootstrap?.featuredEvents || [];
+    const byId = new Map();
+    for (const e of [...fromFeatured, ...fromFeed]) {
+      if (e?.id && !byId.has(e.id)) byId.set(e.id, e);
+    }
+    return [...byId.values()];
+  }, [feedPages, homeBootstrap?.featuredEvents]);
 
   const bootstrapTableItems = useMemo(() => {
     const items = homeBootstrap?.tableOfferings || [];
@@ -617,15 +641,10 @@ export default function Home() {
 
   const verifiedVenues = filteredVenues.filter(v => v.is_verified);
   const otherVenues = filteredVenues.filter(v => !v.is_verified);
-  const featuredEvents = useMemo(
-    () =>
-      prioritizedEvents
-        .filter((e) => e.is_featured || e.boosted)
-        .slice(0, 5),
-    [prioritizedEvents]
-  );
   const upcomingEvents = prioritizedEvents.slice(0, 6);
   const communityHostedEvents = homeBootstrap?.communityHostedEvents || [];
+
+  const featuredCards = homeBootstrap?.featuredEvents || [];
 
   const upcomingEventRows = useMemo(() => {
     const venueRows = upcomingEvents.map((event) => ({
@@ -659,16 +678,6 @@ export default function Home() {
       return ad - bd;
     });
   }, [upcomingEvents, communityHostedEvents]);
-
-  const featuredEventIds = useMemo(() => featuredEvents.map((e) => e.id).join(','), [featuredEvents]);
-  const { data: featuredEventDetails } = useQuery({
-    queryKey: ['featured-events-details', featuredEventIds],
-    queryFn: () => apiGet(`/api/events/featured-details?ids=${encodeURIComponent(featuredEventIds)}`),
-    staleTime: listStale,
-    enabled: !!user?.id && featuredEventIds.length > 0,
-  });
-  const featuredCards =
-    featuredEventDetails?.length > 0 ? featuredEventDetails : featuredEvents;
 
   if (!user && hasStoredAuthTokens()) {
     return <HomeSessionSkeleton />;
@@ -803,7 +812,7 @@ export default function Home() {
                   style={{ minWidth: 220, maxWidth: 240, padding: 12, borderRadius: 14, textDecoration: 'none', flexShrink: 0 }}
                 >
                   {item.event.coverImageUrl ? (
-                    <img src={item.event.coverImageUrl} alt="" style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 10, marginBottom: 8 }} />
+                    <img src={item.event.coverImageUrl} alt="" loading="lazy" style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 10, marginBottom: 8 }} />
                   ) : null}
                   <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-text-primary)' }}>{item.event.title}</div>
                   <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4 }}>
@@ -1051,7 +1060,7 @@ export default function Home() {
                       style={{ display: 'flex', gap: 12, padding: 14, textDecoration: 'none', color: 'inherit', alignItems: 'center' }}
                     >
                       <div style={{ width: 88, height: 88, borderRadius: 12, overflow: 'hidden', flexShrink: 0, background: 'var(--sec-bg-hover)' }}>
-                        <img src={getEventImage(row.data.cover_image_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={getEventImage(row.data.cover_image_url)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <span className="sec-label">Event</span>
@@ -1080,7 +1089,7 @@ export default function Home() {
                       }}
                     >
                       <div style={{ width: 88, height: 88, borderRadius: 12, overflow: 'hidden', flexShrink: 0, background: 'var(--sec-bg-hover)' }}>
-                        <img src={getEventImage(row.data.cover_image_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={getEventImage(row.data.cover_image_url)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <span className="sec-label">{row.data.boosted ? 'Promoted event' : 'Hosted event'}</span>

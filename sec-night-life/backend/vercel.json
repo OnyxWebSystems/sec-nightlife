@@ -1,9 +1,12 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
+  "regions": ["fra1"],
   "functions": {
     "api/index.js": {
-      "includeFiles": "assets/**"
+      "includeFiles": "assets/**",
+      "maxDuration": 60,
+      "memory": 1024
     }
   },
   "rewrites": [
@@ -59,4 +62,3 @@
     }
   ]
 }
-

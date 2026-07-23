@@ -185,7 +185,7 @@ export default function BusinessDashboard() {
     queryKey: ['biz-dashboard-booking-stats', scopeKey],
     queryFn: () => apiGet(`/api/business/dashboard-booking-stats?${venueScope.venueQuery}`),
     enabled: hasVenueScope && !!venueScope.venueQuery && (!isStaffOnly || can('bookings')),
-    staleTime: 2 * 60_000,
+    staleTime: 3 * 60_000,
   });
 
   const { data: monthlyStatsRaw, isLoading: monthlyStatsLoading } = useQuery({
@@ -196,7 +196,7 @@ export default function BusinessDashboard() {
       hasVenueScope
       && !!venueScope.venueQuery
       && (!isStaffOnly || can('bookings') || can('events') || can('analytics')),
-    staleTime: 2 * 60_000,
+    staleTime: 3 * 60_000,
   });
 
   const { data: refundQueueRaw } = useQuery({
@@ -212,7 +212,7 @@ export default function BusinessDashboard() {
     queryKey: ['biz-jobs', scopeKey],
     queryFn: () => apiGet(`/api/jobs/by-venue?${venueScope.venueQuery}`),
     enabled: hasVenueScope && !!venueScope.venueQuery && (!isStaffOnly || can('jobs')),
-    staleTime: 2 * 60_000,
+    staleTime: 3 * 60_000,
   });
 
   const events = asArray(eventsRaw);

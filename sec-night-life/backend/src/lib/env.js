@@ -180,5 +180,22 @@ export function validateEnv() {
     ) {
       fatal('ALLOW_UNVERIFIED_LOGIN must not be set in production.');
     }
+
+    if (
+      process.env.CORS_ALLOW_VERCEL_PREVIEW === 'true' ||
+      process.env.CORS_ALLOW_VERCEL_PREVIEW === '1'
+    ) {
+      fatal(
+        'CORS_ALLOW_VERCEL_PREVIEW must not be set in production (blocks credentialed *.vercel.app origins).'
+      );
+    }
+
+    const upstashUrl = String(process.env.UPSTASH_REDIS_REST_URL || '').trim();
+    const upstashToken = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
+    if (!upstashUrl || !upstashToken) {
+      console.warn(
+        '[env] UPSTASH_REDIS_REST_URL/TOKEN missing in production — rate limits fall back to per-instance memory; Home/auth caches disabled.'
+      );
+    }
   }
 }

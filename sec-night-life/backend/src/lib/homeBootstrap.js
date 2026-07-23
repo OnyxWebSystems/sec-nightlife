@@ -1,6 +1,8 @@
 import { prisma } from './prisma.js';
 import { buildTableOfferings, buildCommunityHostedEvents } from './tableOfferings.js';
 import { parseGeoQuery } from './geo.js';
+import { fetchFeaturedEventDetails } from './featuredEvents.js';
+import { buildHomeFeedPage } from './homeFeedPage.js';
 
 async function fetchAnnouncements() {
   const rows = await prisma.platformAnnouncement.findMany({
@@ -167,7 +169,7 @@ async function resolveCity({ userId, overrideCity, scopeAll, geo }) {
 }
 
 /**
- * Aggregated Home payload — replaces 4 parallel client requests.
+ * Aggregated Home payload — replaces parallel client requests on first paint.
  */
 export async function buildHomeBootstrap(req) {
   const scopeAll = req.query.scope === 'all' || req.query.all === '1' || req.query.all === 'true';
@@ -179,11 +181,20 @@ export async function buildHomeBootstrap(req) {
     'anon-session';
   const tableLimit = Math.min(Math.max(parseInt(req.query.tableLimit, 10) || 24, 1), 60);
   const promoLimit = Math.min(Math.max(parseInt(req.query.promoLimit, 10) || 12, 1), 20);
+  const featuredLimit = Math.min(Math.max(parseInt(req.query.featuredLimit, 10) || 5, 1), 12);
   const userId = req.userId || null;
   const city = await resolveCity({ userId, overrideCity, scopeAll, geo });
 
   // Isolate failures so promotions/geo errors cannot wipe Available Tables.
-  const [announcementsRes, tableRes, promotionsRes, followedRes, communityRes] = await Promise.allSettled([
+  const [
+    announcementsRes,
+    tableRes,
+    promotionsRes,
+    followedRes,
+    communityRes,
+    featuredRes,
+    feedRes,
+  ] = await Promise.allSettled([
     fetchAnnouncements(),
     buildTableOfferings({
       userId,
@@ -193,6 +204,8 @@ export async function buildHomeBootstrap(req) {
     fetchPromotionsPage({ userId, city, scopeAll: scopeAll || !!geo, limit: promoLimit }),
     userId ? fetchFollowedPromoters(userId) : Promise.resolve([]),
     buildCommunityHostedEvents({ limit: 12 }),
+    fetchFeaturedEventDetails({ limit: featuredLimit }),
+    buildHomeFeedPage(req),
   ]);
 
   return {
@@ -205,5 +218,7 @@ export async function buildHomeBootstrap(req) {
       items: followedRes.status === 'fulfilled' ? followedRes.value : [],
     },
     communityHostedEvents: communityRes.status === 'fulfilled' ? communityRes.value : [],
+    featuredEvents: featuredRes.status === 'fulfilled' ? featuredRes.value : [],
+    feed: feedRes.status === 'fulfilled' ? feedRes.value : { items: [], nextCursor: null, total: 0 },
   };
 }

@@ -923,6 +923,7 @@ model Event {
   @@index([status])
   @@index([city])
   @@index([boosted, boostExpiresAt])
+  @@index([deletedAt, status, endsAt])
   @@map("events")
 }
 
@@ -1216,6 +1217,7 @@ model Promotion {
   @@index([eventId])
   @@index([targetCity])
   @@index([boosted, boostExpiresAt])
+  @@index([deletedAt, status, endAt])
   @@map("promotions")
 }
 
@@ -1776,6 +1778,7 @@ model HostedTable {
   @@index([eventDate])
   @@index([venueTableId])
   @@index([windowEndsAt])
+  @@index([status, spotsRemaining, eventDate])
   @@map("hosted_tables")
 }
 
@@ -1925,6 +1928,7 @@ model VenueTable {
   @@index([status])
   @@index([hostUserId])
   @@index([boosted, boostExpiresAt])
+  @@index([isActive, status])
   @@map("venue_tables")
 }
 

@@ -2161,19 +2161,48 @@ async function ensureIncompletePaymentReplay(reference, paystackData = null) {
   }
 }
 
+async function resolvePaymentRepairType(reference, paystackData) {
+  const fromStack =
+    paystackData?.metadata && typeof paystackData.metadata === 'object'
+      ? flattenPaymentMetadata(paystackData.metadata)
+      : null;
+  if (fromStack?.type) return String(fromStack.type);
+  const pay = await prisma.payment.findUnique({
+    where: { reference },
+    select: { metadata: true, type: true },
+  });
+  const meta = flattenPaymentMetadata(pay?.metadata);
+  return String(meta?.type || pay?.type || '');
+}
+
 async function runPaymentRepairPaths(reference, paystackData, { replayIncomplete = true } = {}) {
-  await ensureEventTicketsForPayment(reference, paystackData).catch((e) => {
-    console.warn('ensureEventTicketsForPayment repair failed', e?.message);
-  });
-  await ensureVenueTableFulfillmentForPayment(reference, paystackData).catch((e) => {
-    console.warn('ensureVenueTableFulfillmentForPayment repair failed', e?.message);
-  });
-  await ensureHostedTableJoinFulfillmentForPayment(reference, paystackData).catch((e) => {
-    console.warn('ensureHostedTableJoinFulfillmentForPayment repair failed', e?.message);
-  });
-  await ensureExternalListingFulfillmentForPayment(reference, paystackData).catch((e) => {
-    console.warn('ensureExternalListingFulfillmentForPayment repair failed', e?.message);
-  });
+  const type = await resolvePaymentRepairType(reference, paystackData).catch(() => '');
+  const isTicket = type === 'ticket' || type === 'event' || type === 'EVENT_ENTRANCE';
+  const isVenueTable = type === 'TABLE_CHECKOUT' || type === 'VENUE_TABLE_JOIN';
+  const isHostedJoin = type === 'TABLE_HOST_FEE' || type === 'HOSTED_TABLE_JOIN';
+  const isExternal = type === 'HOSTED_TABLE_EXTERNAL_LISTING';
+  const runAll = !isTicket && !isVenueTable && !isHostedJoin && !isExternal;
+
+  if (runAll || isTicket) {
+    await ensureEventTicketsForPayment(reference, paystackData).catch((e) => {
+      console.warn('ensureEventTicketsForPayment repair failed', e?.message);
+    });
+  }
+  if (runAll || isVenueTable) {
+    await ensureVenueTableFulfillmentForPayment(reference, paystackData).catch((e) => {
+      console.warn('ensureVenueTableFulfillmentForPayment repair failed', e?.message);
+    });
+  }
+  if (runAll || isHostedJoin) {
+    await ensureHostedTableJoinFulfillmentForPayment(reference, paystackData).catch((e) => {
+      console.warn('ensureHostedTableJoinFulfillmentForPayment repair failed', e?.message);
+    });
+  }
+  if (runAll || isExternal) {
+    await ensureExternalListingFulfillmentForPayment(reference, paystackData).catch((e) => {
+      console.warn('ensureExternalListingFulfillmentForPayment repair failed', e?.message);
+    });
+  }
   if (replayIncomplete) {
     await ensureIncompletePaymentReplay(reference, paystackData).catch((e) => {
       console.warn('ensureIncompletePaymentReplay repair failed', e?.message);
@@ -3197,8 +3226,11 @@ export async function paystackWebhookHandler(req, res) {
   const key = process.env.PAYSTACK_SECRET_KEY;
   if (!sig || !key) return res.status(400).send('bad request');
   const hash = crypto.createHmac('sha512', key).update(req.body).digest('hex');
-  if (hash !== sig) return res.status(401).send('invalid signature');
-
+  const sigBuf = Buffer.from(String(sig));
+  const hashBuf = Buffer.from(hash);
+  if (sigBuf.length !== hashBuf.length || !crypto.timingSafeEqual(sigBuf, hashBuf)) {
+    return res.status(401).send('invalid signature');
+  }
   let payload;
   try {
     payload = JSON.parse(req.body.toString('utf8'));

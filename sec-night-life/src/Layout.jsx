@@ -6,7 +6,7 @@ import * as authService from '@/services/authService';
 import { useAuth } from '@/lib/AuthContext';
 import { apiGet } from '@/api/client';
 import { flushPendingLegalAccepts } from '@/lib/pendingLegalAccept';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import SecLogo from '@/components/ui/SecLogo';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
@@ -60,6 +60,7 @@ export default function Layout({ children, currentPageName }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, userProfile } = useAuth();
+  const queryClient = useQueryClient();
   const activeVenueCtx = useActiveVenueOptional();
   const staffAccess = useVenueStaffAccess();
   const venueScope = useBusinessVenueScope();
@@ -73,6 +74,11 @@ export default function Layout({ children, currentPageName }) {
   const [showMoreSheet, setShowMoreSheet] = useState(false);
   const [complianceAccess, setComplianceAccess] = useState({ canReview: false, isSuperAdmin: false });
   const [hasStaffAssignments, setHasStaffAssignments] = useState(false);
+
+  const needsComplianceAccess =
+    activeMode === 'business' ||
+    currentPageName === 'AdminDashboard' ||
+    String(currentPageName || '').startsWith('Admin');
 
   const { data: staffVenuesList = [] } = useQuery({
     queryKey: ['staff-venues'],
@@ -92,7 +98,7 @@ export default function Layout({ children, currentPageName }) {
   const { data: complianceData } = useQuery({
     queryKey: ['compliance-access'],
     queryFn: () => apiGet('/api/compliance-documents/me/access'),
-    enabled: !!user?.id,
+    enabled: !!user?.id && needsComplianceAccess,
     staleTime: 5 * 60_000,
   });
 
@@ -123,74 +129,79 @@ export default function Layout({ children, currentPageName }) {
     prevMessageUnreadRef.current = messageUnread;
   }, [messageUnread]);
 
-  const fetchNotificationCounts = useCallback(async () => {
-    if (!user?.id) return;
-    const businessMode = activeMode === 'business';
-    const venueQs = businessMode && venueScope.venueQuery ? `?${venueScope.venueQuery}` : '';
+  const badgeQueryKey = [
+    'layout-unread-badges',
+    user?.id,
+    activeMode,
+    venueScope.venueQuery || '',
+  ];
 
-    if (businessMode && !venueScope.venueQuery) {
+  const { data: badgeCounts, refetch: refetchBadges } = useQuery({
+    queryKey: badgeQueryKey,
+    enabled: Boolean(user?.id) && !(activeMode === 'business' && !venueScope.venueQuery),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const businessMode = activeMode === 'business';
+      const venueQs = businessMode && venueScope.venueQuery ? `?${venueScope.venueQuery}` : '';
+      const msgUrl = businessMode
+        ? `/api/business/inbox/unread-count${venueQs}`
+        : '/api/messages/unread-total';
+      const notifUrl = businessMode
+        ? `/api/notifications/unread-count${venueQs}`
+        : '/api/notifications/unread-count';
+      const [unreadRes, msgRes, hostRes] = await Promise.allSettled([
+        apiGet(notifUrl),
+        apiGet(msgUrl),
+        // Host unread only when not pure partygoer chrome (defer cost on Home).
+        activeMode === 'partygoer'
+          ? Promise.resolve({ count: 0 })
+          : apiGet('/api/host/notifications/unread-count'),
+      ]);
+      const notif =
+        unreadRes.status === 'fulfilled' && typeof unreadRes.value?.count === 'number'
+          ? unreadRes.value.count
+          : 0;
+      let msgs = 0;
+      if (msgRes.status === 'fulfilled') {
+        const m = msgRes.value;
+        msgs = typeof m?.total === 'number' ? m.total : typeof m?.count === 'number' ? m.count : 0;
+      }
+      const host =
+        hostRes.status === 'fulfilled' && typeof hostRes.value?.count === 'number'
+          ? hostRes.value.count
+          : 0;
+      return { notif, msgs, host };
+    },
+  });
+
+  useEffect(() => {
+    if (!user?.id) {
       setNotificationCount(0);
       setMessageUnread(0);
       setHostUnread(0);
       return;
     }
-
-    const msgUrl = businessMode
-      ? `/api/business/inbox/unread-count${venueQs}`
-      : '/api/messages/unread-total';
-    const notifUrl = businessMode
-      ? `/api/notifications/unread-count${venueQs}`
-      : '/api/notifications/unread-count';
-
-    const [unreadRes, msgRes, hostRes] = await Promise.allSettled([
-      apiGet(notifUrl),
-      apiGet(msgUrl),
-      apiGet('/api/host/notifications/unread-count'),
-    ]);
-    if (unreadRes.status === 'fulfilled') {
-      const u = unreadRes.value;
-      setNotificationCount(typeof u?.count === 'number' ? u.count : 0);
-    } else {
+    if (activeMode === 'business' && !venueScope.venueQuery) {
       setNotificationCount(0);
-    }
-    if (msgRes.status === 'fulfilled') {
-      const m = msgRes.value;
-      const n = typeof m?.total === 'number' ? m.total : typeof m?.count === 'number' ? m.count : 0;
-      setMessageUnread(n);
-    } else {
       setMessageUnread(0);
-    }
-    if (hostRes.status === 'fulfilled') {
-      const h = hostRes.value;
-      setHostUnread(typeof h?.count === 'number' ? h.count : 0);
-    } else {
       setHostUnread(0);
+      return;
     }
-  }, [user?.id, activeMode, venueScope.venueQuery]);
+    if (!badgeCounts) return;
+    setNotificationCount(badgeCounts.notif);
+    setMessageUnread(badgeCounts.msgs);
+    setHostUnread(badgeCounts.host);
+    queryClient.setQueryData(['notifications-unread'], badgeCounts.notif);
+  }, [user?.id, activeMode, venueScope.venueQuery, badgeCounts, queryClient]);
+
 
   useEffect(() => {
-    if (!user?.id) return undefined;
-    const tick = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      fetchNotificationCounts();
-    };
-    tick();
-    const timer = window.setInterval(tick, 90000);
-    const onVis = () => {
-      if (document.visibilityState === 'visible') tick();
-    };
-    document.addEventListener('visibilitychange', onVis);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', onVis);
-    };
-  }, [user?.id, fetchNotificationCounts]);
-
-  useEffect(() => {
-    const onRefresh = () => fetchNotificationCounts();
+    const onRefresh = () => { void refetchBadges(); };
     window.addEventListener('sec_notifications_refresh', onRefresh);
     return () => window.removeEventListener('sec_notifications_refresh', onRefresh);
-  }, [fetchNotificationCounts]);
+  }, [refetchBadges]);
 
   useEffect(() => {
     if (!user?.id) {

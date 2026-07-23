@@ -16,10 +16,12 @@ Use before public launch. Check off each item in Vercel / Neon / external dashbo
 - [ ] `CORS_ORIGIN` + `APP_URL` = `https://secnightlife.com`
 - [ ] **Do not** set `CORS_ALLOW_VERCEL_PREVIEW` in production
 - [ ] Frontend `VITE_API_URL=https://api.secnightlife.com`, `VITE_PUBLIC_APP_URL=https://secnightlife.com`
+- [ ] Frontend Vercel project `sec-nightlife` has a **Production** deployment (not “No Production Deployment”); Root Directory = `sec-night-life`
+- [ ] API Vercel Functions **region** matches Neon region; Upstash Redis in the same region
 - [ ] `RESEND_API_KEY` + verified `EMAIL_FROM` domain
 - [ ] Cloudinary + Google Maps keys on frontend/backend Vercel
 - [ ] Cloudinary unsigned preset locked (folder/MIME/size)
-- [ ] Optional: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (Home feed cache)
+- [ ] `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` on API Production (Home cache + auth cache + rate limits)
 - [ ] Optional: `VITE_SENTRY_DSN` + backend `SENTRY_DSN`
 
 ## Health probes
@@ -39,7 +41,7 @@ Point uptime monitors at `/api/health/ready`. Run `npm run verify:production` af
 4. Ticket buy → success → leave → buy again for same event (**no false logout / Login bounce**)
 5. Mobile: bottom **More** sheet reaches every desktop destination (partygoer + business); venue switcher + mode switch in More
 6. Admin: every tab loads via `?tab=`; compliance approve/reject; reports
-7. Home loads in **≤5 API calls** on first paint (bootstrap + feed + events + featured-details; venues load on scroll)
+7. Home loads in **≤5 data API calls** on first paint for partygoer (bootstrap + Layout roles/staff/badges; venues deferred to scroll). Feed page-1 and featured ride inside bootstrap.
 8. Map shows pins in nearby + all modes
 9. Send group chat message — appears within poll interval
 10. Native app: push token registers (`POST /api/users/push-token` returns 200)

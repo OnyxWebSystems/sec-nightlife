@@ -80,11 +80,13 @@ export default function EventDetails() {
       }
       if (currentUser) setUser(currentUser);
       let profile = authProfile;
-      try {
-        const rows = await apiGet('/api/users/profile');
-        profile = Array.isArray(rows) ? rows[0] : rows;
-      } catch {
-        /* fallback below */
+      if (!profile) {
+        try {
+          const rows = await apiGet('/api/users/profile');
+          profile = Array.isArray(rows) ? rows[0] : rows;
+        } catch {
+          /* fallback below */
+        }
       }
       if (!profile && currentUser?.email) {
         try {

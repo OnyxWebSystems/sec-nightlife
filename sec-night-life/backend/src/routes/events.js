@@ -824,32 +824,14 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
 /** One round-trip for Home featured carousel (replaces N × GET /events/:id). */
 router.get('/featured-details', optionalAuth, async (req, res, next) => {
   try {
+    const { fetchFeaturedEventDetails } = await import('../lib/featuredEvents.js');
     const raw = String(req.query.ids || '').trim();
-    if (!raw) return res.json([]);
-    const ids = [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 12);
-    if (ids.length === 0) return res.json([]);
-    const events = await prisma.event.findMany({
-      where: { id: { in: ids }, deletedAt: null, status: 'published', endsAt: { gte: new Date() } },
-      include: { venue: true },
-    });
-    const byId = new Map(events.map((e) => [e.id, e]));
-    const goingRows = await prisma.eventAttendance.groupBy({
-      by: ['eventId'],
-      where: { eventId: { in: ids }, confirmed: true },
-      _count: { _all: true },
-    });
-    const goingByEvent = new Map(goingRows.map((r) => [r.eventId, r._count._all]));
-    const out = await Promise.all(
-      ids.map(async (id) => {
-        const event = byId.get(id);
-        if (!event) return null;
-        const stats = await computeEventStats(event.id, event.hostingConfig, {
-          goingCount: goingByEvent.get(id) || 0,
-        });
-        return mapEventDetail(event, stats);
-      }),
-    );
-    res.json(out.filter(Boolean));
+    const ids = raw
+      ? [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 12)
+      : null;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 12);
+    const out = await fetchFeaturedEventDetails({ ids, limit });
+    res.json(out);
   } catch (err) {
     next(err);
   }

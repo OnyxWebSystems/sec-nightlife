@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { cacheGetJson, cacheSetJson } from '../lib/redis.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { splitPlatformGross } from '../lib/platformSplit.js';
@@ -982,6 +983,11 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
     const eventId = typeof req.query.event_id === 'string' && req.query.event_id.trim() ? req.query.event_id.trim() : null;
     const revenueScope = parseRevenueScope(req.query.revenue_scope);
     const revenueMode = String(req.query.revenue_mode || 'gross').toLowerCase() === 'net' ? 'net' : 'gross';
+    const analyticsCacheKey = `biz:venue-analytics:v1:${venueId}:${days}:${eventId || 'all'}:${revenueScope}:${revenueMode}`;
+    if (String(req.query.debug || '') !== '1') {
+      const cached = await cacheGetJson(analyticsCacheKey);
+      if (cached) return res.json(cached);
+    }
 
     // Skip background repair on analytics — it competes for DB connections and slows the page.
     const cutoff = new Date(Date.now() - days * 86400000);
@@ -1688,7 +1694,7 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
       peakHour = peakHourEntry ? `${peakHourEntry[0]}:00` : null;
     }
 
-    res.json({
+    const analyticsPayload = {
       venueId,
       days,
       cutoff: cutoff.toISOString(),
@@ -1751,7 +1757,11 @@ router.get('/venue-analytics', authenticateToken, async (req, res, next) => {
             },
           }
         : {}),
-    });
+    };
+    if (String(req.query.debug || '') !== '1') {
+      await cacheSetJson(analyticsCacheKey, analyticsPayload, 90);
+    }
+    res.json(analyticsPayload);
   } catch (e) {
     next(e);
   }
@@ -1825,6 +1835,11 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
     if (!scope) return;
     const venueIds = scope.venueIds;
     const venueIdFilter = venueIdFromQuery(req.query);
+    const bookingStatsCacheKey = `biz:dash-booking:v1:${venueIds.slice().sort().join(',') || 'none'}`;
+    if (venueIds.length) {
+      const cached = await cacheGetJson(bookingStatsCacheKey);
+      if (cached) return res.json(cached);
+    }
     if (!venueIds.length) {
       if (venueIdFilter || staffCtxFromQuery(req.query)) {
         return res.status(404).json({ error: 'Venue not found' });
@@ -2106,7 +2121,7 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
       }
     }
 
-    res.json({
+    const bookingStatsPayload = {
       totalBookings: eventTableCount + venueTableIds.size,
       activeBookings: eventActiveBookings + venueActiveTables + venuePendingCount,
       totalGuests: eventGoingHeadcount + venueGuestCount,
@@ -2115,7 +2130,9 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
       entranceFees,
       ticketedTables,
       recentBookings,
-    });
+    };
+    await cacheSetJson(bookingStatsCacheKey, bookingStatsPayload, 60);
+    res.json(bookingStatsPayload);
   } catch (e) {
     next(e);
   }
@@ -2381,6 +2398,11 @@ router.get('/dashboard-monthly-stats', authenticateToken, async (req, res, next)
     const venueIds = scope.venueIds;
     const venueIdFilter = venueIdFromQuery(req.query);
     const year = Math.min(2100, Math.max(2000, parseInt(req.query.year, 10) || new Date().getFullYear()));
+    const monthlyCacheKey = `biz:dash-monthly:v1:${venueIds.slice().sort().join(',') || 'none'}:${year}`;
+    if (venueIds.length) {
+      const cached = await cacheGetJson(monthlyCacheKey);
+      if (cached) return res.json(cached);
+    }
 
     if (!venueIds.length) {
       if (venueIdFilter || staffCtxFromQuery(req.query)) {
@@ -2414,10 +2436,12 @@ router.get('/dashboard-monthly-stats', authenticateToken, async (req, res, next)
 
     const stats = await computeVenueDashboardStats(venueIds, year);
 
-    res.json({
+    const monthlyPayload = {
       year,
       ...stats,
-    });
+    };
+    await cacheSetJson(monthlyCacheKey, monthlyPayload, 90);
+    res.json(monthlyPayload);
   } catch (e) {
     next(e);
   }

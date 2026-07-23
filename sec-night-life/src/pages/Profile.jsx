@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import * as authService from '@/services/authService';
+import { useAuth } from '@/lib/AuthContext';
 import { dataService } from '@/services/dataService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiDelete } from '@/api/client';
@@ -114,6 +114,8 @@ export default function Profile() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user, userProfile: authUserProfile, isLoadingAuth } = useAuth();
+  const [profilePatch, setProfilePatch] = useState({});
   const OWN_ONLY_TABS = ['tickets', 'reviews', 'interests', 'wallet', 'promotions'];
   const rawTab = searchParams.get('tab');
   const profileTab = ['activity', 'tickets', 'reviews', 'interests', 'wallet', 'promotions'].includes(rawTab)
@@ -121,35 +123,21 @@ export default function Profile() {
     : 'activity';
   const setProfileTab = (tab) => setSearchParams({ tab });
   const queryClient = useQueryClient();
-  const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [viewingUserId, setViewingUserId] = useState(null);
+  const viewingUserId = searchParams.get('id');
+  const userProfile = authUserProfile ? { ...authUserProfile, ...profilePatch } : null;
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const userId = urlParams.get('id');
-    setViewingUserId(userId);
-    loadUser();
-  }, []);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await authService.loadUserOrLogin(createPageUrl('Profile'));
-      setUser(currentUser);
-      const profiles = await dataService.User.filter({ created_by: currentUser.email });
-      if (profiles.length > 0) {
-        setUserProfile(profiles[0]);
-      } else {
-        navigate(createPageUrl('ProfileSetup'));
-      }
-    } catch {
-      // loadUserOrLogin redirects when no session remains
+    if (isLoadingAuth) return;
+    if (viewingUserId) return;
+    if (!user) return;
+    if (!authUserProfile) {
+      navigate(createPageUrl('ProfileSetup'), { replace: true });
     }
-  };
+  }, [isLoadingAuth, viewingUserId, user, authUserProfile, navigate]);
 
   /** Merge PATCH /api/users/profile response into local state (Profile does not use React Query for own profile). */
   const mergeSelfProfileFromApi = (patch) => {
-    setUserProfile((prev) => (prev ? { ...prev, ...patch } : prev));
+    setProfilePatch((prev) => ({ ...prev, ...patch }));
   };
 
   const isOwnProfile =
@@ -245,15 +233,18 @@ export default function Profile() {
     queryKey: ['active-tables', authUserId],
     queryFn: async () => {
       if (!authUserId) return [];
-      const tables = await dataService.Table.filter({ status: 'open' });
-      return tables.filter((t) =>
-        t.host_user_id === authUserId ||
-        (Array.isArray(t.members) &&
-          t.members.some((m) => {
-            const uid = typeof m === 'object' && m ? m.user_id || m.userId : m;
-            return uid === authUserId;
-          }))
-      );
+      const [hosted, member] = await Promise.all([
+        apiGet(`/api/tables/filter?status=open&host_user_id=${encodeURIComponent(authUserId)}`),
+        apiGet(`/api/tables/filter?status=open&member_user_id=${encodeURIComponent(authUserId)}`),
+      ]);
+      const hostedList = Array.isArray(hosted) ? hosted : [];
+      const memberList = Array.isArray(member) ? member : [];
+      const seen = new Set();
+      return [...hostedList, ...memberList].filter((t) => {
+        if (seen.has(t.id)) return false;
+        seen.add(t.id);
+        return true;
+      });
     },
     enabled: !!authUserId && isOwnProfile,
   });
@@ -261,13 +252,12 @@ export default function Profile() {
   const { data: interestedEvents = [] } = useQuery({
     queryKey: ['interested-events', displayProfile?.interested_events],
     queryFn: async () => {
-      if (!displayProfile?.interested_events?.length) return [];
-      const events = await Promise.all(
-        displayProfile.interested_events.slice(0, 3).map(id =>
-          dataService.Event.filter({ id })
-        )
+      const ids = displayProfile.interested_events.slice(0, 3);
+      if (!ids.length) return [];
+      const events = await apiGet(
+        `/api/events/featured-details?ids=${encodeURIComponent(ids.join(','))}`,
       );
-      return events.flat();
+      return Array.isArray(events) ? events : [];
     },
     enabled: !!displayProfile?.interested_events?.length,
   });
@@ -289,24 +279,10 @@ export default function Profile() {
   });
 
   const { data: userRoles = { host: false, business: false } } = useQuery({
-    queryKey: ['user-roles', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return { host: false, business: false };
-      let hasBusiness = user?.role === 'VENUE';
-      let hasHost = false;
-      if (!hasBusiness) {
-        try {
-          const venues = await dataService.Venue.mine();
-          hasBusiness = Array.isArray(venues) && venues.length > 0;
-        } catch {}
-      }
-      try {
-        const tables = await dataService.Table.filter({ host_user_id: user.id });
-        hasHost = tables.length > 0;
-      } catch {}
-      return { host: hasHost, business: hasBusiness };
-    },
+    queryKey: ['user-roles-me', user?.id],
+    queryFn: () => apiGet('/api/user-roles/me'),
     enabled: !!user?.id && isOwnProfile,
+    staleTime: 5 * 60_000,
   });
 
   const sendFriendRequestMutation = useMutation({
@@ -412,7 +388,13 @@ export default function Profile() {
     displayProfile?.age_verified === true ||
     (isOwnProfile && user?.identity_verified);
 
-  if (!user || !displayProfile) {
+  if (isLoadingAuth || !user) {
+    return <SecLoadingScreen />;
+  }
+  if (isOwnProfile && !userProfile) {
+    return <SecLoadingScreen />;
+  }
+  if (!isOwnProfile && !displayProfile) {
     return <SecLoadingScreen />;
   }
 

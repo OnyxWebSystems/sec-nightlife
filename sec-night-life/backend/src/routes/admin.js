@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, invalidateAuthUserCache } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/rbac.js';
 import { auditFromReq } from '../lib/audit.js';
 import { privateDownloadUrl, signCloudinaryUrl } from '../lib/cloudinarySignedUrl.js';
@@ -363,11 +363,13 @@ router.post('/reports/:id/moderate', async (req, res, next) => {
           data: { suspendedAt: new Date(), suspendedReason: reason },
         });
         await prisma.refreshToken.deleteMany({ where: { userId: report.targetId } });
+        await invalidateAuthUserCache(report.targetId);
       } else {
         await prisma.user.update({
           where: { id: report.targetId },
           data: { suspendedAt: null, suspendedReason: null },
         });
+        await invalidateAuthUserCache(report.targetId);
       }
     }
 
@@ -471,6 +473,7 @@ router.post('/users/:id/suspend', async (req, res, next) => {
 
     // Revoke all refresh tokens on suspension
     await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+    await invalidateAuthUserCache(user.id);
 
     await auditFromReq(req, {
       userId: req.userId,
@@ -492,6 +495,7 @@ router.post('/users/:id/unsuspend', async (req, res, next) => {
       where: { id: req.params.id },
       data: { suspendedAt: null, suspendedReason: null }
     });
+    await invalidateAuthUserCache(user.id);
 
     await auditFromReq(req, {
       userId: req.userId,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import * as authService from '@/services/authService';
+import { useAuth } from '@/lib/AuthContext';
 import { apiGet } from '@/api/client';
 import { dataService } from '@/services/dataService';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
@@ -264,7 +264,7 @@ function AnalyticsEventPicker({
 }
 
 export default function VenueAnalytics() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [selectedVenue, setSelectedVenue] = useState('');
   const [dateRange, setDateRange] = useState('30');
   const [revenueMode, setRevenueMode] = useState('gross');
@@ -272,19 +272,6 @@ export default function VenueAnalytics() {
   const [selectedEventId, setSelectedEventId] = useState('');
   const [selectedEventCache, setSelectedEventCache] = useState(null);
   const isMobile = useIsMobile(640);
-
-  useEffect(() => {
-    loadUser();
-  }, []);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await authService.loadUserOrLogin();
-      setUser(currentUser);
-    } catch {
-      // loadUserOrLogin redirects when no session remains
-    }
-  };
 
   const { venues, activeVenueId, setActiveVenueId } = useActiveVenue();
 
