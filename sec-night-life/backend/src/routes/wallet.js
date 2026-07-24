@@ -116,7 +116,9 @@ router.get('/venue/:venueId', authenticateToken, async (req, res, next) => {
     });
     const summary = await aggregateWalletSummary({
       venueId,
-      transactionsSince: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      // Show recent earnings with status (not only last 24h)
+      transactionsSince: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+      transactionLimit: 40,
     });
     const payoutComplete = Boolean(venue?.paystackRecipientCode);
 

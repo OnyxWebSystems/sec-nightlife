@@ -78,6 +78,80 @@ async function syncTierSoldFromTickets(db, eventId, ticketTier) {
 
 export { syncTierSoldFromTickets as restoreTicketTierInventoryFromTickets };
 
+function ticketPayoutAmounts(amount, metadata) {
+  const grossZar = Number(amount || 0);
+  let eSec;
+  let eRec;
+  if (metadata?.platform_fee_zar != null && metadata?.venue_share_zar != null) {
+    eSec = Math.round(Number(metadata.platform_fee_zar) * 100) / 100;
+    eRec = Math.round(Number(metadata.venue_share_zar) * 100) / 100;
+  } else if (
+    metadata?.ticket_subtotal_zar != null
+    || metadata?.menu_zar != null
+    || metadata?.menu_total_zar != null
+  ) {
+    const ticketSub = Number(metadata.ticket_subtotal_zar ?? grossZar) || 0;
+    const menuSub = Number(metadata.menu_total_zar ?? metadata.menu_zar ?? 0) || 0;
+    const split = splitTicketCheckoutAmounts(ticketSub, menuSub);
+    eSec = split.secAmount;
+    eRec = split.recipientAmount;
+  } else {
+    const split = splitTicketGross(grossZar);
+    eSec = split.secAmount;
+    eRec = split.recipientAmount;
+  }
+  return { grossZar, eSec, eRec };
+}
+
+/**
+ * Idempotently record venue share for a ticket payment (even if tickets already exist).
+ */
+export async function ensureVenueTicketPayoutLedger({
+  reference,
+  amount = 0,
+  metadata = {},
+  venueId = null,
+}) {
+  if (!reference) return { skipped: true, reason: 'missing_reference' };
+
+  const existing = await prisma.payoutLedger.findUnique({
+    where: { paymentReference: reference },
+  });
+  if (existing) {
+    return { skipped: true, status: existing.status, ledgerId: existing.id };
+  }
+
+  let resolvedVenueId = venueId || metadata.venue_id || metadata.venueId || null;
+  const eventId = metadata.event_id || metadata.eventId;
+  if (!resolvedVenueId && eventId) {
+    const event = await prisma.event.findFirst({
+      where: { id: String(eventId), deletedAt: null },
+      select: { venueId: true },
+    });
+    resolvedVenueId = event?.venueId || null;
+  }
+  if (!resolvedVenueId) {
+    return { skipped: true, reason: 'missing_venue' };
+  }
+
+  const { grossZar, eSec, eRec } = ticketPayoutAmounts(amount, metadata);
+  if (grossZar <= 0 || eRec <= 0) {
+    return { skipped: true, reason: 'no_recipient_share' };
+  }
+
+  const vCode = await resolveRecipientCodeForVenue(resolvedVenueId);
+  return recordPayoutAndMaybeTransfer({
+    paymentReference: reference,
+    grossZar,
+    secAmount: eSec,
+    recipientAmount: eRec,
+    recipientType: 'VENUE',
+    recipientVenueId: resolvedVenueId,
+    recipientUserId: null,
+    paystackRecipientCode: vCode,
+  });
+}
+
 /**
  * Idempotently issue EVENT_TICKET rows after a successful ticket payment.
  */
@@ -111,6 +185,16 @@ export async function issueEventTicketsFromPayment(db, {
   const existingCount = existing.length;
   if (existingCount >= qty) {
     await syncTierSoldFromTickets(db, eventId, ticketTier);
+    await ensureVenueTicketPayoutLedger({
+      reference,
+      amount,
+      metadata,
+    }).catch((err) => {
+      logger.warn('ensureVenueTicketPayoutLedger on already_issued failed', {
+        reference,
+        err: err?.message,
+      });
+    });
     return { issued: 0, skipped: true, reason: 'already_issued', existing: existingCount };
   }
 
@@ -220,6 +304,18 @@ export async function issueEventTicketsFromPayment(db, {
     }
   });
 
+  // Always ensure venue payout ledger when tickets exist (not gated on notifications).
+  if (issuedTickets.length > 0 || existingCount > 0) {
+    await ensureVenueTicketPayoutLedger({
+      reference,
+      amount,
+      metadata,
+      venueId: event.venueId,
+    }).catch((err) => {
+      logger.warn('ensureVenueTicketPayoutLedger failed', { reference, err: err?.message });
+    });
+  }
+
   if (issuedTickets.length > 0) {
     const emailPayload = [];
     for (const { ticket, holderLabel } of issuedTickets) {
@@ -270,35 +366,6 @@ export async function issueEventTicketsFromPayment(db, {
         title: 'Ticket purchase',
         body: `${qty} ticket(s) sold for "${event.title}" at ${event.venue?.name || 'your venue'}.`,
         actionUrl: `/BusinessEvents`,
-      });
-
-      const grossZar = Number(amount || 0);
-      let eSec;
-      let eRec;
-      if (metadata?.platform_fee_zar != null && metadata?.venue_share_zar != null) {
-        eSec = Math.round(Number(metadata.platform_fee_zar) * 100) / 100;
-        eRec = Math.round(Number(metadata.venue_share_zar) * 100) / 100;
-      } else if (metadata?.ticket_subtotal_zar != null || metadata?.menu_zar != null || metadata?.menu_total_zar != null) {
-        const ticketSub = Number(metadata.ticket_subtotal_zar ?? grossZar) || 0;
-        const menuSub = Number(metadata.menu_total_zar ?? metadata.menu_zar ?? 0) || 0;
-        const split = splitTicketCheckoutAmounts(ticketSub, menuSub);
-        eSec = split.secAmount;
-        eRec = split.recipientAmount;
-      } else {
-        const split = splitTicketGross(grossZar);
-        eSec = split.secAmount;
-        eRec = split.recipientAmount;
-      }
-      const vCode = await resolveRecipientCodeForVenue(event.venueId);
-      await recordPayoutAndMaybeTransfer({
-        paymentReference: reference,
-        grossZar,
-        secAmount: eSec,
-        recipientAmount: eRec,
-        recipientType: 'VENUE',
-        recipientVenueId: event.venueId,
-        recipientUserId: null,
-        paystackRecipientCode: vCode,
       });
     }
   }
@@ -361,6 +428,18 @@ export async function ensureEventTicketsForPayment(reference, paystackData = nul
         : Array.from({ length: qty }, (_, i) => `${reference}-${i + 1}`);
     const ticketCount = await prisma.ticket.count({ where: { paystackReference: { in: refs } } });
     if (ticketCount >= qty) {
+      await ensureVenueTicketPayoutLedger({
+        reference,
+        amount,
+        metadata,
+      }).catch(() => {});
+      const ledger = await prisma.payoutLedger.findUnique({
+        where: { paymentReference: reference },
+        select: { id: true },
+      });
+      if (!ledger) {
+        return { repaired: result.issued > 0, ...result, ledgerMissing: true };
+      }
       const priorMeta = metadata && typeof metadata === 'object' ? metadata : {};
       await prisma.payment.updateMany({
         where: { reference },

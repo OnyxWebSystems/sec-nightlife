@@ -128,9 +128,18 @@ export default function UserSecWallet({ userProfile, onProfileUpdated }) {
                 <div className="text-right">
                   <p className="text-sm font-semibold text-white">{formatZar(tx.amount)}</p>
                   <p className={`text-[10px] uppercase ${
-                    tx.status === 'TRANSFERRED' ? 'text-green-500' : 'text-[var(--sec-accent)]'
+                    tx.status === 'TRANSFERRED'
+                      ? 'text-green-500'
+                      : tx.status === 'PROCESSING'
+                        ? 'text-sky-400'
+                        : 'text-[var(--sec-accent)]'
                   }`}>
-                    {tx.status === 'TRANSFERRED' ? 'Paid out' : tx.status?.toLowerCase()?.replace(/_/g, ' ') || 'pending'}
+                    {tx.statusLabel
+                      || (tx.status === 'TRANSFERRED'
+                        ? 'Received'
+                        : tx.status === 'PROCESSING'
+                          ? 'Transferring'
+                          : 'Pending')}
                   </p>
                 </div>
               </li>

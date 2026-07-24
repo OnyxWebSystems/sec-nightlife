@@ -312,10 +312,10 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
           <div>
             <h4 className="text-sm font-semibold text-gray-400 mb-2">Venue earnings</h4>
             {(data?.transactions || []).length === 0 ? (
-              <p className="text-sm text-gray-600">No earnings in the last 24 hours.</p>
+              <p className="text-sm text-gray-600">No earnings yet.</p>
             ) : (
               <ul className="space-y-2">
-                {data.transactions.slice(0, 10).map((tx) => (
+                {data.transactions.slice(0, 15).map((tx) => (
                   <li key={tx.id} className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B] border border-[#262629]">
                     <ArrowDownLeft className="w-4 h-4 text-[var(--sec-accent)]" />
                     <div className="flex-1 min-w-0">
@@ -324,7 +324,25 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
                         {tx.createdAt ? format(parseISO(tx.createdAt), 'MMM d, yyyy') : ''}
                       </p>
                     </div>
-                    <span className="text-sm font-semibold">{formatZar(tx.amount)}</span>
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-semibold">{formatZar(tx.amount)}</p>
+                      <p
+                        className={`text-[10px] uppercase ${
+                          tx.status === 'TRANSFERRED'
+                            ? 'text-green-500'
+                            : tx.status === 'PROCESSING'
+                              ? 'text-sky-400'
+                              : 'text-[var(--sec-accent)]'
+                        }`}
+                      >
+                        {tx.statusLabel
+                          || (tx.status === 'TRANSFERRED'
+                            ? 'Received'
+                            : tx.status === 'PROCESSING'
+                              ? 'Transferring'
+                              : 'Pending')}
+                      </p>
+                    </div>
                   </li>
                 ))}
               </ul>

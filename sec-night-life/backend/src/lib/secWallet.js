@@ -56,59 +56,90 @@ export async function ensureSecWallet(ownerType, ownerId) {
   return wallet;
 }
 
-const PENDING_STATUSES = ['PENDING', 'PROCESSING'];
+/** Still owed to recipient (not yet in their bank). Includes legacy FAILED. */
+const PENDING_STATUSES = ['PENDING', 'PROCESSING', 'FAILED'];
 
 export async function aggregateWalletSummary({
   userId = null,
   venueId = null,
   transactionsSince = null,
+  transactionLimit = 40,
 } = {}) {
   const where =
     userId != null
       ? { recipientUserId: userId }
       : { recipientVenueId: venueId };
 
-  const ledgers = await prisma.payoutLedger.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    take: 100,
-  });
+  const [pendingAgg, receivedAgg, recent] = await Promise.all([
+    prisma.payoutLedger.aggregate({
+      where: {
+        ...where,
+        status: { in: PENDING_STATUSES },
+        recipientAmount: { gt: 0 },
+        recipientType: { in: ['USER', 'VENUE'] },
+      },
+      _sum: { recipientAmount: true },
+    }),
+    prisma.payoutLedger.aggregate({
+      where: {
+        ...where,
+        status: 'TRANSFERRED',
+        recipientAmount: { gt: 0 },
+      },
+      _sum: { recipientAmount: true },
+    }),
+    prisma.payoutLedger.findMany({
+      where: {
+        ...where,
+        recipientType: { in: ['USER', 'VENUE'] },
+        recipientAmount: { gt: 0 },
+        status: { in: [...PENDING_STATUSES, 'TRANSFERRED'] },
+        ...(transactionsSince
+          ? { createdAt: { gte: new Date(transactionsSince) } }
+          : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(transactionLimit, 100),
+    }),
+  ]);
 
-  let pendingBalance = 0;
-  let totalReceived = 0;
-  const transactions = [];
-  const sinceMs = transactionsSince ? new Date(transactionsSince).getTime() : null;
+  const pendingBalance = Math.round((Number(pendingAgg._sum.recipientAmount) || 0) * 100) / 100;
+  const totalReceived = Math.round((Number(receivedAgg._sum.recipientAmount) || 0) * 100) / 100;
 
-  for (const row of ledgers) {
-    const amt = Number(row.recipientAmount) || 0;
-    if (PENDING_STATUSES.includes(row.status)) {
-      pendingBalance += amt;
-    }
-    if (row.status === 'TRANSFERRED') {
-      totalReceived += amt;
-    }
-    const createdMs = row.createdAt ? new Date(row.createdAt).getTime() : 0;
-    if (sinceMs != null && createdMs < sinceMs) continue;
-    transactions.push({
-      id: row.id,
-      amount: amt,
-      grossAmount: row.grossAmount,
-      status: row.status,
-      paymentReference: row.paymentReference,
-      createdAt: row.createdAt,
-      label: payoutLabelFromReference(row.paymentReference),
-    });
-  }
-
-  pendingBalance = Math.round(pendingBalance * 100) / 100;
-  totalReceived = Math.round(totalReceived * 100) / 100;
+  const transactions = recent.map((row) => ({
+    id: row.id,
+    amount: Number(row.recipientAmount) || 0,
+    grossAmount: row.grossAmount,
+    status: row.status,
+    statusLabel: payoutStatusLabel(row.status),
+    paymentReference: row.paymentReference,
+    createdAt: row.createdAt,
+    label: payoutLabelFromReference(row.paymentReference),
+    errorMessage: row.errorMessage || null,
+  }));
 
   return { pendingBalance, totalReceived, transactions };
+}
+
+function payoutStatusLabel(status) {
+  switch (status) {
+    case 'TRANSFERRED':
+      return 'Received';
+    case 'PROCESSING':
+      return 'Transferring';
+    case 'FAILED':
+      return 'Pending';
+    case 'PENDING':
+    default:
+      return 'Pending';
+  }
 }
 
 function payoutLabelFromReference(ref) {
   if (!ref) return 'Earnings';
   if (ref.includes('ticket')) return 'Event ticket';
+  if (ref.includes(':menu') || ref.includes('-menu')) return 'Menu order';
+  if (ref.includes(':join') || ref.includes('-join')) return 'Table join';
   if (ref.includes('table') || ref.includes('TABLE')) return 'Table';
   if (ref.includes('host')) return 'Table host fee';
   if (ref.includes('promo')) return 'Promotion';

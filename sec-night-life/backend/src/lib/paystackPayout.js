@@ -213,6 +213,15 @@ export async function recordPayoutAndMaybeTransfer(opts) {
   return initiateTransferForLedger(row, paystackRecipientCode);
 }
 
+/** Paystack transfer references may only use alphanumeric, underscore, and hyphen. */
+export function sanitizePaystackTransferReference(raw) {
+  return String(raw || '')
+    .replace(/[^A-Za-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 100);
+}
+
 async function initiateTransferForLedger(row, paystackRecipientCode) {
   const amountKobo = Math.round(Number(row.recipientAmount) * 100);
   if (!paystackRecipientCode) {
@@ -233,7 +242,9 @@ async function initiateTransferForLedger(row, paystackRecipientCode) {
     return { status: 'FAILED', ledgerId: row.id };
   }
 
-  const transferReference = `${row.paymentReference}-payout-${row.id}`.slice(0, 100);
+  const transferReference = sanitizePaystackTransferReference(
+    `${row.paymentReference}-payout-${row.id}`,
+  );
 
   try {
     const transfer = await paystackFetch('/transfer', {
@@ -242,7 +253,7 @@ async function initiateTransferForLedger(row, paystackRecipientCode) {
         source: 'balance',
         amount: amountKobo,
         recipient: paystackRecipientCode,
-        reason: `SEC payout ${row.paymentReference}`,
+        reason: `SEC payout ${row.paymentReference}`.slice(0, 100),
         reference: transferReference,
       },
     });
@@ -257,13 +268,17 @@ async function initiateTransferForLedger(row, paystackRecipientCode) {
     });
     return { status: 'PROCESSING', ledgerId: row.id, transferRef: ref };
   } catch (e) {
+    // Keep PENDING so Sec Wallet shows owed amount and cron can retry (e.g. insufficient balance).
     const msg = e?.message || String(e);
     await prisma.payoutLedger.update({
       where: { id: row.id },
-      data: { status: 'FAILED', errorMessage: msg.slice(0, 2000) },
+      data: { status: 'PENDING', errorMessage: msg.slice(0, 2000) },
     });
-    logger.error('paystack transfer failed', { paymentReference: row.paymentReference, err: msg });
-    return { status: 'FAILED', ledgerId: row.id, error: msg };
+    logger.error('paystack transfer failed (left PENDING for retry)', {
+      paymentReference: row.paymentReference,
+      err: msg,
+    });
+    return { status: 'PENDING', ledgerId: row.id, error: msg };
   }
 }
 
@@ -309,23 +324,33 @@ export async function applyTransferWebhookEvent(event, data) {
     data?.transfer_code ||
     data?.transfer_reference ||
     null;
-  const paymentHint = typeof transferRef === 'string' && transferRef.includes('-payout-')
-    ? transferRef.split('-payout-')[0]
-    : null;
+  const transferRefStr = typeof transferRef === 'string' ? transferRef : null;
+  const payoutIdx = transferRefStr ? transferRefStr.lastIndexOf('-payout-') : -1;
+  const ledgerIdHint = payoutIdx >= 0 ? transferRefStr.slice(payoutIdx + '-payout-'.length) : null;
+  const paymentHint = payoutIdx > 0 ? transferRefStr.slice(0, payoutIdx) : null;
 
   let row = null;
-  if (transferRef) {
+  if (transferRefStr) {
     row = await prisma.payoutLedger.findFirst({
       where: {
         OR: [
-          { paystackTransferRef: transferRef },
+          { paystackTransferRef: transferRefStr },
+          ...(ledgerIdHint ? [{ id: ledgerIdHint }] : []),
           ...(paymentHint ? [{ paymentReference: paymentHint }] : []),
         ],
       },
     });
   }
   if (!row && paymentHint) {
-    row = await prisma.payoutLedger.findUnique({ where: { paymentReference: paymentHint } });
+    // Sanitized refs replace ":" with "-" (e.g. ref:menu → ref-menu)
+    row = await prisma.payoutLedger.findFirst({
+      where: {
+        OR: [
+          { paymentReference: paymentHint },
+          { paymentReference: paymentHint.replace(/-/g, ':') },
+        ],
+      },
+    });
   }
   if (!row) {
     logger.warn('transfer webhook: ledger not found', { event, transferRef });
@@ -340,7 +365,7 @@ export async function applyTransferWebhookEvent(event, data) {
       where: { id: row.id },
       data: {
         status: 'TRANSFERRED',
-        paystackTransferRef: transferRef || row.paystackTransferRef,
+        paystackTransferRef: transferRefStr || row.paystackTransferRef,
         errorMessage: null,
       },
     });
@@ -348,15 +373,16 @@ export async function applyTransferWebhookEvent(event, data) {
   }
 
   if (event === 'transfer.failed' || event === 'transfer.reversed') {
+    // Retryable: keep PENDING so wallet shows owed amount and cron retries.
     await prisma.payoutLedger.update({
       where: { id: row.id },
       data: {
-        status: 'FAILED',
-        paystackTransferRef: transferRef || row.paystackTransferRef,
+        status: 'PENDING',
+        paystackTransferRef: transferRefStr || row.paystackTransferRef,
         errorMessage: (data?.reason || data?.message || event).toString().slice(0, 2000),
       },
     });
-    return { matched: true, ledgerId: row.id, status: 'FAILED' };
+    return { matched: true, ledgerId: row.id, status: 'PENDING' };
   }
 
   return { matched: true, ledgerId: row.id, status: row.status };
@@ -385,6 +411,57 @@ export async function markPayoutsRefundedManual(paymentReference) {
   return result;
 }
 
+const RETRYABLE_FAILED_ERROR_PATTERNS = [
+  /balance is not enough/i,
+  /illegal special characters/i,
+  /insufficient/i,
+  /try again/i,
+  /timeout/i,
+  /temporar/i,
+  /rate limit/i,
+  /transfer\.failed/i,
+  /transfer\.reversed/i,
+];
+
+function isRetryableFailedPayoutError(message) {
+  const msg = String(message || '');
+  if (!msg) return true; // legacy FAILED with no message — allow retry
+  if (/below minimum transfer/i.test(msg)) return false;
+  return RETRYABLE_FAILED_ERROR_PATTERNS.some((re) => re.test(msg));
+}
+
+/**
+ * Flip legacy FAILED rows that should have stayed PENDING (insufficient balance, bad refs, etc.).
+ */
+export async function requeueRetryableFailedPayouts({ limit = 200 } = {}) {
+  const rows = await prisma.payoutLedger.findMany({
+    where: {
+      status: 'FAILED',
+      recipientType: { in: ['USER', 'VENUE'] },
+      recipientAmount: { gt: 0 },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: Math.min(limit, 500),
+    select: { id: true, errorMessage: true },
+  });
+
+  let requeued = 0;
+  for (const row of rows) {
+    if (!isRetryableFailedPayoutError(row.errorMessage)) continue;
+    await prisma.payoutLedger.update({
+      where: { id: row.id },
+      data: {
+        status: 'PENDING',
+        errorMessage: row.errorMessage
+          ? `Requeued for retry: ${row.errorMessage}`.slice(0, 2000)
+          : 'Requeued for retry',
+      },
+    });
+    requeued += 1;
+  }
+  return { scanned: rows.length, requeued };
+}
+
 /**
  * Cron/admin: retry PENDING/FAILED payouts that now have recipient codes.
  * Optional filters scope retries after a user/venue sets up their Sec Wallet.
@@ -394,7 +471,42 @@ export async function retryStuckPayouts({
   recipientUserId = null,
   recipientVenueId = null,
   includeOwnerVenueFallback = false,
+  requeueFailed = true,
 } = {}) {
+  let requeue = { scanned: 0, requeued: 0 };
+  if (requeueFailed && !recipientUserId && !recipientVenueId) {
+    requeue = await requeueRetryableFailedPayouts({ limit: Math.min(limit * 4, 200) });
+  } else if (requeueFailed && (recipientUserId || recipientVenueId)) {
+    // Scoped: requeue matching FAILED rows first
+    const scopeWhere = {
+      status: 'FAILED',
+      recipientType: { in: ['USER', 'VENUE'] },
+      recipientAmount: { gt: 0 },
+      ...(recipientVenueId
+        ? { recipientVenueId: String(recipientVenueId) }
+        : { recipientUserId: String(recipientUserId) }),
+    };
+    const scopedFailed = await prisma.payoutLedger.findMany({
+      where: scopeWhere,
+      take: Math.min(limit, 100),
+      select: { id: true, errorMessage: true },
+    });
+    for (const row of scopedFailed) {
+      if (!isRetryableFailedPayoutError(row.errorMessage)) continue;
+      await prisma.payoutLedger.update({
+        where: { id: row.id },
+        data: {
+          status: 'PENDING',
+          errorMessage: row.errorMessage
+            ? `Requeued for retry: ${row.errorMessage}`.slice(0, 2000)
+            : 'Requeued for retry',
+        },
+      });
+      requeue.requeued += 1;
+    }
+    requeue.scanned = scopedFailed.length;
+  }
+
   const where = {
     status: { in: ['PENDING', 'FAILED'] },
     recipientType: { in: ['USER', 'VENUE'] },
@@ -450,7 +562,7 @@ export async function retryStuckPayouts({
     }
   }
 
-  return { scanned: rows.length, retried, skipped, failed };
+  return { scanned: rows.length, retried, skipped, failed, requeue };
 }
 
 export async function resolveRecipientCodeForUser(userId) {

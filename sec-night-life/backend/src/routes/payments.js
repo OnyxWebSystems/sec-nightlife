@@ -2227,7 +2227,13 @@ async function isPaymentFulfillmentComplete(reference, paidMeta) {
         ? [reference]
         : Array.from({ length: qty }, (_, i) => `${reference}-${i + 1}`);
     const count = await prisma.ticket.count({ where: { paystackReference: { in: refs } } });
-    return count >= qty;
+    if (count < qty) return false;
+    // Tickets alone are not enough — venue share ledger must exist (or platform skip).
+    const ledger = await prisma.payoutLedger.findUnique({
+      where: { paymentReference: reference },
+      select: { id: true },
+    });
+    return Boolean(ledger);
   }
 
   if (type === 'TABLE_CHECKOUT' || type === 'VENUE_TABLE_JOIN') {
