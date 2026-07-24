@@ -550,7 +550,7 @@ export default function BusinessDashboard() {
         <VenueStaffPanel venueId={venue.id} onInvite={() => setStaffModalOpen(true)} />
       ) : null}
 
-      {isVenueOwner && venue && !venue?.paystack_recipient_code && !venue?.paystackRecipientCode ? (
+      {isVenueOwner && venue && !venue?.payout_setup_complete && !venue?.paystack_recipient_code && !venue?.paystackRecipientCode ? (
         <div style={{
           padding: '12px 16px',
           borderRadius: 12,
@@ -981,7 +981,12 @@ export default function BusinessDashboard() {
         </div>
         <VenueSecWallet
           venues={venues}
-          onVenuesUpdated={() => qc.invalidateQueries({ queryKey: ['biz-venues', user?.id] })}
+          onVenuesUpdated={(next) => {
+            if (Array.isArray(next)) {
+              qc.setQueryData(['biz-venues', user?.id], next);
+            }
+            qc.invalidateQueries({ queryKey: ['biz-venues', user?.id] });
+          }}
         />
       </div>
       ) : null}

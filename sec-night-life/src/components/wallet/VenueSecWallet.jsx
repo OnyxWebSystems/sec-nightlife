@@ -187,7 +187,16 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
           <div>
             <h4 className="text-sm font-semibold text-gray-400 mb-2">Venue payout details</h4>
             <VenuePayoutSetup
-              venues={venues}
+              venues={venues.map((v) =>
+                v.id === selectedVenueId && data?.payoutSetupComplete
+                  ? {
+                      ...v,
+                      payout_setup_complete: true,
+                      paystack_recipient_code: v.paystack_recipient_code || v.paystackRecipientCode || 'set',
+                      paystackRecipientCode: v.paystackRecipientCode || v.paystack_recipient_code || 'set',
+                    }
+                  : v,
+              )}
               selectedVenueId={selectedVenueId}
               onVenueChange={setSelectedVenueId}
               onVenuesUpdated={(next) => {

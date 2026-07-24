@@ -156,6 +156,7 @@ export async function getStaffAssignmentsForUser(userId) {
           isVerified: true,
           complianceStatus: true,
           rating: true,
+          paystackRecipientCode: true,
         },
       },
     },

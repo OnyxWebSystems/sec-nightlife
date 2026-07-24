@@ -210,6 +210,9 @@ router.get('/mine', authenticateToken, async (req, res, next) => {
     const fcMap = await safeVenueFollowerCountMap(allVenueRows.map((r) => r.venue.id));
     const list = allVenueRows.map(({ venue, isOwner, staffPermissions }) => ({
       ...formatVenueListRow(venue, stats, fcMap.get(venue.id) ?? 0),
+      // Owner/staff only — not included in public formatVenueListRow
+      payout_setup_complete: Boolean(venue.paystackRecipientCode),
+      paystack_recipient_code: venue.paystackRecipientCode || null,
       is_owner: isOwner,
       is_staff_access: !isOwner,
       staff_permissions: staffPermissions,

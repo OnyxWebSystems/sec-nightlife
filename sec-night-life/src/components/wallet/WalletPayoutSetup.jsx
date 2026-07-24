@@ -145,7 +145,11 @@ export function VenuePayoutSetup({ venues, selectedVenueId, onVenueChange, onVen
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const venue = venues.find((v) => v.id === selectedVenueId);
-  const complete = Boolean(venue?.paystack_recipient_code || venue?.paystackRecipientCode);
+  const complete = Boolean(
+    venue?.payout_setup_complete
+      || venue?.paystack_recipient_code
+      || venue?.paystackRecipientCode,
+  );
 
   const save = async () => {
     if (!selectedVenueId) return;
@@ -162,7 +166,12 @@ export function VenuePayoutSetup({ venues, selectedVenueId, onVenueChange, onVen
       onVenuesUpdated?.(
         venues.map((v) =>
           v.id === selectedVenueId
-            ? { ...v, paystackRecipientCode: resp?.recipient_code, paystack_recipient_code: resp?.recipient_code }
+            ? {
+                ...v,
+                payout_setup_complete: true,
+                paystackRecipientCode: resp?.recipient_code,
+                paystack_recipient_code: resp?.recipient_code,
+              }
             : v,
         ),
       );
