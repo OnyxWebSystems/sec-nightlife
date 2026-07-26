@@ -172,6 +172,11 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
                 <p className="text-lg font-bold text-green-400">{formatZar(data?.totalReceived)}</p>
               </div>
             </div>
+            <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
+              Pending is money owed in SEC. Received means the bank transfer was sent.
+              Your bank may take 1–2 business days to show the credit (longer on weekends or public holidays).
+              Match amounts here with your bank statement.
+            </p>
           </div>
 
           {!data?.payoutSetupComplete && (

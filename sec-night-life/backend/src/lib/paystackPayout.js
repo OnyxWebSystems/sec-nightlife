@@ -2,6 +2,10 @@ import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { splitPlatformGross } from './platformSplit.js';
 import { FEED_BOOST_ZAR_PER_DAY, clampBoostDays } from './feedBoost.js';
+import {
+  basePaymentReference,
+  buildPaystackTransferReason,
+} from './payoutLabels.js';
 
 export { splitPlatformGross, splitPlatformGross as splitSecPlatform } from './platformSplit.js';
 
@@ -246,6 +250,25 @@ async function initiateTransferForLedger(row, paystackRecipientCode) {
     `${row.paymentReference}-payout-${row.id}`,
   );
 
+  let transferReason = buildPaystackTransferReason({
+    paymentReference: row.paymentReference,
+  });
+  try {
+    const baseRef = basePaymentReference(row.paymentReference);
+    const pay = await prisma.payment.findUnique({
+      where: { reference: baseRef },
+      select: { metadata: true },
+    });
+    if (pay?.metadata) {
+      transferReason = buildPaystackTransferReason({
+        paymentReference: row.paymentReference,
+        metadata: pay.metadata,
+      });
+    }
+  } catch {
+    // keep fallback reason
+  }
+
   try {
     const transfer = await paystackFetch('/transfer', {
       method: 'POST',
@@ -253,7 +276,7 @@ async function initiateTransferForLedger(row, paystackRecipientCode) {
         source: 'balance',
         amount: amountKobo,
         recipient: paystackRecipientCode,
-        reason: `SEC payout ${row.paymentReference}`.slice(0, 100),
+        reason: transferReason,
         reference: transferReference,
       },
     });

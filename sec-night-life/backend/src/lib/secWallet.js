@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { prisma } from './prisma.js';
+import { basePaymentReference, payoutTypeLabel } from './payoutLabels.js';
 
 function randomWalletSuffix() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -106,17 +107,31 @@ export async function aggregateWalletSummary({
   const pendingBalance = Math.round((Number(pendingAgg._sum.recipientAmount) || 0) * 100) / 100;
   const totalReceived = Math.round((Number(receivedAgg._sum.recipientAmount) || 0) * 100) / 100;
 
-  const transactions = recent.map((row) => ({
-    id: row.id,
-    amount: Number(row.recipientAmount) || 0,
-    grossAmount: row.grossAmount,
-    status: row.status,
-    statusLabel: payoutStatusLabel(row.status),
-    paymentReference: row.paymentReference,
-    createdAt: row.createdAt,
-    label: payoutLabelFromReference(row.paymentReference),
-    errorMessage: row.errorMessage || null,
-  }));
+  const baseRefs = [...new Set(recent.map((r) => basePaymentReference(r.paymentReference)).filter(Boolean))];
+  let metaByRef = new Map();
+  if (baseRefs.length) {
+    const payments = await prisma.payment.findMany({
+      where: { reference: { in: baseRefs } },
+      select: { reference: true, metadata: true },
+    });
+    metaByRef = new Map(payments.map((p) => [p.reference, p.metadata]));
+  }
+
+  const transactions = recent.map((row) => {
+    const baseRef = basePaymentReference(row.paymentReference);
+    const metadata = metaByRef.get(baseRef) || null;
+    return {
+      id: row.id,
+      amount: Number(row.recipientAmount) || 0,
+      grossAmount: row.grossAmount,
+      status: row.status,
+      statusLabel: payoutStatusLabel(row.status),
+      paymentReference: row.paymentReference,
+      createdAt: row.createdAt,
+      label: payoutTypeLabel({ paymentReference: row.paymentReference, metadata }),
+      errorMessage: row.errorMessage || null,
+    };
+  });
 
   return { pendingBalance, totalReceived, transactions };
 }
@@ -133,17 +148,6 @@ function payoutStatusLabel(status) {
     default:
       return 'Pending';
   }
-}
-
-function payoutLabelFromReference(ref) {
-  if (!ref) return 'Earnings';
-  if (ref.includes('ticket')) return 'Event ticket';
-  if (ref.includes(':menu') || ref.includes('-menu')) return 'Menu order';
-  if (ref.includes(':join') || ref.includes('-join')) return 'Table join';
-  if (ref.includes('table') || ref.includes('TABLE')) return 'Table';
-  if (ref.includes('host')) return 'Table host fee';
-  if (ref.includes('promo')) return 'Promotion';
-  return 'Payment';
 }
 
 export function maskAccountNumber(num) {

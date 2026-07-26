@@ -161,15 +161,16 @@ export const payouts = {
       type: 'steps',
       items: [
         'A guest pays successfully in the app (table, tickets, or other eligible checkout).',
-        'SEC keeps the platform fee and records your recipient share on the payout ledger.',
-        'If your Sec Wallet bank details are set, Paystack transfers that share to your bank account.',
+        'SEC keeps the platform fee and records your recipient share on the payout ledger. Sec Wallet Pending updates right away.',
+        'If your Sec Wallet bank details are set, Paystack transfers that share to your bank account. Received means the transfer was sent.',
+        'Your bank may take 1–2 business days to show the credit (longer on weekends or public holidays). Match the amount and “SEC Nightlife” description on your statement with Sec Wallet earnings.',
         'If bank details are missing, the transfer stays pending until you complete Sec Wallet setup — then it can go through.',
       ],
     },
     {
       type: 'callout',
       title: 'Why set this up early',
-      text: 'Pending payouts do not move until your Sec Wallet is set. Add your bank details once so future earnings transfer without follow-up.',
+      text: 'Pending payouts do not move until your Sec Wallet is set. Add your bank details once so future earnings transfer without follow-up. Pending in the app can show immediately; bank arrival is separate and may take 1–2 business days after Received.',
     },
     {
       type: 'heading',
@@ -216,7 +217,7 @@ export const payouts = {
     {
       type: 'warning',
       title: 'Pending payouts',
-      text: 'If payout details are missing or invalid, transfers stay pending until you complete Sec Wallet setup. Fix this before busy weekends so automatic transfers are not delayed.',
+      text: 'If payout details are missing or invalid, transfers stay pending until you complete Sec Wallet setup. Fix this before busy weekends so automatic transfers are not delayed. After a transfer is marked Received in Sec Wallet, allow 1–2 business days for the credit to appear on your bank statement.',
     },
     {
       type: 'related',
