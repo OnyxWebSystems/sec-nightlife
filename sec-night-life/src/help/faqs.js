@@ -94,7 +94,7 @@ export const HELP_FAQS = [
     audience: 'partygoer',
     question: 'How do I set up my Sec Wallet for payouts?',
     answer:
-      'Open Profile → Wallet, enter your bank details, and save. You will see “Sec wallet set” with a tick — account numbers are not shown again. Once set, eligible earnings transfer automatically. Tap Update Sec wallet to replace your payout details.',
+      'Open Profile → Wallet, enter your bank details, and save. You will see “Sec wallet set” with a tick — account numbers are not shown again. Once set, eligible earnings can transfer automatically: Pending shows in Sec Wallet right away; Received means the bank transfer was sent. Your bank may take 1–2 business days to show the credit. Tap Update Sec wallet to replace your payout details.',
     articleId: 'payouts',
   },
   {
@@ -167,7 +167,7 @@ export const HELP_FAQS = [
     audience: 'venue',
     question: 'Why is a payout pending?',
     answer:
-      'Usually Sec Wallet bank details are missing on Business Dashboard → Sec Wallet. Once set, eligible venue shares transfer automatically to your bank.',
+      'Often Sec Wallet bank details are missing on Business Dashboard → Sec Wallet — set them so transfers can start. Pending can also mean the transfer is still waiting to be sent, or it was sent (Received in Sec Wallet) but your bank has not credited you yet (often 1–2 business days). Match amounts in Sec Wallet earnings with your bank statement.',
     articleId: 'payouts',
   },
   {
@@ -175,7 +175,7 @@ export const HELP_FAQS = [
     audience: 'venue',
     question: 'How do I set up the venue Sec Wallet?',
     answer:
-      'Open Business Dashboard → Sec Wallet, enter account name, account number, and bank code, then save. You will see “Venue Sec wallet set” — bank numbers are not shown again. Updating replaces the old payout destination.',
+      'Open Business Dashboard → Sec Wallet, enter account name, account number, and bank code, then save. You will see “Venue Sec wallet set” — bank numbers are not shown again. Updating replaces the old payout destination. After setup, Pending shows money owed; Received means the transfer was sent — bank credit may take 1–2 business days.',
     articleId: 'payouts',
   },
   {

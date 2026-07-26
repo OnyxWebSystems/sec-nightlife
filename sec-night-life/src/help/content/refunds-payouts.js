@@ -135,7 +135,7 @@ export const payouts = {
   category: 'payments',
   title: 'How to set up your Sec Wallet & receive payouts',
   summary:
-    'Add bank details to your Sec Wallet so eligible earnings transfer automatically to your account.',
+    'Add bank details to your Sec Wallet so eligible earnings can transfer automatically. Pending updates in the app right away; bank credit may take 1–2 business days after Received.',
   readMinutes: 6,
   keywords: [
     'payout',

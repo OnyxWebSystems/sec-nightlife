@@ -238,13 +238,13 @@ export const secWalletPartygoer = {
   audience: 'partygoer',
   category: 'payments',
   title: 'Your Sec Wallet',
-  summary: 'Wallet code for refunds and payout details for automatic earnings transfers.',
+  summary: 'Wallet code for refunds and payout details for automatic earnings transfers (Pending in-app; bank credit may take 1–2 business days).',
   readMinutes: 3,
-  keywords: ['sec wallet', 'wallet code', 'payout', 'refund payment', 'automatic transfer'],
+  keywords: ['sec wallet', 'wallet code', 'payout', 'refund payment', 'automatic transfer', 'pending', 'bank'],
   sections: [
     {
       type: 'p',
-      text: 'Your Sec Wallet holds a lookup code venues use when paying approved refunds, plus payout recipient setup for earnings (for example host joining-fee share). Once bank details are set, eligible earnings can transfer automatically to your account. After you save, you will see “Sec wallet set” — your full bank number is not shown again.',
+      text: 'Your Sec Wallet holds a lookup code venues use when paying approved refunds, plus payout recipient setup for earnings (for example host joining-fee share). Once bank details are set, eligible earnings can transfer automatically. Pending shows money owed in SEC right away; Received means the bank transfer was sent. Your bank may take 1–2 business days to show the credit — match amounts in Sec Wallet with your statement (look for SEC Nightlife when available). After you save payout details, you will see “Sec wallet set” — your full bank number is not shown again.',
     },
     {
       type: 'image',
@@ -257,7 +257,7 @@ export const secWalletPartygoer = {
     {
       type: 'tip',
       title: 'Full setup guide',
-      text: 'See How to set up your Sec Wallet & receive payouts for step-by-step instructions and how automatic transfers work.',
+      text: 'See How to set up your Sec Wallet & receive payouts for step-by-step instructions, Pending vs Received, and bank arrival timing.',
     },
     {
       type: 'related',
