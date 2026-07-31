@@ -261,7 +261,7 @@ export default function BusinessEvents() {
       toast.success(editingEvent ? 'Event updated' : 'Event created');
       closeDialog();
     },
-    onError: () => toast.error('Failed to save event'),
+    onError: (err) => toast.error(err?.data?.error || err?.message || 'Failed to save event'),
   });
 
   const deleteMutation = useMutation({

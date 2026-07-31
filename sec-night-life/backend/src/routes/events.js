@@ -189,7 +189,8 @@ const eventFields = {
   ends_at: z.preprocess((v) => (v === '' || v === undefined ? undefined : v), z.string().optional()),
   has_entrance_fee: z.boolean().optional(),
   entrance_fee_amount: z.number().min(0).optional().nullable(),
-  hosting_config: hostingConfigSchema.optional(),
+  // Frontend sends null for TICKETING_ONLY (no table hosting). Zod .optional() alone rejects null.
+  hosting_config: hostingConfigSchema.nullable().optional(),
   event_format: z.enum(['TABLE_HOSTING', 'TICKETING_ONLY']).optional(),
   allows_ticket_menu_addons: z.boolean().optional(),
   event_code: z.preprocess(
@@ -197,7 +198,10 @@ const eventFields = {
     z.string().max(32).nullable().optional(),
   ),
   show_seating_plan: z.boolean().optional(),
-  seating_plan_id: z.string().uuid().nullable().optional(),
+  seating_plan_id: z.preprocess(
+    (v) => (v === '' || v === undefined ? null : v),
+    z.string().uuid().nullable().optional(),
+  ),
 };
 
 const eventSchema = z.object(eventFields);
@@ -1264,7 +1268,14 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
 router.post('/', authenticateToken, async (req, res, next) => {
   try {
     const parsed = eventCreateSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    if (!parsed.success) {
+      const detail = parsed.error?.issues?.[0]?.message || 'Invalid input';
+      const path = parsed.error?.issues?.[0]?.path?.join('.') || '';
+      return res.status(400).json({
+        error: path ? `${detail} (${path})` : detail,
+        details: parsed.error.issues?.slice(0, 5),
+      });
+    }
     const d = parsed.data;
     const staffCtx = staffCtxFromQuery(req.query);
     let resolvedVenueId = d.venue_id;
@@ -1397,7 +1408,14 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const parsed = eventSchema.partial().safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    if (!parsed.success) {
+      const detail = parsed.error?.issues?.[0]?.message || 'Invalid input';
+      const path = parsed.error?.issues?.[0]?.path?.join('.') || '';
+      return res.status(400).json({
+        error: path ? `${detail} (${path})` : detail,
+        details: parsed.error.issues?.slice(0, 5),
+      });
+    }
     const d = parsed.data;
     const body = req.body || {};
     const hasCityInput = Object.prototype.hasOwnProperty.call(body, 'city');
@@ -1470,19 +1488,25 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
     }
 
     if (d.hosting_config !== undefined) {
-      const mergedHosting = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);
-      const hasHostingTiers = ['general', 'vip'].some(
-        (cat) => Array.isArray(mergedHosting[cat]?.tiers) && mergedHosting[cat].tiers.length > 0,
-      );
-      if (hasHostingTiers) {
-        const hostCfgCheck = validateHostingTierSlotsConfig(mergedHosting);
-        if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
-        const menuCheck = await validateHostingMenuItems(event.venueId, mergedHosting);
-        if (!menuCheck.ok) return res.status(400).json({ error: menuCheck.error });
-        const tierSlotsCheck = await assertTierSlotsNotBelowCurrentHostedTables(event.id, mergedHosting);
-        if (!tierSlotsCheck.ok) return res.status(400).json({ error: tierSlotsCheck.error });
+      if (d.hosting_config === null || nextFormat === 'TICKETING_ONLY') {
+        updates.hostingConfig = null;
+      } else {
+        const mergedHosting = mergeHostingConfigPatch(event.hostingConfig, d.hosting_config);
+        const hasHostingTiers = ['general', 'vip'].some(
+          (cat) => Array.isArray(mergedHosting[cat]?.tiers) && mergedHosting[cat].tiers.length > 0,
+        );
+        if (hasHostingTiers) {
+          const hostCfgCheck = validateHostingTierSlotsConfig(mergedHosting);
+          if (!hostCfgCheck.ok) return res.status(400).json({ error: hostCfgCheck.error });
+          const menuCheck = await validateHostingMenuItems(event.venueId, mergedHosting);
+          if (!menuCheck.ok) return res.status(400).json({ error: menuCheck.error });
+          const tierSlotsCheck = await assertTierSlotsNotBelowCurrentHostedTables(event.id, mergedHosting);
+          if (!tierSlotsCheck.ok) return res.status(400).json({ error: tierSlotsCheck.error });
+        }
+        updates.hostingConfig = hasHostingTiers ? mergedHosting : null;
       }
-      updates.hostingConfig = hasHostingTiers ? mergedHosting : null;
+    } else if (nextFormat === 'TICKETING_ONLY' && d.event_format != null) {
+      updates.hostingConfig = null;
     }
 
     if (hasEventCodeInput) {
