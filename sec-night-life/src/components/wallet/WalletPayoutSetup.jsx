@@ -195,24 +195,10 @@ export function VenuePayoutSetup({ venues, selectedVenueId, onVenueChange, onVen
     <div className="rounded-xl border border-[#262629] bg-[#141416] p-4 space-y-3">
       <PayoutTrustBanner compact />
       {venues.length > 1 ? (
-        <label className="block">
-          <span className="text-xs text-gray-500">Venue</span>
-          <select
-            value={selectedVenueId}
-            onChange={(e) => {
-              onVenueChange?.(e.target.value);
-              setBank(EMPTY_BANK);
-              setEditing(false);
-            }}
-            className="w-full mt-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white"
-          >
-            {venues.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <p className="text-[11px] text-gray-500">
+          Saving bank details applies only to <span className="text-gray-300">{venue?.name || 'this venue'}</span>.
+          Switch venues above to set each one separately.
+        </p>
       ) : venue ? (
         <div>
           <p className="text-xs text-gray-500">Venue</p>
@@ -230,7 +216,7 @@ export function VenuePayoutSetup({ venues, selectedVenueId, onVenueChange, onVen
           <span className="text-gray-400">
             {editing
               ? 'Enter new bank details to replace this venue’s Sec wallet payout'
-              : 'Venue payout setup missing'}
+              : 'Venue payout setup missing for this venue'}
           </span>
         </div>
       )}

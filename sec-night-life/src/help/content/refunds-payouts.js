@@ -193,8 +193,9 @@ export const payouts = {
       type: 'steps',
       items: [
         'Open Business Dashboard and scroll to Sec Wallet (venue owners only).',
-        'Enter the venue’s account holder name, account number, and bank code.',
-        'Save. You should see “Venue Sec wallet set” with a tick.',
+        'If you own more than one venue, select each venue in turn — every venue needs its own bank details (they are not shared).',
+        'Enter that venue’s account holder name, account number, and bank code.',
+        'Save. You should see “Venue Sec wallet set” with a tick for that venue.',
         'Table and ticket venue shares can then transfer automatically when payments succeed.',
       ],
     },

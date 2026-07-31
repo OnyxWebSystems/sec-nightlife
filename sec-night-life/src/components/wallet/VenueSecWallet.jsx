@@ -122,24 +122,56 @@ export default function VenueSecWallet({ venues: venuesProp, onVenuesUpdated }) 
     return <p className="text-sm text-gray-500">Complete venue onboarding to access your Sec Wallet.</p>;
   }
 
+  const venueHasWallet = (v) =>
+    Boolean(v?.payout_setup_complete || v?.paystack_recipient_code || v?.paystackRecipientCode);
+
   return (
     <div className="space-y-4">
       {venues.length > 1 ? (
-        <label className="block">
-          <span className="text-xs text-gray-500">Venue</span>
-          <select
-            value={selectedVenueId}
-            onChange={(e) => {
-              setSelectedVenueId(e.target.value);
-              setLookupResult(null);
-            }}
-            className="w-full mt-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white"
-          >
-            {venues.map((v) => (
-              <option key={v.id} value={v.id}>{v.name}</option>
-            ))}
-          </select>
-        </label>
+        <div className="rounded-xl border border-[#262629] bg-[#141416] p-3 space-y-2">
+          <p className="text-xs text-gray-400">
+            Each venue needs its own Sec Wallet bank details — they are not shared across venues.
+          </p>
+          <ul className="space-y-1.5">
+            {venues.map((v) => {
+              const set = venueHasWallet(v);
+              return (
+                <li key={v.id} className="flex items-center justify-between gap-2 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedVenueId(v.id);
+                      setLookupResult(null);
+                    }}
+                    className={`text-left truncate hover:text-white ${
+                      v.id === selectedVenueId ? 'text-white font-medium' : 'text-gray-400'
+                    }`}
+                  >
+                    {v.name}
+                  </button>
+                  <span className={`text-[10px] uppercase shrink-0 ${set ? 'text-green-500' : 'text-amber-400'}`}>
+                    {set ? 'Set' : 'Missing'}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <label className="block pt-1">
+            <span className="text-xs text-gray-500">Editing venue</span>
+            <select
+              value={selectedVenueId}
+              onChange={(e) => {
+                setSelectedVenueId(e.target.value);
+                setLookupResult(null);
+              }}
+              className="w-full mt-1 px-3 py-2.5 rounded-xl border border-[#262629] bg-[#0A0A0B] text-white"
+            >
+              {venues.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       ) : selectedVenue ? (
         <div>
           <p className="text-xs text-gray-500">Venue</p>

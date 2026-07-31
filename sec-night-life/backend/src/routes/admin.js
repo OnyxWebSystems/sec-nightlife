@@ -40,10 +40,9 @@ function userHasPayoutSetup(user) {
   return Boolean(user?.paystackRecipientCode && String(user.paystackRecipientCode).trim());
 }
 
-/** Venue code, or owner fallback (same as resolveRecipientCodeForVenue). */
+/** Venue Sec Wallet only — owner personal recipient does not count for venue payouts. */
 function venueHasPayoutSetup(venue) {
-  if (venue?.paystackRecipientCode && String(venue.paystackRecipientCode).trim()) return true;
-  return Boolean(venue?.owner?.paystackRecipientCode && String(venue.owner.paystackRecipientCode).trim());
+  return Boolean(venue?.paystackRecipientCode && String(venue.paystackRecipientCode).trim());
 }
 
 /**
@@ -838,7 +837,9 @@ router.post('/payouts/remind-wallet-setup', async (req, res, next) => {
       });
       if (!venue) return res.status(404).json({ error: 'Venue not found' });
       if (venueHasPayoutSetup(venue)) {
-        return res.status(400).json({ error: 'Venue already has Sec Wallet payout setup' });
+        return res.status(400).json({
+          error: 'This venue already has Sec Wallet payout setup — no reminder needed',
+        });
       }
       if (!venue.ownerUserId) return res.status(400).json({ error: 'Venue has no owner to notify' });
       const owed = await prisma.payoutLedger.aggregate({

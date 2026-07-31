@@ -175,7 +175,7 @@ export const HELP_FAQS = [
     audience: 'venue',
     question: 'How do I set up the venue Sec Wallet?',
     answer:
-      'Open Business Dashboard → Sec Wallet, enter account name, account number, and bank code, then save. You will see “Venue Sec wallet set” — bank numbers are not shown again. Updating replaces the old payout destination. After setup, Pending shows money owed; Received means the transfer was sent — bank credit may take 1–2 business days.',
+      'Open Business Dashboard → Sec Wallet, enter account name, account number, and bank code, then save. You will see “Venue Sec wallet set” — bank numbers are not shown again. If you own multiple venues, set Sec Wallet for each venue separately (bank details are not shared). Updating replaces that venue’s payout destination. After setup, Pending shows money owed; Received means the transfer was sent — bank credit may take 1–2 business days.',
     articleId: 'payouts',
   },
   {

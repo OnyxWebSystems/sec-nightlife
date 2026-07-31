@@ -550,19 +550,29 @@ export default function BusinessDashboard() {
         <VenueStaffPanel venueId={venue.id} onInvite={() => setStaffModalOpen(true)} />
       ) : null}
 
-      {isVenueOwner && venue && !venue?.payout_setup_complete && !venue?.paystack_recipient_code && !venue?.paystackRecipientCode ? (
-        <div style={{
-          padding: '12px 16px',
-          borderRadius: 12,
-          marginBottom: 16,
-          backgroundColor: 'var(--sec-bg-card)',
-          border: '1px solid var(--sec-border)',
-        }}>
-          <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
-            Venue payout setup missing. Complete your bank details in the Sec Wallet section below to prevent pending payouts.
-          </p>
-        </div>
-      ) : null}
+      {isVenueOwner && (() => {
+        const owned = (venues || []).filter((v) => v.is_owner === true || v.isOwner === true);
+        const missing = owned.filter(
+          (v) => !v.payout_setup_complete && !v.paystack_recipient_code && !v.paystackRecipientCode,
+        );
+        if (!missing.length) return null;
+        const names = missing.map((v) => v.name).filter(Boolean);
+        return (
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: 12,
+            marginBottom: 16,
+            backgroundColor: 'var(--sec-bg-card)',
+            border: '1px solid var(--sec-border)',
+          }}>
+            <p style={{ fontSize: 13, color: 'var(--sec-text-primary)' }}>
+              {missing.length === 1
+                ? `Venue payout setup missing for ${names[0] || 'your venue'}. Complete bank details in Sec Wallet below — each venue needs its own setup.`
+                : `Venue payout setup missing for ${missing.length} venues (${names.join(', ')}). Set Sec Wallet bank details for each venue separately below.`}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Compliance Notice */}
       {isVenueOwner && showComplianceSection &&

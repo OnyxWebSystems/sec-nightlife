@@ -596,14 +596,14 @@ export async function resolveRecipientCodeForUser(userId) {
   return u?.paystackRecipientCode || null;
 }
 
+/** Venue payouts use that venue's Sec Wallet only — never the owner's personal recipient. */
 export async function resolveRecipientCodeForVenue(venueId) {
   const v = await prisma.venue.findFirst({
     where: { id: venueId, deletedAt: null },
-    select: { paystackRecipientCode: true, ownerUserId: true },
+    select: { paystackRecipientCode: true },
   });
-  if (v?.paystackRecipientCode) return v.paystackRecipientCode;
-  if (v?.ownerUserId) return resolveRecipientCodeForUser(v.ownerUserId);
-  return null;
+  const code = v?.paystackRecipientCode && String(v.paystackRecipientCode).trim();
+  return code || null;
 }
 
 function flattenPaymentMetadata(value) {
