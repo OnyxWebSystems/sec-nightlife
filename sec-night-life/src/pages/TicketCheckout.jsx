@@ -89,6 +89,28 @@ export default function TicketCheckout() {
         quantity > 1
           ? holderNames.map((n) => String(n).trim())
           : [holderDisplayNameFromUser(user)];
+      const promoterRef = getStoredPromoterRef(eventId);
+
+      if (totalPrice <= 0) {
+        const body = {
+          ticket_tier_name: selectedTier,
+          quantity,
+          holder_names: names,
+        };
+        if (promoterRef) body.promoter_user_id = promoterRef;
+        const res = await apiPost(`/api/events/${eventId}/claim-free-ticket`, body);
+        if (!res?.confirmed) throw new Error(res?.error || 'Could not claim free ticket');
+        queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+        queryClient.invalidateQueries({ queryKey: ['event', eventId] });
+        toast.success(
+          quantity === 1
+            ? 'Free ticket confirmed. View your QR in Profile → Tickets.'
+            : `${quantity} free tickets confirmed. View your QR in Profile → Tickets.`,
+        );
+        navigate(createPageUrl('TicketSuccess'));
+        return;
+      }
+
       const metadata = {
         type: 'ticket',
         event_id: eventId,
@@ -96,7 +118,6 @@ export default function TicketCheckout() {
         quantity: String(quantity),
         holder_names: JSON.stringify(names),
       };
-      const promoterRef = getStoredPromoterRef(eventId);
       if (promoterRef) metadata.promoter_user_id = promoterRef;
 
       const res = await apiPost('/api/payments/initialize', {
@@ -177,7 +198,7 @@ export default function TicketCheckout() {
                 const left = tier.quantity - (tier.sold || 0);
                 return (
                   <SelectItem key={tier.name} value={tier.name} className={selectItemClass}>
-                    {tier.name} — R{tier.price} ({left} left)
+                    {tier.name} — {Number(tier.price) <= 0 ? 'Free' : `R${tier.price}`} ({left} left)
                   </SelectItem>
                 );
               })}
@@ -272,7 +293,7 @@ export default function TicketCheckout() {
             <button
               type="button"
               className="sec-btn sec-btn-primary sec-btn-full"
-              disabled={isProcessing || !selectedTier || totalPrice <= 0}
+              disabled={isProcessing || !selectedTier}
               onClick={handlePurchase}
             >
               {isProcessing ? (
@@ -280,7 +301,7 @@ export default function TicketCheckout() {
               ) : (
                 <>
                   <Ticket size={18} style={{ marginRight: 8 }} />
-                  Pay now
+                  {totalPrice <= 0 ? 'Get free ticket' : 'Pay now'}
                 </>
               )}
             </button>

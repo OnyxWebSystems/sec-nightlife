@@ -43,7 +43,7 @@ export default function EventEntranceCheckout() {
 
   const handlePay = async () => {
     if (!eventId || !event) return;
-    if (!event.has_entrance_fee || entranceZar <= 0) {
+    if (!event.has_entrance_fee) {
       toast.error('This event does not have an entrance fee');
       return;
     }
@@ -55,6 +55,21 @@ export default function EventEntranceCheckout() {
     try {
       const { user } = await authService.resolveUserForAction(window.location.href);
       const menuPayload = menuSelectionToPayload(venueMenu, menuSelected);
+      const promoterRef = getStoredPromoterRef(eventId);
+
+      if (totalPrice <= 0) {
+        const body = {};
+        if (menuPayload.length > 0) body.selected_menu_items = menuPayload;
+        if (promoterRef) body.promoter_user_id = promoterRef;
+        const res = await apiPost(`/api/events/${eventId}/claim-free-entrance`, body);
+        if (!res?.confirmed) throw new Error(res?.error || 'Could not claim free entrance');
+        queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+        queryClient.invalidateQueries({ queryKey: ['event', eventId] });
+        toast.success('Free entrance confirmed. View your QR in Profile → Tickets.');
+        navigate(`${createPageUrl('TicketSuccess')}?kind=entrance`);
+        return;
+      }
+
       const metadata = {
         type: 'EVENT_ENTRANCE',
         event_id: eventId,
@@ -63,7 +78,6 @@ export default function EventEntranceCheckout() {
         amount_total_zar: totalPrice,
       };
       if (menuPayload.length > 0) metadata.selected_menu_items = menuPayload;
-      const promoterRef = getStoredPromoterRef(eventId);
       if (promoterRef) metadata.promoter_user_id = promoterRef;
 
       const res = await apiPost('/api/payments/initialize', {
@@ -119,13 +133,18 @@ export default function EventEntranceCheckout() {
 
   return (
     <div className="sec-page" style={{ paddingBottom: 120 }}>
-      <PageBackHeader title="Pay to enter" backTo={createPageUrl(`EventDetails?id=${eventId}`)} />
+      <PageBackHeader
+        title={totalPrice <= 0 ? 'Free entrance' : 'Pay to enter'}
+        backTo={createPageUrl(`EventDetails?id=${eventId}`)}
+      />
       <div style={{ padding: '0 16px', maxWidth: 560, margin: '0 auto' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--sec-text-primary)', marginBottom: 4 }}>
           {event?.title}
         </h1>
         <p style={{ fontSize: 14, color: 'var(--sec-text-muted)', marginBottom: 20 }}>
-          Pay the entrance fee to attend. You can still host or join a table later — entrance already paid will be credited.
+          {totalPrice <= 0
+            ? 'Claim your free entrance pass. You will get a QR code under Profile → Tickets.'
+            : 'Pay the entrance fee to attend. You can still host or join a table later — entrance already paid will be credited.'}
         </p>
 
         <div
@@ -139,7 +158,9 @@ export default function EventEntranceCheckout() {
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ color: 'var(--sec-text-secondary)' }}>Entrance fee</span>
-            <span style={{ fontWeight: 700, color: 'var(--sec-text-primary)' }}>R{entranceZar.toFixed(0)}</span>
+            <span style={{ fontWeight: 700, color: 'var(--sec-text-primary)' }}>
+              {entranceZar <= 0 ? 'Free' : `R${entranceZar.toFixed(0)}`}
+            </span>
           </div>
           {menuSubtotal > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -185,7 +206,7 @@ export default function EventEntranceCheckout() {
             <button
               type="button"
               className="sec-btn sec-btn-primary sec-btn-full"
-              disabled={isProcessing || entranceZar <= 0}
+              disabled={isProcessing || !event?.has_entrance_fee}
               onClick={handlePay}
             >
               {isProcessing ? (
@@ -193,7 +214,7 @@ export default function EventEntranceCheckout() {
               ) : (
                 <>
                   <Ticket size={18} style={{ marginRight: 8 }} />
-                  Pay entrance
+                  {totalPrice <= 0 ? 'Get free entrance' : 'Pay entrance'}
                 </>
               )}
             </button>

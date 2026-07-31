@@ -690,6 +690,7 @@ router.post('/:id/entrance-checkout-preview', authenticateToken, async (req, res
     const computed = await computeEventEntranceCheckout(prisma, {
       eventId: req.params.id,
       selectedMenuItems,
+      allowFreeClaim: true,
     });
     if (!computed.ok) return res.status(400).json({ error: computed.error });
     res.json({
@@ -700,6 +701,127 @@ router.post('/:id/entrance-checkout-preview', authenticateToken, async (req, res
       venue_share: computed.venueShare,
       lines: computed.lines,
       menu_items: computed.menuItems,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const claimFreeTicketSchema = z.object({
+  ticket_tier_name: z.string().min(1).max(120),
+  quantity: z.coerce.number().int().min(1).max(10).optional().default(1),
+  holder_names: z.union([z.array(z.string().max(120)), z.string().max(2000)]).optional(),
+  selected_menu_items: z
+    .array(
+      z.object({
+        menuItemId: z.string().min(1).optional(),
+        menu_item_id: z.string().min(1).optional(),
+        quantity: z.coerce.number().int().min(0).optional(),
+      }),
+    )
+    .optional()
+    .default([]),
+  promoter_user_id: z.string().min(1).max(64).optional().nullable(),
+});
+
+/** Claim R0 event tickets and issue QR passes (no Paystack). */
+router.post('/:id/claim-free-ticket', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = claimFreeTicketSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    const d = parsed.data;
+    let holderNames = d.holder_names;
+    if (typeof holderNames === 'string') {
+      try {
+        holderNames = JSON.parse(holderNames);
+      } catch {
+        holderNames = [];
+      }
+    }
+    const selectedMenuItems = (d.selected_menu_items || []).map((m) => ({
+      menuItemId: m.menuItemId || m.menu_item_id,
+      quantity: m.quantity,
+    }));
+    const { claimFreeEventTickets } = await import('../lib/claimFreeEventPass.js');
+    const result = await claimFreeEventTickets({
+      eventId: req.params.id,
+      userId: req.userId,
+      email: req.user?.email || null,
+      ticketTierName: d.ticket_tier_name,
+      quantity: d.quantity,
+      holderNames: Array.isArray(holderNames) ? holderNames : [],
+      selectedMenuItems,
+      promoterUserId: d.promoter_user_id || null,
+    });
+    if (!result.ok) {
+      return res.status(result.status || 400).json({
+        error: result.error,
+        ...(result.expected_zar != null ? { expected_zar: result.expected_zar } : {}),
+      });
+    }
+    res.json({
+      confirmed: true,
+      reference: result.reference,
+      quantity: result.quantity,
+      tickets_issued: result.tickets_issued,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const claimFreeEntranceSchema = z.object({
+  selected_menu_items: z
+    .array(
+      z.object({
+        menuItemId: z.string().min(1).optional(),
+        menu_item_id: z.string().min(1).optional(),
+        quantity: z.coerce.number().int().min(0).optional(),
+      }),
+    )
+    .optional()
+    .default([]),
+  selectedMenuItems: z
+    .array(
+      z.object({
+        menuItemId: z.string().min(1).optional(),
+        menu_item_id: z.string().min(1).optional(),
+        quantity: z.coerce.number().int().min(0).optional(),
+      }),
+    )
+    .optional(),
+  promoter_user_id: z.string().min(1).max(64).optional().nullable(),
+});
+
+/** Claim R0 entrance pass and issue QR (no Paystack). */
+router.post('/:id/claim-free-entrance', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = claimFreeEntranceSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+    const d = parsed.data;
+    const rawMenu = d.selected_menu_items?.length ? d.selected_menu_items : d.selectedMenuItems || [];
+    const selectedMenuItems = rawMenu.map((m) => ({
+      menuItemId: m.menuItemId || m.menu_item_id,
+      quantity: m.quantity,
+    }));
+    const { claimFreeEventEntrance } = await import('../lib/claimFreeEventPass.js');
+    const result = await claimFreeEventEntrance({
+      eventId: req.params.id,
+      userId: req.userId,
+      email: req.user?.email || null,
+      selectedMenuItems,
+      promoterUserId: d.promoter_user_id || null,
+    });
+    if (!result.ok) {
+      return res.status(result.status || 400).json({
+        error: result.error,
+        ...(result.expected_zar != null ? { expected_zar: result.expected_zar } : {}),
+      });
+    }
+    res.json({
+      confirmed: true,
+      reference: result.reference,
+      tickets_issued: result.tickets_issued,
     });
   } catch (err) {
     next(err);

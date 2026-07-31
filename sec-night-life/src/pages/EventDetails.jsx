@@ -549,7 +549,7 @@ export default function EventDetails() {
             <div style={{ flex: 1 }}>
               <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 2, fontWeight: 500 }}>Entrance fee</p>
               <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--sec-text-primary)' }}>
-                R{Number(event.entrance_fee_amount)}
+                {Number(event.entrance_fee_amount) <= 0 ? 'Free' : `R${Number(event.entrance_fee_amount)}`}
               </p>
             </div>
             <button
@@ -561,7 +561,7 @@ export default function EventDetails() {
                 navigate(createPageUrl(`EventEntranceCheckout?id=${eventId}`));
               }}
             >
-              Pay to enter
+              {Number(event.entrance_fee_amount) <= 0 ? 'Get free entrance' : 'Pay to enter'}
             </button>
           </div>
         )}
@@ -844,12 +844,12 @@ export default function EventDetails() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 960, margin: '0 auto' }}>
           {event.event_format === 'TICKETING_ONLY' && event.ticket_tiers?.length > 0 ? (
             <>
-              {lowestTicketPrice > 0 && (
-                <div className="sec-bottom-bar__price">
-                  <div className="sec-bottom-bar__price-label">From</div>
-                  <div className="sec-bottom-bar__price-value">R{lowestTicketPrice}</div>
+              <div className="sec-bottom-bar__price">
+                <div className="sec-bottom-bar__price-label">From</div>
+                <div className="sec-bottom-bar__price-value">
+                  {lowestTicketPrice <= 0 ? 'Free' : `R${lowestTicketPrice}`}
                 </div>
-              )}
+              </div>
               <div className="sec-bottom-bar__cta" style={{ display: 'flex', gap: 8 }}>
                 <button
                   type="button"
@@ -860,7 +860,7 @@ export default function EventDetails() {
                     navigate(createPageUrl(`TicketCheckout?id=${eventId}`));
                   }}
                 >
-                  Buy tickets
+                  {lowestTicketPrice <= 0 ? 'Get free tickets' : 'Buy tickets'}
                 </button>
                 {tableTiers.length > 0 && (
                   <button
@@ -890,7 +890,9 @@ export default function EventDetails() {
                 </div>
                 <div className="sec-bottom-bar__price-value">
                   {event.has_entrance_fee
-                    ? `R${Number(event.entrance_fee_amount || 0)}`
+                    ? Number(event.entrance_fee_amount || 0) <= 0
+                      ? 'Free'
+                      : `R${Number(event.entrance_fee_amount || 0)}`
                     : totalSpotsRemaining}
                 </div>
               </div>
@@ -911,7 +913,7 @@ export default function EventDetails() {
                       navigate(createPageUrl(`EventEntranceCheckout?id=${eventId}`));
                     }}
                   >
-                    Pay to enter
+                    {Number(event.entrance_fee_amount || 0) <= 0 ? 'Get free entrance' : 'Pay to enter'}
                   </button>
                 )}
                 <button
@@ -928,12 +930,12 @@ export default function EventDetails() {
             </>
           ) : event.ticket_tiers?.length > 0 ? (
             <>
-              {lowestTicketPrice > 0 && (
-                <div className="sec-bottom-bar__price">
-                  <div className="sec-bottom-bar__price-label">From</div>
-                  <div className="sec-bottom-bar__price-value">R{lowestTicketPrice}</div>
+              <div className="sec-bottom-bar__price">
+                <div className="sec-bottom-bar__price-label">From</div>
+                <div className="sec-bottom-bar__price-value">
+                  {lowestTicketPrice <= 0 ? 'Free' : `R${lowestTicketPrice}`}
                 </div>
-              )}
+              </div>
               <div className="sec-bottom-bar__cta">
                 <button
                   type="button"
@@ -943,7 +945,7 @@ export default function EventDetails() {
                     navigate(createPageUrl(`TicketCheckout?id=${eventId}`));
                   }}
                 >
-                  Buy tickets
+                  {lowestTicketPrice <= 0 ? 'Get free tickets' : 'Buy tickets'}
                 </button>
               </div>
             </>

@@ -18,7 +18,10 @@ import { logger } from './logger.js';
 /**
  * Validate + compute standalone entrance checkout for an event.
  */
-export async function computeEventEntranceCheckout(db, { eventId, selectedMenuItems = [] }) {
+export async function computeEventEntranceCheckout(
+  db,
+  { eventId, selectedMenuItems = [], allowFreeClaim = false },
+) {
   const event = await db.event.findFirst({
     where: { id: eventId, deletedAt: null },
     select: {
@@ -41,8 +44,14 @@ export async function computeEventEntranceCheckout(db, { eventId, selectedMenuIt
   if (event.status !== 'published') {
     return { ok: false, error: 'Event is not available' };
   }
-  const entranceZar = getEventEntranceZar(event);
-  if (entranceZar <= 0) {
+  if (!event.hasEntranceFee) {
+    return { ok: false, error: 'This event does not have an entrance fee' };
+  }
+  // Prefer explicit fee amount (incl. R0 free entrance); fall back to helper for paid fees.
+  const rawFee = Number(event.entranceFeeAmount);
+  const entranceZar =
+    Number.isFinite(rawFee) && rawFee >= 0 ? Math.round(rawFee * 100) / 100 : getEventEntranceZar(event);
+  if (entranceZar < 0) {
     return { ok: false, error: 'This event does not have an entrance fee' };
   }
 
@@ -54,8 +63,16 @@ export async function computeEventEntranceCheckout(db, { eventId, selectedMenuIt
     menuItems = resolved.items || [];
   }
 
-  const checkout = computeEntranceCheckout({ entranceZar, menuTotal: menuZar });
+  const checkout = computeEntranceCheckout({
+    entranceZar,
+    menuTotal: menuZar,
+    // Free entrance + menu uses paid checkout; fully free needs allowFreeClaim.
+    allowZeroEntrance: allowFreeClaim || (entranceZar === 0 && menuZar > 0),
+  });
   if (checkout.error) return { ok: false, error: checkout.error };
+  if (checkout.total <= 0 && !allowFreeClaim) {
+    return { ok: false, error: 'This event does not have an entrance fee' };
+  }
 
   return {
     ok: true,

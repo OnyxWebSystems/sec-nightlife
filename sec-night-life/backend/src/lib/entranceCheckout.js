@@ -34,23 +34,38 @@ export async function userHasPaidEventEntrance(userId, eventId, db = prisma) {
  * Build checkout lines for standalone event entrance (+ optional menu).
  * SEC 15% / venue 85% on the full gross.
  */
-export function computeEntranceCheckout({ entranceZar = 0, menuTotal = 0, menuLabel = 'Menu pre-order' } = {}) {
+export function computeEntranceCheckout({
+  entranceZar = 0,
+  menuTotal = 0,
+  menuLabel = 'Menu pre-order',
+  allowZeroEntrance = false,
+} = {}) {
   const lines = [];
   const entrance = Number(entranceZar) || 0;
   const menu = Number(menuTotal) || 0;
-  if (entrance <= 0) {
+  if (entrance < 0 || menu < 0) {
+    return { error: 'Invalid checkout amounts.' };
+  }
+  // Paid path: require a positive entrance, or menu-only when entrance is free.
+  // Free-claim path: allow entrance + menu both R0 when allowZeroEntrance is set.
+  if (entrance <= 0 && menu <= 0 && !allowZeroEntrance) {
     return { error: 'This event does not have an entrance fee.' };
   }
-  lines.push(line('entrance', 'Entrance fee', entrance));
+  if (entrance > 0) {
+    lines.push(line('entrance', 'Entrance fee', entrance));
+  } else if (allowZeroEntrance) {
+    lines.push(line('entrance', 'Entrance (free)', 0));
+  }
   if (menu > 0) {
     lines.push(line('menu', menuLabel, menu));
   }
   const chargeable = lines.filter((l) => Number(l.amount_zar) > 0);
   const subtotal = sumCheckoutLines(chargeable);
-  const { secAmount: platformFee, recipientAmount: venueShare } = splitPlatformGross(subtotal);
+  const { secAmount: platformFee, recipientAmount: venueShare } =
+    subtotal > 0 ? splitPlatformGross(subtotal) : { secAmount: 0, recipientAmount: 0 };
   return {
-    lines: chargeable,
-    displayLines: chargeable,
+    lines: chargeable.length ? chargeable : lines,
+    displayLines: lines,
     entranceZar: entrance,
     menuZar: menu,
     subtotal,

@@ -94,6 +94,30 @@ export default function TicketPurchaseButton({ event }) {
           ? holderNames.map((n) => String(n).trim())
           : [holderDisplayNameFromUser(user)];
       const menuPayload = menuEnabled ? menuSelectionToPayload(venueMenu, menuSelected) : [];
+      const promoterRef = getStoredPromoterRef(event.id);
+
+      if (totalPrice <= 0) {
+        const body = {
+          ticket_tier_name: selectedTier,
+          quantity,
+          holder_names: names,
+        };
+        if (menuPayload.length > 0) body.selected_menu_items = menuPayload;
+        if (promoterRef) body.promoter_user_id = promoterRef;
+        const res = await apiPost(`/api/events/${event.id}/claim-free-ticket`, body);
+        if (!res?.confirmed) throw new Error(res?.error || 'Could not claim free ticket');
+        setIsOpen(false);
+        setPaymentComplete(true);
+        queryClient.invalidateQueries({ queryKey: ['my-tickets'] });
+        queryClient.invalidateQueries({ queryKey: ['event', event.id] });
+        toast.success(
+          quantity === 1
+            ? 'Free ticket confirmed. View your QR in Profile → Tickets.'
+            : `${quantity} free tickets confirmed. View your QR in Profile → Tickets.`,
+        );
+        return;
+      }
+
       const metadata = {
         type: 'ticket',
         event_id: event.id,
@@ -104,7 +128,6 @@ export default function TicketPurchaseButton({ event }) {
       if (menuPayload.length > 0) {
         metadata.selected_menu_items = menuPayload;
       }
-      const promoterRef = getStoredPromoterRef(event.id);
       if (promoterRef) metadata.promoter_user_id = promoterRef;
       const res = await apiPost('/api/payments/initialize', {
         amount: totalPrice,
@@ -154,8 +177,12 @@ export default function TicketPurchaseButton({ event }) {
   function formatTierLabel(tier) {
     const left = tier.quantity - (tier.sold || 0);
     const category = tier.category ? ` (${tier.category})` : '';
-    return `${tier.name}${category} — R${tier.price} (${left} left)`;
+    const priceLabel = Number(tier.price) <= 0 ? 'Free' : `R${tier.price}`;
+    return `${tier.name}${category} — ${priceLabel} (${left} left)`;
   }
+
+  const hasOnlyFreeTiers =
+    availableTickets.length > 0 && availableTickets.every((t) => Number(t.price) <= 0);
 
   return (
     <>
@@ -165,7 +192,7 @@ export default function TicketPurchaseButton({ event }) {
         className="w-full sec-btn-accent"
       >
         <Ticket className="w-4 h-4 mr-2" />
-        {paymentComplete ? 'Paid' : 'Buy Tickets'}
+        {paymentComplete ? 'Confirmed' : hasOnlyFreeTiers ? 'Get Free Tickets' : 'Buy Tickets'}
       </Button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -179,7 +206,7 @@ export default function TicketPurchaseButton({ event }) {
         >
           <DialogHeader className="px-5 pt-5 pb-3 border-b" style={{ borderColor: 'var(--sec-border)' }}>
             <DialogTitle style={{ color: 'var(--sec-text-primary)', fontSize: 18, fontWeight: 700 }}>
-              Purchase Tickets
+              {hasOnlyFreeTiers ? 'Get Free Tickets' : 'Purchase Tickets'}
             </DialogTitle>
           </DialogHeader>
 
@@ -343,11 +370,16 @@ export default function TicketPurchaseButton({ event }) {
                 style={{ height: 48 }}
               >
                 {paymentComplete ? (
-                  'Paid'
+                  'Confirmed'
                 ) : isProcessing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
                     Processing…
+                  </>
+                ) : totalPrice <= 0 ? (
+                  <>
+                    <Ticket className="w-4 h-4 mr-2" />
+                    Get free ticket
                   </>
                 ) : (
                   <>
@@ -357,10 +389,18 @@ export default function TicketPurchaseButton({ event }) {
                 )}
               </Button>
 
-              <p className="text-xs text-center mt-2" style={{ color: 'var(--sec-text-muted)' }}>
-                Secure payment powered by Paystack
-              </p>
-              <RefundPolicyNote className="text-center mt-2" style={{ color: 'var(--sec-text-muted)' }} />
+              {totalPrice > 0 ? (
+                <p className="text-xs text-center mt-2" style={{ color: 'var(--sec-text-muted)' }}>
+                  Secure payment powered by Paystack
+                </p>
+              ) : (
+                <p className="text-xs text-center mt-2" style={{ color: 'var(--sec-text-muted)' }}>
+                  Free — you&apos;ll get a QR code in Profile → Tickets
+                </p>
+              )}
+              {totalPrice > 0 ? (
+                <RefundPolicyNote className="text-center mt-2" style={{ color: 'var(--sec-text-muted)' }} />
+              ) : null}
             </div>
           ) : null}
         </DialogContent>
