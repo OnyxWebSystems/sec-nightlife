@@ -9,16 +9,16 @@
 
 ## Short description (80 chars max)
 
-Discover events, book tables, and manage your venue. Your Night. Simplified.
+Discover restaurants, events & tables. Book nights out. Grow your venue.
 
 ---
 
 ## Full description
 
-SEC Nightlife is South Africa's nightlife platform — for party-goers and venue owners.
+SEC Nightlife is your all-in-one platform for going out — restaurants, bars, clubs, and live events.
 
-**Party-goers**
-• Discover events and venues
+**Guests**
+• Discover places and events
 • Book and join tables
 • Host tables and events
 • Friends, messages, and notifications
@@ -27,6 +27,8 @@ SEC Nightlife is South Africa's nightlife platform — for party-goers and venue
 • Business dashboard and analytics
 • Events, bookings, and menu management
 • Promotions to grow your venue
+
+Launching first in South Africa, built to expand worldwide.
 
 Download SEC. Your Night. Simplified.
 

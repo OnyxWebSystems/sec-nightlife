@@ -18,11 +18,18 @@ Replace placeholders after store accounts are ready:
 2. Replace `FOUNDER_APPLE_TEAM_ID` in `apple-app-site-association` with your Team ID.
    - Format: `"appID": "TEAMID.com.secnightlife.app"`
 3. Redeploy the **frontend** Vercel project.
-4. In Xcode → Signing & Capabilities, confirm **Associated Domains** includes `applinks:secnightlife.com` (see `ios/App/App/App.entitlements`).
+4. In Xcode → Signing & Capabilities, confirm **Associated Domains** includes:
+   - `applinks:secnightlife.com`
+   - `applinks:www.secnightlife.com`
+   (see `ios/App/App/App.entitlements`).
+5. Release builds must use `aps-environment` = `production` (already set for App Store / TestFlight).
 
-Verify after deploy:
+Verify after deploy (follow redirects to www if needed):
 
 ```bash
-curl -sI https://secnightlife.com/.well-known/apple-app-site-association
-curl -s https://secnightlife.com/.well-known/assetlinks.json
+curl -sL https://secnightlife.com/.well-known/apple-app-site-association
+curl -sL https://www.secnightlife.com/.well-known/apple-app-site-association
+curl -sL https://secnightlife.com/.well-known/assetlinks.json
 ```
+
+The live `appID` must NOT contain `FOUNDER_APPLE_TEAM_ID` — replace with the real 10-character Team ID before submission.

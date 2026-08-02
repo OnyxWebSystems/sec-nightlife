@@ -47,11 +47,12 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>SEC uses your location to show nearby venues, events, and map pins.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>SEC uses your location to show nearby venues, events, and map pins.</string>
 	<key>NSCameraUsageDescription</key>
+
 	<string>SEC uses the camera so you can take photos for your profile, venue branding, and uploads.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>SEC needs photo library access so you can upload profile photos, venue images, and documents.</string>

@@ -5,8 +5,9 @@
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:secnightlife.com</string>
+		<string>applinks:www.secnightlife.com</string>
 	</array>
 	<key>aps-environment</key>
-	<string>development</string>
+	<string>production</string>
 </dict>
 </plist>

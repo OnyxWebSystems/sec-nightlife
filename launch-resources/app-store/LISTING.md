@@ -15,40 +15,40 @@ Your Night. Simplified.
 
 ## Promotional text (170 chars, updatable without review)
 
-Discover events, book tables, and connect with friends. SEC brings South Africa's nightlife into one app — for party-goers and venue owners.
+Discover restaurants, bars, clubs, and events. Book tables, meet friends, and grow your venue — all in one app. Your Night. Simplified.
 
 ---
 
 ## Description
 
-SEC Nightlife is your all-in-one platform for South Africa's nightlife scene.
+SEC Nightlife is your all-in-one platform for going out — restaurants, bars, clubs, and live events.
 
-**For party-goers**
-- Discover events and venues near you
+**For guests**
+- Discover places and events near you
 - Book and join tables with friends
 - Host your own table or event
-- Message friends, get notifications, and track your night
+- Message friends, get notifications, and plan your night
 
 **For venue owners**
 - Manage your venue dashboard, events, and bookings
 - Build your menu and run promotions
 - View analytics and grow your business
 
+Launching first in South Africa, built to expand worldwide.
+
 Your Night. Simplified.
 
 ---
 
-## Keywords (100 chars, comma-separated)
+## Keywords (100 chars max, comma-separated)
 
-nightlife,events,tables,venues,party,South Africa,clubs,bars,tickets,social
+nightlife,events,restaurants,tables,venues,clubs,bars,tickets,dining,social
 
 ---
 
 ## Support URL
 
 https://secnightlife.com/HelpCenter
-
-(Update to custom domain when live.)
 
 ---
 
