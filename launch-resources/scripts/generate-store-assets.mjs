@@ -15,6 +15,7 @@ const require = createRequire(join(__dirname, '../../sec-night-life/package.json
 const KIT_ROOT = join(__dirname, '..');
 const BRAND_LOGO = join(KIT_ROOT, 'brand/logos/sec-logo.png');
 const BRAND_MARK = join(KIT_ROOT, 'brand/logos/sec-mark.svg');
+const APP_ICON_SVG = join(KIT_ROOT, 'brand/logos/sec-app-icon.svg');
 
 async function getSharp() {
   try {
@@ -75,6 +76,15 @@ export async function syncStoreScreenshots(kitRoot = KIT_ROOT) {
 }
 
 async function generateIcons(sharp) {
+  // Prefer vector circular lockup (crisp); fall back to raster brand PNG.
+  if (existsSync(APP_ICON_SVG)) {
+    const { spawnSync } = await import('child_process');
+    const gen = join(__dirname, 'generate-app-icon.mjs');
+    const result = spawnSync(process.execPath, [gen], { stdio: 'inherit' });
+    if (result.status === 0) return;
+    console.warn('  generate-app-icon failed — falling back to sec-logo.png');
+  }
+
   const appIcon = join(KIT_ROOT, 'app-store/icon-1024.png');
   const playIcon = join(KIT_ROOT, 'play-store/icon-512.png');
   mkdirSync(dirname(appIcon), { recursive: true });

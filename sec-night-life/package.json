@@ -12,6 +12,7 @@
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
     "icons:sync-ios": "node scripts/sync-ios-app-icon.mjs",
+    "icons:generate-app": "node ../launch-resources/scripts/generate-app-icon.mjs",
     "build:mobile": "vite build && node scripts/sync-ios-app-icon.mjs && cap sync",
     "cap:sync": "cap sync",
     "cap:android": "cap open android",

@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="metal" x1="512" y1="280" x2="512" y2="620" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F5F5F7"/>
+      <stop offset="35%" stop-color="#D8D8DE"/>
+      <stop offset="70%" stop-color="#A8A8B0"/>
+      <stop offset="100%" stop-color="#6E6E76"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="512" y1="96" x2="512" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F2F2F4"/>
+      <stop offset="50%" stop-color="#C8C8D0"/>
+      <stop offset="100%" stop-color="#8A8A92"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Circular ring only; outside is transparent -->
+  <circle cx="512" cy="512" r="400" stroke="url(#ring)" stroke-width="10" fill="none"/>
+
+  <!-- Wordmark -->
+  <text
+    x="512"
+    y="500"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-family="Arial Black, Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="220"
+    font-weight="900"
+    letter-spacing="-6"
+    fill="url(#metal)"
+  >sec</text>
+
+  <!-- Tagline -->
+  <text
+    x="512"
+    y="620"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="36"
+    font-weight="500"
+    letter-spacing="6"
+    fill="#E8E8EC"
+  >YOUR NIGHT. SIMPLIFIED.</text>
+</svg>
