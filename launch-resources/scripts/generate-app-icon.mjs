@@ -1,90 +1,90 @@
 /**
- * Render crisp SEC app icons from the vector circular lockup.
+ * Build store / marketing icons from the founder circular SEC logo PNG.
  *
+ * Source: brand/logos/sec-logo-founder.png
  * Outputs:
- *  - brand/logos/sec-app-icon-4096.png  (transparent)
- *  - app-store/icon-1024.png            (opaque black — App Store / Xcode)
- *  - play-store/icon-512.png            (opaque black)
+ *  - brand/logos/sec-app-icon-transparent-master.png (circle only, transparent)
+ *  - brand/logos/sec-app-icon-4096.png (transparent, upscaled)
+ *  - app-store/icon-1024.png (opaque black — App Store / Xcode)
+ *  - play-store/icon-512.png (opaque black)
  *
  * Usage (from sec-night-life/):
- *   node ../launch-resources/scripts/generate-app-icon.mjs
+ *   npm run icons:generate-app
  */
-import { createRequire } from 'module';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const KIT_ROOT = join(__dirname, '..');
-const require = createRequire(join(__dirname, '../../sec-night-life/package.json'));
+const FOUNDER = join(KIT_ROOT, 'brand/logos/sec-logo-founder.png');
 
-const SVG_PATH = join(KIT_ROOT, 'brand/logos/sec-app-icon.svg');
-const OUT_4096 = join(KIT_ROOT, 'brand/logos/sec-app-icon-4096.png');
-const OUT_1024 = join(KIT_ROOT, 'app-store/icon-1024.png');
-const OUT_512 = join(KIT_ROOT, 'play-store/icon-512.png');
+const py = `
+from PIL import Image, ImageDraw, ImageFilter
+from pathlib import Path
+import math
 
-async function getSharp() {
-  try {
-    return require('sharp');
-  } catch {
-    try {
-      return (await import('sharp')).default;
-    } catch {
-      return null;
-    }
-  }
-}
+kit = Path(r'''${KIT_ROOT.replace(/\\/g, '/')}''')
+src = kit / 'brand/logos/sec-logo-founder.png'
+im = Image.open(src).convert('RGBA')
+w, h = im.size
+cx, cy = w / 2, h / 2
+px = im.load()
 
-async function main() {
-  const sharp = await getSharp();
-  if (!sharp) {
-    console.error('generate-app-icon: sharp is required');
-    process.exit(1);
-  }
-  if (!existsSync(SVG_PATH)) {
-    console.error('generate-app-icon: missing', SVG_PATH);
-    process.exit(1);
-  }
+max_r = 0.0
+for y in range(0, h, 2):
+    for x in range(0, w, 2):
+        r, g, b, a = px[x, y]
+        if max(r, g, b) > 80:
+            max_r = max(max_r, math.hypot(x - cx, y - cy))
+r_outer = min(max_r + 3, min(cx, cy) - 1)
 
-  mkdirSync(dirname(OUT_4096), { recursive: true });
-  mkdirSync(dirname(OUT_1024), { recursive: true });
-  mkdirSync(dirname(OUT_512), { recursive: true });
+mask = Image.new('L', (w, h), 0)
+draw = ImageDraw.Draw(mask)
+pad = 1.5
+draw.ellipse([cx - r_outer - pad, cy - r_outer - pad, cx + r_outer + pad, cy + r_outer + pad], fill=255)
+mask = mask.filter(ImageFilter.GaussianBlur(radius=0.9))
 
-  const svg = Buffer.from(readFileSync(SVG_PATH));
+out = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+out.paste(im, (0, 0))
+out.putalpha(mask)
+pxo = out.load()
+r_cut = r_outer + 1.2
+for y in range(h):
+    for x in range(w):
+        if math.hypot(x - cx, y - cy) > r_cut:
+            pxo[x, y] = (0, 0, 0, 0)
 
-  // Transparent 4096 master (vector → high-DPI raster)
-  await sharp(svg, { density: 600 })
-    .resize(4096, 4096, {
-      fit: 'contain',
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .png()
-    .toFile(OUT_4096);
-  console.log('  ✓', OUT_4096);
+(out_path := kit / 'brand/logos/sec-app-icon-transparent-master.png').parent.mkdir(parents=True, exist_ok=True)
+out.save(out_path, optimize=True)
+print('  ✓', out_path)
 
-  // Opaque App Store 1024 (Apple forbids transparency on App Icons)
-  await sharp(svg, { density: 600 })
-    .resize(1024, 1024, {
-      fit: 'contain',
-      background: { r: 0, g: 0, b: 0, alpha: 1 },
-    })
-    .flatten({ background: { r: 0, g: 0, b: 0 } })
-    .png()
-    .toFile(OUT_1024);
-  console.log('  ✓', OUT_1024);
+up = out.resize((4096, 4096), Image.Resampling.LANCZOS)
+up_path = kit / 'brand/logos/sec-app-icon-4096.png'
+up.save(up_path, optimize=True)
+print('  ✓', up_path)
 
-  await sharp(svg, { density: 600 })
-    .resize(512, 512, {
-      fit: 'contain',
-      background: { r: 0, g: 0, b: 0, alpha: 1 },
-    })
-    .flatten({ background: { r: 0, g: 0, b: 0 } })
-    .png()
-    .toFile(OUT_512);
-  console.log('  ✓', OUT_512);
-}
+circ = out.resize((1024, 1024), Image.Resampling.LANCZOS)
+opaque = Image.new('RGB', (1024, 1024), (0, 0, 0))
+opaque.paste(circ, (0, 0), circ)
+app_path = kit / 'app-store/icon-1024.png'
+app_path.parent.mkdir(parents=True, exist_ok=True)
+opaque.save(app_path, optimize=True)
+print('  ✓', app_path)
 
-main().catch((err) => {
-  console.error(err);
+play_path = kit / 'play-store/icon-512.png'
+play_path.parent.mkdir(parents=True, exist_ok=True)
+opaque.resize((512, 512), Image.Resampling.LANCZOS).save(play_path, optimize=True)
+print('  ✓', play_path)
+`;
+
+if (!existsSync(FOUNDER)) {
+  console.error('generate-app-icon: missing founder logo at', FOUNDER);
   process.exit(1);
-});
+}
+
+const result = spawnSync('python', ['-c', py], { encoding: 'utf-8' });
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+if (result.status !== 0) process.exit(result.status ?? 1);
