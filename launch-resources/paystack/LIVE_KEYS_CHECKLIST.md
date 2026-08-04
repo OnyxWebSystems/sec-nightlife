@@ -32,9 +32,10 @@ Alternative: omit `VITE_PAYSTACK_PUBLIC_KEY` and rely on `GET /api/payments/pays
 
 - **Webhook URL:** `https://<api-domain>/api/webhooks/paystack`
   - Alternate: `https://<api-domain>/api/payments/paystack/webhook`
-- **Events:** `charge.success`, `charge.failed`
+- **Events:** `charge.success`, `charge.failed`, `transfer.success`, `transfer.failed`, `transfer.reversed`
 - Confirm **ZAR** enabled on live account
-- Enable **Transfers** and fund transfer balance for venue/host payouts
+- Enable **Transfers** for venue/host payouts
+- **Critical (marketplace):** Settings → Preferences → Payout schedule = **Settled to Balance** so charges credit **Available** for Transfers — not auto **Payouts → Standard Bank**. See [SETTLE_TO_BALANCE_MARKETPLACE.md](./SETTLE_TO_BALANCE_MARKETPLACE.md).
 
 ---
 

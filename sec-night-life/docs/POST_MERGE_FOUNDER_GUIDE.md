@@ -85,16 +85,17 @@ Do this **after** the launch-hardening PR is deployed. Keep Paystack on **test k
 
 1. Complete Paystack business activation (see `launch-resources/paystack/`).
 2. Enable **Transfers** on the live account.
-3. Set matching live keys:
+3. Confirm **Settings → Preferences → Payout schedule = Settled to Balance** (not auto bank payout). Details + escalation email: `launch-resources/paystack/SETTLE_TO_BALANCE_MARKETPLACE.md`.
+4. Set matching live keys:
    - API: `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`
    - Frontend: `VITE_PAYSTACK_PUBLIC_KEY` (or rely on API public-key endpoint) — redeploy frontend
-4. Webhook URL (live dashboard): `https://api.secnightlife.com/api/webhooks/paystack`  
+5. Webhook URL (live dashboard): `https://api.secnightlife.com/api/webhooks/paystack`  
    Subscribe at least: `charge.success`, `charge.failed`, `transfer.success`, `transfer.failed`, `transfer.reversed`, dispute events if offered.
-5. Small live E2E:
+6. Small live E2E (only after Available receives settlements):
    - Buy ticket → QR appears
    - Confirm venue/host payout ledger moves to `PROCESSING` then `TRANSFERRED`
    - Request refund → venue approves → venue reveals wallet account → marks paid off-app
-6. Ops: chargebacks are handled in Paystack dashboard + `SUPER_ADMIN_EMAIL` notice; failed transfers retry via cron.
+7. Ops: chargebacks are handled in Paystack dashboard + `SUPER_ADMIN_EMAIL` notice; failed transfers retry via cron.
 
 ### 7. Smoke tests
 
