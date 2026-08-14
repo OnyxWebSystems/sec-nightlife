@@ -193,12 +193,31 @@ export default function ProfileSetup() {
     try {
       const { user: currentUser } = await authService.requireAuthOrLogin(createPageUrl('ProfileSetup'));
       setUser(currentUser);
+
+      // Prefer /me — avoids bouncing completed accounts back into setup steps.
+      try {
+        const { userProfile: meProfile } = await authService.getAuthSession();
+        if (!isEditMode && meProfile?.onboarding_complete === true) {
+          markOnboardingComplete(currentUser.id);
+          navigate(createPageUrl('Profile'), { replace: true });
+          return;
+        }
+      } catch {
+        /* fall through to profile filter */
+      }
+
       const profiles = await dataService.User.filter({ created_by: currentUser.email });
       const draft = !isEditMode ? loadProfileSetupDraft(currentUser.id) : null;
       const urlStep = Number(searchParams.get('step'));
 
       if (profiles.length > 0) {
         const profile = profiles[0];
+        // Already finished onboarding — don't show setup steps again (edit mode only).
+        if (!isEditMode && profile.onboarding_complete === true) {
+          markOnboardingComplete(currentUser.id);
+          navigate(createPageUrl('Profile'), { replace: true });
+          return;
+        }
         setUserProfile(profile);
         const profileCity = profile.city || '';
         applyCityFromProfile(profileCity);

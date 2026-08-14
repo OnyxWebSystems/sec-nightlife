@@ -114,7 +114,7 @@ export default function Profile() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user, userProfile: authUserProfile, isLoadingAuth } = useAuth();
+  const { user, userProfile: authUserProfile, isLoadingAuth, isRestoringSession, checkAppState } = useAuth();
   const [profilePatch, setProfilePatch] = useState({});
   const OWN_ONLY_TABS = ['tickets', 'reviews', 'interests', 'wallet', 'promotions'];
   const rawTab = searchParams.get('tab');
@@ -127,13 +127,33 @@ export default function Profile() {
   const userProfile = authUserProfile ? { ...authUserProfile, ...profilePatch } : null;
 
   useEffect(() => {
-    if (isLoadingAuth) return;
+    if (isLoadingAuth || isRestoringSession) return;
     if (viewingUserId) return;
     if (!user) return;
-    if (!authUserProfile) {
-      navigate(createPageUrl('ProfileSetup'), { replace: true });
+
+    // Only send users to onboarding when the server/session explicitly says incomplete.
+    // A null profile is a hydrate race — revalidate; do not bounce to setup.
+    if (authUserProfile?.onboarding_complete === false) {
+      const role = user.role;
+      navigate(
+        createPageUrl(role === 'VENUE' || role === 'BUSINESS' ? 'VenueOnboarding' : 'ProfileSetup'),
+        { replace: true },
+      );
+      return;
     }
-  }, [isLoadingAuth, viewingUserId, user, authUserProfile, navigate]);
+
+    if (!authUserProfile) {
+      void checkAppState({ soft: true });
+    }
+  }, [
+    isLoadingAuth,
+    isRestoringSession,
+    viewingUserId,
+    user,
+    authUserProfile,
+    navigate,
+    checkAppState,
+  ]);
 
   /** Merge PATCH /api/users/profile response into local state (Profile does not use React Query for own profile). */
   const mergeSelfProfileFromApi = (patch) => {
@@ -388,7 +408,7 @@ export default function Profile() {
     displayProfile?.age_verified === true ||
     (isOwnProfile && user?.identity_verified);
 
-  if (isLoadingAuth || !user) {
+  if (isLoadingAuth || isRestoringSession || !user) {
     return <SecLoadingScreen />;
   }
   if (isOwnProfile && !userProfile) {

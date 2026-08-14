@@ -484,6 +484,20 @@ export default function VenueOnboarding() {
         return;
       }
 
+      // Already onboarded venue accounts should not be forced through registration steps.
+      if (!isEditMode && !isNewVenue && !isStaffEdit) {
+        try {
+          const { userProfile: meProfile } = await authService.getAuthSession();
+          if (meProfile?.onboarding_complete === true) {
+            markOnboardingComplete(uid);
+            navigate(createPageUrl('Profile'), { replace: true });
+            return;
+          }
+        } catch {
+          /* continue into onboarding UI if session profile cannot be confirmed */
+        }
+      }
+
       const draft = loadParsedDraft(uid);
       const editVenueId = searchParams.get('venueId');
       let mines = [];

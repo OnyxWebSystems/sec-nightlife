@@ -7,6 +7,7 @@ import {
   writeSessionCache,
   clearSessionCache,
   userFromSessionCache,
+  isOnboardingMarkedComplete,
 } from '@/lib/sessionCache';
 import { setSessionResumeCallback, startSessionResume } from '@/lib/sessionResume';
 import { shouldSkipAuthBootstrap } from '@/lib/publicAuthPaths';
@@ -58,6 +59,20 @@ function restoreCachedSession(setUser, setUserProfile, setIsAuthenticated) {
   return true;
 }
 
+/** Prefer a real profile from /me; never wipe a known-complete profile with null. */
+function mergeProfileFromSession(prev, next, userId) {
+  if (next != null) return next;
+  if (
+    prev?.onboarding_complete === true ||
+    (userId && isOnboardingMarkedComplete(userId))
+  ) {
+    return prev?.onboarding_complete === true
+      ? prev
+      : { ...(prev || {}), onboarding_complete: true };
+  }
+  return next;
+}
+
 export const AuthProvider = ({ children }) => {
   const location = useLocation();
   const hasTokens = hasStoredAuthTokens();
@@ -75,93 +90,134 @@ export const AuthProvider = ({ children }) => {
     hasTokens && !initialSession.user && !skipBootstrap,
   );
   const [authError, setAuthError] = useState(null);
-  const checkInFlight = useRef(false);
-  const hasBootstrapped = useRef(Boolean(initialSession.user) || (!hasTokens && !skipBootstrap));
+  // Holds the in-flight checkAuth promise so callers can await the same run.
+  const checkInFlight = useRef(null);
+  // Always revalidate once with tokens — even when a cached user exists (avoids stale onboarding flags).
+  const hasBootstrapped = useRef(!hasTokens && !skipBootstrap);
+  const hadCachedUserOnMount = useRef(Boolean(initialSession.user));
   const userRef = useRef(user);
+  const userProfileRef = useRef(userProfile);
   userRef.current = user;
+  userProfileRef.current = userProfile;
 
   const checkAuth = useCallback(async ({ soft = false } = {}) => {
-    if (checkInFlight.current) return;
-    checkInFlight.current = true;
+    if (checkInFlight.current) return checkInFlight.current;
 
-    const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
-    const refreshToken = localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
+    const run = (async () => {
+      const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+      const refreshToken = localStorage.getItem('refresh_token') || sessionStorage.getItem('refresh_token');
 
-    if (!token && !refreshToken) {
-      setUser(null);
-      setUserProfile(null);
-      setIsAuthenticated(false);
-      setIsLoadingAuth(false);
-      checkInFlight.current = false;
-      return;
-    }
-
-    // Soft revalidate (route change / resume): never blank the UI or force Login.
-    const keepExistingUser = soft && Boolean(userRef.current);
-    if (!keepExistingUser && !userRef.current) {
-      setIsLoadingAuth(true);
-    }
-
-    if (!token && refreshToken) {
-      try {
-        await withTimeout(authService.ensureSession(), 20000, 'Session refresh');
-      } catch {
-        // Offline or slow network — keep tokens and cached user; never force logout here.
-      }
-    }
-
-    try {
-      setAuthError(null);
-      const { user: currentUser, userProfile: profile } = await withTimeout(
-        authService.getAuthSession(),
-        20000,
-        'Session check',
-      );
-      const nextUser = mapUser(currentUser);
-      setUser(nextUser);
-      setIsAuthenticated(true);
-      setUserProfile(profile);
-      writeSessionCache(currentUser, profile);
-    } catch (err) {
-      const refreshStillValid = Boolean(getRefreshToken());
-      if (refreshStillValid) {
-        try {
-          await withTimeout(authService.ensureSession(), 20000, 'Session refresh retry');
-          const { user: retryUser, userProfile: retryProfile } = await withTimeout(
-            authService.getAuthSession(),
-            20000,
-            'Session check retry',
-          );
-          const nextUser = mapUser(retryUser);
-          setUser(nextUser);
-          setIsAuthenticated(true);
-          setUserProfile(retryProfile);
-          writeSessionCache(retryUser, retryProfile);
-          setAuthError(null);
-          return;
-        } catch {
-          // fall through to cached session handling
-        }
-      }
-
-      const hadCachedUser = restoreCachedSession(setUser, setUserProfile, setIsAuthenticated);
-
-      // Never treat as auth_required while a refresh token still exists.
-      if ((err?.status === 401 || err?.status === 403) && !refreshStillValid && !hadCachedUser) {
-        clearSessionCache();
+      if (!token && !refreshToken) {
         setUser(null);
         setUserProfile(null);
         setIsAuthenticated(false);
-        setAuthError({ type: 'auth_required', message: 'Please sign in' });
-      } else if (hadCachedUser || refreshStillValid || keepExistingUser) {
-        setAuthError(null);
-        if (refreshStillValid) setIsAuthenticated(true);
-      } else {
-        setAuthError({ type: 'unknown', message: err?.message || 'Auth check failed' });
+        setIsLoadingAuth(false);
+        return;
       }
+
+      // Soft revalidate (route change / resume): never blank the UI or force Login.
+      const keepExistingUser = soft && Boolean(userRef.current);
+      if (!keepExistingUser && !userRef.current) {
+        setIsLoadingAuth(true);
+      }
+
+      // Screen recording / Control Center flickers visibility and retriggers resume.
+      // If we already know onboarding is done, only apply successful non-null /me payloads.
+      const alreadyOnboarded =
+        soft &&
+        Boolean(userRef.current?.id) &&
+        (userProfileRef.current?.onboarding_complete === true ||
+          isOnboardingMarkedComplete(userRef.current.id));
+      if (alreadyOnboarded) {
+        try {
+          const { user: currentUser, userProfile: profile } = await withTimeout(
+            authService.getAuthSession(),
+            20000,
+            'Session check',
+          );
+          if (profile != null) {
+            const nextUser = mapUser(currentUser);
+            setUser(nextUser);
+            setIsAuthenticated(true);
+            setUserProfile((prev) => mergeProfileFromSession(prev, profile, nextUser.id));
+            writeSessionCache(currentUser, profile);
+          }
+          setAuthError(null);
+        } catch {
+          // Keep existing in-memory session — never wipe during capture/resume blips.
+        } finally {
+          setIsLoadingAuth(false);
+        }
+        return;
+      }
+
+      if (!token && refreshToken) {
+        try {
+          await withTimeout(authService.ensureSession(), 20000, 'Session refresh');
+        } catch {
+          // Offline or slow network — keep tokens and cached user; never force logout here.
+        }
+      }
+
+      try {
+        setAuthError(null);
+        const { user: currentUser, userProfile: profile } = await withTimeout(
+          authService.getAuthSession(),
+          20000,
+          'Session check',
+        );
+        const nextUser = mapUser(currentUser);
+        setUser(nextUser);
+        setIsAuthenticated(true);
+        setUserProfile((prev) => mergeProfileFromSession(prev, profile, nextUser.id));
+        writeSessionCache(currentUser, profile ?? userProfileRef.current);
+      } catch (err) {
+        const refreshStillValid = Boolean(getRefreshToken());
+        if (refreshStillValid) {
+          try {
+            await withTimeout(authService.ensureSession(), 20000, 'Session refresh retry');
+            const { user: retryUser, userProfile: retryProfile } = await withTimeout(
+              authService.getAuthSession(),
+              20000,
+              'Session check retry',
+            );
+            const nextUser = mapUser(retryUser);
+            setUser(nextUser);
+            setIsAuthenticated(true);
+            setUserProfile((prev) => mergeProfileFromSession(prev, retryProfile, nextUser.id));
+            writeSessionCache(retryUser, retryProfile ?? userProfileRef.current);
+            setAuthError(null);
+            return;
+          } catch {
+            // fall through to cached session handling
+          }
+        }
+
+        const hadCachedUser = restoreCachedSession(setUser, setUserProfile, setIsAuthenticated);
+
+        // Never treat as auth_required while a refresh token still exists.
+        if ((err?.status === 401 || err?.status === 403) && !refreshStillValid && !hadCachedUser) {
+          clearSessionCache();
+          setUser(null);
+          setUserProfile(null);
+          setIsAuthenticated(false);
+          setAuthError({ type: 'auth_required', message: 'Please sign in' });
+        } else if (hadCachedUser || refreshStillValid || keepExistingUser) {
+          setAuthError(null);
+          if (refreshStillValid) setIsAuthenticated(true);
+        } else {
+          setAuthError({ type: 'unknown', message: err?.message || 'Auth check failed' });
+        }
+      } finally {
+        setIsLoadingAuth(false);
+      }
+    })();
+
+    checkInFlight.current = run;
+    try {
+      await run;
     } finally {
-      setIsLoadingAuth(false);
-      checkInFlight.current = false;
+      if (checkInFlight.current === run) checkInFlight.current = null;
     }
   }, []);
 
@@ -175,9 +231,10 @@ export const AuthProvider = ({ children }) => {
       return;
     }
     // First bootstrap only on mount / token appearance — not on every route change.
+    // Soft when we already painted a cached user so Profile/Home don't blank.
     if (!hasBootstrapped.current) {
       hasBootstrapped.current = true;
-      void checkAuth({ soft: false });
+      void checkAuth({ soft: hadCachedUserOnMount.current });
     }
   }, [checkAuth, hasTokens, location.pathname]);
 
