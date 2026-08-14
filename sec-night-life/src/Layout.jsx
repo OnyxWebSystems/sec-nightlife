@@ -198,10 +198,26 @@ export default function Layout({ children, currentPageName }) {
 
 
   useEffect(() => {
-    const onRefresh = () => { void refetchBadges(); };
+    const onRefresh = (event) => {
+      const detail = event?.detail;
+      if (detail && typeof detail === 'object') {
+        if (typeof detail.notif === 'number') {
+          setNotificationCount(Math.max(0, detail.notif));
+          queryClient.setQueryData(['notifications-unread'], Math.max(0, detail.notif));
+        }
+        if (typeof detail.msgs === 'number') {
+          setMessageUnread(Math.max(0, detail.msgs));
+        }
+        if (typeof detail.host === 'number') {
+          setHostUnread(Math.max(0, detail.host));
+        }
+        if (detail.skipRefetch) return;
+      }
+      void refetchBadges();
+    };
     window.addEventListener('sec_notifications_refresh', onRefresh);
     return () => window.removeEventListener('sec_notifications_refresh', onRefresh);
-  }, [refetchBadges]);
+  }, [refetchBadges, queryClient]);
 
   useEffect(() => {
     if (!user?.id) {

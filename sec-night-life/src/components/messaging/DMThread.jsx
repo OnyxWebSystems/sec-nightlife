@@ -4,7 +4,7 @@ import { apiDelete, apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import * as authService from '@/services/authService';
-import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { dispatchMessagesRefresh, markConversationReadInCaches } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
@@ -37,7 +37,7 @@ export default function DMThread({ conversationId, onBack }) {
     const rows = await apiGet(`/api/messages/conversations/${conversationId}`);
     setMessages(rows || []);
     if (rows?.length) lastPollRef.current = rows[rows.length - 1]?.sentAt;
-    dispatchMessagesRefresh();
+    markConversationReadInCaches('dm', conversationId);
   };
 
   const loadMeta = async () => {

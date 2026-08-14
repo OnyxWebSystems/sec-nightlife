@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { asArray, createPageUrl } from '@/utils';
+import { markConversationReadInCaches } from '@/lib/messagesRefresh';
 import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -141,6 +142,12 @@ export default function Messages() {
   });
 
   const openChat = (c) => {
+    // Clear the per-chat list badge immediately; nav total updates after messages load (server mark-read).
+    if (c.kind === 'dm') markConversationReadInCaches('dm', c.id, { listOnly: true });
+    else if (c.kind === 'group') markConversationReadInCaches('group', c.id, { listOnly: true });
+    else if (c.kind === 'venue_table') markConversationReadInCaches('venue_table', c.id, { listOnly: true });
+    else if (c.kind === 'promoter_venue') markConversationReadInCaches('promoter_venue', c.id, { listOnly: true });
+
     if (c.kind === 'dm') setSearchParams({ dm: c.id });
     else if (c.kind === 'venue_table') setSearchParams({ venueTableThread: c.id });
     else if (c.kind === 'promoter_venue') setSearchParams({ promoterVenue: c.id });

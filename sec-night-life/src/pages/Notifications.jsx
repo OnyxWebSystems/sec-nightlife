@@ -12,6 +12,10 @@ import { Bell, RotateCcw, CheckCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import {
+  clearNotificationUnreadBadges,
+  decrementNotificationUnreadBadges,
+} from '@/lib/messagesRefresh';
 
 export default function Notifications() {
   const [user, setUser] = useState(null);
@@ -357,6 +361,22 @@ export default function Notifications() {
 
   const markAsReadMutation = useMutation({
     mutationFn: (id) => apiPatch(`/api/notifications/${id}/read`),
+    onMutate: async (id) => {
+      const listKeys = queryClient.getQueriesData({ queryKey: ['notifications'] });
+      let wasUnread = false;
+      for (const [key, data] of listKeys) {
+        if (!Array.isArray(data)) continue;
+        const row = data.find((n) => n.id === id);
+        if (row && !row.is_read && row.read !== true) wasUnread = true;
+        queryClient.setQueryData(key, (prev) => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.map((n) =>
+            n.id === id ? { ...n, is_read: true, read: true } : n,
+          );
+        });
+      }
+      if (wasUnread) decrementNotificationUnreadBadges(1);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       window.dispatchEvent(new CustomEvent('sec_notifications_refresh'));
@@ -383,6 +403,12 @@ export default function Notifications() {
   const markAllAsRead = async () => {
     const visibleUnread = visibleNotifications.filter((n) => !n.is_read).length;
     if (visibleUnread === 0) return;
+    // Optimistic: clear badges + list immediately so Home/nav don't keep a stale count.
+    clearNotificationUnreadBadges();
+    queryClient.setQueriesData({ queryKey: ['notifications'] }, (prev) => {
+      if (!Array.isArray(prev)) return prev;
+      return prev.map((n) => ({ ...n, is_read: true, read: true }));
+    });
     try {
       const qs = businessMode && venueScope.venueQuery ? `?${venueScope.venueQuery}` : '';
       await apiPatch(`/api/notifications/read-all${qs}`, {});
@@ -391,6 +417,7 @@ export default function Notifications() {
       window.dispatchEvent(new CustomEvent('sec_notifications_refresh'));
     } catch {
       toast.error('Could not mark notifications as read');
+      window.dispatchEvent(new CustomEvent('sec_notifications_refresh'));
     }
   };
 

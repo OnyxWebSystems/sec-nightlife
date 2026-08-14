@@ -4,7 +4,7 @@ import { apiDelete, apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, Trash2, MessageSquareX } from 'lucide-react';
-import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { markConversationReadInCaches } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
@@ -32,7 +32,7 @@ export default function VenueTableThreadPanel({
   });
 
   useEffect(() => {
-    if (isSuccess && threadId) dispatchMessagesRefresh();
+    if (isSuccess && threadId) markConversationReadInCaches('venue_table', threadId);
   }, [isSuccess, threadId, messages.length]);
 
   const templates = memberStatus === 'DECLINED' ? GUEST_REPLY_TEMPLATES : [];

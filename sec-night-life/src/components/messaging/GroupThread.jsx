@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import * as authService from '@/services/authService';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { toast } from 'sonner';
-import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { markConversationReadInCaches } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
@@ -46,7 +46,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
     const rows = await apiGet(`${apiBase}/messages`);
     setMessages(rows || []);
     if (rows?.length) lastPollRef.current = rows[rows.length - 1]?.sentAt;
-    dispatchMessagesRefresh();
+    markConversationReadInCaches('group', groupChatId);
   };
 
   useEffect(() => {

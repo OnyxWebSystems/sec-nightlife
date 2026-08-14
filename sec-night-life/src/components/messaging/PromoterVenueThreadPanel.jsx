@@ -6,7 +6,7 @@ import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, MessageSquareX, Megaphone } from 'lucide-react';
-import { dispatchMessagesRefresh } from '@/lib/messagesRefresh';
+import { markConversationReadInCaches } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageBubble from '@/components/messaging/MessageBubble';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
@@ -39,7 +39,7 @@ export default function PromoterVenueThreadPanel({
   const assignments = data?.assignments || [];
 
   useEffect(() => {
-    if (isSuccess && threadId) dispatchMessagesRefresh();
+    if (isSuccess && threadId) markConversationReadInCaches('promoter_venue', threadId);
   }, [isSuccess, threadId, messages.length]);
 
   async function deleteChat() {
