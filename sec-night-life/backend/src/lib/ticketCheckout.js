@@ -1,6 +1,53 @@
 import { splitTicketCheckoutAmounts } from './platformSplit.js';
 import { line, sumCheckoutLines } from './checkoutLines.js';
 
+/** Integer >= 1, or null when the venue left the cap blank / unlimited. */
+export function parseMaxPerUser(tierOrRaw) {
+  const raw = tierOrRaw && typeof tierOrRaw === 'object' ? tierOrRaw.max_per_user : tierOrRaw;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.floor(n);
+}
+
+export function userEventTierTicketWhere(userId, eventId, ticketTier) {
+  return {
+    userId: String(userId),
+    eventId: String(eventId),
+    kind: 'EVENT_TICKET',
+    subtitle: ticketTier,
+    refundedAt: null,
+    hiddenFromHistoryAt: null,
+  };
+}
+
+export async function countUserEventTierTickets(db, { userId, eventId, ticketTier }) {
+  if (!userId || !eventId || !ticketTier) return 0;
+  return db.ticket.count({
+    where: userEventTierTicketWhere(userId, eventId, ticketTier),
+  });
+}
+
+export async function countUserEventTicketsByTier(db, { userId, eventId }) {
+  if (!userId || !eventId) return {};
+  const rows = await db.ticket.groupBy({
+    by: ['subtitle'],
+    where: {
+      userId: String(userId),
+      eventId: String(eventId),
+      kind: 'EVENT_TICKET',
+      refundedAt: null,
+      hiddenFromHistoryAt: null,
+    },
+    _count: { _all: true },
+  });
+  const out = {};
+  for (const r of rows) {
+    if (r.subtitle) out[r.subtitle] = r._count._all;
+  }
+  return out;
+}
+
 /**
  * Validate ticket tier + optional menu and compute checkout totals (ZAR).
  * Ticket tier: 4% SEC / 96% venue. Menu add-ons: 15% SEC / 85% venue.
@@ -10,6 +57,7 @@ export async function computeTicketCheckout(prisma, {
   ticketTierName,
   quantity,
   selectedMenuItems = [],
+  userId = null,
 }) {
   const qty = Math.max(1, parseInt(String(quantity), 10) || 1);
   const event = await prisma.event.findFirst({
@@ -30,6 +78,31 @@ export async function computeTicketCheckout(prisma, {
 
   const available = Number(tier.quantity) - (Number(tier.sold) || 0);
   if (available < qty) return { ok: false, error: 'Not enough tickets available' };
+
+  const maxPerUser = parseMaxPerUser(tier);
+  let ownedCount = 0;
+  let remainingForUser = null;
+  if (maxPerUser != null && userId) {
+    ownedCount = await countUserEventTierTickets(prisma, {
+      userId,
+      eventId: event.id,
+      ticketTier: ticketTierName,
+    });
+    remainingForUser = Math.max(0, maxPerUser - ownedCount);
+    if (ownedCount + qty > maxPerUser) {
+      const label = ticketTierName || 'this ticket';
+      if (remainingForUser <= 0) {
+        return {
+          ok: false,
+          error: `You've reached the limit of ${maxPerUser} ${label} ticket${maxPerUser === 1 ? '' : 's'} per person.`,
+        };
+      }
+      return {
+        ok: false,
+        error: `You can buy at most ${maxPerUser} ${label} ticket${maxPerUser === 1 ? '' : 's'} per person.`,
+      };
+    }
+  }
 
   const ticketSubtotal = Math.round(Number(tier.price) * qty * 100) / 100;
   const menuLines = [];
@@ -81,6 +154,9 @@ export async function computeTicketCheckout(prisma, {
     lines,
     secAmount,
     recipientAmount,
+    ownedCount,
+    remainingForUser,
+    maxPerUser,
   };
 }
 

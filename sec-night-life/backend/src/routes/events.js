@@ -19,6 +19,7 @@ import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
 import { buildEventTableTiers, statsFromEventTableTiers } from '../lib/eventTableTiers.js';
 import { resolveEventSeatingPlans, getVenueDefaultSeatingPlan, attachGuestSeatingPlans } from '../lib/seatingPlanHelpers.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
+import { countUserEventTicketsByTier } from '../lib/ticketTierCaps.js';
 import {
   assertEventCodeUniqueForVenue,
   normalizeEventCodeInput,
@@ -274,6 +275,16 @@ function validateTicketTiersForPublish(ticketTiers) {
     }
     if (!Number.isFinite(qty) || qty < 1) {
       return { ok: false, error: 'Each ticket tier needs available quantity of at least 1.' };
+    }
+    const rawCap = t?.max_per_user;
+    if (rawCap != null && rawCap !== '' && Number(rawCap) !== 0) {
+      const cap = Number(rawCap);
+      if (!Number.isInteger(cap) || cap < 1) {
+        return { ok: false, error: 'Max tickets per guest must be a whole number of at least 1, or left blank.' };
+      }
+      if (cap > qty) {
+        return { ok: false, error: 'Max tickets per guest cannot exceed that tier’s available quantity.' };
+      }
     }
   }
   return { ok: true };
@@ -603,7 +614,11 @@ router.get('/', optionalAuth, async (req, res, next) => {
     const now = new Date();
     const where = { deletedAt: null };
     if (req.query.status) where.status = req.query.status;
-    if (req.query.venue_id) where.venueId = req.query.venue_id;
+    if (req.query.venue_id) {
+      const venueIdRaw = venueIdFromQuery(req.query)
+        || (Array.isArray(req.query.venue_id) ? req.query.venue_id[0] : req.query.venue_id);
+      if (typeof venueIdRaw === 'string' && venueIdRaw.trim()) where.venueId = venueIdRaw.trim();
+    }
     if (req.query.city) where.city = String(req.query.city);
     if (req.query.id) where.id = req.query.id;
     const eventFormatQ = String(req.query.event_format || '').trim().toUpperCase();
@@ -883,7 +898,11 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     const now = new Date();
     const where = { deletedAt: null };
     if (req.query.id) where.id = req.query.id;
-    if (req.query.venue_id) where.venueId = req.query.venue_id;
+    if (req.query.venue_id) {
+      const venueIdRaw = venueIdFromQuery(req.query)
+        || (Array.isArray(req.query.venue_id) ? req.query.venue_id[0] : req.query.venue_id);
+      if (typeof venueIdRaw === 'string' && venueIdRaw.trim()) where.venueId = venueIdRaw.trim();
+    }
     if (req.query.status) where.status = req.query.status;
     const eventFormatQ = String(req.query.event_format || '').trim().toUpperCase();
     if (eventFormatQ === 'TICKETING_ONLY' || eventFormatQ === 'TABLE_HOSTING') {
@@ -1259,7 +1278,19 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const stats = await computeEventStats(event.id, event.hostingConfig);
-    res.json(mapEventDetail(event, stats));
+    const payload = mapEventDetail(event, stats);
+    if (req.userId) {
+      try {
+        payload.my_ticket_counts = await countUserEventTicketsByTier(prisma, {
+          userId: req.userId,
+          eventId: event.id,
+        });
+      } catch (countErr) {
+        logger.warn('my_ticket_counts failed', { eventId: event.id, err: countErr?.message });
+        payload.my_ticket_counts = {};
+      }
+    }
+    res.json(payload);
   } catch (err) {
     next(err);
   }

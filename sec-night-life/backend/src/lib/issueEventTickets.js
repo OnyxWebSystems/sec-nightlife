@@ -15,6 +15,7 @@ import { splitTicketCheckoutAmounts, splitTicketGross } from './platformSplit.js
 import { promoterUserIdFromMetadata, recordPromoterConversion } from './promoterAttribution.js';
 import { buildTicketDoorContext } from './ticketDoorContext.js';
 import { logger } from './logger.js';
+import { countUserEventTierTickets, parseMaxPerUser } from './ticketTierCaps.js';
 
 export function normalizeTicketTiers(raw) {
   if (Array.isArray(raw)) return raw;
@@ -251,7 +252,21 @@ export async function issueEventTicketsFromPayment(db, {
   const issuedTickets = [];
   let issued = 0;
 
+  try {
   await db.$transaction(async (tx) => {
+    const cap = parseMaxPerUser(tierRow);
+    if (cap != null && toIssue > 0) {
+      const owned = await countUserEventTierTickets(tx, {
+        userId,
+        eventId: event.id,
+        ticketTier,
+      });
+      if (owned + toIssue > cap) {
+        const err = new Error(`You can buy at most ${cap} of this ticket per person.`);
+        err.code = 'PER_USER_CAP';
+        throw err;
+      }
+    }
     if (soldIncrement > 0) {
       const fresh = await tx.event.findUnique({ where: { id: event.id }, select: { ticketTiers: true } });
       const freshTiers = normalizeTicketTiers(fresh?.ticketTiers);
@@ -303,6 +318,13 @@ export async function issueEventTicketsFromPayment(db, {
       issued += 1;
     }
   });
+  } catch (err) {
+    if (err?.code === 'PER_USER_CAP' || err?.cause?.code === 'PER_USER_CAP') {
+      logger.warn('issueEventTickets: per-user cap exceeded', { eventId, ticketTier, userId, reference });
+      return { issued: 0, skipped: true, reason: 'per_user_cap', error: err.message };
+    }
+    throw err;
+  }
 
   // Always ensure venue payout ledger when tickets exist (not gated on notifications).
   if (issuedTickets.length > 0 || existingCount > 0) {

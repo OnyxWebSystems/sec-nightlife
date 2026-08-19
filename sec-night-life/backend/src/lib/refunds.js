@@ -102,25 +102,29 @@ export async function loadRefundedPaymentRefs(venueIds) {
   }
 
   // Venue-scoped payment refunds only (avoid scanning all platform refunds).
-  const venuePaymentOr = ids.flatMap((vid) => [
-    { metadata: { path: ['venue_id'], equals: vid } },
-    { metadata: { path: ['venueId'], equals: vid } },
-  ]);
-  const payments = await prisma.payment.findMany({
-    where: {
-      refundStatus: 'APPROVED',
-      status: 'success',
-      OR: venuePaymentOr,
-    },
-    select: { reference: true },
-    take: 5000,
-  });
+  try {
+    const venuePaymentOr = ids.flatMap((vid) => [
+      { metadata: { path: ['venue_id'], equals: vid } },
+      { metadata: { path: ['venueId'], equals: vid } },
+    ]);
+    const payments = await prisma.payment.findMany({
+      where: {
+        refundStatus: 'APPROVED',
+        status: 'success',
+        OR: venuePaymentOr,
+      },
+      select: { reference: true },
+      take: 5000,
+    });
 
-  for (const p of payments) {
-    if (p.reference) {
-      refs.add(p.reference);
-      refs.add(basePaymentReference(p.reference));
+    for (const p of payments) {
+      if (p.reference) {
+        refs.add(p.reference);
+        refs.add(basePaymentReference(p.reference));
+      }
     }
+  } catch (e) {
+    logger.warn('loadRefundedPaymentRefs payment scan failed', { err: e?.message });
   }
 
   return refs;

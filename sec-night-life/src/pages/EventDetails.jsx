@@ -24,6 +24,7 @@ import EventShareModal from '@/components/events/EventShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
 import HostedTableExperience from '@/components/tables/HostedTableExperience';
 import { isHostedEventListing } from '@/lib/hostedListingUrl';
+import { parseMaxPerUser } from '@/lib/ticketTierLimits';
 
 export default function EventDetails() {
   const navigate = useNavigate();
@@ -688,6 +689,11 @@ export default function EventDetails() {
                     <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--sec-text-primary)', marginBottom: 2 }}>{tier.name}</p>
                     {tier.description && (
                       <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>{tier.description}</p>
+                    )}
+                    {parseMaxPerUser(tier) != null && (
+                      <p style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                        Limit {parseMaxPerUser(tier)} per person
+                      </p>
                     )}
                   </div>
                   <div style={{ textAlign: 'right' }}>

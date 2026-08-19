@@ -88,7 +88,7 @@ function parseTierSlotsTotal(tiers = []) {
   return tiers.reduce((acc, t) => acc + (parseInt(String(t?.tier_table_slots || ''), 10) || 0), 0);
 }
 
-const EMPTY_TICKET_TIER = { name: '', price: '', quantity: '', description: '', sold: 0 };
+const EMPTY_TICKET_TIER = { name: '', price: '', quantity: '', max_per_user: '', description: '', sold: 0 };
 
 const EMPTY_EVENT = {
   title: '', description: '', date: '', city: '', location_address: '', location_city: '', location_suburb: '', location_province: '', status: 'draft',
@@ -440,13 +440,21 @@ export default function BusinessEvents() {
     payload.event_format = isTicketing ? 'TICKETING_ONLY' : 'TABLE_HOSTING';
 
     if (isTicketing) {
-      const tiers = (form.ticket_tiers || []).map((t) => ({
-        name: String(t.name || '').trim(),
-        price: Number(t.price),
-        quantity: parseInt(String(t.quantity), 10) || 0,
-        description: String(t.description || '').trim(),
-        sold: Number(t.sold) || 0,
-      })).filter((t) => t.name);
+      const tiers = (form.ticket_tiers || []).map((t) => {
+        const row = {
+          name: String(t.name || '').trim(),
+          price: Number(t.price),
+          quantity: parseInt(String(t.quantity), 10) || 0,
+          description: String(t.description || '').trim(),
+          sold: Number(t.sold) || 0,
+        };
+        const capRaw = String(t.max_per_user ?? '').trim();
+        if (capRaw) {
+          const cap = parseInt(capRaw, 10);
+          if (Number.isFinite(cap) && cap >= 1) row.max_per_user = cap;
+        }
+        return row;
+      }).filter((t) => t.name);
       if (form.status === 'published' && tiers.length === 0) {
         toast.error('Add at least one ticket tier to publish');
         return;
@@ -459,6 +467,16 @@ export default function BusinessEvents() {
         if (t.quantity < 1) {
           toast.error('Each ticket tier needs quantity of at least 1');
           return;
+        }
+        if (t.max_per_user != null) {
+          if (t.max_per_user < 1) {
+            toast.error('Max tickets per guest must be at least 1, or leave blank for unlimited');
+            return;
+          }
+          if (t.max_per_user > t.quantity) {
+            toast.error(`Max tickets per guest for ${t.name} cannot exceed available quantity`);
+            return;
+          }
         }
       }
       payload.ticket_tiers = tiers;
@@ -1041,7 +1059,7 @@ export default function BusinessEvents() {
                       }}
                       className="h-10 rounded-xl"
                     />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <Input
                         type="number"
                         min={0}
@@ -1066,7 +1084,22 @@ export default function BusinessEvents() {
                         }}
                         className="h-10 rounded-xl"
                       />
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="Max per guest"
+                        value={tier.max_per_user ?? ''}
+                        onChange={(e) => {
+                          const next = [...(form.ticket_tiers || [])];
+                          next[idx] = { ...next[idx], max_per_user: e.target.value };
+                          setForm((p) => ({ ...p, ticket_tiers: next }));
+                        }}
+                        className="h-10 rounded-xl"
+                      />
                     </div>
+                    <p className="text-[11px]" style={{ color: 'var(--sec-text-muted)' }}>
+                      Max tickets per guest is optional — leave blank for no per-person cap.
+                    </p>
                     <Textarea
                       rows={2}
                       placeholder="What this ticket includes"

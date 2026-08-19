@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
+import { maxTicketQuantity, ownedCountForTier, parseMaxPerUser } from '@/lib/ticketTierLimits';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -50,11 +51,18 @@ export default function TicketCheckout() {
   const availableTickets =
     event?.ticket_tiers?.filter((t) => (t.quantity - (t.sold || 0)) > 0) || [];
   const selectedTierData = event?.ticket_tiers?.find((t) => t.name === selectedTier);
+  const ownedCount = ownedCountForTier(event, selectedTier);
+  const maxPerUser = parseMaxPerUser(selectedTierData);
   const maxQuantity = selectedTierData
-    ? Math.min(selectedTierData.quantity - (selectedTierData.sold || 0), 10)
+    ? maxTicketQuantity({ tier: selectedTierData, ownedCount })
     : 1;
+  const atPerUserCap = Boolean(selectedTierData && maxPerUser != null && maxQuantity < 1);
   const ticketSubtotal = selectedTierData ? selectedTierData.price * quantity : 0;
   const totalPrice = Math.round(ticketSubtotal * 100) / 100;
+
+  useEffect(() => {
+    if (maxQuantity >= 1 && quantity > maxQuantity) setQuantity(maxQuantity);
+  }, [maxQuantity, quantity]);
 
   function holderDisplayNameFromUser(u) {
     const n = u?.fullName || u?.username || u?.userProfile?.username;
@@ -64,6 +72,10 @@ export default function TicketCheckout() {
   const handlePurchase = async () => {
     if (!selectedTier) {
       toast.error('Please select a ticket type');
+      return;
+    }
+    if (atPerUserCap || maxQuantity < 1) {
+      toast.error("You've reached the limit for this ticket.");
       return;
     }
     if (quantity > 1) {
@@ -196,9 +208,11 @@ export default function TicketCheckout() {
             <SelectContent className={selectContentClass}>
               {availableTickets.map((tier) => {
                 const left = tier.quantity - (tier.sold || 0);
+                const cap = parseMaxPerUser(tier);
+                const capNote = cap != null ? ` · max ${cap}/person` : '';
                 return (
                   <SelectItem key={tier.name} value={tier.name} className={selectItemClass}>
-                    {tier.name} — {Number(tier.price) <= 0 ? 'Free' : `R${tier.price}`} ({left} left)
+                    {tier.name} — {Number(tier.price) <= 0 ? 'Free' : `R${tier.price}`} ({left} left{capNote})
                   </SelectItem>
                 );
               })}
@@ -209,24 +223,39 @@ export default function TicketCheckout() {
         {selectedTierData && (
           <div style={{ marginBottom: 16 }}>
             <Label style={{ marginBottom: 8, display: 'block' }}>Quantity</Label>
-            <Select value={String(quantity)} onValueChange={(v) => setQuantity(Number(v))}>
-              <SelectTrigger
-                style={{
-                  background: 'var(--sec-bg-card)',
-                  borderColor: 'var(--sec-border)',
-                  color: 'var(--sec-text-primary)',
-                }}
+            {atPerUserCap ? (
+              <p style={{ fontSize: 13, color: 'var(--sec-text-muted)' }}>
+                You&apos;ve reached the limit for this ticket.
+              </p>
+            ) : (
+              <Select
+                value={String(Math.min(quantity, Math.max(maxQuantity, 1)))}
+                onValueChange={(v) => setQuantity(Number(v))}
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className={selectContentClass}>
-                {Array.from({ length: maxQuantity }, (_, i) => i + 1).map((n) => (
-                  <SelectItem key={n} value={String(n)} className={selectItemClass}>
-                    {n}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <SelectTrigger
+                  style={{
+                    background: 'var(--sec-bg-card)',
+                    borderColor: 'var(--sec-border)',
+                    color: 'var(--sec-text-primary)',
+                  }}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className={selectContentClass}>
+                  {Array.from({ length: Math.max(maxQuantity, 0) }, (_, i) => i + 1).map((n) => (
+                    <SelectItem key={n} value={String(n)} className={selectItemClass}>
+                      {n}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {maxPerUser != null && !atPerUserCap ? (
+              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 6 }}>
+                Limit {maxPerUser} per person
+                {ownedCount > 0 ? ` · you already have ${ownedCount}` : ''}
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -293,7 +322,7 @@ export default function TicketCheckout() {
             <button
               type="button"
               className="sec-btn sec-btn-primary sec-btn-full"
-              disabled={isProcessing || !selectedTier}
+              disabled={isProcessing || !selectedTier || atPerUserCap}
               onClick={handlePurchase}
             >
               {isProcessing ? (

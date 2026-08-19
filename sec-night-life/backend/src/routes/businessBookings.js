@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { cacheGetJson, cacheSetJson } from '../lib/redis.js';
+import { logger } from '../lib/logger.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { normalizeHostingConfig } from '../lib/hostingConfig.js';
 import { splitPlatformGross } from '../lib/platformSplit.js';
@@ -1868,7 +1869,12 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
     let recentEventBookings = [];
 
     if (eventIds.length) {
-      const refundedRefs = await loadRefundedPaymentRefs(venueIds);
+      let refundedRefs = new Set();
+      try {
+        refundedRefs = await loadRefundedPaymentRefs(venueIds);
+      } catch (e) {
+        logger.warn('dashboard-booking-stats refunded refs failed', { err: e?.message });
+      }
 
       const hostedInScope = await prisma.hostedTable.findMany({
         where: { eventId: { in: eventIds }, tableType: 'IN_APP_EVENT' },
@@ -2067,57 +2073,61 @@ router.get('/dashboard-booking-stats', authenticateToken, async (req, res, next)
     let entranceFees = 0;
     let ticketedTables = 0;
     if (eventIds.length) {
-      const soldTickets = await prisma.ticket.findMany({
-        where: {
-          kind: 'EVENT_TICKET',
-          eventId: { in: eventIds },
-          hiddenFromHistoryAt: null,
-          refundedAt: null,
-        },
-        select: { paystackReference: true },
-        take: 20000,
-      });
-      ticketsSold = soldTickets.length;
-      const ticketRefs = [
-        ...new Set(soldTickets.map((t) => basePaystackRef(t.paystackReference)).filter(Boolean)),
-      ];
-      if (ticketRefs.length) {
-        const ticketPayments = await prisma.payment.findMany({
+      try {
+        const soldTickets = await prisma.ticket.findMany({
           where: {
-            reference: { in: ticketRefs },
-            status: 'success',
-            type: { in: ['ticket', 'event'] },
+            kind: 'EVENT_TICKET',
+            eventId: { in: eventIds },
+            hiddenFromHistoryAt: null,
+            refundedAt: null,
           },
-          select: { amount: true },
+          select: { paystackReference: true },
+          take: 20000,
         });
-        ticketRevenueZar = roundZar(
-          ticketPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
-        );
-      }
-      entranceFees = await prisma.ticket.count({
-        where: {
-          kind: 'EVENT_ENTRANCE',
-          eventId: { in: eventIds },
-          hiddenFromHistoryAt: null,
-          refundedAt: null,
-        },
-      });
-      const ticketingEvents = await prisma.event.findMany({
-        where: { id: { in: eventIds }, eventFormat: 'TICKETING_ONLY', deletedAt: null },
-        select: { id: true, eventFormat: true, hostingConfig: true },
-      });
-      const ticketedTableEventIds = ticketingEvents.filter((e) => ticketedEventHasTables(e)).map((e) => e.id);
-      if (ticketedTableEventIds.length) {
-        const rows = await prisma.eventVenueTableBooking.findMany({
+        ticketsSold = soldTickets.length;
+        const ticketRefs = [
+          ...new Set(soldTickets.map((t) => basePaystackRef(t.paystackReference)).filter(Boolean)),
+        ];
+        if (ticketRefs.length) {
+          const ticketPayments = await prisma.payment.findMany({
+            where: {
+              reference: { in: ticketRefs },
+              status: 'success',
+              type: { in: ['ticket', 'event'] },
+            },
+            select: { amount: true },
+          });
+          ticketRevenueZar = roundZar(
+            ticketPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
+          );
+        }
+        entranceFees = await prisma.ticket.count({
           where: {
-            venueId: { in: venueIds },
-            eventId: { in: ticketedTableEventIds },
-            role: { in: ['HOST', 'GUEST'] },
-            hostedTableId: { not: null },
+            kind: 'EVENT_ENTRANCE',
+            eventId: { in: eventIds },
+            hiddenFromHistoryAt: null,
+            refundedAt: null,
           },
-          select: { hostedTableId: true },
         });
-        ticketedTables = new Set(rows.map((r) => r.hostedTableId).filter(Boolean)).size;
+        const ticketingEvents = await prisma.event.findMany({
+          where: { id: { in: eventIds }, eventFormat: 'TICKETING_ONLY', deletedAt: null },
+          select: { id: true, eventFormat: true, hostingConfig: true },
+        });
+        const ticketedTableEventIds = ticketingEvents.filter((e) => ticketedEventHasTables(e)).map((e) => e.id);
+        if (ticketedTableEventIds.length) {
+          const rows = await prisma.eventVenueTableBooking.findMany({
+            where: {
+              venueId: { in: venueIds },
+              eventId: { in: ticketedTableEventIds },
+              role: { in: ['HOST', 'GUEST'] },
+              hostedTableId: { not: null },
+            },
+            select: { hostedTableId: true },
+          });
+          ticketedTables = new Set(rows.map((r) => r.hostedTableId).filter(Boolean)).size;
+        }
+      } catch (e) {
+        logger.warn('dashboard-booking-stats ticket stats failed', { err: e?.message });
       }
     }
 
@@ -2434,7 +2444,35 @@ router.get('/dashboard-monthly-stats', authenticateToken, async (req, res, next)
       });
     }
 
-    const stats = await computeVenueDashboardStats(venueIds, year);
+    let stats;
+    try {
+      stats = await computeVenueDashboardStats(venueIds, year);
+    } catch (e) {
+      logger.warn('dashboard-monthly-stats compute failed', { err: e?.message, year });
+      stats = {
+        months: emptyMonthlyBuckets(),
+        yearTotal: {
+          events: 0,
+          bookings: 0,
+          guests: 0,
+          ticketsSold: 0,
+          ticketRevenueZar: 0,
+          entranceFees: 0,
+          ticketedTables: 0,
+        },
+        allTime: {
+          events: 0,
+          bookings: 0,
+          guests: 0,
+          ticketsSold: 0,
+          ticketRevenueZar: 0,
+          entranceFees: 0,
+          ticketedTables: 0,
+        },
+        averageRating: null,
+        reviewCount: 0,
+      };
+    }
 
     const monthlyPayload = {
       year,

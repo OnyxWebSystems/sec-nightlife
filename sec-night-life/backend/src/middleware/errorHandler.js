@@ -4,6 +4,7 @@ const isProd = process.env.NODE_ENV === 'production';
 
 export function errorHandler(err, req, res, next) {
   const status = err.status || err.statusCode || 500;
+  const path = req.originalUrl || req.url || req.path;
 
   // STEP 3/4: Never expose stack traces in production; never log sensitive fields
   if (isProd) {
@@ -11,7 +12,7 @@ export function errorHandler(err, req, res, next) {
       logger.error('Internal server error', {
         status,
         method: req.method,
-        path: req.path,
+        path,
         message: err.message
       });
       return res.status(status).json({ error: 'Internal server error' });

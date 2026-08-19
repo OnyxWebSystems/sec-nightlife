@@ -2868,6 +2868,7 @@ router.post('/initialize', authenticateToken, async (req, res, next) => {
         ticketTierName: meta.ticket_tier_name,
         quantity: meta.quantity || 1,
         selectedMenuItems: parseTicketMenuItems(meta),
+        userId: req.userId,
       });
       if (!computed.ok) return res.status(400).json({ error: computed.error });
       if (Math.abs(Number(d.amount) - computed.total) >= 0.02) {
@@ -3009,6 +3010,7 @@ router.post('/paystack/initialize', authenticateToken, async (req, res, next) =>
         ticketTierName: meta.ticket_tier_name,
         quantity: meta.quantity || 1,
         selectedMenuItems: parseTicketMenuItems(meta),
+        userId: req.userId,
       });
       if (!computed.ok) return res.status(400).json({ error: computed.error });
       if (Math.abs(Number(d.amount) - computed.total) >= 0.02) {

@@ -52,6 +52,7 @@ export async function claimFreeEventTickets({
     ticketTierName,
     quantity: qty,
     selectedMenuItems,
+    userId,
   });
   if (!computed.ok) return { ok: false, status: 400, error: computed.error };
   if (Number(computed.total) > 0) {

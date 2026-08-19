@@ -14,6 +14,7 @@ import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { getStoredPromoterRef } from '@/utils';
 import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import { maxTicketQuantity, ownedCountForTier, parseMaxPerUser } from '@/lib/ticketTierLimits';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -61,14 +62,27 @@ export default function TicketPurchaseButton({ event }) {
   ) || [];
 
   const selectedTierData = event.ticket_tiers?.find(t => t.name === selectedTier);
-  const maxQuantity = selectedTierData ? Math.min(selectedTierData.quantity - (selectedTierData.sold || 0), 10) : 1;
+  const ownedCount = ownedCountForTier(event, selectedTier);
+  const maxPerUser = parseMaxPerUser(selectedTierData);
+  const maxQuantity = selectedTierData
+    ? maxTicketQuantity({ tier: selectedTierData, ownedCount })
+    : 1;
+  const atPerUserCap = Boolean(selectedTierData && maxPerUser != null && maxQuantity < 1);
   const ticketSubtotal = selectedTierData ? selectedTierData.price * quantity : 0;
   const menuSubtotal = menuEnabled ? menuSelectionTotal(venueMenu, menuSelected) : 0;
   const totalPrice = Math.round((ticketSubtotal + menuSubtotal) * 100) / 100;
 
+  useEffect(() => {
+    if (maxQuantity >= 1 && quantity > maxQuantity) setQuantity(maxQuantity);
+  }, [maxQuantity, quantity]);
+
   const handlePurchase = async () => {
     if (!selectedTier) {
       toast.error('Please select a ticket type');
+      return;
+    }
+    if (atPerUserCap || maxQuantity < 1) {
+      toast.error("You've reached the limit for this ticket.");
       return;
     }
     if (quantity > 1) {
@@ -178,7 +192,9 @@ export default function TicketPurchaseButton({ event }) {
     const left = tier.quantity - (tier.sold || 0);
     const category = tier.category ? ` (${tier.category})` : '';
     const priceLabel = Number(tier.price) <= 0 ? 'Free' : `R${tier.price}`;
-    return `${tier.name}${category} — ${priceLabel} (${left} left)`;
+    const cap = parseMaxPerUser(tier);
+    const capNote = cap != null ? ` · max ${cap}/person` : '';
+    return `${tier.name}${category} — ${priceLabel} (${left} left${capNote})`;
   }
 
   const hasOnlyFreeTiers =
@@ -256,28 +272,40 @@ export default function TicketPurchaseButton({ event }) {
                   <>
                     <div className="mb-4">
                       <Label className="text-sm mb-3 block" style={{ color: 'var(--sec-text-muted)' }}>Quantity</Label>
-                      <Select
-                        value={quantity.toString()}
-                        onValueChange={(val) => setQuantity(parseInt(val, 10))}
-                      >
-                        <SelectTrigger
-                          className="w-full"
-                          style={{
-                            background: 'var(--sec-bg-elevated)',
-                            borderColor: 'var(--sec-border)',
-                            color: 'var(--sec-text-primary)',
-                          }}
+                      {atPerUserCap ? (
+                        <p className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
+                          You&apos;ve reached the limit for this ticket.
+                        </p>
+                      ) : (
+                        <Select
+                          value={String(Math.min(quantity, Math.max(maxQuantity, 1)))}
+                          onValueChange={(val) => setQuantity(parseInt(val, 10))}
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent position="popper" className={selectContentClass}>
-                          {Array.from({ length: maxQuantity }, (_, i) => i + 1).map((num) => (
-                            <SelectItem key={num} value={num.toString()} className={selectItemClass}>
-                              {num} {num === 1 ? 'ticket' : 'tickets'}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          <SelectTrigger
+                            className="w-full"
+                            style={{
+                              background: 'var(--sec-bg-elevated)',
+                              borderColor: 'var(--sec-border)',
+                              color: 'var(--sec-text-primary)',
+                            }}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent position="popper" className={selectContentClass}>
+                            {Array.from({ length: Math.max(maxQuantity, 0) }, (_, i) => i + 1).map((num) => (
+                              <SelectItem key={num} value={num.toString()} className={selectItemClass}>
+                                {num} {num === 1 ? 'ticket' : 'tickets'}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {maxPerUser != null && !atPerUserCap ? (
+                        <p className="text-xs mt-2" style={{ color: 'var(--sec-text-muted)' }}>
+                          Limit {maxPerUser} per person
+                          {ownedCount > 0 ? ` · you already have ${ownedCount}` : ''}
+                        </p>
+                      ) : null}
                     </div>
 
                     {quantity > 1 ? (
@@ -365,7 +393,7 @@ export default function TicketPurchaseButton({ event }) {
 
               <Button
                 onClick={handlePurchase}
-                disabled={isProcessing || paymentComplete}
+                disabled={isProcessing || paymentComplete || atPerUserCap}
                 className="w-full sec-btn-accent"
                 style={{ height: 48 }}
               >
@@ -376,6 +404,8 @@ export default function TicketPurchaseButton({ event }) {
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
                     Processing…
                   </>
+                ) : atPerUserCap ? (
+                  'Limit reached'
                 ) : totalPrice <= 0 ? (
                   <>
                     <Ticket className="w-4 h-4 mr-2" />
