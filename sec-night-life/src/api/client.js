@@ -2,13 +2,36 @@
  * API client for SEC Nightlife backend.
  * All requests go to VITE_API_URL (production: https://api.secnightlife.com).
  */
+import { Capacitor } from '@capacitor/core';
+
+const PRODUCTION_API_URL = 'https://api.secnightlife.com';
+
+function isLocalhostUrl(value) {
+  return /localhost|127\.0\.0\.1/i.test(String(value || ''));
+}
+
 function resolveApiBase() {
   const fromEnv = String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
-  if (fromEnv) return fromEnv;
+  const envOk = Boolean(fromEnv) && !isLocalhostUrl(fromEnv);
+
+  let isNative = false;
+  try {
+    isNative = Capacitor.isNativePlatform();
+  } catch {
+    isNative = false;
+  }
+
+  // Capacitor WebView host is https://localhost — never use relative /api there.
+  if (isNative) {
+    return envOk ? fromEnv : PRODUCTION_API_URL;
+  }
+
+  if (envOk) return fromEnv;
+
   if (typeof window !== 'undefined') {
     const host = window.location.hostname.toLowerCase();
     if (host === 'secnightlife.com' || host === 'www.secnightlife.com') {
-      return 'https://api.secnightlife.com';
+      return PRODUCTION_API_URL;
     }
   }
   return '';
@@ -263,10 +286,22 @@ export async function api(method, path, body = null, opts = {}) {
       throw err;
     }
     const msg = networkErr?.message || 'Network error';
-    const friendly = msg.includes('fetch') || msg.includes('ECONNRESET') || msg.includes('Failed')
-      ? 'Cannot reach server. Make sure the backend is running (npm run dev in sec-night-life/backend).'
-      : msg;
-    throw new Error(friendly);
+    const looksLikeNetwork =
+      msg.includes('fetch') || msg.includes('ECONNRESET') || msg.includes('Failed');
+    if (looksLikeNetwork) {
+      let isNative = false;
+      try {
+        isNative = Capacitor.isNativePlatform();
+      } catch {
+        isNative = false;
+      }
+      const friendly =
+        import.meta.env.PROD || isNative
+          ? 'Cannot reach the server. Check your internet connection and try again.'
+          : 'Cannot reach server. Make sure the backend is running (npm run dev in sec-night-life/backend).';
+      throw new Error(friendly);
+    }
+    throw new Error(msg);
   } finally {
     if (timeoutId) window.clearTimeout(timeoutId);
   }

@@ -228,8 +228,8 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-[#0A0A0B]">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-start justify-center overflow-y-auto p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] bg-[#0A0A0B]">
+      <div className="w-full max-w-md my-auto py-6">
         <div className="flex flex-col items-center mb-6">
           <SecLogo size={104} asset="transparent" className="mb-4" />
           <h1 className="text-2xl font-bold text-white mb-1">
@@ -241,7 +241,7 @@ export default function Login() {
         {step === 'otp' ? (
           <div className="space-y-4">
             <p className="text-sm text-gray-400 text-center">
-              We sent a 6-digit code to <span className="text-white">{email}</span>
+              We emailed a 6-digit sign-in code to <span className="text-white">{email}</span>
             </p>
             <p className="text-xs text-gray-500 text-center">
               Check your inbox and spam folder. The code expires in 10 minutes.

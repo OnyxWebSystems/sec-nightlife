@@ -20,16 +20,27 @@ SEC Nightlife uses **Capacitor** to wrap the Vite React app for Android and iOS 
 ```bash
 cd sec-night-life
 npm install
-npm run build:mobile    # vite build + cap sync
+npm run build:mobile    # forces production API URLs, vite build, icon sync, cap sync
 npm run cap:android     # open Android Studio
 npm run cap:ios         # open Xcode
 ```
+
+`build:mobile` defaults to `VITE_API_URL=https://api.secnightlife.com` and `VITE_PUBLIC_APP_URL=https://secnightlife.com`, and refuses localhost API URLs (required for App Store / TestFlight).
 
 After web code changes, always run `npm run build:mobile` before testing native.
 
 ---
 
 ## Android release build
+
+Preferred CLI (see [ANDROID_RELEASE_SIGNING.md](./ANDROID_RELEASE_SIGNING.md)):
+
+```bash
+npm run android:keystore   # one-time
+npm run android:aab        # vite build + cap sync + signed bundleRelease
+```
+
+Or Android Studio:
 
 1. Open project: `npm run cap:android`
 2. **Build → Generate Signed Bundle / APK** → Android App Bundle (AAB) for Play Store

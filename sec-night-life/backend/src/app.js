@@ -125,6 +125,16 @@ if (process.env.APP_URL) {
   }
 }
 
+// Capacitor / Ionic WebView origins (iOS iosScheme=https → https://localhost).
+for (const nativeOrigin of [
+  'https://localhost',
+  'http://localhost',
+  'capacitor://localhost',
+  'ionic://localhost',
+]) {
+  allowedOrigins.add(nativeOrigin);
+}
+
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) {
