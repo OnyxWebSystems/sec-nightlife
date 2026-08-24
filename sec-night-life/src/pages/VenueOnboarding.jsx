@@ -34,6 +34,7 @@ import GoogleMapDisplay from '@/components/GoogleMapDisplay';
 import SecLogo from '@/components/ui/SecLogo';
 import OnboardingStepIndicator from '@/components/onboarding/OnboardingStepIndicator';
 import { markOnboardingComplete } from '@/lib/sessionCache';
+import { instagramHandle } from '@/lib/externalLinks';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import PayoutTrustBanner from '@/components/wallet/PayoutTrustBanner';
 import MenuCatalogBrowser from '@/components/menu/MenuCatalogBrowser';
@@ -667,7 +668,8 @@ export default function VenueOnboarding() {
       if (formData.phone) venueData.phone = formData.phone;
       if (normalizedVenueEmail) venueData.email = normalizedVenueEmail;
       if (normalizedWebsite) venueData.website = normalizedWebsite;
-      if (formData.instagram) venueData.instagram = formData.instagram;
+      const igHandle = instagramHandle(formData.instagram);
+      if (igHandle) venueData.instagram = igHandle;
       if (formData.logo_url) venueData.logo_url = formData.logo_url;
       if (formData.cover_image_url) venueData.cover_image_url = formData.cover_image_url;
 
@@ -791,7 +793,8 @@ export default function VenueOnboarding() {
       if (formData.phone) venueData.phone = formData.phone;
       if (normalizedVenueEmail) venueData.email = normalizedVenueEmail;
       if (normalizedWebsite) venueData.website = normalizedWebsite;
-      if (formData.instagram) venueData.instagram = formData.instagram;
+      const igHandle = instagramHandle(formData.instagram);
+      if (igHandle) venueData.instagram = igHandle;
       if (formData.logo_url) venueData.logo_url = formData.logo_url;
       if (formData.cover_image_url) venueData.cover_image_url = formData.cover_image_url;
       await upsertVenue(venueData);

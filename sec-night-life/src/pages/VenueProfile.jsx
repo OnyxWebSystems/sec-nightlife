@@ -30,6 +30,7 @@ import VenueReviewsSection from '@/components/reviews/VenueReviewsSection';
 import VenueShareModal from '@/components/venues/VenueShareModal';
 import ReportDialog from '@/components/moderation/ReportDialog';
 import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
+import { instagramHandle, instagramProfileUrl, openExternalUrl, websiteHref } from '@/lib/externalLinks';
 
 function spotsLeft(job) {
   return Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
@@ -311,6 +312,9 @@ export default function VenueProfile() {
 
   const isOwner = currentUser?.id && venue.owner_user_id === currentUser.id;
   const showApply = currentUser && !isOwner;
+  const venueWebsiteHref = websiteHref(venue.website);
+  const venueInstagramHandle = instagramHandle(venue.instagram);
+  const venueInstagramHref = instagramProfileUrl(venue.instagram);
 
   return (
     <div className="min-h-screen pb-8 max-w-app md:max-w-app-md mx-auto">
@@ -466,26 +470,28 @@ export default function VenueProfile() {
               <span>{venue.phone}</span>
             </a>
           )}
-          {venue.website && (
+          {venueWebsiteHref && (
             <a
-              href={venue.website}
+              href={venueWebsiteHref}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => openExternalUrl(e, venueWebsiteHref)}
               className="flex items-center gap-3 p-4 border-t border-[#262629] hover:bg-white/5 transition-colors"
             >
               <Globe className="w-5 h-5 text-[var(--sec-accent)]" />
               <span>{venue.website}</span>
             </a>
           )}
-          {venue.instagram && (
+          {venueInstagramHref && (
             <a
-              href={`https://instagram.com/${venue.instagram.replace('@', '')}`}
+              href={venueInstagramHref}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => openExternalUrl(e, venueInstagramHref)}
               className="flex items-center gap-3 p-4 border-t border-[#262629] hover:bg-white/5 transition-colors"
             >
               <Instagram className="w-5 h-5 text-pink-500" />
-              <span>{venue.instagram}</span>
+              <span>{venueInstagramHandle ? `@${venueInstagramHandle}` : venue.instagram}</span>
             </a>
           )}
         </div>

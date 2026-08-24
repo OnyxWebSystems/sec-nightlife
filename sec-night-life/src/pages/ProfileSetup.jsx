@@ -529,6 +529,13 @@ export default function ProfileSetup() {
     await completeOnboarding({ paymentCompleted: false });
   };
 
+  const handleSkipStep = () => {
+    if (step === 4 && hasVendorBusiness === null) {
+      setHasVendorBusiness(false);
+    }
+    if (step < 5) setStep(step + 1);
+  };
+
   const renderFileUpload = (field, label, accept = 'image/*') => (
     <div>
       <Label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--sec-text-muted)', marginBottom: 8, display: 'block' }}>
@@ -1191,7 +1198,7 @@ export default function ProfileSetup() {
         </AnimatePresence>
       </div>
 
-      {/* Navigation — steps 1–4: back + continue; step 5: skip / payout */}
+      {/* Navigation — steps 1–4: back + continue/skip; step 5: skip / payout */}
       <div className="max-w-md mx-auto w-full pt-4 sm:pt-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] px-5">
         <div className="flex gap-3">
           <button
@@ -1245,39 +1252,81 @@ export default function ProfileSetup() {
             </button>
           ) : null}
           {step < 5 ? (
-            <button
-              type="button"
-              onClick={() => setStep(step + 1)}
-              disabled={!canProceed()}
-              style={{
-                flex: isEditMode ? undefined : 1,
-                width: isEditMode ? navBtnHeight : undefined,
-                height: navBtnHeight,
-                borderRadius: 'var(--radius-lg)',
-                backgroundColor: isEditMode ? 'var(--sec-bg-card)' : 'var(--sec-accent)',
-                color: isEditMode ? 'var(--sec-text-secondary)' : '#000',
-                fontWeight: 600,
-                fontSize: 15,
-                border: isEditMode ? '1px solid var(--sec-border)' : 'none',
-                cursor: canProceed() ? 'pointer' : 'not-allowed',
-                opacity: canProceed() ? 1 : 0.5,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-              }}
-            >
-              {isEditMode ? (
+            isEditMode ? (
+              <button
+                type="button"
+                onClick={() => setStep(step + 1)}
+                disabled={!canProceed()}
+                style={{
+                  width: navBtnHeight,
+                  height: navBtnHeight,
+                  borderRadius: 'var(--radius-lg)',
+                  backgroundColor: 'var(--sec-bg-card)',
+                  color: 'var(--sec-text-secondary)',
+                  fontWeight: 600,
+                  fontSize: 15,
+                  border: '1px solid var(--sec-border)',
+                  cursor: canProceed() ? 'pointer' : 'not-allowed',
+                  opacity: canProceed() ? 1 : 0.5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+              >
                 <ChevronRight size={20} strokeWidth={2} />
-              ) : (
-                <>
+              </button>
+            ) : (
+              <div className="flex flex-1 flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep(step + 1)}
+                  disabled={!canProceed()}
+                  style={{
+                    width: '100%',
+                    minHeight: navBtnHeight,
+                    borderRadius: 'var(--radius-lg)',
+                    backgroundColor: 'var(--sec-accent)',
+                    color: '#000',
+                    fontWeight: 600,
+                    fontSize: 15,
+                    border: 'none',
+                    cursor: canProceed() ? 'pointer' : 'not-allowed',
+                    opacity: canProceed() ? 1 : 0.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
                   {step === 4 && hasVendorBusiness === true && !isVendorListingValid(vendorDraft)
                     ? 'List later'
                     : 'Continue'}
                   <ChevronRight size={20} strokeWidth={2} />
-                </>
-              )}
-            </button>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSkipStep}
+                  style={{
+                    width: '100%',
+                    minHeight: 42,
+                    borderRadius: 'var(--radius-lg)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--sec-text-secondary)',
+                    fontWeight: 500,
+                    fontSize: 14,
+                    border: '1px solid var(--sec-border)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  Skip for now
+                </button>
+              </div>
+            )
           ) : !isEditMode ? (
             <div className="flex flex-1 flex-col gap-2">
               <button

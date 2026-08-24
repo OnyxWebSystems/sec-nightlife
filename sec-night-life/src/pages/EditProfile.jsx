@@ -170,7 +170,8 @@ export default function EditProfile() {
     try {
       const alreadyVerified =
         userProfile?.verification_status === 'verified' || userProfile?.verification_status === 'approved';
-      if (!alreadyVerified) {
+      const fillingAgeBlock = !alreadyVerified && (Boolean(formData.date_of_birth) || ageDeclarationAccepted);
+      if (fillingAgeBlock) {
         if (!formData.date_of_birth || !formData.gender) {
           toast.error('Date of birth and gender are required for age verification.');
           setIsSaving(false);
