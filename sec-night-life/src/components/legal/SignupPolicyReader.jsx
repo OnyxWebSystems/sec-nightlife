@@ -1,13 +1,15 @@
-import React, { lazy, Suspense, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { LegalViewerProvider } from '@/components/legal/LegalViewerContext';
-import RoutePageFallback from '@/components/RoutePageFallback';
+import UserAgreement from '@/pages/UserAgreement';
+import TermsOfService from '@/pages/TermsOfService';
+import PrivacyPolicy from '@/pages/PrivacyPolicy';
 
 export const SIGNUP_POLICY_PAGES = ['UserAgreement', 'TermsOfService', 'PrivacyPolicy'];
 
 const POLICY_COMPONENTS = {
-  UserAgreement: lazy(() => import('@/pages/UserAgreement')),
-  TermsOfService: lazy(() => import('@/pages/TermsOfService')),
-  PrivacyPolicy: lazy(() => import('@/pages/PrivacyPolicy')),
+  UserAgreement,
+  TermsOfService,
+  PrivacyPolicy,
 };
 
 /**
@@ -67,9 +69,7 @@ export default function SignupPolicyReader({ page, onClose, onOpen }) {
       onClickCapture={onClickCapture}
     >
       <LegalViewerProvider onClose={onClose} onOpen={onOpen}>
-        <Suspense fallback={<RoutePageFallback />}>
-          <Page />
-        </Suspense>
+        <Page />
       </LegalViewerProvider>
     </div>
   );

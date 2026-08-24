@@ -9,13 +9,16 @@ import TicketSuccess from './pages/TicketSuccess.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import Register from './pages/Register.jsx';
+import UserAgreement from './pages/UserAgreement.jsx';
+import TermsOfService from './pages/TermsOfService.jsx';
+import PrivacyPolicy from './pages/PrivacyPolicy.jsx';
 import { isStaleChunkLoadError, scheduleChunkReloadOnce } from './lib/chunkLoadRecovery';
 
 const modules = import.meta.glob('./pages/*.jsx');
 
 /**
- * Auth + payment deep-links only. Legal/help pages are lazy — they were bloating the main chunk.
- * Cold-load circular-chunk deadlocks were for auth/payment routes, not document pages.
+ * Auth, payment deep-links, and signup legal docs are eager so guests never
+ * sit on a blank spinner while a lazy chunk loads (incognito / cold cache).
  */
 const EAGER_PAGES = new Set([
   'Home',
@@ -27,6 +30,9 @@ const EAGER_PAGES = new Set([
   'TicketSuccess',
   'ForgotPassword',
   'ResetPassword',
+  'UserAgreement',
+  'TermsOfService',
+  'PrivacyPolicy',
 ]);
 
 /** Warm Vite chunk for a route name (e.g. "Profile") before navigation. Safe to call repeatedly. */
@@ -61,6 +67,9 @@ const EAGER_IMPORTS = {
   TicketSuccess,
   ForgotPassword,
   ResetPassword,
+  UserAgreement,
+  TermsOfService,
+  PrivacyPolicy,
 };
 
 export const PAGES = Object.fromEntries(
