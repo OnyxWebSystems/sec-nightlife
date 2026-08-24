@@ -363,6 +363,18 @@ function clearLoginOtpState() {
   return { loginOtpHash: null, loginOtpExpiry: null };
 }
 
+/** App Store review demo accounts — skip email OTP after password (Guideline 2.1(a)). */
+function shouldBypassLoginOtp(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return false;
+  const fromEnv = String(process.env.APP_REVIEW_OTP_BYPASS_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const allowlist = new Set(['onyxwebsystems@gmail.com', ...fromEnv]);
+  return allowlist.has(normalized);
+}
+
 function verifyLoginChallengeToken(rawToken) {
   try {
     const payload = jwt.verify(rawToken, JWT_ACCESS_SECRET);
@@ -678,6 +690,21 @@ router.post('/login', async (req, res, next) => {
         error: 'Email not verified. Please check your inbox and verify your email before signing in.',
         code: 'EMAIL_NOT_VERIFIED'
       });
+    }
+
+    // App Review demo: password-only login (no emailed OTP code required).
+    if (shouldBypassLoginOtp(user.email)) {
+      await prisma.user.update({ where: { id: user.id }, data: clearLoginOtpState() });
+      await audit({
+        userId: user.id,
+        action: 'LOGIN_SUCCESS',
+        entityType: 'user',
+        entityId: user.id,
+        metadata: { email: user.email, viaOtp: false, appReviewOtpBypass: true },
+        ipAddress: getIp(req)
+      });
+      const payload = await buildLoginSuccessPayload(user);
+      return res.json(payload);
     }
 
     const { loginChallengeToken, resendAvailableInSeconds } = await issueLoginOtpChallenge(user);
