@@ -14,21 +14,24 @@ import { Loader2, Check, X } from 'lucide-react';
 import { LEGAL_ACCEPT_VERSION } from '@/legal/documentUrls';
 import { setPendingLegalAcceptFromRegister } from '@/lib/pendingLegalAccept';
 import { prefetchPage } from '@/pages.config';
+import SignupPolicyReader, { SIGNUP_POLICY_PAGES } from '@/components/legal/SignupPolicyReader';
 
-const POLICY_PAGES = ['UserAgreement', 'TermsOfService', 'PrivacyPolicy'];
-
-function PolicyLink({ page, children }) {
+function PolicyLink({ page, onOpen, children }) {
   return (
-    <Link
-      to={createPageUrl(page)}
-      className="text-[var(--sec-accent)] underline font-medium"
-      onClick={(e) => e.stopPropagation()}
+    <button
+      type="button"
+      className="text-[var(--sec-accent)] underline font-medium bg-transparent border-0 p-0 cursor-pointer inline"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onOpen(page);
+      }}
       onMouseEnter={() => prefetchPage(page)}
       onFocus={() => prefetchPage(page)}
       onPointerDown={() => prefetchPage(page)}
     >
       {children}
-    </Link>
+    </button>
   );
 }
 
@@ -55,10 +58,6 @@ export default function Register() {
       } catch {}
     }
   }, [roleFromUrl]);
-
-  useEffect(() => {
-    POLICY_PAGES.forEach((page) => prefetchPage(page));
-  }, []);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -67,6 +66,11 @@ export default function Register() {
   const [usernameError, setUsernameError] = useState('');
   const [loading, setLoading] = useState(false);
   const [agreedToPolicies, setAgreedToPolicies] = useState(false);
+  const [policyDoc, setPolicyDoc] = useState(null);
+
+  useEffect(() => {
+    SIGNUP_POLICY_PAGES.forEach((page) => prefetchPage(page));
+  }, []);
 
   const normalizedUsername = useMemo(
     () => username.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''),
@@ -254,11 +258,11 @@ export default function Register() {
               <label htmlFor="agree-policies" className="cursor-pointer">
                 I agree to the{' '}
               </label>
-              <PolicyLink page="UserAgreement">User Agreement</PolicyLink>
+              <PolicyLink page="UserAgreement" onOpen={setPolicyDoc}>User Agreement</PolicyLink>
               {', '}
-              <PolicyLink page="TermsOfService">Terms of Service</PolicyLink>
+              <PolicyLink page="TermsOfService" onOpen={setPolicyDoc}>Terms of Service</PolicyLink>
               {', and '}
-              <PolicyLink page="PrivacyPolicy">Privacy Policy</PolicyLink>
+              <PolicyLink page="PrivacyPolicy" onOpen={setPolicyDoc}>Privacy Policy</PolicyLink>
               .
             </p>
           </div>
@@ -281,6 +285,13 @@ export default function Register() {
           </Link>
         </p>
       </div>
+      {policyDoc ? (
+        <SignupPolicyReader
+          page={policyDoc}
+          onClose={() => setPolicyDoc(null)}
+          onOpen={setPolicyDoc}
+        />
+      ) : null}
     </div>
   );
 }

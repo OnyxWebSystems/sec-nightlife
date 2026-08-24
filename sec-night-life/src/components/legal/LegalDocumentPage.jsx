@@ -3,15 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import SecLogo from '@/components/ui/SecLogo';
 import { createPageUrl } from '@/utils';
+import { useLegalViewer } from '@/components/legal/LegalViewerContext';
 
 /**
  * Standard shell: back header + branded document surface for legal / policy pages.
- * Back returns to Enter / onboarding / register (browser history), or Home if none.
+ * Back returns to the signup overlay, previous page, or Home if none.
  */
 export default function LegalDocumentPage({ title, effectiveDate, children }) {
   const navigate = useNavigate();
+  const viewer = useLegalViewer();
 
   const handleBack = () => {
+    if (viewer?.onClose) {
+      viewer.onClose();
+      return;
+    }
     if (typeof window !== 'undefined' && window.history.length > 1) {
       navigate(-1);
       return;
