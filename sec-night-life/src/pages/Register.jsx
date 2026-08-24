@@ -13,6 +13,24 @@ import { toast } from 'sonner';
 import { Loader2, Check, X } from 'lucide-react';
 import { LEGAL_ACCEPT_VERSION } from '@/legal/documentUrls';
 import { setPendingLegalAcceptFromRegister } from '@/lib/pendingLegalAccept';
+import { prefetchPage } from '@/pages.config';
+
+const POLICY_PAGES = ['UserAgreement', 'TermsOfService', 'PrivacyPolicy'];
+
+function PolicyLink({ page, children }) {
+  return (
+    <Link
+      to={createPageUrl(page)}
+      className="text-[var(--sec-accent)] underline font-medium"
+      onClick={(e) => e.stopPropagation()}
+      onMouseEnter={() => prefetchPage(page)}
+      onFocus={() => prefetchPage(page)}
+      onPointerDown={() => prefetchPage(page)}
+    >
+      {children}
+    </Link>
+  );
+}
 
 const ROLE_INTENT_KEY = 'sec-role-intent';
 
@@ -37,6 +55,10 @@ export default function Register() {
       } catch {}
     }
   }, [roleFromUrl]);
+
+  useEffect(() => {
+    POLICY_PAGES.forEach((page) => prefetchPage(page));
+  }, []);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -228,21 +250,17 @@ export default function Register() {
               onCheckedChange={(v) => setAgreedToPolicies(v === true)}
               className="mt-0.5 border-[#52525b] data-[state=checked]:bg-[var(--sec-accent)] data-[state=checked]:border-[var(--sec-accent)]"
             />
-            <label htmlFor="agree-policies" className="text-sm text-gray-300 leading-snug cursor-pointer">
-              I agree to the{' '}
-              <Link to={createPageUrl('UserAgreement')} className="text-[var(--sec-accent)] underline font-medium">
-                User Agreement
-              </Link>
-              ,{' '}
-              <Link to={createPageUrl('TermsOfService')} className="text-[var(--sec-accent)] underline font-medium">
-                Terms of Service
-              </Link>
-              , and{' '}
-              <Link to={createPageUrl('PrivacyPolicy')} className="text-[var(--sec-accent)] underline font-medium">
-                Privacy Policy
-              </Link>
+            <p className="text-sm text-gray-300 leading-snug">
+              <label htmlFor="agree-policies" className="cursor-pointer">
+                I agree to the{' '}
+              </label>
+              <PolicyLink page="UserAgreement">User Agreement</PolicyLink>
+              {', '}
+              <PolicyLink page="TermsOfService">Terms of Service</PolicyLink>
+              {', and '}
+              <PolicyLink page="PrivacyPolicy">Privacy Policy</PolicyLink>
               .
-            </label>
+            </p>
           </div>
 
           <Button
