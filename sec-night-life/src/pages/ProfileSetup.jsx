@@ -459,9 +459,9 @@ export default function ProfileSetup() {
         username: formData.username,
         bio: formData.bio,
         city: cityValue,
-        favorite_drink: formData.favorite_drink,
-        gender: formData.gender,
-        date_of_birth: formData.date_of_birth,
+        favorite_drink: formData.favorite_drink || null,
+        gender: formData.gender || null,
+        date_of_birth: formData.date_of_birth || null,
         latitude: formData.latitude,
         longitude: formData.longitude,
         location_label: formData.location_label || null,
@@ -916,7 +916,7 @@ export default function ProfileSetup() {
                 <div style={labelStyle}>
                   <Wine size={12} strokeWidth={2} /> Favorite drink
                 </div>
-                <Select value={formData.favorite_drink} onValueChange={(v) => setFormData((prev) => ({ ...prev, favorite_drink: v }))}>
+                <Select value={formData.favorite_drink || undefined} onValueChange={(v) => setFormData((prev) => ({ ...prev, favorite_drink: v }))}>
                   <SelectTrigger style={{ ...inputStyle, paddingLeft: 14 }}>
                     <SelectValue placeholder="What's your go-to?" />
                   </SelectTrigger>
@@ -958,7 +958,7 @@ export default function ProfileSetup() {
                   <User size={12} strokeWidth={2} /> Gender
                 </div>
                 <Select
-                  value={formData.gender}
+                  value={formData.gender || undefined}
                   onValueChange={(v) => setFormData((prev) => ({ ...prev, gender: v }))}
                 >
                   <SelectTrigger style={{ ...inputStyle, paddingLeft: 14 }}>
@@ -1200,6 +1200,21 @@ export default function ProfileSetup() {
 
       {/* Navigation — steps 1–4: back + continue/skip; step 5: skip / payout */}
       <div className="max-w-md mx-auto w-full pt-4 sm:pt-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] px-5">
+        {error ? (
+          <div
+            className="mb-3"
+            style={{
+              padding: 12,
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(239,68,68,0.1)',
+              border: '1px solid rgba(239,68,68,0.3)',
+              color: '#ef4444',
+              fontSize: 13,
+            }}
+          >
+            {error}
+          </div>
+        ) : null}
         <div className="flex gap-3">
           <button
             type="button"

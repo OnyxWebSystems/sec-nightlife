@@ -5,7 +5,7 @@ import * as authService from '@/services/authService';
 import { dataService } from '@/services/dataService';
 import { integrations } from '@/services/integrationService';
 import { apiGet, apiPatch } from '@/api/client';
-import { ChevronLeft, Camera, User, MapPin, Wine, BadgeCheck, Loader2, Check, X, Calendar, LocateFixed } from 'lucide-react';
+import { ChevronLeft, Camera, User, MapPin, Wine, BadgeCheck, Loader2, Check, X, Calendar, LocateFixed, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AvatarCropDialog from '@/components/profile/AvatarCropDialog';
 import GoogleAddressInput from '@/components/GoogleAddressInput';
@@ -445,7 +445,7 @@ export default function EditProfile() {
               City
             </div>
             <Select
-              value={citySelectValue}
+              value={citySelectValue || undefined}
               onValueChange={(v) => {
                 setCityMode(v);
                 if (v !== CITY_OTHER) {
@@ -604,7 +604,7 @@ export default function EditProfile() {
               <User size={12} strokeWidth={2} />
               Gender
             </div>
-            <Select value={formData.gender} onValueChange={(v) => setFormData((prev) => ({ ...prev, gender: v }))}>
+            <Select value={formData.gender || undefined} onValueChange={(v) => setFormData((prev) => ({ ...prev, gender: v }))}>
               <SelectTrigger style={{
                 height: 46,
                 backgroundColor: 'var(--sec-bg-elevated)',
@@ -638,7 +638,7 @@ export default function EditProfile() {
               <Wine size={12} strokeWidth={2} />
               Favourite Drink
             </div>
-            <Select value={formData.favorite_drink} onValueChange={(v) => setFormData((prev) => ({ ...prev, favorite_drink: v }))}>
+            <Select value={formData.favorite_drink || undefined} onValueChange={(v) => setFormData((prev) => ({ ...prev, favorite_drink: v }))}>
               <SelectTrigger style={{
                 height: 46,
                 backgroundColor: 'var(--sec-bg-elevated)',
