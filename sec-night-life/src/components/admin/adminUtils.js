@@ -45,6 +45,7 @@ export function getTabLabel(tabId, flaggedCount) {
     return flaggedCount != null ? `Flags (${flaggedCount})` : 'Flags';
   }
   if (tabId === 'announcements') return 'Announcements';
+  if (tabId === 'users') return 'Suspended';
   return tabId.charAt(0).toUpperCase() + tabId.slice(1);
 }
 

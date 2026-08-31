@@ -197,7 +197,7 @@ export default function AdminShell() {
         {isMobile ? (
           <PageBackHeader
             title="Admin Dashboard"
-            subtitle="Payments, users & verification"
+            subtitle="Suspended accounts, payments & verification"
             pageName="AdminDashboard"
             onBack={() => {
               enterPartygoerMode();
@@ -210,7 +210,7 @@ export default function AdminShell() {
               <LayoutDashboard size={22} style={{ color: 'var(--sec-accent)' }} />
               Admin Dashboard
             </h1>
-            <p className="text-sm text-[var(--sec-text-muted)] mt-1">Payments, users & verification</p>
+            <p className="text-sm text-[var(--sec-text-muted)] mt-1">Suspended accounts, payments & verification</p>
           </div>
         )}
 

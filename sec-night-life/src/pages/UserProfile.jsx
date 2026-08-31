@@ -82,6 +82,7 @@ export default function UserProfile() {
       queryClient.invalidateQueries({ queryKey: ['home-feed'] });
       queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] });
       queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+      queryClient.invalidateQueries({ queryKey: ['blocked-users'] });
     } catch (e) {
       toast.error(e?.data?.error || 'Failed');
     }
@@ -133,7 +134,8 @@ export default function UserProfile() {
       ]);
       setBlockDialogOpen(false);
       setBlockReason('');
-      navigate(-1);
+      queryClient.invalidateQueries({ queryKey: ['public-profile', userId] });
+      queryClient.invalidateQueries({ queryKey: ['blocked-users'] });
     } catch (e) {
       toast.error(e?.data?.error || 'Could not block user');
     } finally {
@@ -229,18 +231,18 @@ export default function UserProfile() {
                 )}
               </Button>
             ) : null}
-            {st === 'NONE' && (
+            {!profile.youBlockedThem && !profile.canUnblock && st === 'NONE' && (
               <Button className="w-full min-h-[44px]" onClick={onAddFriend}>
                 <UserPlus className="w-4 h-4 mr-2" />
                 Add Friend
               </Button>
             )}
-            {st === 'PENDING_SENT' && (
+            {!profile.youBlockedThem && !profile.canUnblock && st === 'PENDING_SENT' && (
               <Button disabled className="w-full min-h-[44px]">
                 Request Sent
               </Button>
             )}
-            {st === 'PENDING_RECEIVED' && (
+            {!profile.youBlockedThem && !profile.canUnblock && st === 'PENDING_RECEIVED' && (
               <div className="flex gap-2">
                 <Button className="flex-1 min-h-[44px] bg-emerald-600" onClick={onAccept}>
                   Accept Request
@@ -250,7 +252,10 @@ export default function UserProfile() {
                 </Button>
               </div>
             )}
-            {st === 'ACCEPTED' && profile.conversationId && (
+            {!profile.youBlockedThem &&
+              !profile.canUnblock &&
+              st === 'ACCEPTED' &&
+              profile.conversationId && (
               <Button
                 className="w-full min-h-[44px]"
                 onClick={() => navigate(`${createPageUrl('Messages')}?dm=${profile.conversationId}`)}
@@ -259,16 +264,22 @@ export default function UserProfile() {
                 Message
               </Button>
             )}
-            {st === 'BLOCKED' && profile.canUnblock && (
+            {(profile.youBlockedThem || profile.canUnblock) && (
+              <p className="text-sm text-amber-200/90 text-left px-1">
+                You blocked this user. You can still view their profile. Their posts stay off your
+                feed until you unblock them.
+              </p>
+            )}
+            {(profile.youBlockedThem || profile.canUnblock) && (
               <Button variant="outline" className="w-full min-h-[44px]" onClick={onUnblock}>
                 <Ban className="w-4 h-4 mr-2" />
                 Unblock
               </Button>
             )}
-            {st === 'BLOCKED' && profile.blockedByThem && (
+            {st === 'BLOCKED' && profile.blockedByThem && !profile.youBlockedThem && (
               <p className="text-sm text-gray-500">This user has blocked you.</p>
             )}
-            {st !== 'BLOCKED' && (
+            {!profile.youBlockedThem && !profile.canUnblock && (
               <Button
                 variant="outline"
                 className="w-full min-h-[44px] border-red-500/40 text-red-400 hover:bg-red-500/10"

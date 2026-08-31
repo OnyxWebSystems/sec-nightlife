@@ -85,7 +85,16 @@ export default function AdminUsersPanel() {
     <div className="space-y-8">
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <h3 className="font-semibold">Suspended accounts</h3>
+          <div>
+            <h2 className="text-lg font-semibold">Suspended accounts</h2>
+            <p className="text-xs text-[var(--sec-text-muted)] mt-1">
+              {loadingSuspended
+                ? 'Loading…'
+                : `${suspendedUsers.length} suspended ${
+                    suspendedUsers.length === 1 ? 'account' : 'accounts'
+                  }`}
+            </p>
+          </div>
           <Button
             size="sm"
             variant="outline"
@@ -96,8 +105,8 @@ export default function AdminUsersPanel() {
           </Button>
         </div>
         <p className="text-xs text-[var(--sec-text-muted)]">
-          Unsuspend restores login access and notifies the user. Optional note is included in their
-          notification.
+          These users cannot sign in until you unsuspend them. Unsuspend restores access and notifies
+          the user; an optional note is included in their notification.
         </p>
         {loadingSuspended ? (
           <AdminEmptyState message="Loading suspended users…" />

@@ -76,13 +76,21 @@ export default function AdminOverviewPanel({ onTabChange }) {
           value={(s.criticalReports ?? 0) + (s.highReports ?? 0)}
           label="High/Critical reports"
         />
+        <AdminStatCard
+          icon={Shield}
+          iconClassName="text-red-400"
+          borderClassName="border border-red-500/30"
+          value={s.suspendedUsers ?? 0}
+          label="Suspended accounts"
+          onClick={() => onTabChange('users')}
+        />
       </AdminStatGrid>
 
       <AdminActionBar
         actions={[
           { id: 'payments', label: 'View all payments', onClick: () => onTabChange('payments') },
           { id: 'reports', label: 'Triage safety reports', onClick: () => onTabChange('reports') },
-          { id: 'users', label: 'Review legacy ID submissions', onClick: () => onTabChange('users') },
+          { id: 'users', label: 'View suspended accounts', onClick: () => onTabChange('users') },
           { id: 'venues', label: 'Review venue compliance', onClick: () => onTabChange('venues') },
           { id: 'announcements', label: 'Post home announcements', onClick: () => onTabChange('announcements') },
         ]}

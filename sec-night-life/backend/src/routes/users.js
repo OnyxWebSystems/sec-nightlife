@@ -570,12 +570,30 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       conversationId = conv?.id || null;
     }
 
+    const legacyYouBlocked = await prisma.block.findFirst({
+      where: { blockerId: viewerId, blockedId: targetId },
+      select: { id: true },
+    });
+    const legacyTheyBlocked = await prisma.block.findFirst({
+      where: { blockerId: targetId, blockedId: viewerId },
+      select: { id: true },
+    });
+
+    const youBlockedThem =
+      (friendship?.status === 'BLOCKED' && friendship.requesterId === viewerId) ||
+      Boolean(legacyYouBlocked);
     const blockedByThem =
-      friendship?.status === 'BLOCKED' &&
-      friendship.requesterId === targetId &&
-      friendship.receiverId === viewerId;
-    const canUnblock =
-      friendship?.status === 'BLOCKED' && friendship.requesterId === viewerId;
+      (friendship?.status === 'BLOCKED' &&
+        friendship.requesterId === targetId &&
+        friendship.receiverId === viewerId) ||
+      Boolean(legacyTheyBlocked);
+
+    // Surface BLOCKED to the viewer when either side blocked (so UI can show Unblock / notice)
+    if (youBlockedThem || blockedByThem) {
+      friendshipStatus = 'BLOCKED';
+    }
+
+    const canUnblock = youBlockedThem;
 
     const rawInterests = user.userProfile?.interests;
     const interests = Array.isArray(rawInterests) ? rawInterests : [];
@@ -611,6 +629,7 @@ router.get('/:userId([0-9a-f-]{36})/profile', authenticateToken, async (req, res
       mutualFriendsCount,
       conversationId,
       blockedByThem,
+      youBlockedThem,
       canUnblock,
       isSelf: viewerId === targetId,
       reviewAverage,

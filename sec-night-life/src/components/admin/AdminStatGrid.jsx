@@ -6,12 +6,28 @@ export default function AdminStatGrid({ children, className = '' }) {
   );
 }
 
-export function AdminStatCard({ icon: Icon, value, label, iconClassName = 'text-[var(--sec-accent)]', borderClassName = 'border-[#262629]', valueClassName = '' }) {
+export function AdminStatCard({
+  icon: Icon,
+  value,
+  label,
+  iconClassName = 'text-[var(--sec-accent)]',
+  borderClassName = 'border-[#262629]',
+  valueClassName = '',
+  onClick,
+}) {
+  const interactive = typeof onClick === 'function';
+  const Comp = interactive ? 'button' : 'div';
   return (
-    <div className={`p-4 rounded-xl bg-[#141416] border ${borderClassName}`}>
+    <Comp
+      type={interactive ? 'button' : undefined}
+      onClick={onClick}
+      className={`p-4 rounded-xl bg-[#141416] border ${borderClassName} text-left ${
+        interactive ? 'cursor-pointer hover:border-[rgba(212,175,55,0.35)] transition-colors' : ''
+      }`}
+    >
       {Icon ? <Icon size={20} className={`${iconClassName} mb-2`} /> : null}
       <p className={`text-2xl font-bold ${valueClassName}`}>{value}</p>
       <p className="text-xs text-[var(--sec-text-muted)]">{label}</p>
-    </div>
+    </Comp>
   );
 }

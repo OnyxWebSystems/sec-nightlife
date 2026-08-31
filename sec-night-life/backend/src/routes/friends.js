@@ -463,6 +463,57 @@ router.delete('/:friendshipId', authenticateToken, async (req, res, next) => {
   }
 });
 
+/** GET /blocked — accounts the current user has blocked (for Privacy / unblock) */
+router.get('/blocked', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.userId;
+    const [friendships, legacy] = await Promise.all([
+      prisma.friendship.findMany({
+        where: { status: 'BLOCKED', requesterId: me },
+        select: { receiverId: true, createdAt: true },
+      }),
+      prisma.block.findMany({
+        where: { blockerId: me },
+        select: { blockedId: true, createdAt: true },
+      }),
+    ]);
+    const byId = new Map();
+    for (const f of friendships) {
+      byId.set(f.receiverId, f.createdAt);
+    }
+    for (const b of legacy) {
+      if (!byId.has(b.blockedId) || b.createdAt > byId.get(b.blockedId)) {
+        byId.set(b.blockedId, b.createdAt);
+      }
+    }
+    const ids = [...byId.keys()];
+    if (!ids.length) return res.json({ items: [] });
+
+    const users = await prisma.user.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: {
+        id: true,
+        username: true,
+        fullName: true,
+        userProfile: { select: { username: true, avatarUrl: true } },
+      },
+    });
+    const items = users
+      .map((u) => ({
+        id: u.id,
+        username: u.userProfile?.username || u.username || null,
+        fullName: u.fullName || null,
+        avatarUrl: u.userProfile?.avatarUrl || null,
+        blockedAt: byId.get(u.id) || null,
+      }))
+      .sort((a, b) => String(b.blockedAt || '').localeCompare(String(a.blockedAt || '')));
+
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** POST /block/:userId — body.reason optional (shown to admins on the auto-report) */
 router.post('/block/:userId', authenticateToken, async (req, res, next) => {
   try {
