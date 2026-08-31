@@ -169,7 +169,7 @@ export async function sendBulkEmails(messages) {
 }
 
 export async function sendVerificationEmail(to, token) {
-  const baseUrl = process.env.APP_URL || 'http://localhost:5173';
+  const baseUrl = getPublicAppBaseUrl();
   const link = `${baseUrl}/verify-email?token=${encodeURIComponent(token)}`;
   await sendEmail({
     to,
@@ -193,7 +193,7 @@ export async function sendVerificationEmail(to, token) {
 }
 
 export async function sendPasswordResetEmail(to, token) {
-  const baseUrl = process.env.APP_URL || 'http://localhost:5173';
+  const baseUrl = getPublicAppBaseUrl();
   const link = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
   await sendEmail({
     to,

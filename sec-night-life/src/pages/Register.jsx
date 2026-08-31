@@ -37,27 +37,47 @@ function PolicyLink({ page, onOpen, children }) {
 
 const ROLE_INTENT_KEY = 'sec-role-intent';
 
-function getBackendRole() {
+function readStoredRoleIntent() {
   try {
     const intent = localStorage.getItem(ROLE_INTENT_KEY);
-    if (intent === 'VENUE') return 'VENUE';
+    if (intent === 'VENUE' || intent === 'PARTY_GOER') return intent;
   } catch {}
-  return 'USER';
+  return 'PARTY_GOER';
+}
+
+function getBackendRole(intent) {
+  return intent === 'VENUE' ? 'VENUE' : 'USER';
 }
 
 export default function Register() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const returnUrl = searchParams.get('returnUrl') || createPageUrl('Home');
   const roleFromUrl = searchParams.get('role');
 
+  const [accountType, setAccountType] = useState(() => {
+    if (roleFromUrl === 'VENUE' || roleFromUrl === 'PARTY_GOER') return roleFromUrl;
+    return readStoredRoleIntent();
+  });
+
   useEffect(() => {
     if (roleFromUrl === 'PARTY_GOER' || roleFromUrl === 'VENUE') {
+      setAccountType(roleFromUrl);
       try {
         localStorage.setItem(ROLE_INTENT_KEY, roleFromUrl);
       } catch {}
     }
   }, [roleFromUrl]);
+
+  const selectAccountType = (intent) => {
+    setAccountType(intent);
+    try {
+      localStorage.setItem(ROLE_INTENT_KEY, intent);
+    } catch {}
+    const next = new URLSearchParams(searchParams);
+    next.set('role', intent);
+    setSearchParams(next, { replace: true });
+  };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -127,8 +147,8 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const r = getBackendRole();
-      await authService.register(
+      const r = getBackendRole(accountType);
+      const data = await authService.register(
         email.trim(),
         password,
         fullName || undefined,
@@ -141,7 +161,15 @@ export default function Register() {
         termsVersion: LEGAL_ACCEPT_VERSION.termsOfService,
         privacyVersion: LEGAL_ACCEPT_VERSION.privacyPolicy,
       });
-      toast.success('Account created! Check your email to verify before signing in.');
+      if (data?.emailSendFailed) {
+        toast.error(
+          'Account created, but we could not send the verification email. Sign in and tap Resend verification email.',
+        );
+      } else if (data?.emailVerificationRequired) {
+        toast.success('Account created! Check your email to verify before signing in.');
+      } else {
+        toast.success('Account created!');
+      }
       const roleIntent = r === 'VENUE' ? 'VENUE' : 'PARTY_GOER';
       let loginUrl = returnUrl ? createPageUrl('Login') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Login');
       loginUrl += (loginUrl.includes('?') ? '&' : '?') + 'role=' + encodeURIComponent(roleIntent);
@@ -163,6 +191,42 @@ export default function Register() {
           <p className="text-gray-400">SEC Nightlife</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <div>
+            <Label className="text-gray-400 mb-2 block">I want to join as</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => selectAccountType('PARTY_GOER')}
+                className="min-h-[52px] rounded-xl px-3 py-2 text-sm font-medium border transition-colors"
+                style={{
+                  backgroundColor:
+                    accountType === 'PARTY_GOER' ? 'rgba(212, 175, 55, 0.12)' : '#141416',
+                  borderColor:
+                    accountType === 'PARTY_GOER' ? 'rgba(212, 175, 55, 0.45)' : '#262629',
+                  color: accountType === 'PARTY_GOER' ? 'var(--sec-accent)' : '#e5e5e5',
+                }}
+              >
+                Party Goer
+              </button>
+              <button
+                type="button"
+                onClick={() => selectAccountType('VENUE')}
+                className="min-h-[52px] rounded-xl px-3 py-2 text-sm font-medium border transition-colors"
+                style={{
+                  backgroundColor: accountType === 'VENUE' ? 'rgba(212, 175, 55, 0.12)' : '#141416',
+                  borderColor: accountType === 'VENUE' ? 'rgba(212, 175, 55, 0.45)' : '#262629',
+                  color: accountType === 'VENUE' ? 'var(--sec-accent)' : '#e5e5e5',
+                }}
+              >
+                Business Owner
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              {accountType === 'VENUE'
+                ? 'Create a venue account to list your business and manage events.'
+                : 'Create a guest account to discover venues, join tables, and book nights out.'}
+            </p>
+          </div>
           <div>
             <Label className="text-gray-400">Full Name</Label>
             <Input

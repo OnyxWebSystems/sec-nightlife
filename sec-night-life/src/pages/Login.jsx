@@ -30,7 +30,7 @@ function readStoredConsumerIntent() {
 }
 
 export default function Login() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const roleParam = searchParams.get('role');
   const defaultReturnUrl =
@@ -44,6 +44,10 @@ export default function Login() {
   const [error, setError] = useState('');
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
+  const [accountType, setAccountType] = useState(() => {
+    if (roleParam === 'VENUE' || roleParam === 'PARTY_GOER') return roleParam;
+    return readStoredConsumerIntent();
+  });
 
   const [step, setStep] = useState('credentials');
   const [loginChallengeToken, setLoginChallengeToken] = useState('');
@@ -53,11 +57,22 @@ export default function Login() {
 
   useEffect(() => {
     if (roleParam === 'VENUE' || roleParam === 'PARTY_GOER') {
+      setAccountType(roleParam);
       try {
         localStorage.setItem(ROLE_INTENT_KEY, roleParam);
       } catch {}
     }
   }, [roleParam]);
+
+  const selectAccountType = (intent) => {
+    setAccountType(intent);
+    try {
+      localStorage.setItem(ROLE_INTENT_KEY, intent);
+    } catch {}
+    const next = new URLSearchParams(searchParams);
+    next.set('role', intent);
+    setSearchParams(next, { replace: true });
+  };
 
   useEffect(() => {
     void prefetchPage('Register');
@@ -90,9 +105,11 @@ export default function Login() {
     return () => window.clearInterval(timer);
   }, [step, resendCooldown]);
 
-  const consumerIntent = roleParam === 'VENUE' || roleParam === 'PARTY_GOER'
-    ? roleParam
-    : readStoredConsumerIntent();
+  const consumerIntent = !isStaffRole
+    ? accountType
+    : roleParam === 'VENUE' || roleParam === 'PARTY_GOER'
+      ? roleParam
+      : readStoredConsumerIntent();
 
   const registerHref = (() => {
     const base = returnUrl
@@ -306,6 +323,42 @@ export default function Login() {
             {isStaffRole && (
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200/90">
                 Signing in with staff role: <span className="font-mono">{roleParam}</span>
+              </div>
+            )}
+
+            {!isStaffRole && (
+              <div>
+                <Label className="text-gray-400 mb-2 block">Sign in as</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => selectAccountType('PARTY_GOER')}
+                    className="min-h-[48px] rounded-xl px-3 py-2 text-sm font-medium border transition-colors"
+                    style={{
+                      backgroundColor:
+                        accountType === 'PARTY_GOER' ? 'rgba(212, 175, 55, 0.12)' : '#141416',
+                      borderColor:
+                        accountType === 'PARTY_GOER' ? 'rgba(212, 175, 55, 0.45)' : '#262629',
+                      color: accountType === 'PARTY_GOER' ? 'var(--sec-accent)' : '#e5e5e5',
+                    }}
+                  >
+                    Party Goer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => selectAccountType('VENUE')}
+                    className="min-h-[48px] rounded-xl px-3 py-2 text-sm font-medium border transition-colors"
+                    style={{
+                      backgroundColor:
+                        accountType === 'VENUE' ? 'rgba(212, 175, 55, 0.12)' : '#141416',
+                      borderColor:
+                        accountType === 'VENUE' ? 'rgba(212, 175, 55, 0.45)' : '#262629',
+                      color: accountType === 'VENUE' ? 'var(--sec-accent)' : '#e5e5e5',
+                    }}
+                  >
+                    Business Owner
+                  </button>
+                </div>
               </div>
             )}
 

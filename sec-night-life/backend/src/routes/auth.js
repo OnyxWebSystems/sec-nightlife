@@ -506,10 +506,19 @@ router.post('/register', async (req, res, next) => {
       select: { id: true, email: true, fullName: true, role: true, emailVerified: true }
     });
 
+    let emailSendFailed = false;
     if (!skipVerification) {
-      sendVerificationEmail(user.email, rawVerificationToken).catch(err => {
-        logger.error('Failed to send verification email', { userId: user.id, message: err.message });
-      });
+      try {
+        await sendVerificationEmail(user.email, rawVerificationToken);
+      } catch (err) {
+        emailSendFailed = true;
+        logger.error('Failed to send verification email', {
+          userId: user.id,
+          email: user.email,
+          message: err.message,
+          code: err.code,
+        });
+      }
     }
 
     await prisma.userProfile.upsert({
@@ -528,13 +537,14 @@ router.post('/register', async (req, res, next) => {
       action: 'USER_REGISTERED',
       entityType: 'user',
       entityId: user.id,
-      metadata: { email: user.email, role: user.role },
+      metadata: { email: user.email, role: user.role, emailSendFailed },
       ipAddress: getIp(req)
     });
 
     const response = {
       user: userPayload(user),
       emailVerificationRequired: !skipVerification,
+      emailSendFailed: !skipVerification && emailSendFailed,
     };
     if (skipVerification) {
       const loginPayload = await buildLoginSuccessPayload(user);
@@ -793,7 +803,7 @@ router.post('/resend-verification', async (req, res, next) => {
       where: { email, deletedAt: null }
     });
 
-    // SECURITY: same response whether user exists or not
+    // SECURITY: same response whether user exists or not (except real send failures for known unverified)
     if (user && !user.emailVerified) {
       const rawToken = generateSecureToken();
       const tokenHash = hashTokenSha256(rawToken);
@@ -806,9 +816,20 @@ router.post('/resend-verification', async (req, res, next) => {
         }
       });
 
-      sendVerificationEmail(user.email, rawToken).catch(err => {
-        logger.error('Failed to resend verification email', { userId: user.id, message: err.message });
-      });
+      try {
+        await sendVerificationEmail(user.email, rawToken);
+      } catch (err) {
+        logger.error('Failed to resend verification email', {
+          userId: user.id,
+          email: user.email,
+          message: err.message,
+          code: err.code,
+        });
+        return res.status(422).json({
+          error: 'We could not send the verification email. Please try again in a few minutes.',
+          code: 'EMAIL_SEND_FAILED',
+        });
+      }
     }
 
     res.json({ message: 'If the email exists and is unverified, a new verification link was sent.' });
@@ -1021,9 +1042,17 @@ router.post('/forgot-password', async (req, res, next) => {
         }
       });
 
-      sendPasswordResetEmail(user.email, rawToken).catch(err => {
-        logger.error('Failed to send password reset email', { userId: user.id, message: err.message });
-      });
+      try {
+        await sendPasswordResetEmail(user.email, rawToken);
+      } catch (err) {
+        logger.error('Failed to send password reset email', {
+          userId: user.id,
+          email: user.email,
+          message: err.message,
+          code: err.code,
+        });
+        // Still return generic success to avoid email enumeration; email may need retry
+      }
     }
 
     // SECURITY: always return same response to prevent email enumeration

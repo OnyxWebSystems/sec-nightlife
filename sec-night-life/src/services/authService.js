@@ -209,7 +209,7 @@ export async function register(email, password, fullName, role, username) {
     setTokens(data.accessToken, data.refreshToken);
     await cacheSessionAfterTokens(data.user);
   }
-  return data.user;
+  return data;
 }
 
 export async function login(email, password, role) {
