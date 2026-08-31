@@ -235,7 +235,7 @@ export default function ChatRoom() {
         return (
           <Link
             key={idx}
-            to={createPageUrl(`Profile?id=${mentioned?.id}`)}
+            to={mentioned?.id ? `${createPageUrl('UserProfile')}?id=${encodeURIComponent(mentioned.id)}` : '#'}
             className="text-[var(--sec-success)] font-semibold hover:underline"
           >
             {part}
@@ -323,7 +323,7 @@ export default function ChatRoom() {
               className={`flex gap-2 w-full min-w-0 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}
             >
               {showAvatar && !isOwn ? (
-                <Link to={createPageUrl(`Profile?id=${sender?.id}`)} className="flex-shrink-0">
+                <Link to={sender?.id ? `${createPageUrl('UserProfile')}?id=${encodeURIComponent(sender.id)}` : '#'} className="flex-shrink-0">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--sec-accent)] to-[var(--sec-accent)] overflow-hidden">
                     {sender?.avatar_url ? (
                       <img src={sender.avatar_url} alt="" className="w-full h-full object-cover" />

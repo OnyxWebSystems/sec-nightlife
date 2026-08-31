@@ -55,7 +55,7 @@ export default function FriendRequestCard({ row }) {
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-[#0A0A0B]">
       <Link
-        to={createPageUrl(`Profile?id=${user.id}`)}
+        to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(user.id)}`}
         className="flex items-center gap-3 flex-1 min-w-0"
       >
         <div

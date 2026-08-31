@@ -551,7 +551,7 @@ export default function Friends() {
                 {activityItems.map((a) => (
                   <li key={a.id} className="p-3 rounded-xl bg-[#141416] border border-[#262629]">
                     <div className="flex gap-2">
-                      <Link to={`${createPageUrl('UserProfile')}?id=${a.user?.id || ''}`} className="w-10 h-10 rounded-full bg-[#262629] overflow-hidden flex-shrink-0">
+                      <Link to={a.user?.id ? `${createPageUrl('UserProfile')}?id=${encodeURIComponent(a.user.id)}` : '#'} className="w-10 h-10 rounded-full bg-[#262629] overflow-hidden flex-shrink-0" onClick={(e) => { if (!a.user?.id) e.preventDefault(); }}>
                         {a.user?.avatarUrl ? (
                           <img src={a.user.avatarUrl} alt="" className="w-full h-full object-cover" />
                         ) : (

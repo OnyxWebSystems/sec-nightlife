@@ -148,17 +148,14 @@ export default function AppPreferences() {
         } else {
           await requestGeoCoords();
         }
-      } catch {
-        toast.error('Could not access location — enable permission in your browser');
+      } catch (err) {
+        const { locationErrorMessage } = await import('@/lib/getCurrentLocation');
+        toast.error(locationErrorMessage(err));
       }
     }
   };
 
   const useLiveLocation = async () => {
-    if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported on this device');
-      return;
-    }
     setLocating(true);
     try {
       const coords = await requestGeoCoords();
@@ -183,8 +180,9 @@ export default function AppPreferences() {
         province,
       });
       toast.success('Live location saved for nearby discovery');
-    } catch {
-      toast.error('Could not access location — enable permission in your browser');
+    } catch (err) {
+      const { locationErrorMessage } = await import('@/lib/getCurrentLocation');
+      toast.error(locationErrorMessage(err));
     } finally {
       setLocating(false);
     }

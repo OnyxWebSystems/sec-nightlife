@@ -183,19 +183,12 @@ export function PreferencesProvider({ children }) {
     return () => clearTimeout(timer);
   }, [prefs.notifications, prefs.location, prefs.language, privacy, hydrated, isAuthenticated]);
 
-  const requestGeoCoords = useCallback(() => {
-    if (!navigator.geolocation) return Promise.reject(new Error('Geolocation not supported'));
-    return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setGeoCoords(next);
-          resolve(next);
-        },
-        (err) => reject(err),
-        { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 },
-      );
-    });
+  const requestGeoCoords = useCallback(async () => {
+    const { getCurrentLocation } = await import('@/lib/getCurrentLocation');
+    const coords = await getCurrentLocation();
+    const next = { lat: coords.lat, lng: coords.lng };
+    setGeoCoords(next);
+    return next;
   }, []);
 
   const setPreferredGeoCoords = useCallback((coords) => {

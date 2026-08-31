@@ -346,70 +346,63 @@ export default function ProfileSetup() {
   };
 
   const useLiveLocation = async () => {
-    if (!navigator.geolocation) {
-      setError('Geolocation is not supported on this device.');
-      return;
-    }
     setLocating(true);
     setError('');
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        // Save GPS immediately — nearby discovery only needs coords.
+    try {
+      const { getCurrentLocation, locationErrorMessage } = await import('@/lib/getCurrentLocation');
+      const { lat, lng } = await getCurrentLocation();
+      // Save GPS immediately — nearby discovery only needs coords.
+      setFormData((prev) => ({
+        ...prev,
+        latitude: lat,
+        longitude: lng,
+        location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+      }));
+      try {
+        const { reverseGeocodeLatLngStructured } = await import('@/lib/reverseGeocode');
+        const structured = await reverseGeocodeLatLngStructured(lat, lng);
+        const label =
+          structured?.formattedAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        const geoCity = (structured?.city || '').trim();
+        setFormData((prev) => {
+          const next = {
+            ...prev,
+            latitude: lat,
+            longitude: lng,
+            location_label: label,
+            suburb: structured?.suburb || prev.suburb || '',
+            province: structured?.province || prev.province || '',
+          };
+          if (geoCity && (!prev.city || CITIES.includes(geoCity))) {
+            next.city = geoCity;
+          }
+          return next;
+        });
+        if (geoCity && CITIES.includes(geoCity)) {
+          setCityMode(geoCity);
+          setCustomCity('');
+        } else if (geoCity) {
+          setCityMode((mode) => {
+            if (mode && mode !== '' && mode !== CITY_OTHER) return mode;
+            setCustomCity(geoCity);
+            return CITY_OTHER;
+          });
+        }
+      } catch {
         setFormData((prev) => ({
           ...prev,
           latitude: lat,
           longitude: lng,
           location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
         }));
-        try {
-          const { reverseGeocodeLatLngStructured } = await import('@/lib/reverseGeocode');
-          const structured = await reverseGeocodeLatLngStructured(lat, lng);
-          const label =
-            structured?.formattedAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-          const geoCity = (structured?.city || '').trim();
-          setFormData((prev) => {
-            const next = {
-              ...prev,
-              latitude: lat,
-              longitude: lng,
-              location_label: label,
-              suburb: structured?.suburb || prev.suburb || '',
-              province: structured?.province || prev.province || '',
-            };
-            if (geoCity && (!prev.city || CITIES.includes(geoCity))) {
-              next.city = geoCity;
-            }
-            return next;
-          });
-          if (geoCity && CITIES.includes(geoCity)) {
-            setCityMode(geoCity);
-            setCustomCity('');
-          } else if (geoCity) {
-            setCityMode((mode) => {
-              if (mode && mode !== '' && mode !== CITY_OTHER) return mode;
-              setCustomCity(geoCity);
-              return CITY_OTHER;
-            });
-          }
-        } catch {
-          setFormData((prev) => ({
-            ...prev,
-            latitude: lat,
-            longitude: lng,
-            location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-          }));
-        } finally {
-          setLocating(false);
-        }
-      },
-      () => {
-        setError('Could not access location — enable permission in your browser.');
-        setLocating(false);
-      },
-      { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
-    );
+        setError('Saved GPS coordinates — could not resolve a street address.');
+      }
+    } catch (err) {
+      const { locationErrorMessage: msg } = await import('@/lib/getCurrentLocation');
+      setError(msg(err));
+    } finally {
+      setLocating(false);
+    }
   };
 
   const saveVendorIfNeeded = async () => {

@@ -84,7 +84,7 @@ export default function Leaderboard() {
             <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 10 }}>Promoter of the week</h2>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {weekData.data.map((p, i) => (
-                <Link key={p.promoterId} to={createPageUrl(`Profile?id=${p.promoterId}`)} style={{ textDecoration: 'none' }}>
+                <Link key={p.promoterId} to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(p.promoterId)}`} style={{ textDecoration: 'none' }}>
                   <span className="sec-badge" style={{ fontSize: 12 }}>
                     {i + 1}. @{p.username} · {p.points} pts
                   </span>
@@ -108,7 +108,7 @@ export default function Leaderboard() {
 
         {topThree.length >= 3 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 32, alignItems: 'end' }}>
-            <Link to={createPageUrl(`Profile?id=${topThree[1].promoterId}`)} style={{ textDecoration: 'none' }}>
+            <Link to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(topThree[1].promoterId)}`} style={{ textDecoration: 'none' }}>
               <div className="sec-card" style={{ padding: 24, textAlign: 'center' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-silver)', marginBottom: 12 }}>2</div>
                 <div style={{ width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', margin: '0 auto 12px', border: '2px solid var(--sec-border)' }}>
@@ -129,7 +129,7 @@ export default function Leaderboard() {
               </div>
             </Link>
 
-            <Link to={createPageUrl(`Profile?id=${topThree[0].promoterId}`)} style={{ textDecoration: 'none' }}>
+            <Link to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(topThree[0].promoterId)}`} style={{ textDecoration: 'none' }}>
               <div className="sec-card" style={{ padding: 24, textAlign: 'center', borderColor: 'var(--sec-accent-border)' }}>
                 <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--sec-accent)', marginBottom: 12 }}>1</div>
                 <div style={{ width: 80, height: 80, borderRadius: '50%', overflow: 'hidden', margin: '0 auto 12px', border: '2px solid var(--sec-accent)' }}>
@@ -150,7 +150,7 @@ export default function Leaderboard() {
               </div>
             </Link>
 
-            <Link to={createPageUrl(`Profile?id=${topThree[2].promoterId}`)} style={{ textDecoration: 'none' }}>
+            <Link to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(topThree[2].promoterId)}`} style={{ textDecoration: 'none' }}>
               <div className="sec-card" style={{ padding: 24, textAlign: 'center' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sec-text-muted)', marginBottom: 12 }}>3</div>
                 <div style={{ width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', margin: '0 auto 12px', border: '2px solid var(--sec-border)' }}>
@@ -179,7 +179,7 @@ export default function Leaderboard() {
             const displayRank = topThree.length < 3 ? promoter.rank : actualIndex + 1;
             const rankStyle = getRankStyle(displayRank - 1);
             return (
-              <Link key={promoter.promoterId} to={createPageUrl(`Profile?id=${promoter.promoterId}`)} style={{ textDecoration: 'none' }}>
+              <Link key={promoter.promoterId} to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(promoter.promoterId)}`} style={{ textDecoration: 'none' }}>
                 <div className="sec-card" style={{ padding: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                     <div style={{

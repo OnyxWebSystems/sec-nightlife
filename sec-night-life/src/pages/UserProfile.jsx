@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiDelete } from '@/api/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,18 +22,22 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+
 export default function UserProfile() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const userId = new URLSearchParams(window.location.search).get('id');
+  const [searchParams] = useSearchParams();
+  const userId = searchParams.get('id') || '';
+  const idValid = UUID_RE.test(userId);
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const [blockReason, setBlockReason] = useState('');
 
-  const { data: profile, isLoading } = useQuery({
+  const { data: profile, isLoading, isError, isFetched } = useQuery({
     queryKey: ['public-profile', userId],
     queryFn: () => apiGet(`/api/users/${userId}/profile`),
-    enabled: !!userId && /^[0-9a-f-]{36}$/i.test(userId || ''),
+    enabled: idValid,
   });
 
   const isSelf = profile?.isSelf;
@@ -42,7 +46,7 @@ export default function UserProfile() {
   const { data: promoterFollowStatus } = useQuery({
     queryKey: ['promoter-follow-status', userId],
     queryFn: () => dataService.Promoters.followingStatus(userId),
-    enabled: !!userId && !isSelf && isVerifiedPromoter,
+    enabled: idValid && !!userId && !isSelf && isVerifiedPromoter,
   });
 
   const onAddFriend = async () => {
@@ -143,7 +147,21 @@ export default function UserProfile() {
     }
   };
 
-  if (isLoading || !userId) {
+  if (!idValid) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 max-w-app md:max-w-app-md mx-auto">
+        <div className="text-center">
+          <h2 className="text-lg font-bold mb-2">User not found</h2>
+          <p className="text-sm text-gray-500 mb-4">This profile link is missing or invalid.</p>
+          <Button className="min-h-[44px]" onClick={() => navigate(-1)}>
+            Go back
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center max-w-app md:max-w-app-md mx-auto">
         <div className="w-10 h-10 border-2 border-t-transparent border-[var(--sec-accent)] rounded-full animate-spin" />
@@ -151,7 +169,7 @@ export default function UserProfile() {
     );
   }
 
-  if (!profile) {
+  if (isError || (isFetched && !profile)) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 max-w-app md:max-w-app-md mx-auto">
         <div className="text-center">

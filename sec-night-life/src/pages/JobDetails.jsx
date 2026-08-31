@@ -219,7 +219,7 @@ export default function JobDetails() {
 
   function openApplicantProfile(applicant) {
     if (!applicant?.id) return;
-    navigate(createPageUrl(`Profile?id=${applicant.id}`));
+    navigate(`${createPageUrl('UserProfile')}?id=${encodeURIComponent(applicant.id)}`);
   }
 
   async function uploadCv(file) {

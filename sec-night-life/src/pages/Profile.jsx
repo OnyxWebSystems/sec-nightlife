@@ -126,6 +126,19 @@ export default function Profile() {
   const viewingUserId = searchParams.get('id');
   const userProfile = authUserProfile ? { ...authUserProfile, ...profilePatch } : null;
 
+  // Other-user views belong on UserProfile (consistent API + unblock UX).
+  useEffect(() => {
+    if (!viewingUserId) return;
+    const isSelf =
+      (user?.id && viewingUserId === user.id) ||
+      (authUserProfile?.id && viewingUserId === authUserProfile.id) ||
+      (authUserProfile?.user_id && viewingUserId === authUserProfile.user_id);
+    if (isSelf) return;
+    navigate(`${createPageUrl('UserProfile')}?id=${encodeURIComponent(viewingUserId)}`, {
+      replace: true,
+    });
+  }, [viewingUserId, user?.id, authUserProfile?.id, authUserProfile?.user_id, navigate]);
+
   useEffect(() => {
     if (isLoadingAuth || isRestoringSession) return;
     if (viewingUserId) return;
@@ -163,7 +176,8 @@ export default function Profile() {
   const isOwnProfile =
     !viewingUserId ||
     (user?.id && viewingUserId === user.id) ||
-    (userProfile?.id && viewingUserId === userProfile.id);
+    (userProfile?.id && viewingUserId === userProfile.id) ||
+    (userProfile?.user_id && viewingUserId === userProfile.user_id);
 
   useEffect(() => {
     if (!isOwnProfile && rawTab && OWN_ONLY_TABS.includes(rawTab)) {
@@ -174,11 +188,16 @@ export default function Profile() {
   const activeProfileTab =
     !isOwnProfile && OWN_ONLY_TABS.includes(profileTab) ? 'activity' : profileTab;
 
-  const { data: viewedProfile } = useQuery({
+  const {
+    data: viewedProfile,
+    isPending: viewedProfilePending,
+    isError: viewedProfileError,
+    isFetched: viewedProfileFetched,
+  } = useQuery({
     queryKey: ['viewed-profile', viewingUserId],
     queryFn: async () => {
       const profiles = await dataService.User.filter({ id: viewingUserId });
-      return profiles[0];
+      return profiles[0] || null;
     },
     enabled: !!viewingUserId && !isOwnProfile,
   });
@@ -411,10 +430,62 @@ export default function Profile() {
   if (isLoadingAuth || isRestoringSession || !user) {
     return <SecLoadingScreen />;
   }
-  if (isOwnProfile && !userProfile) {
+
+  // Redirecting other-user Profile?id= → UserProfile
+  if (viewingUserId && !isOwnProfile) {
     return <SecLoadingScreen />;
   }
-  if (!isOwnProfile && !displayProfile) {
+
+  if (isOwnProfile && !userProfile) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 gap-4 text-center">
+        <h2 className="text-lg font-semibold">Finish setting up your profile</h2>
+        <p className="text-sm text-[var(--sec-text-muted)] max-w-sm">
+          We couldn&apos;t load your profile details yet. Complete setup or try again.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
+          <Button
+            className="min-h-[44px] flex-1"
+            onClick={() =>
+              navigate(
+                createPageUrl(
+                  user?.role === 'VENUE' || user?.role === 'BUSINESS'
+                    ? 'VenueOnboarding'
+                    : 'ProfileSetup',
+                ),
+              )
+            }
+          >
+            Continue setup
+          </Button>
+          <Button
+            variant="outline"
+            className="min-h-[44px] flex-1"
+            onClick={() => void checkAppState({ soft: true })}
+          >
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isOwnProfile && viewedProfilePending) {
+    return <SecLoadingScreen />;
+  }
+
+  if (!isOwnProfile && (viewedProfileError || (viewedProfileFetched && !displayProfile))) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 gap-4 text-center">
+        <h2 className="text-lg font-semibold">User not found</h2>
+        <Button className="min-h-[44px]" onClick={() => navigate(-1)}>
+          Go back
+        </Button>
+      </div>
+    );
+  }
+
+  if (!displayProfile) {
     return <SecLoadingScreen />;
   }
 
@@ -721,7 +792,7 @@ export default function Profile() {
                 {friendsPreview.map((friend) => (
                   <Link
                     key={friend.id}
-                    to={createPageUrl(`Profile?id=${friend.id}`)}
+                    to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(friend.id)}`}
                     className="w-10 h-10 rounded-full border-2 border-[#141416] overflow-hidden hover:z-10 transition-transform hover:scale-110"
                   >
                     {friend.avatarUrl ? (

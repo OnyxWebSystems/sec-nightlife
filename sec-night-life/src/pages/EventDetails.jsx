@@ -418,7 +418,7 @@ export default function EventDetails() {
             >
               Promoted by{' '}
               <Link
-                to={createPageUrl(`Profile?id=${promoterBanner.promoterUserId}`)}
+                to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(promoterBanner.promoterUserId)}`}
                 style={{ color: 'var(--sec-accent)', fontWeight: 600, textDecoration: 'none' }}
               >
                 @{promoterBanner.username || promoterBanner.fullName || 'promoter'}

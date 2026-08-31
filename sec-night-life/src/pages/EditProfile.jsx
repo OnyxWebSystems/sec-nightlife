@@ -511,50 +511,45 @@ export default function EditProfile() {
             </div>
             <button
               type="button"
-              onClick={() => {
-                if (!navigator.geolocation) {
-                  toast.error('Geolocation is not supported');
-                  return;
-                }
+              onClick={async () => {
                 setLocating(true);
-                navigator.geolocation.getCurrentPosition(
-                  async (pos) => {
-                    const lat = pos.coords.latitude;
-                    const lng = pos.coords.longitude;
+                try {
+                  const { getCurrentLocation, locationErrorMessage } = await import(
+                    '@/lib/getCurrentLocation'
+                  );
+                  const { lat, lng } = await getCurrentLocation();
+                  setFormData((prev) => ({
+                    ...prev,
+                    latitude: lat,
+                    longitude: lng,
+                    location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                  }));
+                  try {
+                    const { reverseGeocodeLatLngStructured } = await import('@/lib/reverseGeocode');
+                    const structured = await reverseGeocodeLatLngStructured(lat, lng);
                     setFormData((prev) => ({
                       ...prev,
                       latitude: lat,
                       longitude: lng,
-                      location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                      location_label:
+                        structured?.formattedAddress || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                      suburb: structured?.suburb || prev.suburb || '',
+                      province: structured?.province || prev.province || '',
                     }));
-                    try {
-                      const { reverseGeocodeLatLng } = await import('@/lib/reverseGeocode');
-                      const label = await reverseGeocodeLatLng(lat, lng);
-                      setFormData((prev) => ({
-                        ...prev,
-                        latitude: lat,
-                        longitude: lng,
-                        location_label: label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-                      }));
-                      toast.success('Location updated');
-                    } catch {
-                      setFormData((prev) => ({
-                        ...prev,
-                        latitude: lat,
-                        longitude: lng,
-                        location_label: prev.location_label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-                      }));
-                      toast.success('Location updated');
-                    } finally {
-                      setLocating(false);
-                    }
-                  },
-                  () => {
-                    toast.error('Could not access location');
-                    setLocating(false);
-                  },
-                  { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
-                );
+                    toast.success(
+                      structured?.formattedAddress
+                        ? 'Location updated'
+                        : 'Saved GPS coordinates — refine the address if needed',
+                    );
+                  } catch {
+                    toast.success('Location updated');
+                  }
+                } catch (err) {
+                  const { locationErrorMessage } = await import('@/lib/getCurrentLocation');
+                  toast.error(locationErrorMessage(err));
+                } finally {
+                  setLocating(false);
+                }
               }}
               disabled={locating}
               style={{

@@ -21,6 +21,8 @@ import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
 import { usePreferences } from '@/context/PreferencesContext';
 import { getDirectionsActions } from '@/lib/openDirections';
+import { toast } from 'sonner';
+import { getCurrentLocation, locationErrorMessage } from '@/lib/getCurrentLocation';
 
 // Johannesburg coordinates as default
 const DEFAULT_CENTER = { lat: -26.2041, lng: 28.0473 };
@@ -350,16 +352,15 @@ export default function Map() {
 
         setMap(googleMap);
 
-        // Get user location
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition((position) => {
-            const userLoc = {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-            };
-            setUserLocation(userLoc);
-          });
-        }
+        // Prefer live GPS when available (no silent failure)
+        void (async () => {
+          try {
+            const coords = await getCurrentLocation({ maximumAge: 60000 });
+            setUserLocation({ lat: coords.lat, lng: coords.lng });
+          } catch {
+            /* keep map usable without user location */
+          }
+        })();
       } catch (err) {
         console.error('Failed to initialize map:', err);
         setMapError('Unable to load map. Please try again.');
@@ -457,7 +458,20 @@ export default function Map() {
 
         {/* Current Location - top right */}
         <button
-          onClick={() => userLocation && map && (map.panTo(userLocation), map.setZoom(15))}
+          type="button"
+          onClick={async () => {
+            try {
+              const coords = await getCurrentLocation({ maximumAge: 60000 });
+              const userLoc = { lat: coords.lat, lng: coords.lng };
+              setUserLocation(userLoc);
+              if (map) {
+                map.panTo(userLoc);
+                map.setZoom(15);
+              }
+            } catch (err) {
+              toast.error(locationErrorMessage(err));
+            }
+          }}
           className="sec-btn sec-btn-ghost"
           style={{
             position: 'absolute',

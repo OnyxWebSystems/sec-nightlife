@@ -17,6 +17,8 @@ import {
   X,
   UtensilsCrossed,
   Map,
+  LocateFixed,
+  Loader2,
 } from 'lucide-react';
 import ImageCropDialog from '@/components/profile/ImageCropDialog';
 import { useImageCropUpload } from '@/hooks/useImageCropUpload';
@@ -281,6 +283,7 @@ export default function VenueOnboarding() {
   const [ensuringVenueForMenu, setEnsuringVenueForMenu] = useState(false);
   const [brandingPreviewKey, setBrandingPreviewKey] = useState(0);
   const [seatingPlanUploading, setSeatingPlanUploading] = useState(false);
+  const [locatingAddress, setLocatingAddress] = useState(false);
 
   async function syncOnboardingSeatingPlan(resolvedVenueId) {
     if (!resolvedVenueId || formData.seating_plan_skipped) return;
@@ -1059,6 +1062,76 @@ export default function VenueOnboarding() {
 
               <div className="space-y-4">
                 <div>
+                   <button
+                     type="button"
+                     disabled={locatingAddress}
+                     onClick={async () => {
+                       setLocatingAddress(true);
+                       try {
+                         const { getCurrentLocation, locationErrorMessage } = await import(
+                           '@/lib/getCurrentLocation'
+                         );
+                         const { lat, lng } = await getCurrentLocation();
+                         try {
+                           const { reverseGeocodeLatLngStructured } = await import(
+                             '@/lib/reverseGeocode'
+                           );
+                           const structured = await reverseGeocodeLatLngStructured(lat, lng);
+                           const normalizedCity =
+                             typeof structured?.city === 'string' ? structured.city.trim() : '';
+                           const mappedCity = CITIES.some(
+                             (c) => c.toLowerCase() === normalizedCity.toLowerCase(),
+                           )
+                             ? normalizedCity
+                             : undefined;
+                           setFormData((prev) => ({
+                             ...prev,
+                             address:
+                               structured?.formattedAddress ||
+                               structured?.street ||
+                               `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                             suburb: structured?.suburb || prev.suburb || '',
+                             province: structured?.province || prev.province || '',
+                             latitude: lat,
+                             longitude: lng,
+                             ...(mappedCity ? { city: mappedCity } : {}),
+                           }));
+                           toast.success(
+                             structured?.formattedAddress
+                               ? `Location set: ${structured.formattedAddress}`
+                               : 'Location coordinates saved',
+                           );
+                         } catch {
+                           setFormData((prev) => ({
+                             ...prev,
+                             address: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                             latitude: lat,
+                             longitude: lng,
+                           }));
+                           toast.message('Saved GPS coordinates — refine the address if needed');
+                         }
+                       } catch (err) {
+                         const { locationErrorMessage } = await import('@/lib/getCurrentLocation');
+                         toast.error(locationErrorMessage(err));
+                       } finally {
+                         setLocatingAddress(false);
+                       }
+                     }}
+                     className="mb-2 flex items-center justify-center gap-2 w-full min-h-[44px] rounded-xl text-sm font-medium"
+                     style={{
+                       background: 'var(--sec-bg-elevated)',
+                       border: '1px solid var(--sec-border)',
+                       color: 'var(--sec-text-primary)',
+                       opacity: locatingAddress ? 0.7 : 1,
+                     }}
+                   >
+                     {locatingAddress ? (
+                       <Loader2 className="w-4 h-4 animate-spin" />
+                     ) : (
+                       <LocateFixed className="w-4 h-4" />
+                     )}
+                     {locatingAddress ? 'Getting location…' : 'Use my current location'}
+                   </button>
                    <GoogleAddressInput
                      value={{
                        formattedAddress: formData.address,

@@ -842,56 +842,44 @@ export default function HostDashboard() {
         <button
           type="button"
           disabled={locatingAddress}
-          onClick={() => {
-            if (!navigator.geolocation) {
-              toast.error('Geolocation is not supported on this device.');
-              return;
-            }
+          onClick={async () => {
             setLocatingAddress(true);
-            navigator.geolocation.getCurrentPosition(
-              async (pos) => {
-                const lat = pos.coords.latitude;
-                const lng = pos.coords.longitude;
-                try {
-                  const { reverseGeocodeLatLngStructured } = await import('@/lib/reverseGeocode');
-                  const structured = await reverseGeocodeLatLngStructured(lat, lng);
-                  setTableForm((f) => ({
-                    ...f,
-                    venueAddress: structured.formattedAddress || structured.street || f.venueAddress,
-                    suburb: structured.suburb || structured.city || '',
-                    province: structured.province || '',
-                    latitude: lat,
-                    longitude: lng,
-                  }));
-                  toast.success(
-                    structured.formattedAddress
-                      ? `Location set: ${structured.formattedAddress}`
-                      : 'Location coordinates saved',
-                  );
-                } catch {
-                  setTableForm((f) => ({
-                    ...f,
-                    venueAddress: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-                    latitude: lat,
-                    longitude: lng,
-                  }));
-                  toast.message('Saved GPS coordinates — refine the address if needed');
-                } finally {
-                  setLocatingAddress(false);
-                }
-              },
-              (err) => {
-                const msg =
-                  err?.code === 1
-                    ? 'Location permission denied — enable it in your browser settings.'
-                    : err?.code === 3
-                      ? 'Location timed out — try again outdoors or with Wi‑Fi.'
-                      : 'Could not access location — enable permission in your browser.';
-                toast.error(msg);
-                setLocatingAddress(false);
-              },
-              { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-            );
+            try {
+              const { getCurrentLocation, locationErrorMessage } = await import(
+                '@/lib/getCurrentLocation'
+              );
+              const { lat, lng } = await getCurrentLocation();
+              try {
+                const { reverseGeocodeLatLngStructured } = await import('@/lib/reverseGeocode');
+                const structured = await reverseGeocodeLatLngStructured(lat, lng);
+                setTableForm((f) => ({
+                  ...f,
+                  venueAddress: structured.formattedAddress || structured.street || f.venueAddress,
+                  suburb: structured.suburb || structured.city || '',
+                  province: structured.province || '',
+                  latitude: lat,
+                  longitude: lng,
+                }));
+                toast.success(
+                  structured.formattedAddress
+                    ? `Location set: ${structured.formattedAddress}`
+                    : 'Location coordinates saved',
+                );
+              } catch {
+                setTableForm((f) => ({
+                  ...f,
+                  venueAddress: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+                  latitude: lat,
+                  longitude: lng,
+                }));
+                toast.message('Saved GPS coordinates — refine the address if needed');
+              }
+            } catch (err) {
+              const { locationErrorMessage } = await import('@/lib/getCurrentLocation');
+              toast.error(locationErrorMessage(err));
+            } finally {
+              setLocatingAddress(false);
+            }
           }}
           className="mb-2 flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-xl w-full justify-center"
           style={{
