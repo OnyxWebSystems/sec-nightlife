@@ -10,6 +10,7 @@ import {
   Loader2,
   Check,
   X,
+  Ban,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -73,6 +74,12 @@ export default function Friends() {
     queryKey: ['friends-activity', 1],
     queryFn: () => apiGet('/api/friends/activity?page=1'),
   });
+
+  const { data: blockedData, isLoading: blockedLoading } = useQuery({
+    queryKey: ['blocked-users'],
+    queryFn: () => apiGet('/api/friends/blocked'),
+  });
+  const blockedUsers = blockedData?.items || [];
 
   const [activityItems, setActivityItems] = useState([]);
   const [activityPageNum, setActivityPageNum] = useState(1);
@@ -167,6 +174,22 @@ export default function Friends() {
     }
   };
 
+  const onUnblock = async (userId) => {
+    try {
+      await apiDelete(`/api/friends/block/${userId}`);
+      toast.success('Unblocked');
+      queryClient.invalidateQueries({ queryKey: ['blocked-users'] });
+      queryClient.invalidateQueries({ queryKey: ['friends-search'] });
+      queryClient.invalidateQueries({ queryKey: ['friends-suggestions'] });
+      queryClient.invalidateQueries({ queryKey: ['public-profile', userId] });
+      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] });
+      queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
+    } catch (e) {
+      toast.error(e?.data?.error || 'Could not unblock');
+    }
+  };
+
   return (
     <div className={`min-h-screen pb-24 ${MAX_W}`}>
       <PageBackHeader title="Friends" subtitle={`${friends.length} friends`} pageName="Friends" />
@@ -185,7 +208,7 @@ export default function Friends() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab} className="px-2 pt-2">
-          <TabsList className="w-full grid grid-cols-3 bg-[#141416]">
+          <TabsList className="w-full grid grid-cols-4 bg-[#141416]">
             <TabsTrigger value="all" className="min-h-[44px]">
               All
             </TabsTrigger>
@@ -196,6 +219,12 @@ export default function Friends() {
                   {reqBadge.count > 9 ? '9+' : reqBadge.count}
                 </span>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="blocked" className="min-h-[44px]">
+              Blocked
+              {blockedUsers.length > 0 ? (
+                <span className="ml-1 text-[10px] text-gray-500">({blockedUsers.length})</span>
+              ) : null}
             </TabsTrigger>
             <TabsTrigger value="activity" className="min-h-[44px]">
               Activity
@@ -267,7 +296,9 @@ export default function Friends() {
                 <Loader2 className="w-6 h-6 animate-spin mx-auto" />
               ) : showList.length === 0 ? (
                 <p className="text-sm text-gray-500 py-8 text-center">
-                  You haven&apos;t added any friends yet. Search for people above to get started.
+                  {debouncedSearch.trim()
+                    ? 'No people matched that search. If you blocked someone, open the Blocked tab.'
+                    : "You haven't added any friends yet. Search for people above to get started."}
                 </p>
               ) : (
                 <ul className="space-y-2">
@@ -290,6 +321,9 @@ export default function Friends() {
                         <p className="text-xs text-gray-500 truncate">@{f.username || 'user'}</p>
                         {genderLabel(f.gender) && <p className="text-xs text-gray-600">{genderLabel(f.gender)}</p>}
                         {f.city && <p className="text-xs text-gray-600">{f.city}</p>}
+                        {(f.youBlockedThem || f.canUnblock || f.friendshipStatus === 'BLOCKED') && (
+                          <p className="text-xs text-amber-200/80 mt-0.5">Blocked</p>
+                        )}
                       </div>
                       <div className="flex flex-col gap-1">
                         <Button
@@ -302,7 +336,21 @@ export default function Friends() {
                         >
                           Profile
                         </Button>
-                        {debouncedSearch.trim() && f.friendshipStatus === 'ACCEPTED' && (f.conversationId || friendMeta[f.id]?.conversationId) && (
+                        {debouncedSearch.trim() &&
+                          (f.youBlockedThem || f.canUnblock || f.friendshipStatus === 'BLOCKED') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="min-h-[44px]"
+                            onClick={() => void onUnblock(f.id)}
+                          >
+                            <Ban className="w-4 h-4 mr-1" />
+                            Unblock
+                          </Button>
+                        )}
+                        {debouncedSearch.trim() &&
+                          f.friendshipStatus === 'ACCEPTED' &&
+                          (f.conversationId || friendMeta[f.id]?.conversationId) && (
                           <Button
                             size="sm"
                             variant="secondary"
@@ -318,7 +366,9 @@ export default function Friends() {
                           </Button>
                         )}
                         {debouncedSearch.trim() &&
-                          (f.friendshipStatus === 'NONE' || !f.friendshipStatus) && (
+                          (f.friendshipStatus === 'NONE' || !f.friendshipStatus) &&
+                          !f.youBlockedThem &&
+                          !f.canUnblock && (
                             <Button
                               size="sm"
                               className="min-h-[44px]"
@@ -347,6 +397,60 @@ export default function Friends() {
             </div>
           </TabsContent>
 
+          <TabsContent value="blocked" className="mt-4 px-4 space-y-3">
+            <p className="text-xs text-gray-500">
+              People you blocked. You can still open their profile or unblock them here.
+            </p>
+            {blockedLoading ? (
+              <Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+            ) : blockedUsers.length === 0 ? (
+              <p className="text-sm text-gray-500 py-8 text-center">You haven&apos;t blocked anyone.</p>
+            ) : (
+              <ul className="space-y-2">
+                {blockedUsers.map((u) => (
+                  <li
+                    key={u.id}
+                    className="flex items-center gap-3 p-3 rounded-xl bg-[#141416] border border-[#262629]"
+                  >
+                    <div className="w-11 h-11 rounded-full bg-[#262629] overflow-hidden flex-shrink-0">
+                      {u.avatarUrl ? (
+                        <img src={u.avatarUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-sm">
+                          {(u.username || u.fullName || '?')[0].toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{u.fullName || u.username}</p>
+                      <p className="text-xs text-gray-500 truncate">@{u.username || 'user'}</p>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="min-h-[40px]"
+                        onClick={() => navigate(`${createPageUrl('UserProfile')}?id=${u.id}`)}
+                      >
+                        Profile
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="min-h-[44px]"
+                        onClick={() => void onUnblock(u.id)}
+                      >
+                        <Ban className="w-4 h-4 mr-1" />
+                        Unblock
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+
+          <TabsContent value="requests" className="mt-4 px-4 space-y-6">
           <TabsContent value="requests" className="mt-4 px-4 space-y-6">
             <div>
               <h2 className="text-sm font-semibold mb-2">Incoming ({incoming.length})</h2>

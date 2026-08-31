@@ -35,6 +35,21 @@ async function getLegacyBlockSet(userId) {
   return blocked;
 }
 
+/** Split legacy Block rows: people I blocked vs people who blocked me. */
+async function getLegacyBlockDirections(userId) {
+  const rows = await prisma.block.findMany({
+    where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
+    select: { blockerId: true, blockedId: true },
+  });
+  const iBlockedThem = new Set();
+  const theyBlockedMe = new Set();
+  for (const r of rows) {
+    if (r.blockerId === userId) iBlockedThem.add(r.blockedId);
+    if (r.blockedId === userId) theyBlockedMe.add(r.blockerId);
+  }
+  return { iBlockedThem, theyBlockedMe };
+}
+
 async function isFriendshipBlockedBetween(a, b) {
   const f = await prisma.friendship.findFirst({
     where: {
@@ -83,33 +98,37 @@ async function acceptedFriendIds(userId) {
   return ids;
 }
 
-/** GET /search */
+/** GET /search — includes people YOU blocked (so you can unblock); hides people who blocked you. */
 router.get('/search', authenticateToken, async (req, res, next) => {
   try {
-    const q = String(req.query.q || '').trim();
+    const q = String(req.query.q || '').trim().replace(/^@+/, '');
     if (q.length < 1) return res.json([]);
     const me = req.userId;
-    const blockSet = await getLegacyBlockSet(me);
+    const { iBlockedThem, theyBlockedMe } = await getLegacyBlockDirections(me);
 
     const users = await prisma.user.findMany({
       where: {
         deletedAt: null,
-        suspendedAt: null,
         id: { not: me },
         OR: [
           { username: { contains: q, mode: 'insensitive' } },
           { fullName: { contains: q, mode: 'insensitive' } },
+          { userProfile: { username: { contains: q, mode: 'insensitive' } } },
         ],
       },
-      select: publicUserSelect(),
+      select: {
+        ...publicUserSelect(),
+        suspendedAt: true,
+      },
       take: 40,
     });
 
     const profileRows = await prisma.userProfile.findMany({
       where: { userId: { in: users.map((u) => u.id) } },
-      select: { userId: true, privacySettings: true },
+      select: { userId: true, privacySettings: true, username: true },
     });
     const privacyByUser = new Map(profileRows.map((p) => [p.userId, p.privacySettings]));
+    const profileUsernameByUser = new Map(profileRows.map((p) => [p.userId, p.username]));
 
     const candidateIds = users.map((u) => u.id);
     const friendships = await prisma.friendship.findMany({
@@ -121,7 +140,12 @@ router.get('/search', authenticateToken, async (req, res, next) => {
       },
       select: { requesterId: true, receiverId: true, status: true },
     });
-    const { statusByTarget, blockedTargets } = buildFriendshipContext(me, candidateIds, friendships);
+    const { statusByTarget } = buildFriendshipContext(me, candidateIds, friendships);
+    const friendshipByTarget = new Map();
+    for (const f of friendships) {
+      const other = f.requesterId === me ? f.receiverId : f.requesterId;
+      friendshipByTarget.set(other, f);
+    }
 
     const acceptedIds = candidateIds.filter((id) => statusByTarget.get(id) === 'ACCEPTED');
     const convPairs = acceptedIds.map((tid) => orderedParticipants(me, tid));
@@ -141,25 +165,46 @@ router.get('/search', authenticateToken, async (req, res, next) => {
 
     const out = [];
     for (const u of users) {
-      if (blockSet.has(u.id)) continue;
-      const priv = privacyByUser.get(u.id);
-      if (priv && typeof priv === 'object' && priv.searchVisible === false) continue;
-      if (blockedTargets.has(u.id)) continue;
+      const f = friendshipByTarget.get(u.id);
+      const youBlockedThem =
+        (f?.status === 'BLOCKED' && f.requesterId === me) || iBlockedThem.has(u.id);
+      const blockedByThem =
+        (f?.status === 'BLOCKED' && f.requesterId === u.id && f.receiverId === me) ||
+        theyBlockedMe.has(u.id);
 
-      const st = statusByTarget.get(u.id) || 'NONE';
-      if (st === 'BLOCKED') continue;
+      // Hide accounts that blocked you (unless you also blocked them — then show Unblock)
+      if (blockedByThem && !youBlockedThem) continue;
+      // Suspended accounts stay hidden unless you blocked them (unblock / profile)
+      if (u.suspendedAt && !youBlockedThem) continue;
+
+      const priv = privacyByUser.get(u.id);
+      // People you blocked should still appear so you can find/unblock them
+      if (
+        !youBlockedThem &&
+        priv &&
+        typeof priv === 'object' &&
+        priv.searchVisible === false
+      ) {
+        continue;
+      }
+
+      let st = statusByTarget.get(u.id) || 'NONE';
+      if (youBlockedThem) st = 'BLOCKED';
 
       const conversationId = st === 'ACCEPTED' ? conversationByTarget.get(u.id) || null : null;
+      const username = u.username || profileUsernameByUser.get(u.id) || '';
 
       out.push({
         id: u.id,
-        username: u.username || '',
+        username,
         fullName: u.fullName || '',
         avatarUrl: u.userProfile?.avatarUrl || null,
         city: u.userProfile?.city || null,
         gender: u.userProfile?.gender || null,
         friendshipStatus: st,
         conversationId,
+        youBlockedThem,
+        canUnblock: youBlockedThem,
       });
       if (out.length >= 20) break;
     }
