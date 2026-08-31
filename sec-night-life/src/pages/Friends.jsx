@@ -451,7 +451,6 @@ export default function Friends() {
           </TabsContent>
 
           <TabsContent value="requests" className="mt-4 px-4 space-y-6">
-          <TabsContent value="requests" className="mt-4 px-4 space-y-6">
             <div>
               <h2 className="text-sm font-semibold mb-2">Incoming ({incoming.length})</h2>
               {incoming.length === 0 ? (
