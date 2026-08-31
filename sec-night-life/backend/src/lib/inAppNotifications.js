@@ -12,6 +12,9 @@ function pushPathForNotification(data) {
         ? '/VendorBusinessSettings'
         : '/Home';
   }
+  if (data.type === 'ACCOUNT_SUSPENDED') return '/HelpCenter';
+  if (data.type === 'ACCOUNT_UNSUSPENDED') return '/Home';
+  if (data.type === 'SAFETY_REPORT_UPDATE') return '/Notifications';
   if (data.referenceType === 'ROUTE' && typeof data.referenceId === 'string' && data.referenceId.startsWith('/')) {
     return data.referenceId;
   }

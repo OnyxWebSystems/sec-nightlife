@@ -1,0 +1,4 @@
+-- AlterEnum: safety / moderation notifications
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'ACCOUNT_SUSPENDED';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'ACCOUNT_UNSUSPENDED';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'SAFETY_REPORT_UPDATE';

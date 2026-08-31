@@ -129,7 +129,7 @@ export default function AdminReportsPanel() {
               onChange={(e) => setReportResolutionNotes((prev) => ({ ...prev, [r.id]: e.target.value }))}
               className="w-full p-2 rounded-lg bg-[#0A0A0B] border border-[#262629] text-sm"
               rows={2}
-              placeholder="Resolution note / moderation reason (required)"
+              placeholder="Feedback for the reporter (and suspend reason if suspending). Required — they will see this note."
             />
 
             <div className="grid grid-cols-2 gap-2">

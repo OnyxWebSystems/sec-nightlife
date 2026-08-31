@@ -1,13 +1,14 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { cacheGetJson, cacheSetJson, cacheDel } from '../lib/redis.js';
+import { accountSuspendedError } from '../lib/safetyModerationNotify.js';
 
 // STEP 1: No fallback secret — validateEnv() ensures this is set at startup
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 const AUTH_USER_CACHE_TTL_SEC = 45;
 
 function authUserCacheKey(userId) {
-  return `auth:user:v1:${userId}`;
+  return `auth:user:v2:${userId}`;
 }
 
 async function loadActiveUser(userId) {
@@ -22,6 +23,7 @@ async function loadActiveUser(userId) {
       id: cached.id,
       role: cached.role,
       suspendedAt: cached.suspendedAt ? new Date(cached.suspendedAt) : null,
+      suspendedReason: cached.suspendedReason || null,
       deletedAt: cached.deletedAt ? new Date(cached.deletedAt) : null,
       emailVerified: Boolean(cached.emailVerified),
     };
@@ -29,7 +31,14 @@ async function loadActiveUser(userId) {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, role: true, suspendedAt: true, deletedAt: true, emailVerified: true },
+    select: {
+      id: true,
+      role: true,
+      suspendedAt: true,
+      suspendedReason: true,
+      deletedAt: true,
+      emailVerified: true,
+    },
   });
   if (!user) return null;
 
@@ -39,6 +48,7 @@ async function loadActiveUser(userId) {
       id: user.id,
       role: user.role,
       suspendedAt: user.suspendedAt?.toISOString?.() || user.suspendedAt || null,
+      suspendedReason: user.suspendedReason || null,
       deletedAt: user.deletedAt?.toISOString?.() || user.deletedAt || null,
       emailVerified: Boolean(user.emailVerified),
     },
@@ -69,7 +79,7 @@ export async function authenticateToken(req, res, next) {
       return res.status(401).json({ error: 'Account not found' });
     }
     if (user.suspendedAt) {
-      return res.status(403).json({ error: 'Account suspended. Contact support.' });
+      return res.status(403).json(accountSuspendedError(user));
     }
 
     req.userId = user.id;

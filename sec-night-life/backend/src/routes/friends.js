@@ -463,11 +463,23 @@ router.delete('/:friendshipId', authenticateToken, async (req, res, next) => {
   }
 });
 
-/** POST /block/:userId */
+/** POST /block/:userId — body.reason optional (shown to admins on the auto-report) */
 router.post('/block/:userId', authenticateToken, async (req, res, next) => {
   try {
     const targetId = req.params.userId;
     if (targetId === req.userId) return res.status(400).json({ error: 'Invalid' });
+
+    const parsed = z
+      .object({
+        reason: z.string().trim().max(500).optional(),
+      })
+      .safeParse(req.body || {});
+    const optionalReason =
+      parsed.success && parsed.data.reason ? parsed.data.reason.trim() : '';
+
+    const reportDetails = optionalReason
+      ? `Blocker-provided reason:\n${optionalReason}`
+      : 'Automatic report created when a user blocked another user. No additional reason was provided.';
 
     await prisma.$transaction(async (tx) => {
       await tx.friendship.deleteMany({
@@ -499,15 +511,17 @@ router.post('/block/:userId', authenticateToken, async (req, res, next) => {
           targetId,
           category: 'hate_or_abuse',
           priority: 'medium',
-          reason: 'User blocked',
-          details: 'Automatic report created when a user blocked another user.',
+          reason: optionalReason ? 'User blocked (reason provided)' : 'User blocked',
+          details: reportDetails,
         },
       });
     });
 
     notifyAdmins({
       subject: 'User blocked — safety review',
-      body: `A user blocked another account.\n\nBlocker: ${req.userId}\nBlocked: ${targetId}\n\nAn automatic hate_or_abuse report was created for review.`,
+      body: optionalReason
+        ? `A user blocked another account and provided a reason.\n\nBlocker: ${req.userId}\nBlocked: ${targetId}\n\nReason:\n${optionalReason}`
+        : `A user blocked another account.\n\nBlocker: ${req.userId}\nBlocked: ${targetId}\n\nAn automatic hate_or_abuse report was created for review.`,
       dashboardTab: 'reports',
       ctaLabel: 'Review reports',
     }).catch(() => {});

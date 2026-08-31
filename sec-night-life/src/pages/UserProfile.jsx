@@ -28,6 +28,7 @@ export default function UserProfile() {
   const userId = new URLSearchParams(window.location.search).get('id');
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [blocking, setBlocking] = useState(false);
+  const [blockReason, setBlockReason] = useState('');
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['public-profile', userId],
@@ -89,7 +90,11 @@ export default function UserProfile() {
   const onBlockConfirm = async () => {
     setBlocking(true);
     try {
-      await apiPost(`/api/friends/block/${userId}`);
+      const reason = blockReason.trim();
+      await apiPost(
+        `/api/friends/block/${userId}`,
+        reason ? { reason } : {},
+      );
       toast.success('User blocked. Their content is removed from your feed.');
       // Instantly drop blocked-user UGC from cached feeds
       queryClient.setQueriesData({ queryKey: ['home-feed'] }, (old) => {
@@ -127,6 +132,7 @@ export default function UserProfile() {
         queryClient.invalidateQueries({ queryKey: ['community-hosted-events'] }),
       ]);
       setBlockDialogOpen(false);
+      setBlockReason('');
       navigate(-1);
     } catch (e) {
       toast.error(e?.data?.error || 'Could not block user');
@@ -289,13 +295,31 @@ export default function UserProfile() {
         )}
       </div>
 
-      <AlertDialog open={blockDialogOpen} onOpenChange={setBlockDialogOpen}>
+      <AlertDialog
+        open={blockDialogOpen}
+        onOpenChange={(open) => {
+          setBlockDialogOpen(open);
+          if (!open) setBlockReason('');
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogTitle>Block this user?</AlertDialogTitle>
           <AlertDialogDescription>
             Blocking removes their content from your feed immediately and notifies SEC safety
-            review that the account was blocked for inappropriate behavior.
+            review. You can optionally explain why — admins use this when deciding whether to
+            suspend the account.
           </AlertDialogDescription>
+          <textarea
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value.slice(0, 500))}
+            rows={3}
+            maxLength={500}
+            placeholder="Optional: why are you blocking this user?"
+            className="w-full mt-2 p-3 rounded-lg text-sm bg-[#0A0A0B] border border-[#262629] text-[var(--sec-text-primary)]"
+          />
+          <p className="text-[11px] text-[var(--sec-text-muted)] mt-1">
+            Optional · {blockReason.length}/500
+          </p>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={blocking}>Cancel</AlertDialogCancel>
             <AlertDialogAction

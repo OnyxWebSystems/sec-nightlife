@@ -10,6 +10,11 @@ import { requireAdmin } from '../middleware/rbac.js';
 import { auditFromReq } from '../lib/audit.js';
 import { privateDownloadUrl, signCloudinaryUrl } from '../lib/cloudinarySignedUrl.js';
 import { createInAppNotification, notifyAllUsersPlatformAnnouncement } from '../lib/inAppNotifications.js';
+import {
+  notifyUserSuspended,
+  notifyUserUnsuspended,
+  notifyReporterSafetyUpdate,
+} from '../lib/safetyModerationNotify.js';
 import { sendEmail, sendIdVerificationApprovedEmail } from '../lib/email.js';
 import { requireSuperAdmin } from '../middleware/complianceReviewer.js';
 import { getPromotersLeaderboard } from '../lib/leaderboard.js';
@@ -338,6 +343,18 @@ router.patch('/reports/:id/resolve', async (req, res, next) => {
       metadata: { reportId: report.id, targetType: report.targetType, targetId: report.targetId, resolutionNote },
     });
 
+    const actionLabel =
+      action === 'dismissed'
+        ? 'dismissed without further action'
+        : action === 'action_taken'
+          ? 'marked as action taken'
+          : 'marked as resolved';
+    await notifyReporterSafetyUpdate(report.reporterId, {
+      title: 'Update on your safety report',
+      body: `SEC safety reviewed your report and ${actionLabel}.\n\nFeedback from the team:\n${resolutionNote}`,
+      reportId: report.id,
+    });
+
     res.json({ success: true, report });
   } catch (err) {
     next(err);
@@ -357,6 +374,7 @@ router.post('/reports/:id/moderate', async (req, res, next) => {
     if (action === 'suspend_user' || action === 'unsuspend_user') {
       if (report.targetType !== 'user') return res.status(400).json({ error: 'Report target must be user' });
       if (action === 'suspend_user') {
+        await notifyUserSuspended(report.targetId, reason);
         await prisma.user.update({
           where: { id: report.targetId },
           data: { suspendedAt: new Date(), suspendedReason: reason },
@@ -369,6 +387,7 @@ router.post('/reports/:id/moderate', async (req, res, next) => {
           data: { suspendedAt: null, suspendedReason: null },
         });
         await invalidateAuthUserCache(report.targetId);
+        await notifyUserUnsuspended(report.targetId, reason);
       }
     }
 
@@ -413,6 +432,23 @@ router.post('/reports/:id/moderate', async (req, res, next) => {
         targetId: report.targetId,
         reason,
       },
+    });
+
+    const moderationFeedback =
+      action === 'suspend_user'
+        ? `We suspended the reported account.\n\nFeedback from the team:\n${reason}`
+        : action === 'unsuspend_user'
+          ? `We restored access for the reported account.\n\nFeedback from the team:\n${reason}`
+          : action === 'cancel_event'
+            ? `We cancelled the reported event.\n\nFeedback from the team:\n${reason}`
+            : action === 'reject_venue'
+              ? `We rejected the venue compliance submission.\n\nFeedback from the team:\n${reason}`
+              : `We updated the venue compliance status.\n\nFeedback from the team:\n${reason}`;
+
+    await notifyReporterSafetyUpdate(report.reporterId, {
+      title: 'Update on your safety report',
+      body: moderationFeedback,
+      reportId: report.id,
     });
 
     res.json({ success: true, report: updatedReport });
@@ -465,6 +501,8 @@ router.post('/users/:id/suspend', async (req, res, next) => {
       return res.status(400).json({ error: 'Cannot suspend yourself' });
     }
 
+    await notifyUserSuspended(req.params.id, reason);
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { suspendedAt: new Date(), suspendedReason: reason }
@@ -490,18 +528,24 @@ router.post('/users/:id/suspend', async (req, res, next) => {
 
 router.post('/users/:id/unsuspend', async (req, res, next) => {
   try {
+    const parsed = z
+      .object({ note: z.string().trim().max(500).optional() })
+      .safeParse(req.body || {});
+    const note = parsed.success && parsed.data.note ? parsed.data.note : '';
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { suspendedAt: null, suspendedReason: null }
     });
     await invalidateAuthUserCache(user.id);
+    await notifyUserUnsuspended(user.id, note);
 
     await auditFromReq(req, {
       userId: req.userId,
       action: 'USER_UNSUSPENDED',
       entityType: 'user',
       entityId: user.id,
-      metadata: { targetEmail: user.email }
+      metadata: { targetEmail: user.email, note: note || null }
     });
 
     res.json({ success: true, userId: user.id });

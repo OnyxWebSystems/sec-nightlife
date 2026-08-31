@@ -11,6 +11,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { validateUsernameFormat } from '../lib/username.js';
 import { createInAppNotification } from '../lib/inAppNotifications.js';
 import { isIdentityVerifiedStatus } from '../middleware/requireIdentityVerified.js';
+import { accountSuspendedError } from '../lib/safetyModerationNotify.js';
 import {
   createRefreshTokenRow,
   findRefreshTokenRecord,
@@ -675,6 +676,10 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    if (user.suspendedAt) {
+      return res.status(403).json(accountSuspendedError(user));
+    }
+
     // STEP 5.4: Block login if email not verified (unless ALLOW_UNVERIFIED_LOGIN for preview/dev)
     const allowUnverified = process.env.ALLOW_UNVERIFIED_LOGIN === 'true' || process.env.ALLOW_UNVERIFIED_LOGIN === '1';
     if (!user.emailVerified && !allowUnverified) {
@@ -834,6 +839,9 @@ router.post('/verify-login-otp', async (req, res, next) => {
       await prisma.user.update({ where: { id: user.id }, data: clearLoginOtpState() });
       return res.status(401).json({ error: 'Code expired. Please sign in again.' });
     }
+    if (user.suspendedAt) {
+      return res.status(403).json(accountSuspendedError(user));
+    }
     if (hashTokenSha256(otp) !== user.loginOtpHash) {
       await audit({
         userId: user.id,
@@ -944,7 +952,7 @@ router.post('/refresh', async (req, res, next) => {
     }
     if (user.suspendedAt) {
       await prisma.refreshToken.delete({ where: { id: matched.id } }).catch(() => {});
-      return res.status(403).json({ error: 'Account suspended. Contact support.' });
+      return res.status(403).json(accountSuspendedError(user));
     }
 
     // SECURITY: Rotate refresh token and extend sliding expiry (create new before deleting old)
