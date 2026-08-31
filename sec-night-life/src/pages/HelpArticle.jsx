@@ -17,7 +17,7 @@ export default function HelpArticle() {
 
   const article = useMemo(() => getHelpArticle(id), [id]);
 
-  const backTo = `${createPageUrl('HelpCenter')}?audience=${audience}`;
+  const backTo = `${createPageUrl('HelpGuides')}?audience=${audience}`;
   const goBack = useCallback(() => {
     navigate(backTo);
   }, [navigate, backTo]);
@@ -31,7 +31,7 @@ export default function HelpArticle() {
             We couldn&apos;t find that help article.
           </p>
           <Link to={backTo} className="text-sm font-semibold" style={{ color: 'var(--sec-accent)' }}>
-            Back to Help Center
+            Back to Help &amp; Guides
           </Link>
         </div>
       </div>

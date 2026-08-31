@@ -14,12 +14,12 @@ function baseLegalDocs(t) {
   ];
 }
 
-/** Settings → Support: Help first, then all legal pages */
+/** Settings → Support: Help & Guides first, then all legal pages */
 export function getSettingsLegalNavItems(t) {
-  return [{ key: 'helpCenter', page: 'HelpCenter', label: t('helpCenter') }, ...baseLegalDocs(t)];
+  return [{ key: 'helpGuides', page: 'HelpGuides', label: t('helpGuides') }, ...baseLegalDocs(t)];
 }
 
-/** Help Center: same documents as Settings (no self-link to Help) */
+/** Help & Guides: same documents as Settings (no self-link to Help) */
 export function getHelpCenterLegalNavItems(t) {
   return baseLegalDocs(t);
 }
