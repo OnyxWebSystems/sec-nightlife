@@ -3,6 +3,7 @@ import { parseGeoQuery, distanceKm } from './geo.js';
 import { isBoostActiveRow } from './feedBoost.js';
 import { externalListingEndsAt } from './externalListingSchedule.js';
 import { cacheGetJson, cacheSetJson } from './redis.js';
+import { getBlockedUserIdsForViewer } from './blockedUsers.js';
 
 function hashString(input) {
   let h = 2166136261;
@@ -74,12 +75,14 @@ export async function buildHomeFeedPage(req) {
 
   const cacheKey =
     !geo
-      ? `home:feed:v3:${req.userId || 'anon'}:${scopeAll ? 'all' : overrideCity || 'none'}:${cursor}:${limit}:${sessionId.slice(0, 24)}`
+      ? `home:feed:v4:${req.userId || 'anon'}:${scopeAll ? 'all' : overrideCity || 'none'}:${cursor}:${limit}:${sessionId.slice(0, 24)}`
       : null;
   if (cacheKey) {
     const cached = await cacheGetJson(cacheKey);
     if (cached) return cached;
   }
+
+  const blockedUserIds = await getBlockedUserIdsForViewer(req.userId);
 
   let city = '';
   if (scopeAll && !geo) {
@@ -161,6 +164,7 @@ export async function buildHomeFeedPage(req) {
       orderBy: [{ boostExpiresAt: 'desc' }, { eventDate: 'asc' }],
       select: {
         id: true,
+        hostUserId: true,
         tableName: true,
         eventDate: true,
         eventTime: true,
@@ -282,6 +286,7 @@ export async function buildHomeFeedPage(req) {
   venueItems.sort((a, b) => Number(b.data.followed) - Number(a.data.followed));
 
   const communityItems = communityRows
+    .filter((t) => !blockedUserIds.has(t.hostUserId))
     .filter((t) => isBoostActiveRow(t, now))
     .filter((t) => {
       const end = externalListingEndsAt(t);
@@ -299,6 +304,7 @@ export async function buildHomeFeedPage(req) {
         data: {
           id: t.id,
           hostedTableId: t.id,
+          hostUserId: t.hostUserId,
           title: t.tableName,
           date: t.eventDate?.toISOString?.()?.slice(0, 10) || t.eventDate,
           city: cityGuess,

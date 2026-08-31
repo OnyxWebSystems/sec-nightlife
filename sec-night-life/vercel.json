@@ -14,6 +14,18 @@
       "destination": "/paystack-demo.mp4"
     },
     {
+      "source": "/support.html",
+      "destination": "/support.html"
+    },
+    {
+      "source": "/HelpCenter",
+      "destination": "/support.html"
+    },
+    {
+      "source": "/HelpCenter/",
+      "destination": "/support.html"
+    },
+    {
       "source": "/assets/(.*)",
       "destination": "/assets/$1"
     },
@@ -22,7 +34,7 @@
       "destination": "https://api.secnightlife.com/api/$1"
     },
     {
-      "source": "/((?!api/|assets/|help/|Logo/|menu-catalog/|icons/|\\.well-known/|paystack-demo|.*\\.(?:svg|png|jpg|jpeg|webp|gif|ico|mp4|json|txt|xml|webmanifest)$).*)",
+      "source": "/((?!api/|assets/|help/|Logo/|menu-catalog/|icons/|\\.well-known/|paystack-demo|support\\.html|.*\\.(?:svg|png|jpg|jpeg|webp|gif|ico|mp4|json|txt|xml|webmanifest|html)$).*)",
       "destination": "/index.html"
     }
   ],
@@ -33,6 +45,15 @@
         {
           "key": "Cache-Control",
           "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/support.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=300"
         }
       ]
     },

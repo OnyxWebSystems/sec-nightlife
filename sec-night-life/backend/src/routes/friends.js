@@ -9,6 +9,7 @@ import {
   buildConversationMap,
   buildFriendshipContext,
 } from '../lib/friendshipBatch.js';
+import { notifyAdmins } from '../lib/adminNotify.js';
 
 const router = Router();
 
@@ -484,7 +485,32 @@ router.post('/block/:userId', authenticateToken, async (req, res, next) => {
           status: 'BLOCKED',
         },
       });
+      await tx.block.upsert({
+        where: {
+          blockerId_blockedId: { blockerId: req.userId, blockedId: targetId },
+        },
+        create: { blockerId: req.userId, blockedId: targetId },
+        update: {},
+      });
+      await tx.report.create({
+        data: {
+          reporterId: req.userId,
+          targetType: 'user',
+          targetId,
+          category: 'hate_or_abuse',
+          priority: 'medium',
+          reason: 'User blocked',
+          details: 'Automatic report created when a user blocked another user.',
+        },
+      });
     });
+
+    notifyAdmins({
+      subject: 'User blocked — safety review',
+      body: `A user blocked another account.\n\nBlocker: ${req.userId}\nBlocked: ${targetId}\n\nAn automatic hate_or_abuse report was created for review.`,
+      dashboardTab: 'reports',
+      ctaLabel: 'Review reports',
+    }).catch(() => {});
 
     res.json({ blocked: true });
   } catch (err) {
@@ -503,8 +529,19 @@ router.delete('/block/:userId', authenticateToken, async (req, res, next) => {
         receiverId: targetId,
       },
     });
-    if (!f) return res.status(404).json({ error: 'Not found' });
-    await prisma.friendship.delete({ where: { id: f.id } });
+    if (!f) {
+      const legacy = await prisma.block.findFirst({
+        where: { blockerId: req.userId, blockedId: targetId },
+        select: { id: true },
+      });
+      if (!legacy) return res.status(404).json({ error: 'Not found' });
+    }
+    await prisma.$transaction(async (tx) => {
+      if (f) await tx.friendship.delete({ where: { id: f.id } });
+      await tx.block.deleteMany({
+        where: { blockerId: req.userId, blockedId: targetId },
+      });
+    });
     res.json({ unblocked: true });
   } catch (err) {
     next(err);

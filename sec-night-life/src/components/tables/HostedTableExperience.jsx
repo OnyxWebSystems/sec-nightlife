@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { MOBILE_NAV_BOTTOM_OFFSET, mobileFooterPadding } from '@/lib/layoutConstants';
+import { getDirectionsActions } from '@/lib/openDirections';
 
 function profileHref(userId) {
   if (!userId) return null;
@@ -560,17 +561,30 @@ export default function HostedTableExperience({
             <div>
               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)' }}>Location</p>
               <p style={{ fontSize: 14, fontWeight: 500 }}>{hostedTable.resolvedAddress}</p>
-              {mapQuery && (
-                <a
-                  href={`https://maps.google.com/?q=${encodeURIComponent(mapQuery)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 13, color: 'var(--sec-accent)' }}
-                >
-                  <Navigation size={14} />
-                  Open in Maps
-                </a>
-              )}
+              {mapQuery && (() => {
+                const dirs = getDirectionsActions({ address: mapQuery });
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                    <a
+                      href={dirs.primary.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--sec-accent)' }}
+                    >
+                      <Navigation size={14} />
+                      {dirs.primary.label}
+                    </a>
+                    <a
+                      href={dirs.secondary.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: 12, color: 'var(--sec-accent)' }}
+                    >
+                      {dirs.secondary.label}
+                    </a>
+                  </div>
+                );
+              })()}
             </div>
           </div>
           {!isCommunityEvent && (hostedTable.hosting_tier_name || hostedTable.hosting_category) && (

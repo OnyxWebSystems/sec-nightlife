@@ -28,6 +28,7 @@ import { format, parseISO, isToday, isTomorrow, differenceInDays } from 'date-fn
 import { motion } from 'framer-motion';
 import VenueReviewsSection from '@/components/reviews/VenueReviewsSection';
 import VenueShareModal from '@/components/venues/VenueShareModal';
+import { getDirectionsActions } from '@/lib/openDirections';
 import ReportDialog from '@/components/moderation/ReportDialog';
 import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import { instagramHandle, instagramProfileUrl, openExternalUrl, websiteHref } from '@/lib/externalLinks';
@@ -449,18 +450,36 @@ export default function VenueProfile() {
         {venue.bio && <p className="text-gray-400">{venue.bio}</p>}
 
         <div className="glass-card rounded-2xl overflow-hidden">
-          {venue.address && (
-            <a
-              href={`https://maps.google.com/?q=${encodeURIComponent(venue.address)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 hover:bg-white/5 transition-colors"
-            >
-              <MapPin className="w-5 h-5 text-[var(--sec-success)]" />
-              <span className="flex-1">{venue.address}</span>
-              <Navigation className="w-4 h-4 text-gray-600" />
-            </a>
-          )}
+          {venue.address && (() => {
+            const dirs = getDirectionsActions({
+              address: venue.address,
+              lat: venue.latitude != null ? Number(venue.latitude) : null,
+              lng: venue.longitude != null ? Number(venue.longitude) : null,
+            });
+            return (
+              <>
+                <a
+                  href={dirs.primary.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-4 hover:bg-white/5 transition-colors"
+                >
+                  <MapPin className="w-5 h-5 text-[var(--sec-success)]" />
+                  <span className="flex-1">{venue.address}</span>
+                  <span className="text-xs text-gray-500 mr-1">{dirs.primary.label.replace('Open in ', '')}</span>
+                  <Navigation className="w-4 h-4 text-gray-600" />
+                </a>
+                <a
+                  href={dirs.secondary.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-4 pb-4 text-sm text-[var(--sec-accent)] hover:underline"
+                >
+                  {dirs.secondary.label}
+                </a>
+              </>
+            );
+          })()}
           {venue.phone && (
             <a
               href={`tel:${venue.phone}`}

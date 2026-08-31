@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { apiGet, apiPost, apiDelete } from '@/api/client';
@@ -12,11 +12,22 @@ import { StarRatingDisplay } from '@/components/reviews/StarRating';
 import ReportDialog from '@/components/moderation/ReportDialog';
 import TableHistorySection from '@/components/profile/TableHistorySection';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export default function UserProfile() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const userId = new URLSearchParams(window.location.search).get('id');
+  const [blockDialogOpen, setBlockDialogOpen] = useState(false);
+  const [blocking, setBlocking] = useState(false);
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['public-profile', userId],
@@ -67,8 +78,60 @@ export default function UserProfile() {
       await apiDelete(`/api/friends/block/${userId}`);
       toast.success('Unblocked');
       queryClient.invalidateQueries({ queryKey: ['public-profile', userId] });
+      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] });
+      queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] });
     } catch (e) {
       toast.error(e?.data?.error || 'Failed');
+    }
+  };
+
+  const onBlockConfirm = async () => {
+    setBlocking(true);
+    try {
+      await apiPost(`/api/friends/block/${userId}`);
+      toast.success('User blocked. Their content is removed from your feed.');
+      // Instantly drop blocked-user UGC from cached feeds
+      queryClient.setQueriesData({ queryKey: ['home-feed'] }, (old) => {
+        if (!old?.pages && !old?.items) return old;
+        const filterItem = (item) => {
+          const hostId = item?.data?.hostUserId || item?.hostUserId;
+          return hostId !== userId;
+        };
+        if (Array.isArray(old?.pages)) {
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: Array.isArray(page.items) ? page.items.filter(filterItem) : page.items,
+            })),
+          };
+        }
+        if (Array.isArray(old?.items)) {
+          return { ...old, items: old.items.filter(filterItem) };
+        }
+        return old;
+      });
+      queryClient.setQueriesData({ queryKey: ['home-table-offerings'] }, (old) => {
+        if (!old?.items) return old;
+        return {
+          ...old,
+          items: old.items.filter((item) => item?.hostUserId !== userId),
+        };
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['public-profile', userId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-feed'] }),
+        queryClient.invalidateQueries({ queryKey: ['home-bootstrap'] }),
+        queryClient.invalidateQueries({ queryKey: ['home-table-offerings'] }),
+        queryClient.invalidateQueries({ queryKey: ['community-hosted-events'] }),
+      ]);
+      setBlockDialogOpen(false);
+      navigate(-1);
+    } catch (e) {
+      toast.error(e?.data?.error || 'Could not block user');
+    } finally {
+      setBlocking(false);
     }
   };
 
@@ -199,6 +262,16 @@ export default function UserProfile() {
             {st === 'BLOCKED' && profile.blockedByThem && (
               <p className="text-sm text-gray-500">This user has blocked you.</p>
             )}
+            {st !== 'BLOCKED' && (
+              <Button
+                variant="outline"
+                className="w-full min-h-[44px] border-red-500/40 text-red-400 hover:bg-red-500/10"
+                onClick={() => setBlockDialogOpen(true)}
+              >
+                <Ban className="w-4 h-4 mr-2" />
+                Block user
+              </Button>
+            )}
             <ReportDialog
               targetType="user"
               targetId={userId}
@@ -215,6 +288,29 @@ export default function UserProfile() {
           </Link>
         )}
       </div>
+
+      <AlertDialog open={blockDialogOpen} onOpenChange={setBlockDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogTitle>Block this user?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Blocking removes their content from your feed immediately and notifies SEC safety
+            review that the account was blocked for inappropriate behavior.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={blocking}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={blocking}
+              onClick={(e) => {
+                e.preventDefault();
+                void onBlockConfirm();
+              }}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {blocking ? 'Blocking…' : 'Block'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="mt-10 w-full text-left space-y-8">
         <div>

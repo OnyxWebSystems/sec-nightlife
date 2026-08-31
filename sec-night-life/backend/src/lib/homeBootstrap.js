@@ -203,7 +203,7 @@ export async function buildHomeBootstrap(req) {
     }),
     fetchPromotionsPage({ userId, city, scopeAll: scopeAll || !!geo, limit: promoLimit }),
     userId ? fetchFollowedPromoters(userId) : Promise.resolve([]),
-    buildCommunityHostedEvents({ limit: 12 }),
+    buildCommunityHostedEvents({ limit: 12, userId }),
     fetchFeaturedEventDetails({ limit: featuredLimit }),
     buildHomeFeedPage(req),
   ]);

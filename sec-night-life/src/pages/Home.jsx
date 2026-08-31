@@ -259,7 +259,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!user && !hasStoredAuthTokens()) {
-      void prefetchPage('Onboarding');
+      void prefetchPage('Login');
+      void prefetchPage('Register');
     }
   }, [user]);
 
@@ -268,6 +269,8 @@ export default function Home() {
       void checkAppState();
     }
   }, [user, checkAppState]);
+
+  const guestBrowseReady = !!user?.id || !hasStoredAuthTokens();
 
   const { data: staffAssignments = [] } = useQuery({
     queryKey: ['staff-venues'],
@@ -431,7 +434,7 @@ export default function Home() {
       return apiGet(`/api/home/feed?${params.toString()}`, { headers: { 'x-session-id': sessionId } });
     },
     getNextPageParam: (lastPage) => (lastPage?.nextCursor != null ? parseInt(lastPage.nextCursor, 10) : undefined),
-    enabled: !!user?.id,
+    enabled: guestBrowseReady,
     staleTime: 60_000,
   });
 
@@ -492,7 +495,7 @@ export default function Home() {
   const { data: homeBootstrap, isLoading: bootstrapLoading } = useQuery({
     queryKey: ['home-bootstrap', sessionId, bootstrapScopeKey],
     queryFn: fetchHomeBootstrap,
-    enabled: !!user?.id,
+    enabled: guestBrowseReady,
     staleTime: 60_000,
   });
 
@@ -550,7 +553,7 @@ export default function Home() {
       apiGet(`/api/home/table-offerings?limit=24&sessionId=${encodeURIComponent(sessionId)}`, {
         headers: { 'x-session-id': sessionId },
       }),
-    enabled: !!user?.id && !bootstrapLoading && bootstrapTableItems.length === 0,
+    enabled: guestBrowseReady && !bootstrapLoading && bootstrapTableItems.length === 0,
     staleTime: listStale,
   });
 
@@ -565,7 +568,7 @@ export default function Home() {
   const tablesLoading = bootstrapLoading || (bootstrapTableItems.length === 0 && fallbackTablesLoading);
 
   useEffect(() => {
-    if (!user?.id) return undefined;
+    if (!guestBrowseReady) return undefined;
     const el = venuesSectionRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') {
       setVenueSectionInView(true);
@@ -579,7 +582,7 @@ export default function Home() {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [user?.id]);
+  }, [guestBrowseReady]);
 
   useEffect(() => {
     if (showFilters) setVenueSectionInView(true);
@@ -595,7 +598,7 @@ export default function Home() {
       return apiGet(`/api/venues?${params.toString()}`);
     },
     staleTime: listStale,
-    enabled: !!user?.id && shouldLoadVenues,
+    enabled: guestBrowseReady && shouldLoadVenues,
   });
 
   const cities = [...new Set(venues.map(v => v.city).filter(Boolean))];
@@ -683,42 +686,9 @@ export default function Home() {
     return <HomeSessionSkeleton />;
   }
 
-  if (!user) {
-    return (
-      <div style={{
-        minHeight: '100vh', backgroundColor: 'var(--sec-bg-base)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '40px 24px',
-      }}>
-        <div style={{ textAlign: 'center', maxWidth: 340 }}>
-          <div style={{ marginBottom: 40, display: 'flex', justifyContent: 'center' }}>
-            <SecLogo size={128} variant="full" />
-          </div>
-          <h1 className="sec-display" style={{ fontSize: 38, fontWeight: 700, marginBottom: 8 }}>SEC</h1>
-          <p style={{ color: 'var(--sec-text-muted)', fontSize: 12, letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 600, marginBottom: 24 }}>
-            Your Night. Simplified.
-          </p>
-          <p style={{ color: 'var(--sec-text-secondary)', fontSize: 15, lineHeight: 1.65, marginBottom: 40 }}>
-            Discover events, book and join tables, and connect with the nightlife community.
-          </p>
-          <button
-            onMouseEnter={() => prefetchPage('Onboarding')}
-            onPointerDown={() => prefetchPage('Onboarding')}
-            onClick={() => navigate(createPageUrl('Onboarding'))}
-            className="sec-btn sec-btn-primary sec-btn-full"
-            style={{ fontSize: 15 }}
-          >
-            Enter
-          </button>
-          <p style={{ marginTop: 14, color: 'var(--sec-text-muted)', fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Members only
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const greetingName = userProfile?.username || user?.full_name?.split(' ')[0] || 'there';
+  const greetingName = user
+    ? (userProfile?.username || user?.full_name?.split(' ')[0] || 'there')
+    : null;
   const hour = new Date().getHours();
   const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
@@ -737,10 +707,10 @@ export default function Home() {
         <div className="max-w-[1120px] mx-auto w-full h-full px-4 sm:px-5 flex items-center justify-between gap-3 py-2 sm:py-0 sm:min-h-[60px]">
           <div className="flex-1 min-w-0">
             <h1 className="text-[15px] font-semibold text-[var(--sec-text-primary)] m-0 tracking-tight truncate">
-              {timeGreeting}, {greetingName}
+              {user ? `${timeGreeting}, ${greetingName}` : 'SEC Nightlife'}
             </h1>
             <p className="text-xs text-[var(--sec-text-muted)] m-0 mt-0.5 truncate">
-              What&apos;s happening tonight
+              {user ? "What's happening tonight" : 'Browse events — no account needed'}
             </p>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -753,45 +723,83 @@ export default function Home() {
             >
               <RefreshCw size={18} strokeWidth={1.5} />
             </button>
-            <Link to={createPageUrl('Leaderboard')} className="sec-nav-icon" style={{ color: 'var(--sec-accent)' }}>
-              <Trophy size={18} strokeWidth={1.5} />
-            </Link>
-            <Link to={createPageUrl('Notifications')} className="sec-nav-icon relative" aria-label="Notifications">
-              <Bell size={18} strokeWidth={1.5} />
-              {notificationUnread > 0 ? (
-                <span className="absolute -top-1 -right-1 sec-nav-count-badge min-w-[16px] h-4 px-1 text-[9px]">
-                  {notificationUnread > 99 ? '99+' : notificationUnread}
-                </span>
-              ) : null}
-            </Link>
-            <button
-              onClick={() => {
-                const ok = window.confirm('Sign out of SecNightlife?');
-                if (ok) logout();
-              }}
-              className="sec-btn sec-btn-ghost h-9 px-2 sm:px-3.5 text-xs rounded-full"
-              aria-label="Sign out"
-            >
-              <span className="hidden sm:inline">Sign out</span>
-              <span className="sm:hidden text-[10px]">Out</span>
-            </button>
+            {user ? (
+              <>
+                <Link to={createPageUrl('Leaderboard')} className="sec-nav-icon" style={{ color: 'var(--sec-accent)' }}>
+                  <Trophy size={18} strokeWidth={1.5} />
+                </Link>
+                <Link to={createPageUrl('Notifications')} className="sec-nav-icon relative" aria-label="Notifications">
+                  <Bell size={18} strokeWidth={1.5} />
+                  {notificationUnread > 0 ? (
+                    <span className="absolute -top-1 -right-1 sec-nav-count-badge min-w-[16px] h-4 px-1 text-[9px]">
+                      {notificationUnread > 99 ? '99+' : notificationUnread}
+                    </span>
+                  ) : null}
+                </Link>
+                <button
+                  onClick={() => {
+                    const ok = window.confirm('Sign out of SecNightlife?');
+                    if (ok) logout();
+                  }}
+                  className="sec-btn sec-btn-ghost h-9 px-2 sm:px-3.5 text-xs rounded-full"
+                  aria-label="Sign out"
+                >
+                  <span className="hidden sm:inline">Sign out</span>
+                  <span className="sm:hidden text-[10px]">Out</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to={createPageUrl('Login')}
+                  className="sec-btn sec-btn-ghost h-9 px-3 text-xs rounded-full"
+                >
+                  Log in
+                </Link>
+                <Link
+                  to={createPageUrl('Register')}
+                  className="sec-btn sec-btn-primary h-9 px-3 text-xs rounded-full"
+                >
+                  Sign up
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
 
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '24px 20px 0' }}>
 
-        <StaffAccessBanner assignments={staffAssignments} />
-        {user?.can_admin_dashboard || ['ADMIN', 'SUPER_ADMIN'].includes(user?.role) ? (
+        {user ? <StaffAccessBanner assignments={staffAssignments} /> : null}
+        {user && (user?.can_admin_dashboard || ['ADMIN', 'SUPER_ADMIN'].includes(user?.role)) ? (
           <AdminAccessBanner />
         ) : null}
 
         {/* ── Quick Actions ── */}
-        <div style={{ marginBottom: 32 }}>
-          <QuickActions />
-        </div>
+        {user ? (
+          <div style={{ marginBottom: 32 }}>
+            <QuickActions />
+          </div>
+        ) : (
+          <div
+            className="sec-card"
+            style={{ marginBottom: 32, padding: 16, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--sec-text-secondary)', lineHeight: 1.5 }}>
+              Browse freely. Log in to book tables, join events, and message hosts.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Link to={createPageUrl('Events')} className="sec-btn sec-btn-ghost h-9 px-3 text-xs rounded-full">
+                Events
+              </Link>
+              <Link to={createPageUrl('Map')} className="sec-btn sec-btn-ghost h-9 px-3 text-xs rounded-full">
+                Map
+              </Link>
+            </div>
+          </div>
+        )}
 
-        <PlatformAnnouncementBanner announcements={platformAnnouncements} />
+        {user ? <PlatformAnnouncementBanner announcements={platformAnnouncements} /> : null}
 
         {followedPromoterEvents.length > 0 && (
           <section style={{ marginBottom: 36 }}>

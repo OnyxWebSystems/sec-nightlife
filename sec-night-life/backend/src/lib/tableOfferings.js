@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { externalListingEndsAt } from './externalListingSchedule.js';
+import { getBlockedUserIdsForViewer } from './blockedUsers.js';
 
 /**
  * Batch-compute total open spots per event (replaces N× buildEventTableTiers).
@@ -244,11 +245,17 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
   today.setHours(0, 0, 0, 0);
 
   let friendIds = new Set();
+  let blockedUserIds = new Set();
   if (userId) {
     try {
       friendIds = await getFriendIds(userId);
     } catch (e) {
       logger.warn('getFriendIds failed in buildTableOfferings', { err: e?.message });
+    }
+    try {
+      blockedUserIds = await getBlockedUserIdsForViewer(userId);
+    } catch (e) {
+      logger.warn('getBlockedUserIdsForViewer failed in buildTableOfferings', { err: e?.message });
     }
   }
 
@@ -478,6 +485,7 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
   }
 
   for (const t of hostedRows) {
+    if (blockedUserIds.has(t.hostUserId)) continue;
     // Community "list as event" listings appear under Home Events, not Available Tables.
     if (t.tableType === 'EXTERNAL_VENUE' && t.listingSurface === 'EVENT' && !t.venueTableId) {
       continue;
@@ -592,11 +600,12 @@ export async function buildTableOfferings({ userId, limit = 40, sessionSeed = 'd
 /**
  * External hosted listings marked as EVENT surface — shown in Home Events section.
  */
-export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
+export async function buildCommunityHostedEvents({ limit = 12, userId = null } = {}) {
   const cappedLimit = Math.min(Math.max(limit, 1), 30);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const now = new Date();
+  const blockedUserIds = await getBlockedUserIdsForViewer(userId);
 
   const rowsRaw = await prisma.hostedTable.findMany({
     where: {
@@ -623,7 +632,10 @@ export async function buildCommunityHostedEvents({ limit = 12 } = {}) {
       },
     },
   });
-  const rows = rowsRaw.filter((t) => isHostedListingStillLive(t, now)).slice(0, cappedLimit);
+  const rows = rowsRaw
+    .filter((t) => !blockedUserIds.has(t.hostUserId))
+    .filter((t) => isHostedListingStillLive(t, now))
+    .slice(0, cappedLimit);
 
   return rows.map((t) => {
     const host = formatHost(t.host);

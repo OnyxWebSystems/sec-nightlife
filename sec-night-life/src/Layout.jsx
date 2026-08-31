@@ -28,7 +28,7 @@ import { isPublicDocumentPage } from '@/lib/publicAuthPaths';
 import {
   Home, Users, Plus, MessageCircle, User, Calendar, Briefcase, Bell, Trophy, Crown,
   LayoutDashboard, BarChart3, Building2, Megaphone, BookOpen, Settings, Music2, Shield, RotateCcw, Armchair, Store,
-  LayoutGrid,
+  LayoutGrid, MapPin, LogIn,
 } from 'lucide-react';
 
 const iconProps = { size: 22, strokeWidth: 1.5 };
@@ -333,8 +333,7 @@ export default function Layout({ children, currentPageName }) {
 
   const hideNav =
     ['Onboarding', 'ProfileSetup', 'VenueOnboarding', 'Welcome', 'Login', 'Register', 'VerifyEmail', 'ForgotPassword', 'ResetPassword'].includes(currentPageName) ||
-    isPublicDocumentPage(currentPageName) ||
-    (currentPageName === 'Home' && !user);
+    isPublicDocumentPage(currentPageName);
   if (hideNav) {
     return (
       <div
@@ -342,11 +341,12 @@ export default function Layout({ children, currentPageName }) {
         style={{ backgroundColor: 'var(--sec-bg-base)', color: 'var(--sec-text-primary)' }}
       >
         {children}
-        {!user && currentPageName === 'Home' ? <GuestAgeGate /> : null}
         <CookieNoticeBanner />
       </div>
     );
   }
+
+  const isGuestBrowse = !user;
 
   const badge = Math.max(0, Number(notificationCount) || 0);
   const availableModes = MODES.filter(m => userRoles[m.id]);
@@ -402,7 +402,16 @@ export default function Layout({ children, currentPageName }) {
   };
 
   const mode = modeForGuard;
-  const { primary: primaryNav, secondary: secondaryNav } = NAV[mode];
+  const guestPrimaryNav = [
+    { name: 'Home', icon: Home, page: 'Home' },
+    { name: 'Events', icon: Calendar, page: 'Events' },
+    { name: 'Map', icon: MapPin, page: 'Map' },
+    { name: 'Log in', icon: LogIn, page: 'Login' },
+    { name: 'Sign up', icon: User, page: 'Register' },
+  ];
+  const { primary: primaryNav, secondary: secondaryNav } = isGuestBrowse
+    ? { primary: guestPrimaryNav, secondary: [] }
+    : NAV[mode];
 
   const filterNavForStaff = (items) =>
     mode === 'business' && staffAccess.isStaffOnly
@@ -439,8 +448,16 @@ export default function Layout({ children, currentPageName }) {
   };
 
   // Mobile: Unified 5-tab bottom nav — stay party-goer during staff sessions; 5th slot = More
+  // Guests get browse-only tabs (Home / Events / Map) + Log in.
   const effectiveNavMode = staffAccess.inStaffSession ? 'partygoer' : mode;
-  let mobileNav = effectiveNavMode === 'business'
+  let mobileNav = isGuestBrowse
+    ? [
+        { name: 'Home', icon: Home, page: 'Home' },
+        { name: 'Events', icon: Calendar, page: 'Events' },
+        { name: 'Map', icon: MapPin, page: 'Map' },
+        { name: 'Log in', icon: LogIn, page: 'Login' },
+      ]
+    : effectiveNavMode === 'business'
     ? [
         { name: 'Home', icon: LayoutDashboard, page: 'BusinessDashboard' },
         { name: 'Events', icon: Calendar, page: 'BusinessEvents' },
@@ -762,6 +779,7 @@ export default function Layout({ children, currentPageName }) {
           />
         </>
       ) : null}
+      {isGuestBrowse ? <GuestAgeGate /> : null}
       <CookieNoticeBanner />
     </div>
   );

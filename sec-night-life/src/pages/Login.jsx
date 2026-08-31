@@ -340,6 +340,21 @@ export default function Login() {
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
+            <p className="text-center text-xs text-gray-500 leading-relaxed">
+              By signing in you agree to our{' '}
+              <Link to={createPageUrl('UserAgreement')} className="text-[var(--sec-accent)] hover:underline">
+                User Agreement
+              </Link>
+              ,{' '}
+              <Link to={createPageUrl('TermsOfService')} className="text-[var(--sec-accent)] hover:underline">
+                Terms of Service
+              </Link>
+              , and{' '}
+              <Link to={createPageUrl('PrivacyPolicy')} className="text-[var(--sec-accent)] hover:underline">
+                Privacy Policy
+              </Link>
+              .
+            </p>
           </form>
         )}
 

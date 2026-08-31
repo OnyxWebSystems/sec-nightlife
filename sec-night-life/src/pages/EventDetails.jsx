@@ -25,6 +25,7 @@ import ReportDialog from '@/components/moderation/ReportDialog';
 import HostedTableExperience from '@/components/tables/HostedTableExperience';
 import { isHostedEventListing } from '@/lib/hostedListingUrl';
 import { parseMaxPerUser } from '@/lib/ticketTierLimits';
+import { getDirectionsActions } from '@/lib/openDirections';
 
 export default function EventDetails() {
   const navigate = useNavigate();
@@ -819,30 +820,43 @@ export default function EventDetails() {
         ) : null}
 
         {/* ── Location / directions ── */}
-        {mapQuery && (
-          <a
-            href={`https://maps.google.com/?q=${encodeURIComponent(mapQuery)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="sec-list-row"
-            style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', borderRadius: 'var(--radius-lg)', marginBottom: 16 }}
-          >
-            <div style={{
-              width: 40, height: 40, borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <Navigation size={18} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
+        {mapQuery && (() => {
+          const dirs = getDirectionsActions({ address: mapQuery });
+          return (
+            <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <a
+                href={dirs.primary.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="sec-list-row"
+                style={{ backgroundColor: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', borderRadius: 'var(--radius-lg)' }}
+              >
+                <div style={{
+                  width: 40, height: 40, borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--sec-bg-elevated)', border: '1px solid var(--sec-border)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <Navigation size={18} strokeWidth={1.5} style={{ color: 'var(--sec-text-secondary)' }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 2 }}>{dirs.primary.label}</p>
+                  <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {venueLine}
+                  </p>
+                </div>
+                <ChevronRight size={16} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
+              </a>
+              <a
+                href={dirs.secondary.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 13, color: 'var(--sec-accent)', paddingLeft: 4 }}
+              >
+                {dirs.secondary.label}
+              </a>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)', marginBottom: 2 }}>Get Directions</p>
-              <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {venueLine}
-              </p>
-            </div>
-            <ChevronRight size={16} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)', flexShrink: 0 }} />
-          </a>
-        )}
+          );
+        })()}
       </div>
 
       {/* ── Sticky bottom bar — price left / CTA right ── */}

@@ -38,6 +38,7 @@ import { mobileFooterPadding, MOBILE_NAV_BOTTOM_OFFSET } from '@/lib/layoutConst
 import CheckoutCart, { CHECKOUT_FOOTNOTES } from '@/components/checkout/CheckoutCart';
 import { CustomTableRequestForm } from '@/components/tables/CustomTableRequestModal';
 import DayBookingTimeSlotPicker, { isWindowValid } from '@/components/tables/DayBookingTimeSlotPicker';
+import { getDirectionsActions } from '@/lib/openDirections';
 import {
   isDayBookingVenueTable,
   resolveDayBookingContext,
@@ -1597,16 +1598,32 @@ export default function TableDetails() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginBottom: 4 }}>Venue location</div>
                 <div style={{ fontSize: 15, fontWeight: 500 }}>{venueAddressLine}</div>
-                <a
-                  href={`https://maps.google.com/?q=${encodeURIComponent(venueAddressLine)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="sec-link"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 14 }}
-                >
-                  <Navigation size={16} />
-                  Open in Maps
-                </a>
+                {(() => {
+                  const dirs = getDirectionsActions({ address: venueAddressLine });
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                      <a
+                        href={dirs.primary.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="sec-link"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14 }}
+                      >
+                        <Navigation size={16} />
+                        {dirs.primary.label}
+                      </a>
+                      <a
+                        href={dirs.secondary.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="sec-link"
+                        style={{ fontSize: 13 }}
+                      >
+                        {dirs.secondary.label}
+                      </a>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>

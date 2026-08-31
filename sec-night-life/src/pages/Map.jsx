@@ -20,6 +20,7 @@ import { useGoogleMaps } from '@/lib/GoogleMapsProvider';
 import * as authService from '@/services/authService';
 import { apiGet } from '@/api/client';
 import { usePreferences } from '@/context/PreferencesContext';
+import { getDirectionsActions } from '@/lib/openDirections';
 
 // Johannesburg coordinates as default
 const DEFAULT_CENTER = { lat: -26.2041, lng: 28.0473 };
@@ -528,31 +529,49 @@ export default function Map() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
-                <Link
-                  to={
-                    viewMode === 'venues'
-                      ? createPageUrl(`VenueProfile?id=${selectedItem.id}`)
-                      : viewMode === 'events'
-                        ? createPageUrl(`EventDetails?id=${selectedItem.id}`)
-                        : createPageUrl(`TableDetails?id=${selectedItem.id}`)
-                  }
-                  className="sec-btn sec-btn-primary"
-                  style={{ flex: 1, padding: '10px 16px', textAlign: 'center', textDecoration: 'none' }}
-                >
-                  View Details
-                </Link>
-                <a
-                  href={`https://maps.google.com/?q=${selectedItem._mapPos?.lat ?? DEFAULT_CENTER.lat},${selectedItem._mapPos?.lng ?? DEFAULT_CENTER.lng}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="sec-btn sec-btn-secondary"
-                  style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}
-                >
-                  <Navigation size={16} strokeWidth={1.5} />
-                  Directions
-                </a>
-              </div>
+              {(() => {
+                const dirs = getDirectionsActions({
+                  lat: selectedItem._mapPos?.lat ?? DEFAULT_CENTER.lat,
+                  lng: selectedItem._mapPos?.lng ?? DEFAULT_CENTER.lng,
+                });
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <Link
+                        to={
+                          viewMode === 'venues'
+                            ? createPageUrl(`VenueProfile?id=${selectedItem.id}`)
+                            : viewMode === 'events'
+                              ? createPageUrl(`EventDetails?id=${selectedItem.id}`)
+                              : createPageUrl(`TableDetails?id=${selectedItem.id}`)
+                        }
+                        className="sec-btn sec-btn-primary"
+                        style={{ flex: 1, padding: '10px 16px', textAlign: 'center', textDecoration: 'none' }}
+                      >
+                        View Details
+                      </Link>
+                      <a
+                        href={dirs.primary.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="sec-btn sec-btn-secondary"
+                        style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}
+                      >
+                        <Navigation size={16} strokeWidth={1.5} />
+                        {dirs.primary.label.replace('Open in ', '')}
+                      </a>
+                    </div>
+                    <a
+                      href={dirs.secondary.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: 12, color: 'var(--sec-accent)', textAlign: 'center' }}
+                    >
+                      {dirs.secondary.label}
+                    </a>
+                  </div>
+                );
+              })()}
           </motion.div>
         </div>
       )}
