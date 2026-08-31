@@ -44,12 +44,13 @@ export default function Onboarding() {
       // ignore storage failures
     }
 
-    if (role === 'VENUE') {
-      authService.redirectToLogin(createPageUrl('VenueOnboarding'));
-      return;
-    }
-
-    authService.redirectToLogin(createPageUrl('ProfileSetup'));
+    const roleParam = role === 'VENUE' ? 'VENUE' : 'PARTY_GOER';
+    const returnDest =
+      role === 'VENUE' ? createPageUrl('VenueOnboarding') : createPageUrl('ProfileSetup');
+    navigate(
+      `${createPageUrl('Register')}?role=${encodeURIComponent(roleParam)}&returnUrl=${encodeURIComponent(returnDest)}`,
+      { replace: true },
+    );
   };
 
   if (hasStoredAuthTokens() && !user && isLoadingAuth) {
