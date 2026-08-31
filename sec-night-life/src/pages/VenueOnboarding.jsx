@@ -499,12 +499,9 @@ export default function VenueOnboarding() {
             mines = [];
           }
           const ownedVenues = mines.filter((v) => v.is_owner === true || v.isOwner === true);
-          const isVenueRole = currentUser?.role === 'VENUE' || currentUser?.role === 'BUSINESS';
-          if (ownedVenues.length > 0 || isVenueRole) {
+          if (ownedVenues.length > 0) {
             markOnboardingComplete(uid);
-            navigate(createPageUrl(ownedVenues.length > 0 ? 'BusinessDashboard' : 'Profile'), {
-              replace: true,
-            });
+            navigate(createPageUrl('BusinessDashboard'), { replace: true });
             return;
           }
         } catch {
