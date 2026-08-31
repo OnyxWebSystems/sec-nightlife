@@ -151,8 +151,11 @@ export default function Settings() {
     {
       title: t('support'),
       items: [
-        { icon: HelpCircle, label: supportLegalItems[0].label, page: supportLegalItems[0].page },
-        ...supportLegalItems.slice(1).map((item) => ({ icon: FileText, label: item.label, page: item.page })),
+        { icon: HelpCircle, label: t('helpCenter'), page: 'HelpCenter' },
+        { icon: HelpCircle, label: t('helpGuides'), page: 'HelpGuides' },
+        ...supportLegalItems
+          .filter((item) => item.page !== 'HelpCenter' && item.page !== 'HelpGuides')
+          .map((item) => ({ icon: FileText, label: item.label, page: item.page })),
       ],
     },
   ];

@@ -14,9 +14,13 @@ function baseLegalDocs(t) {
   ];
 }
 
-/** Settings → Support: Help & Guides first, then all legal pages */
+/** Settings → Support: Help Center + Help & Guides, then legal pages */
 export function getSettingsLegalNavItems(t) {
-  return [{ key: 'helpGuides', page: 'HelpGuides', label: t('helpGuides') }, ...baseLegalDocs(t)];
+  return [
+    { key: 'helpCenter', page: 'HelpCenter', label: t('helpCenter') },
+    { key: 'helpGuides', page: 'HelpGuides', label: t('helpGuides') },
+    ...baseLegalDocs(t),
+  ];
 }
 
 /** Help & Guides: same documents as Settings (no self-link to Help) */

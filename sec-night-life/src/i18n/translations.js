@@ -18,7 +18,7 @@ export const translations = {
     darkMode: 'Dark Mode',
     lightMode: 'Light Mode',
     language: 'Language',
-    helpCenter: 'Help & Guides',
+    helpCenter: 'Help Center',
     helpGuides: 'Help & Guides',
     termsOfService: 'Terms of Service',
     privacyPolicy: 'Privacy Policy',
