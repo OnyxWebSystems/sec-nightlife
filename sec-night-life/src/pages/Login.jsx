@@ -33,17 +33,21 @@ export default function Login() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const roleParam = searchParams.get('role');
+  const verifyEmailParam = searchParams.get('verifyEmail') === '1';
+  const emailSendFailedParam = searchParams.get('emailSendFailed') === '1';
+  const emailFromRegister = searchParams.get('email') || '';
   const defaultReturnUrl =
     roleParam === 'VENUE' ? createPageUrl('BusinessDashboard') : createPageUrl('Home');
   const returnUrl = searchParams.get('returnUrl') || defaultReturnUrl;
 
   const isStaffRole = roleParam && STAFF_ROLES.includes(roleParam);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(emailFromRegister);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
+  const [showVerifyNotice, setShowVerifyNotice] = useState(verifyEmailParam);
   const [accountType, setAccountType] = useState(() => {
     if (roleParam === 'VENUE' || roleParam === 'PARTY_GOER') return roleParam;
     return readStoredConsumerIntent();
@@ -300,6 +304,43 @@ export default function Login() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {showVerifyNotice && (
+              <div className="rounded-xl border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.08)] px-4 py-3 text-sm text-[var(--sec-text-secondary)]">
+                <p className="font-medium text-[var(--sec-accent)] mb-1">Verify your email before signing in</p>
+                <p>
+                  {emailSendFailedParam
+                    ? 'Your account was created, but we could not send the verification email. Tap Resend verification email below, then check your inbox (and spam).'
+                    : 'Your account was created. Open the verification link we sent to your email, then come back here to sign in. Check spam if you do not see it.'}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={resendLoading || !email.trim()}
+                  onClick={async () => {
+                    setEmailNotVerified(true);
+                    await handleResendVerification();
+                  }}
+                  className="w-full mt-3"
+                >
+                  {resendLoading ? 'Sending…' : 'Resend verification email'}
+                </Button>
+                <button
+                  type="button"
+                  className="mt-2 w-full text-xs text-gray-500 hover:underline"
+                  onClick={() => {
+                    setShowVerifyNotice(false);
+                    const next = new URLSearchParams(searchParams);
+                    next.delete('verifyEmail');
+                    next.delete('emailSendFailed');
+                    setSearchParams(next, { replace: true });
+                  }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
             {error && (
               <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
                 {error}

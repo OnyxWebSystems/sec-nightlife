@@ -163,7 +163,7 @@ export default function Register() {
       });
       if (data?.emailSendFailed) {
         toast.error(
-          'Account created, but we could not send the verification email. Sign in and tap Resend verification email.',
+          'Account created, but we could not send the verification email. Use Resend verification email on the next screen.',
         );
       } else if (data?.emailVerificationRequired) {
         toast.success('Account created! Check your email to verify before signing in.');
@@ -171,9 +171,15 @@ export default function Register() {
         toast.success('Account created!');
       }
       const roleIntent = r === 'VENUE' ? 'VENUE' : 'PARTY_GOER';
-      let loginUrl = returnUrl ? createPageUrl('Login') + '?returnUrl=' + encodeURIComponent(returnUrl) : createPageUrl('Login');
-      loginUrl += (loginUrl.includes('?') ? '&' : '?') + 'role=' + encodeURIComponent(roleIntent);
-      navigate(loginUrl.startsWith('/') ? loginUrl : '/' + loginUrl, { replace: true });
+      const params = new URLSearchParams();
+      if (returnUrl) params.set('returnUrl', returnUrl);
+      params.set('role', roleIntent);
+      if (data?.emailVerificationRequired || data?.emailSendFailed) {
+        params.set('verifyEmail', '1');
+        params.set('email', email.trim());
+        if (data?.emailSendFailed) params.set('emailSendFailed', '1');
+      }
+      navigate(`${createPageUrl('Login')}?${params.toString()}`, { replace: true });
     } catch (err) {
       const msg = err?.data?.message || err?.data?.error || err?.message || 'Registration failed';
       toast.error(msg);
