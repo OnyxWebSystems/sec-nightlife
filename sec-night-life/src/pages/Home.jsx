@@ -28,6 +28,24 @@ import { isEventEnded } from '@/lib/eventLifecycle';
 import { usePreferences } from '@/context/PreferencesContext';
 import { useNotificationUnreadCount } from '@/lib/useNotificationUnreadCount';
 
+const ENTER_SEEN_KEY = 'sec_enter_seen_v1';
+
+function readEnterSeen() {
+  try {
+    return localStorage.getItem(ENTER_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markEnterSeen() {
+  try {
+    localStorage.setItem(ENTER_SEEN_KEY, '1');
+  } catch {
+    /* ignore */
+  }
+}
+
 function getOrCreateSessionId() {
   try {
     const existing = localStorage.getItem('sec_session_id');
@@ -256,12 +274,30 @@ export default function Home() {
   const [selectedVenueType, setSelectedVenueType] = useState('all');
   const [sessionId] = useState(() => getOrCreateSessionId());
   const pullCooldownRef = useRef(0);
+  const [showEnterSplash, setShowEnterSplash] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    if (hasStoredAuthTokens()) return false;
+    return !readEnterSeen();
+  });
 
   useEffect(() => {
     if (!user && !hasStoredAuthTokens()) {
+      void prefetchPage('Onboarding');
       void prefetchPage('Login');
       void prefetchPage('Register');
     }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      setShowEnterSplash(false);
+      return;
+    }
+    if (hasStoredAuthTokens()) {
+      setShowEnterSplash(false);
+      return;
+    }
+    setShowEnterSplash(!readEnterSeen());
   }, [user]);
 
   useEffect(() => {
@@ -684,6 +720,94 @@ export default function Home() {
 
   if (!user && hasStoredAuthTokens()) {
     return <HomeSessionSkeleton />;
+  }
+
+  if (!user && showEnterSplash) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 200,
+          minHeight: '100vh',
+          backgroundColor: 'var(--sec-bg-base)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '40px 24px',
+          paddingTop: 'max(40px, env(safe-area-inset-top))',
+          paddingBottom: 'max(40px, env(safe-area-inset-bottom))',
+        }}
+      >
+        <div style={{ textAlign: 'center', maxWidth: 340 }}>
+          <div style={{ marginBottom: 40, display: 'flex', justifyContent: 'center' }}>
+            <SecLogo size={128} variant="full" />
+          </div>
+          <h1 className="sec-display" style={{ fontSize: 38, fontWeight: 700, marginBottom: 8 }}>
+            SEC
+          </h1>
+          <p
+            style={{
+              color: 'var(--sec-text-muted)',
+              fontSize: 12,
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              marginBottom: 24,
+            }}
+          >
+            Your Night. Simplified.
+          </p>
+          <p
+            style={{
+              color: 'var(--sec-text-secondary)',
+              fontSize: 15,
+              lineHeight: 1.65,
+              marginBottom: 40,
+            }}
+          >
+            Discover events, book and join tables, and connect with the nightlife community.
+          </p>
+          <button
+            type="button"
+            onMouseEnter={() => prefetchPage('Onboarding')}
+            onPointerDown={() => prefetchPage('Onboarding')}
+            onClick={() => {
+              markEnterSeen();
+              setShowEnterSplash(false);
+              navigate(createPageUrl('Onboarding'));
+            }}
+            className="sec-btn sec-btn-primary sec-btn-full"
+            style={{ fontSize: 15 }}
+          >
+            Enter
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              markEnterSeen();
+              setShowEnterSplash(false);
+            }}
+            className="sec-btn sec-btn-ghost sec-btn-full"
+            style={{ fontSize: 14, marginTop: 12 }}
+          >
+            Browse as guest
+          </button>
+          <p
+            style={{
+              marginTop: 14,
+              color: 'var(--sec-text-muted)',
+              fontSize: 11,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+            }}
+          >
+            Members only
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const greetingName = user

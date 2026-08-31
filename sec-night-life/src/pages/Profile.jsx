@@ -144,15 +144,14 @@ export default function Profile() {
     if (viewingUserId) return;
     if (!user) return;
 
-    // Only send users to onboarding when the server/session explicitly says incomplete.
-    // A null profile is a hydrate race — revalidate; do not bounce to setup.
+    // Venue/business accounts with incomplete setup go to venue onboarding.
+    // Partygoers with incomplete setup stay on Profile so they can still create a business account.
     if (authUserProfile?.onboarding_complete === false) {
       const role = user.role;
-      navigate(
-        createPageUrl(role === 'VENUE' || role === 'BUSINESS' ? 'VenueOnboarding' : 'ProfileSetup'),
-        { replace: true },
-      );
-      return;
+      if (role === 'VENUE' || role === 'BUSINESS') {
+        navigate(createPageUrl('VenueOnboarding') + '?new=1', { replace: true });
+        return;
+      }
     }
 
     if (!authUserProfile) {
@@ -437,30 +436,33 @@ export default function Profile() {
   }
 
   if (isOwnProfile && !userProfile) {
+    const isVenueRole = user?.role === 'VENUE' || user?.role === 'BUSINESS';
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 gap-4 text-center">
         <h2 className="text-lg font-semibold">Finish setting up your profile</h2>
         <p className="text-sm text-[var(--sec-text-muted)] max-w-sm">
-          We couldn&apos;t load your profile details yet. Complete setup or try again.
+          We couldn&apos;t load your profile details yet. Complete partygoer setup, create a business
+          account, or try again.
         </p>
-        <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
+        <div className="flex flex-col gap-2 w-full max-w-xs">
+          {!isVenueRole ? (
+            <Button
+              className="min-h-[44px] w-full"
+              variant="outline"
+              onClick={() => navigate(createPageUrl('ProfileSetup'))}
+            >
+              Continue partygoer setup
+            </Button>
+          ) : null}
           <Button
-            className="min-h-[44px] flex-1"
-            onClick={() =>
-              navigate(
-                createPageUrl(
-                  user?.role === 'VENUE' || user?.role === 'BUSINESS'
-                    ? 'VenueOnboarding'
-                    : 'ProfileSetup',
-                ),
-              )
-            }
+            className="min-h-[44px] w-full"
+            onClick={() => navigate(createPageUrl('VenueOnboarding') + '?new=1')}
           >
-            Continue setup
+            Create business account
           </Button>
           <Button
             variant="outline"
-            className="min-h-[44px] flex-1"
+            className="min-h-[44px] w-full"
             onClick={() => void checkAppState({ soft: true })}
           >
             Retry
@@ -732,7 +734,7 @@ export default function Profile() {
               <p className="text-xs text-gray-500 mb-3">Create additional account types to unlock more features.</p>
               <div className="flex flex-col gap-3">
                 <Link
-                  to={createPageUrl('VenueOnboarding')}
+                  to={createPageUrl('VenueOnboarding') + '?new=1'}
                   className="flex items-center gap-4 p-4 rounded-xl border transition-all"
                   style={{ backgroundColor: 'var(--sec-bg-elevated)', borderColor: 'var(--sec-border)' }}
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--sec-accent-border)'; e.currentTarget.style.backgroundColor = 'var(--sec-bg-hover)'; }}

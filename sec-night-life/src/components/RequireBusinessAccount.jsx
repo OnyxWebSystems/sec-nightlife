@@ -35,7 +35,7 @@ export default function RequireBusinessAccount({ children }) {
         }
         if (cancelled) return;
         if (!hasBusiness) {
-          navigate(createPageUrl('VenueOnboarding'), { replace: true });
+          navigate(createPageUrl('VenueOnboarding') + '?new=1', { replace: true });
           return;
         }
         setAllowed(true);

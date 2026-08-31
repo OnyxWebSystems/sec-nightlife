@@ -488,17 +488,27 @@ export default function VenueOnboarding() {
         return;
       }
 
-      // Already onboarded venue accounts should not be forced through registration steps.
+      // Already-onboarded venue owners should not be forced through registration steps.
+      // Partygoer onboarding_complete must NOT block creating a business account.
       if (!isEditMode && !isNewVenue && !isStaffEdit) {
         try {
-          const { userProfile: meProfile } = await authService.getAuthSession();
-          if (meProfile?.onboarding_complete === true) {
+          let mines = [];
+          try {
+            mines = await dataService.Venue.mine();
+          } catch {
+            mines = [];
+          }
+          const ownedVenues = mines.filter((v) => v.is_owner === true || v.isOwner === true);
+          const isVenueRole = currentUser?.role === 'VENUE' || currentUser?.role === 'BUSINESS';
+          if (ownedVenues.length > 0 || isVenueRole) {
             markOnboardingComplete(uid);
-            navigate(createPageUrl('Profile'), { replace: true });
+            navigate(createPageUrl(ownedVenues.length > 0 ? 'BusinessDashboard' : 'Profile'), {
+              replace: true,
+            });
             return;
           }
         } catch {
-          /* continue into onboarding UI if session profile cannot be confirmed */
+          /* continue into onboarding UI if ownership cannot be confirmed */
         }
       }
 

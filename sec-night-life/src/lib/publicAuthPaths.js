@@ -20,6 +20,7 @@ export const ONBOARDING_EXEMPT_PAGES = new Set([
   'Onboarding',
   'ProfileSetup',
   'VenueOnboarding',
+  'Profile',
   'Welcome',
   'Home',
   'Events',
