@@ -263,7 +263,7 @@ function HomeSessionSkeleton() {
 export default function Home() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, userProfile, logout, checkAppState } = useAuth();
+  const { user, userProfile, logout, checkAppState, isLoadingAuth } = useAuth();
   const notificationUnread = useNotificationUnreadCount(!!user?.id);
   const { location: locPrefs, geoCoords } = usePreferences();
   const [searchQuery, setSearchQuery] = useState('');
@@ -305,6 +305,21 @@ export default function Home() {
       void checkAppState();
     }
   }, [user, checkAppState]);
+
+  // Dead / expired tokens must not trap guests on the Home skeleton.
+  useEffect(() => {
+    if (user || !hasStoredAuthTokens()) return undefined;
+    if (isLoadingAuth) {
+      const t = setTimeout(() => {
+        if (!user && hasStoredAuthTokens()) {
+          logout(false);
+        }
+      }, 10000);
+      return () => clearTimeout(t);
+    }
+    logout(false);
+    return undefined;
+  }, [user, isLoadingAuth, logout]);
 
   const guestBrowseReady = !!user?.id || !hasStoredAuthTokens();
 
@@ -771,6 +786,17 @@ export default function Home() {
           </p>
           <button
             type="button"
+            onClick={() => {
+              markEnterSeen();
+              setShowEnterSplash(false);
+            }}
+            className="sec-btn sec-btn-primary sec-btn-full"
+            style={{ fontSize: 15 }}
+          >
+            Browse nightlife
+          </button>
+          <button
+            type="button"
             onMouseEnter={() => prefetchPage('Onboarding')}
             onPointerDown={() => prefetchPage('Onboarding')}
             onClick={() => {
@@ -778,32 +804,27 @@ export default function Home() {
               setShowEnterSplash(false);
               navigate(createPageUrl('Onboarding'));
             }}
-            className="sec-btn sec-btn-primary sec-btn-full"
-            style={{ fontSize: 15 }}
-          >
-            Enter
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              markEnterSeen();
-              setShowEnterSplash(false);
-            }}
             className="sec-btn sec-btn-ghost sec-btn-full"
             style={{ fontSize: 14, marginTop: 12 }}
           >
-            Browse as guest
+            Create account
           </button>
-          <p
-            style={{
-              marginTop: 14,
-              color: 'var(--sec-text-muted)',
-              fontSize: 11,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
-            }}
-          >
-            Members only
+          <p style={{ marginTop: 16, fontSize: 13, color: 'var(--sec-text-muted)' }}>
+            Already have an account?{' '}
+            <button
+              type="button"
+              onMouseEnter={() => prefetchPage('Login')}
+              onPointerDown={() => prefetchPage('Login')}
+              onClick={() => {
+                markEnterSeen();
+                setShowEnterSplash(false);
+                navigate(createPageUrl('Login'));
+              }}
+              className="underline font-medium"
+              style={{ color: 'var(--sec-accent)' }}
+            >
+              Sign in
+            </button>
           </p>
         </div>
       </div>
@@ -1044,9 +1065,15 @@ export default function Home() {
                   <Users size={24} strokeWidth={1.5} style={{ color: 'var(--sec-text-muted)' }} />
                 </div>
                 <p style={{ color: 'var(--sec-text-muted)', fontSize: 14, marginBottom: 20 }}>No open tables right now</p>
-                <Link to={`${createPageUrl('HostDashboard')}?create=table`} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', padding: '10px 24px', textDecoration: 'none' }}>
-                  Host table/event
-                </Link>
+                {user ? (
+                  <Link to={`${createPageUrl('HostDashboard')}?create=table`} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', padding: '10px 24px', textDecoration: 'none' }}>
+                    Host table/event
+                  </Link>
+                ) : (
+                  <Link to={createPageUrl('Login')} className="sec-btn sec-btn-primary" style={{ display: 'inline-flex', padding: '10px 24px', textDecoration: 'none' }}>
+                    Sign in to host
+                  </Link>
+                )}
               </div>
             )}
           </section>

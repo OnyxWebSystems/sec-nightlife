@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { createPageUrl } from '@/utils';
+import { prefetchPage } from '@/pages.config';
 
 const COOKIE_NOTICE_KEY = 'sec_cookie_notice_v1';
 
@@ -20,6 +21,7 @@ export default function CookieNoticeBanner() {
       /* ignore */
     }
     setVisible(true);
+    void prefetchPage('CookiePolicy');
   }, []);
 
   if (!visible) return null;

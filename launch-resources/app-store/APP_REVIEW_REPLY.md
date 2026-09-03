@@ -1,43 +1,43 @@
-# App Store Review reply — Build 10 (Edit Profile fix)
+# App Store Review reply — Build 15 (Guideline 5.1.1 guest browse)
 
 Paste into **Reply to App Review** and **App Review Information → Notes**.
+
+Apple reviewed **1.0 (14)**. Please use **Build 15**.
 
 ---
 
 ```
 Hello App Review Team,
 
-Thank you for the follow-up review of SEC Nightlife on iPad and iPhone (Build 9).
+Thank you for the feedback on SEC Nightlife (Version 1.0, Build 14) regarding Guideline 5.1.1(v).
 
-We fixed the Edit Profile bug. Please review iOS 1.0 (Build 10).
+We revised the app so users can freely browse non-account features without registering or signing in. Please continue review with iOS 1.0 (Build 15).
 
 What we fixed
-- Opening Edit Profile crashed with a client error (“Something went wrong”) because a missing UI icon import broke the page on launch. That is fixed in Build 10.
-- Profile save validation was hardened so empty optional fields cannot cause invalid API requests.
+- Cold start now presents “Browse nightlife” as the primary action. Creating an account and signing in are secondary.
+- Login and Onboarding include “Continue without an account,” which opens Home as a guest.
+- Guests can open Home, Events, Map, venues, and table listings/details without signing in.
+- Account is still required only for account-based actions (buy tickets, join/book tables, messaging, hosting, profile management).
 
-Demo account (no authentication code required)
+How to verify guest browse (no account needed)
+1. Open the app (Build 15) as a new install or after signing out.
+2. Tap Browse nightlife.
+3. Browse Home feed, Events, Map, a venue, and a table detail page.
+4. Tap Join / Buy / Book — those actions correctly ask for Sign in.
+5. From Sign In or Create Account screens, tap Continue without an account to return to browsing.
+
+Demo account (for account-based features only; no OTP required)
 Email: onyxwebsystems@gmail.com
 Password: 123Sihle!
 
-Sign-in steps
-1. Open the app (Build 10).
-2. Enter the email and password above.
-3. Tap Sign In — you should enter the app directly (no emailed 6-digit code).
-
-How to verify the Edit Profile fix
-Settings → Edit profile (or Profile → pencil) → change Bio → Save. The screen should open and save successfully.
-
-Important — please do not purchase tickets
-Please do not buy any tickets for the event “Friends of Friends” hosted by AfroCityNations. That is a live event that real users will be attending. Feel free to browse the event details without completing a purchase.
-
-Suggested review path
-Home → open a venue/event (browse only for Friends of Friends) → Messages → Profile → Edit profile → Settings → Delete Account (show confirmation, then Cancel — please do not permanently delete this shared demo account).
+Important — live event
+Please do not purchase tickets for “Friends of Friends” hosted by AfroCityNations. Browsing that listing is fine.
 
 Support: support@secnightlife.com
 Help Center: https://secnightlife.com/HelpCenter
 Privacy Policy: https://secnightlife.com/PrivacyPolicy
 
-Please use Build 10 for this review. We are available immediately if you need anything else.
+Please use Build 15 for this review. We are available immediately if you need anything else.
 
 Thank you,
 Sihle Simelane

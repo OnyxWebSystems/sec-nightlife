@@ -426,8 +426,34 @@ export default function Profile() {
     displayProfile?.age_verified === true ||
     (isOwnProfile && user?.identity_verified);
 
-  if (isLoadingAuth || isRestoringSession || !user) {
+  if (isLoadingAuth || isRestoringSession) {
     return <SecLoadingScreen />;
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 gap-4 text-center">
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--sec-text-primary)' }}>
+          Sign in to view your profile
+        </h2>
+        <p className="text-sm max-w-sm" style={{ color: 'var(--sec-text-muted)' }}>
+          Browse events and venues without an account. Sign in when you want to manage your profile,
+          tickets, and friends.
+        </p>
+        <div className="flex flex-col gap-2 w-full max-w-xs">
+          <Button className="min-h-[44px] w-full" onClick={() => navigate(createPageUrl('Login'))}>
+            Sign in
+          </Button>
+          <Button
+            variant="outline"
+            className="min-h-[44px] w-full"
+            onClick={() => navigate(createPageUrl('Home'))}
+          >
+            Continue browsing
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   // Redirecting other-user Profile?id= → UserProfile

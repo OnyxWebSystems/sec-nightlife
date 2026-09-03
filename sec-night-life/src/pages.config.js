@@ -12,6 +12,8 @@ import Register from './pages/Register.jsx';
 import UserAgreement from './pages/UserAgreement.jsx';
 import TermsOfService from './pages/TermsOfService.jsx';
 import PrivacyPolicy from './pages/PrivacyPolicy.jsx';
+import CookiePolicy from './pages/CookiePolicy.jsx';
+import AgeVerificationDeclaration from './pages/AgeVerificationDeclaration.jsx';
 import { isStaleChunkLoadError, scheduleChunkReloadOnce } from './lib/chunkLoadRecovery';
 
 const modules = import.meta.glob('./pages/*.jsx');
@@ -33,6 +35,8 @@ const EAGER_PAGES = new Set([
   'UserAgreement',
   'TermsOfService',
   'PrivacyPolicy',
+  'CookiePolicy',
+  'AgeVerificationDeclaration',
 ]);
 
 /** Warm Vite chunk for a route name (e.g. "Profile") before navigation. Safe to call repeatedly. */
@@ -70,6 +74,8 @@ const EAGER_IMPORTS = {
   UserAgreement,
   TermsOfService,
   PrivacyPolicy,
+  CookiePolicy,
+  AgeVerificationDeclaration,
 };
 
 export const PAGES = Object.fromEntries(

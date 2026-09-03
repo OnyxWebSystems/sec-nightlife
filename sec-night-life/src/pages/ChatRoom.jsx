@@ -7,15 +7,27 @@ import { integrations } from '@/services/integrationService';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Info,
-  Paperclip
+  Paperclip,
+  Ban,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import ChatComposer from '@/components/messaging/ChatComposer';
 import PageBackHeader from '@/components/layout/PageBackHeader';
+import ReportDialog from '@/components/moderation/ReportDialog';
 import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useIsMobile } from '@/hooks/useIsDesktop';
+import { apiPost } from '@/api/client';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export default function ChatRoom() {
   const navigate = useNavigate();
@@ -31,10 +43,28 @@ export default function ChatRoom() {
   const [typingUsers, setTypingUsers] = useState([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [selectedReaction, setSelectedReaction] = useState(null);
+  const [blockTarget, setBlockTarget] = useState(null);
+  const [blocking, setBlocking] = useState(false);
   
   const [searchParams] = useSearchParams();
   const chatId = searchParams.get('id');
   const tableId = searchParams.get('table');
+
+  const onBlockConfirm = async () => {
+    if (!blockTarget?.id) return;
+    setBlocking(true);
+    try {
+      await apiPost(`/api/friends/block/${blockTarget.id}`, {
+        reason: 'Blocked from chat',
+      });
+      toast.success('User blocked. Their content is removed from your feed.');
+      setBlockTarget(null);
+    } catch (e) {
+      toast.error(e?.data?.error || 'Could not block user');
+    } finally {
+      setBlocking(false);
+    }
+  };
 
   useEffect(() => {
     loadUser();
@@ -293,13 +323,16 @@ export default function ChatRoom() {
           </button>
         }
       />
-      <div className="px-4 pb-2 shrink-0 border-b border-[#262629]">
+      <div className="px-4 pb-2 shrink-0 border-b border-[#262629] space-y-1">
         <Link
           to={createPageUrl('CommunityGuidelines')}
           className="text-xs text-gray-500 hover:text-gray-300 underline"
         >
           Community Guidelines
         </Link>
+        <p className="text-[11px] text-gray-500">
+          Tap a member&apos;s name to open their profile, or use Report / Block on their messages.
+        </p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0">
@@ -337,8 +370,36 @@ export default function ChatRoom() {
               ) : !isOwn ? <div className="w-8 shrink-0" /> : null}
 
               <div className={`max-w-[min(75%,calc(100vw-4rem))] min-w-0 ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
-                {showAvatar && !isOwn && sender?.username && (
-                  <span className="text-xs text-gray-500 px-2 mb-1">@{sender.username}</span>
+                {showAvatar && !isOwn && sender?.id && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 mb-1">
+                    <Link
+                      to={`${createPageUrl('UserProfile')}?id=${encodeURIComponent(sender.id)}`}
+                      className="text-xs text-gray-500 hover:text-gray-300"
+                    >
+                      @{sender.username || 'user'}
+                    </Link>
+                    <ReportDialog
+                      targetType="user"
+                      targetId={sender.id}
+                      targetLabel={sender.username || sender.full_name || 'user'}
+                      triggerLabel="Report"
+                      triggerVariant="ghost"
+                      triggerClassName="h-auto min-h-0 px-0 py-0 text-xs text-red-400/90 hover:text-red-300 hover:bg-transparent"
+                    />
+                    <button
+                      type="button"
+                      className="text-xs text-red-400/90 hover:text-red-300 inline-flex items-center gap-0.5"
+                      onClick={() =>
+                        setBlockTarget({
+                          id: sender.id,
+                          label: sender.username || sender.full_name || 'user',
+                        })
+                      }
+                    >
+                      <Ban className="w-3 h-3" />
+                      Block
+                    </button>
+                  </div>
                 )}
                 <div className="relative group min-w-0 max-w-full">
                   <div
@@ -444,6 +505,33 @@ export default function ChatRoom() {
         inputRef={messageInputRef}
         onEmojiOpenChange={() => scrollToBottom()}
       />
+
+      <AlertDialog
+        open={!!blockTarget}
+        onOpenChange={(open) => {
+          if (!open) setBlockTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Block @{blockTarget?.label || 'user'}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Blocking removes their content from your feed immediately and notifies SEC safety
+            review.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={blocking}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={blocking}
+              onClick={(e) => {
+                e.preventDefault();
+                void onBlockConfirm();
+              }}
+            >
+              {blocking ? 'Blocking…' : 'Block'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

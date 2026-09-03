@@ -453,12 +453,30 @@ export default function Login() {
         )}
 
         {step !== 'otp' && (
-          <p className="mt-6 text-center text-gray-500 text-sm">
-            Don&apos;t have an account?{' '}
-            <Link to={registerHref} className="text-[var(--sec-accent)] hover:underline">
-              Sign up
-            </Link>
-          </p>
+          <>
+            <p className="mt-6 text-center text-gray-500 text-sm">
+              Don&apos;t have an account?{' '}
+              <Link to={registerHref} className="text-[var(--sec-accent)] hover:underline">
+                Sign up
+              </Link>
+            </p>
+            <p className="mt-4 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.setItem('sec_enter_seen_v1', '1');
+                  } catch {
+                    /* ignore */
+                  }
+                  navigate(createPageUrl('Home'), { replace: true });
+                }}
+                className="text-sm font-medium text-[var(--sec-accent)] hover:underline"
+              >
+                Continue without an account
+              </button>
+            </p>
+          </>
         )}
       </div>
     </div>

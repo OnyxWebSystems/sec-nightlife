@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import * as authService from '@/services/authService';
-import { getRefreshToken } from '@/api/client';
+import { getRefreshToken, clearTokens } from '@/api/client';
 import {
   readSessionCache,
   writeSessionCache,
@@ -197,6 +197,7 @@ export const AuthProvider = ({ children }) => {
 
         // Never treat as auth_required while a refresh token still exists.
         if ((err?.status === 401 || err?.status === 403) && !refreshStillValid && !hadCachedUser) {
+          clearTokens();
           clearSessionCache();
           setUser(null);
           setUserProfile(null);

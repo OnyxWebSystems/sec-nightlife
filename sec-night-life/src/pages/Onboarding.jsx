@@ -130,10 +130,32 @@ export default function Onboarding() {
           </button>
         </div>
 
-        <div className="mt-8 text-center">
-          <button onClick={() => navigate(createPageUrl('Home'))} className="text-sm" style={{ color: 'var(--sec-text-muted)' }}>
-            Back
+        <div className="mt-8 text-center space-y-3">
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                localStorage.setItem('sec_enter_seen_v1', '1');
+              } catch {
+                /* ignore */
+              }
+              navigate(createPageUrl('Home'), { replace: true });
+            }}
+            className="text-sm font-medium underline"
+            style={{ color: 'var(--sec-accent)' }}
+          >
+            Continue without an account
           </button>
+          <div>
+            <button
+              type="button"
+              onClick={() => navigate(createPageUrl('Home'))}
+              className="text-sm"
+              style={{ color: 'var(--sec-text-muted)' }}
+            >
+              Back
+            </button>
+          </div>
         </div>
       </div>
     </div>

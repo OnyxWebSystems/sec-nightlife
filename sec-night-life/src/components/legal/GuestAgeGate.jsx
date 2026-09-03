@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { prefetchPage } from '@/pages.config';
 
 const AGE_GATE_KEY = 'sec_age_gate_18_v1';
 
@@ -18,6 +19,8 @@ export default function GuestAgeGate() {
       /* ignore */
     }
     setOpen(true);
+    void prefetchPage('AgeVerificationDeclaration');
+    void prefetchPage('TermsOfService');
   }, []);
 
   if (!open) return null;
