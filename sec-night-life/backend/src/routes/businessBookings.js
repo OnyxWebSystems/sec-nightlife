@@ -3552,6 +3552,51 @@ router.post('/venue-tables/:tableId/boost', authenticateToken, async (req, res, 
   }
 });
 
+router.get('/event-options', authenticateToken, async (req, res, next) => {
+  try {
+    const venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
+    if (!venueIds.length) {
+      if (venueIdFromQuery(req.query)) return res.status(404).json({ error: 'Venue not found' });
+      return res.json({ items: [], total: 0, hasMore: false, skip: 0, limit: 30 });
+    }
+    const q = String(req.query.q || req.query.search || '').trim();
+    const idFilter = String(req.query.id || '').trim();
+    const take = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 50);
+    const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
+    const where = {
+      venueId: { in: venueIds },
+      deletedAt: null,
+      ...(idFilter ? { id: idFilter } : {}),
+      ...(q && !idFilter ? { title: { contains: q, mode: 'insensitive' } } : {}),
+    };
+    const [total, events] = await Promise.all([
+      prisma.event.count({ where }),
+      prisma.event.findMany({
+        where,
+        orderBy: { date: 'desc' },
+        skip: idFilter ? 0 : skip,
+        take: idFilter ? 1 : take,
+        select: { id: true, title: true, date: true, startTime: true, status: true },
+      }),
+    ]);
+    res.json({
+      items: events.map((e) => ({
+        id: e.id,
+        title: e.title,
+        date: e.date,
+        startTime: e.startTime,
+        status: e.status,
+      })),
+      total,
+      hasMore: Boolean(!idFilter && skip + events.length < total),
+      skip: idFilter ? 0 : skip,
+      limit: idFilter ? 1 : take,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/orders', authenticateToken, async (req, res, next) => {
   try {
     const venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));

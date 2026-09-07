@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -16,6 +16,7 @@ import {
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
 import OrderFulfillControls, { OrderStatusBadge } from '@/components/business/OrderFulfillControls';
+import EventSearchSelect from '@/components/business/EventSearchSelect';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { format, parseISO } from 'date-fns';
@@ -373,29 +374,9 @@ export default function BusinessBookings() {
   const eventSummary = bookingsData?.summary;
   const ticketSummary = ticketBookingsData?.summary;
 
-  const eventOptions = useMemo(() => {
-    const fromApi = bookingsData?.eventSummaries;
-    if (Array.isArray(fromApi) && fromApi.length) {
-      return fromApi.map((e) => ({
-        id: e.id,
-        label: e.title?.trim() || (e.date ? `Untitled event (${e.date})` : 'Untitled event'),
-      }));
-    }
-    return [];
-  }, [bookingsData?.eventSummaries]);
-
-  const orderEventOptions = useMemo(() => {
-    const fromApi = ordersData?.filters?.events;
-    if (!Array.isArray(fromApi) || !fromApi.length) return [];
-    return fromApi.map((e) => ({
-      id: e.id,
-      label: e.title?.trim() || (e.date ? `Untitled event (${e.date})` : 'Untitled event'),
-    }));
-  }, [ordersData?.filters?.events]);
-
   useEffect(() => {
     setSelectedEventId('all');
-  }, [eventTimeScope, scopeKey]);
+  }, [scopeKey]);
 
   useEffect(() => {
     if (!eventTablesError || !eventTablesQueryError) return;
@@ -404,30 +385,14 @@ export default function BusinessBookings() {
   }, [eventTablesError, eventTablesQueryError]);
 
   useEffect(() => {
-    if (selectedEventId === 'all') return;
-    const ids = eventOptions.map((o) => o.id);
-    if (ids.length && !ids.includes(selectedEventId)) {
-      setSelectedEventId('all');
-    }
-  }, [eventOptions, selectedEventId]);
-
-  useEffect(() => {
     setTicketEventId('all');
-  }, [ticketEventTimeScope, scopeKey]);
+  }, [scopeKey]);
 
   useEffect(() => {
     setOrderEventId('all');
     setOrderDate('');
     setOrderSource('all');
   }, [scopeKey]);
-
-  useEffect(() => {
-    if (orderEventId === 'all') return;
-    const ids = orderEventOptions.map((o) => o.id);
-    if (ids.length && !ids.includes(orderEventId)) {
-      setOrderEventId('all');
-    }
-  }, [orderEventOptions, orderEventId]);
 
   const filteredEventTables = eventTables
     .filter((group) => {
@@ -621,17 +586,12 @@ export default function BusinessBookings() {
                 style={selectTriggerStyle}
                 aria-label="Filter by date"
               />
-              <Select value={orderEventId} onValueChange={setOrderEventId}>
-                <SelectTrigger className="w-full sm:w-[220px] h-10 rounded-xl" style={selectTriggerStyle}>
-                  <SelectValue placeholder="Event" />
-                </SelectTrigger>
-                <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
-                  <SelectItem value="all">All events</SelectItem>
-                  {orderEventOptions.map((opt) => (
-                    <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <EventSearchSelect
+                value={orderEventId}
+                onValueChange={setOrderEventId}
+                venueScope={venueScope}
+                triggerStyle={selectTriggerStyle}
+              />
               <Select value={orderSource} onValueChange={setOrderSource}>
                 <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
                   <SelectValue />
@@ -752,17 +712,15 @@ export default function BusinessBookings() {
                       <SelectItem value="GUEST">Guest join</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={selectedEventId} onValueChange={setSelectedEventId}>
-                    <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
-                      <SelectValue placeholder="Event" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
-                      <SelectItem value="all">All events</SelectItem>
-                      {eventOptions.map((opt) => (
-                        <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <EventSearchSelect
+                    value={selectedEventId}
+                    onValueChange={(id) => {
+                      setSelectedEventId(id);
+                      if (id !== 'all') setEventTimeScope('all');
+                    }}
+                    venueScope={venueScope}
+                    triggerStyle={selectTriggerStyle}
+                  />
                 </FilterBar>
 
                 {eventTablesLoading ? (
@@ -1015,17 +973,15 @@ export default function BusinessBookings() {
                       <SelectItem value="all">All</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={ticketEventId} onValueChange={setTicketEventId}>
-                    <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
-                      <SelectValue placeholder="Event" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
-                      <SelectItem value="all">All events</SelectItem>
-                      {(ticketBookingsData?.eventSummaries || []).map((e) => (
-                        <SelectItem key={e.id} value={e.id}>{e.title || 'Untitled event'}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <EventSearchSelect
+                    value={ticketEventId}
+                    onValueChange={(id) => {
+                      setTicketEventId(id);
+                      if (id !== 'all') setTicketEventTimeScope('all');
+                    }}
+                    venueScope={venueScope}
+                    triggerStyle={selectTriggerStyle}
+                  />
                 </FilterBar>
 
                 {ticketsLoading ? (
@@ -1117,17 +1073,15 @@ export default function BusinessBookings() {
                       <SelectItem value="all">All</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={ticketEventId} onValueChange={setTicketEventId}>
-                    <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
-                      <SelectValue placeholder="Event" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
-                      <SelectItem value="all">All events</SelectItem>
-                      {(ticketBookingsData?.eventSummaries || []).map((e) => (
-                        <SelectItem key={e.id} value={e.id}>{e.title || 'Untitled event'}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <EventSearchSelect
+                    value={ticketEventId}
+                    onValueChange={(id) => {
+                      setTicketEventId(id);
+                      if (id !== 'all') setTicketEventTimeScope('all');
+                    }}
+                    venueScope={venueScope}
+                    triggerStyle={selectTriggerStyle}
+                  />
                 </FilterBar>
 
                 {ticketsLoading ? (

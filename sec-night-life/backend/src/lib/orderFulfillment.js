@@ -798,14 +798,10 @@ export async function listVenueServeableOrders(db, {
   items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   items = items.slice(0, take);
 
-  const filterEvents = [...events]
-    .map((e) => ({ id: e.id, title: e.title, date: e.date }))
-    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-
   return {
     items,
     summary: { pending, fulfilled, total: pending + fulfilled },
-    filters: { events: filterEvents },
+    filters: { events: [] },
   };
 }
 
