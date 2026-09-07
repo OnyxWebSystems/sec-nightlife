@@ -7,8 +7,35 @@ import { buildTicketDoorContext } from '../lib/ticketDoorContext.js';
 import { buildTicketVerifyUrlWithHints, defaultTicketVerifyOrigin } from '../lib/ticketVerifyUrl.js';
 import { evaluatePrintedHints, hostInstructionsForKind } from '../lib/ticketVerifyHints.js';
 import { assertAdmitPermission, admitTicketTx, evaluateTicketEntryValidity } from '../lib/ticketAdmit.js';
+import {
+  assertOrderFulfillPermission,
+  buildTicketOrderPayload,
+  fulfillOrderByReference,
+  unfulfillOrderByReference,
+} from '../lib/orderFulfillment.js';
 
 const router = Router();
+
+async function orderFieldsForQr(req, ticket, door) {
+  const order = await buildTicketOrderPayload(prisma, ticket);
+  let staffCanFulfill = false;
+  let fulfill_denied_reason = null;
+  if (req.userId && order.has_serveable_order && door?.venue_id) {
+    const perm = await assertOrderFulfillPermission(prisma, {
+      userId: req.userId,
+      userRole: req.userRole,
+      venueId: door.venue_id,
+    });
+    staffCanFulfill = perm.ok;
+    if (!perm.ok) fulfill_denied_reason = perm.reason || null;
+  }
+  return {
+    ...order,
+    can_fulfill_here: Boolean(staffCanFulfill && !order.order_fulfilled),
+    can_unfulfill_here: Boolean(staffCanFulfill && order.order_fulfilled),
+    fulfill_denied_reason: staffCanFulfill ? null : fulfill_denied_reason,
+  };
+}
 
 function doorVerifySummary(door, holderName) {
   const bits = [];
@@ -177,6 +204,7 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
     const door_verify_summary = doorVerifySummary(door, holder);
     const hintEval = evaluatePrintedHints(req.query, door, t);
     const host_instructions = hostInstructionsForKind(t.kind);
+    const orderFields = await orderFieldsForQr(req, t, door);
 
     if (expiresAt <= now) {
       const doorFieldsExpired = {
@@ -210,6 +238,7 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
         event_starts_at: t.eventStartsAt,
         expires_at: expiresAt,
         ...doorFieldsExpired,
+        ...orderFields,
       });
     }
 
@@ -262,6 +291,7 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
         event_starts_at: t.eventStartsAt,
         expires_at: expiresAt,
         ...doorFields,
+        ...orderFields,
       });
     }
 
@@ -282,9 +312,46 @@ router.get('/qr', optionalAuth, async (req, res, next) => {
       event_starts_at: t.eventStartsAt,
       expires_at: expiresAt,
       ...doorFields,
+      ...orderFields,
     });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ valid: false, reason: 'Invalid token' });
+    next(err);
+  }
+});
+
+router.post('/fulfill-order', authenticateToken, async (req, res, next) => {
+  try {
+    const body = z.object({ qr_token: z.string().min(10) }).parse(req.body ?? {});
+    const ticket = await prisma.ticket.findUnique({ where: { qrToken: body.qr_token } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const out = await fulfillOrderByReference(prisma, {
+      rawReference: ticket.paystackReference,
+      staffUserId: req.userId,
+      staffRole: req.userRole,
+    });
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    res.json({ success: true, order_fulfilled: true, fulfilled_at: out.order.fulfilledAt });
+  } catch (err) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    next(err);
+  }
+});
+
+router.post('/unfulfill-order', authenticateToken, async (req, res, next) => {
+  try {
+    const body = z.object({ qr_token: z.string().min(10) }).parse(req.body ?? {});
+    const ticket = await prisma.ticket.findUnique({ where: { qrToken: body.qr_token } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const out = await unfulfillOrderByReference(prisma, {
+      rawReference: ticket.paystackReference,
+      staffUserId: req.userId,
+      staffRole: req.userRole,
+    });
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    res.json({ success: true, order_fulfilled: false });
+  } catch (err) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     next(err);
   }
 });

@@ -52,6 +52,19 @@ import {
   isDayBookingSessionEnded,
   inferMemberSessionNumber as inferMemberSessionFromReceipt,
 } from '../lib/tableSessionReceipt.js';
+import {
+  assertOrderFulfillPermission,
+  canonicalOrderReference,
+  fulfillOrderByReference,
+  fulfillmentMapForReferences,
+  guestRecordMatchesSearch,
+  listVenueServeableOrders,
+  normalizeGuestSearch,
+  parseMenuItemLines,
+  serializeOrderForClient,
+  textMatchesGuestSearch,
+  unfulfillOrderByReference,
+} from '../lib/orderFulfillment.js';
 
 const router = Router();
 
@@ -870,6 +883,24 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
     }));
 
     const groupedItems = groupEventTableBookingsByTable(mappedWithVenueGuests, refundedRefs);
+    const q = normalizeGuestSearch(req.query.q);
+    const filteredItems = q
+      ? groupedItems.filter((group) => {
+          const tableHay = `${group?.event?.title || ''} ${group?.hostedTable?.tableName || ''}`;
+          if (textMatchesGuestSearch(tableHay, q)) return true;
+          return (group.transactions || []).some((t) =>
+            guestRecordMatchesSearch(
+              {
+                username: t?.user?.username,
+                fullName: t?.user?.fullName,
+                eventTitle: group?.event?.title,
+                tableName: group?.hostedTable?.tableName,
+              },
+              q,
+            ),
+          );
+        })
+      : groupedItems;
 
     const summary = {
       configuredTableSlots,
@@ -877,8 +908,8 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       hostedTablesFull,
       totalGoingHeadcount,
       pendingJoinRequests,
-      tableCount: groupedItems.length,
-      totalPaidZar: groupedItems.reduce((s, g) => s + Number(g.totalPaidZar || 0), 0),
+      tableCount: filteredItems.length,
+      totalPaidZar: filteredItems.reduce((s, g) => s + Number(g.totalPaidZar || 0), 0),
       statsByRole: {
         all: rollBookingStats(rawForStats),
         HOST: rollBookingStats(rawForStats.filter((x) => x.role === 'HOST')),
@@ -886,7 +917,7 @@ router.get('/event-table-bookings', authenticateToken, async (req, res, next) =>
       },
     };
 
-    res.json({ items: groupedItems, eventSummaries, summary, eventScope });
+    res.json({ items: filteredItems, eventSummaries, summary, eventScope });
   } catch (e) {
     next(e);
   }
@@ -2501,7 +2532,7 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
         venueTable: { venueId: { in: venueIds }, eventId: null },
       },
       include: {
-        user: { select: { id: true, fullName: true, userProfile: { select: { username: true } } } },
+        user: { select: { id: true, fullName: true, username: true, userProfile: { select: { username: true } } } },
         venueTable: {
           include: {
             venue: { select: { id: true, name: true, city: true } },
@@ -2606,7 +2637,42 @@ router.get('/venue-table-bookings', authenticateToken, async (req, res, next) =>
       sessionGroups.set(key, preferRow);
     }
 
-    res.json({ items: [...sessionGroups.values()] });
+    const q = normalizeGuestSearch(req.query.q);
+    let items = [...sessionGroups.values()];
+    if (q) {
+      items = items.filter((row) =>
+        guestRecordMatchesSearch(
+          {
+            username: row.user?.username,
+            fullName: row.user?.fullName,
+            tableName: row.table?.tableName,
+            eventTitle: row.table?.venue?.name,
+          },
+          q,
+        ),
+      );
+    }
+
+    const fulfillMap = await fulfillmentMapForReferences(
+      prisma,
+      items.map((row) => row.paystackReference),
+    );
+    items = items.map((row) => {
+      const menuItems = parseMenuItemLines(row.selectedMenuItems);
+      const f = fulfillMap.get(canonicalOrderReference(row.paystackReference));
+      const hasServeableOrder =
+        menuItems.length > 0 ||
+        ['PREPAY_MENU', 'PREPAY_LUMP'].includes(String(row.settlementMode || ''));
+      return {
+        ...row,
+        menuItems,
+        hasServeableOrder,
+        orderFulfilled: Boolean(f),
+        orderFulfilledAt: f?.fulfilledAt || null,
+      };
+    });
+
+    res.json({ items });
   } catch (e) {
     next(e);
   }
@@ -2860,7 +2926,7 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
       const ev = t.eventId ? eventById.get(t.eventId) : null;
       if (!groups.has(baseRef)) {
         const pay = paymentByRef.get(baseRef);
-        const meta = pay?.metadata && typeof pay.metadata === 'object' ? pay.metadata : {};
+        const meta = flattenPaymentMetadata(pay?.metadata);
         groups.set(baseRef, {
           id: baseRef,
           paystackReference: baseRef,
@@ -2882,7 +2948,8 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
           platformFeeZar: pay ? platformFeeFromPayment(pay) : 0,
           amountPaidZar: pay ? Number(pay.amount) || 0 : 0,
           purchasedAt: pay?.createdAt || t.createdAt,
-          menuAddons: [],
+          menuAddons: parseMenuItemLines(meta.selected_menu_items ?? meta.selectedMenuItems),
+          menuZar: Number(meta.menu_zar || meta.menu_total_zar || 0),
           fulfillmentPending: false,
         });
       }
@@ -2966,7 +3033,8 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
         platformFeeZar: platformFeeFromPayment(pay),
         amountPaidZar: Number(pay.amount) || 0,
         purchasedAt: pay.createdAt,
-        menuAddons: [],
+        menuAddons: parseMenuItemLines(meta.selected_menu_items ?? meta.selectedMenuItems),
+        menuZar: Number(meta.menu_zar || meta.menu_total_zar || 0),
         fulfillmentPending: true,
       });
       ticketEventIds.add(ev.id);
@@ -3049,6 +3117,34 @@ router.get('/ticket-bookings', authenticateToken, async (req, res, next) => {
     }
 
     items.sort((a, b) => new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime());
+
+    const q = normalizeGuestSearch(req.query.q);
+    if (q) {
+      items = items.filter((order) =>
+        guestRecordMatchesSearch(
+          {
+            username: order.purchaser?.username,
+            fullName: order.purchaser?.fullName,
+            eventTitle: order.event?.title,
+            tableName: order.tierName,
+            paystackReference: order.paystackReference,
+          },
+          q,
+        ),
+      );
+    }
+
+    const ticketFulfillMap = await fulfillmentMapForReferences(
+      prisma,
+      items.map((i) => i.paystackReference),
+    );
+    for (const item of items) {
+      const f = ticketFulfillMap.get(canonicalOrderReference(item.paystackReference));
+      const menuAddons = Array.isArray(item.menuAddons) ? item.menuAddons : [];
+      item.hasServeableOrder = menuAddons.length > 0 || Number(item.menuZar || 0) > 0;
+      item.orderFulfilled = Boolean(f);
+      item.orderFulfilledAt = f?.fulfilledAt || null;
+    }
 
     const activeItems = items.filter((i) => i.refundStatus !== 'APPROVED' && i.refundStatus !== 'REJECTED');
 
@@ -3451,6 +3547,65 @@ router.post('/venue-tables/:tableId/boost', authenticateToken, async (req, res, 
       max_boost_days: maxDays,
       zar_per_day: FEED_BOOST_ZAR_PER_DAY,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/orders', authenticateToken, async (req, res, next) => {
+  try {
+    const venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
+    if (!venueIds.length) {
+      if (venueIdFromQuery(req.query)) return res.status(404).json({ error: 'Venue not found' });
+      return res.json({ items: [], summary: { pending: 0, fulfilled: 0, total: 0 } });
+    }
+    const status = String(req.query.status || 'pending').toLowerCase();
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const result = await listVenueServeableOrders(prisma, { venueIds, q, status });
+    res.json({
+      items: result.items.map(serializeOrderForClient),
+      summary: result.summary,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/orders/:reference/fulfill', authenticateToken, async (req, res, next) => {
+  try {
+    const out = await fulfillOrderByReference(prisma, {
+      rawReference: req.params.reference,
+      staffUserId: req.userId,
+      staffRole: req.userRole,
+    });
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    const venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
+    if (!venueIds.includes(out.order.venueId) && !venueIds.length) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (venueIds.length && !venueIds.includes(out.order.venueId)) {
+      const perm = await assertOrderFulfillPermission(prisma, {
+        userId: req.userId,
+        userRole: req.userRole,
+        venueId: out.order.venueId,
+      });
+      if (!perm.ok) return res.status(403).json({ error: perm.reason });
+    }
+    res.json({ success: true, order: serializeOrderForClient(out.order) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/orders/:reference/unfulfill', authenticateToken, async (req, res, next) => {
+  try {
+    const out = await unfulfillOrderByReference(prisma, {
+      rawReference: req.params.reference,
+      staffUserId: req.userId,
+      staffRole: req.userRole,
+    });
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    res.json({ success: true, order: serializeOrderForClient(out.order) });
   } catch (e) {
     next(e);
   }

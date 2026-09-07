@@ -4,6 +4,10 @@ import { flattenPaymentMetadata, basePaymentReference } from './paymentMetadata.
 import { resolveVenueMenuSelections } from './menuHelpers.js';
 import { resolveVenueContextForHostedTable } from './venueTableHostAfterPayment.js';
 import { resolveDailySessionNumber } from './dailyTableSession.js';
+import {
+  applyFulfillmentToParticipant,
+  fulfillmentMapForReferences,
+} from './orderFulfillment.js';
 
 const userSelect = {
   id: true,
@@ -282,6 +286,8 @@ export async function buildTableSessionReceipt({
         joinFeeZar: 0,
         menuZar: Number(row.menuTotalZar || lineTotal),
         entranceZar: Number(row.entranceZar || 0),
+        paystackReference: row.paystackReference,
+        minimumSpendZar: Number(row.minimumSpendZar || 0),
       };
     } else if (row.role === 'GUEST') {
       members.push({
@@ -294,6 +300,8 @@ export async function buildTableSessionReceipt({
         joinFeeZar: Number(row.componentZar || 0),
         menuZar: Number(row.menuTotalZar || 0),
         entranceZar: Number(row.entranceZar || 0),
+        paystackReference: row.paystackReference,
+        minimumSpendZar: Number(row.minimumSpendZar || 0),
       });
     }
   }
@@ -415,6 +423,12 @@ export async function buildTableSessionReceipt({
   const totalPaidZar =
     Math.round(transactions.reduce((s, t) => s + Number(t.lineTotalZar || 0), 0) * 100) / 100;
 
+  const fulfillMap = await fulfillmentMapForReferences(prisma, [
+    hostOut?.paystackReference,
+    ...members.map((m) => m.paystackReference),
+    ...transactions.map((t) => t.paystackReference),
+  ]);
+
   return {
     venueId,
     tableName,
@@ -424,9 +438,11 @@ export async function buildTableSessionReceipt({
     sessionNumber,
     sessionWindow,
     status,
-    host: hostOut,
-    members,
-    transactions: transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    host: applyFulfillmentToParticipant(hostOut, fulfillMap),
+    members: members.map((m) => applyFulfillmentToParticipant(m, fulfillMap)),
+    transactions: transactions
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map((t) => applyFulfillmentToParticipant(t, fulfillMap)),
     totalPaidZar,
     canManageLive: canManageLive && Boolean(ht?.id),
     hostedTableId: ht?.id || null,

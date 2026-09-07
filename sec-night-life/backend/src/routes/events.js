@@ -19,6 +19,7 @@ import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
 import { buildEventTableTiers, statsFromEventTableTiers } from '../lib/eventTableTiers.js';
 import { resolveEventSeatingPlans, getVenueDefaultSeatingPlan, attachGuestSeatingPlans } from '../lib/seatingPlanHelpers.js';
 import { normalizeTicketTiers } from '../lib/issueEventTickets.js';
+import { ticketTiersAllowMenuAddons } from '../lib/ticketCheckout.js';
 import { countUserEventTicketsByTier } from '../lib/ticketTierCaps.js';
 import {
   assertEventCodeUniqueForVenue,
@@ -1407,7 +1408,9 @@ router.post('/', authenticateToken, async (req, res, next) => {
         hostingConfig: hasHostingTiers ? normalizedHosting : null,
         eventFormat,
         allowsTicketMenuAddons:
-          eventFormat === 'TICKETING_ONLY' ? Boolean(d.allows_ticket_menu_addons) : false,
+          eventFormat === 'TICKETING_ONLY'
+            ? Boolean(d.allows_ticket_menu_addons) || ticketTiersAllowMenuAddons(d.ticket_tiers)
+            : false,
         eventCode: codeFmt.code,
         showSeatingPlan: seatingFields.showSeatingPlan,
         seatingPlanId: seatingFields.seatingPlanId,
@@ -1511,11 +1514,13 @@ router.patch('/:id', authenticateToken, async (req, res, next) => {
       updates.entranceFeeAmount = nextHasFee ? nextAmount : null;
     }
 
-    if (d.allows_ticket_menu_addons !== undefined) {
-      updates.allowsTicketMenuAddons =
-        nextFormat === 'TICKETING_ONLY' ? Boolean(d.allows_ticket_menu_addons) : false;
-    } else if (nextFormat === 'TICKETING_ONLY' && d.event_format != null) {
+    if (nextFormat !== 'TICKETING_ONLY') {
       updates.allowsTicketMenuAddons = false;
+    } else if (d.ticket_tiers != null || d.allows_ticket_menu_addons !== undefined || d.event_format != null) {
+      const tiersForMenuFlag =
+        updates.ticketTiers !== undefined ? updates.ticketTiers : event.ticketTiers;
+      updates.allowsTicketMenuAddons =
+        ticketTiersAllowMenuAddons(tiersForMenuFlag) || Boolean(d.allows_ticket_menu_addons);
     }
 
     if (d.hosting_config !== undefined) {

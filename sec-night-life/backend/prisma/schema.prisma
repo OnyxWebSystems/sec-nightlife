@@ -244,6 +244,13 @@ enum TicketKind {
   VENUE_TABLE_JOIN
 }
 
+enum OrderFulfillmentKind {
+  TICKET_MENU
+  TABLE_MENU
+  MIN_SPEND
+  ENTRANCE_MENU
+}
+
 enum PayoutRecipientType {
   USER
   VENUE
@@ -443,6 +450,8 @@ model User {
   pushDeviceTokens            PushDeviceToken[]
   refundRequests              RefundRequest[]            @relation("RefundRequestUser")
   refundRequestsApproved      RefundRequest[]            @relation("RefundRequestApprovedBy")
+  orderFulfillments           OrderFulfillment[]
+  ordersFulfilledAsStaff      OrderFulfillment[]         @relation("OrderFulfilledBy")
 
   @@unique([email, role])
   @@index([email])
@@ -657,6 +666,7 @@ model Venue {
   inAppNotifications  InAppNotification[] @relation("VenueInAppNotifications")
   refundRequests      RefundRequest[]
   seatingPlans        VenueSeatingPlan[]
+  orderFulfillments   OrderFulfillment[]
 
   @@index([ownerUserId])
   @@index([city])
@@ -1364,6 +1374,26 @@ model Payment {
   @@index([type])
   @@index([refundStatus])
   @@map("payments")
+}
+
+/// Per paid order: venue staff marked menu / min-spend as served (not door entry).
+model OrderFulfillment {
+  id                String               @id @default(cuid())
+  venueId           String               @map("venue_id")
+  userId            String               @map("user_id")
+  paystackReference String               @unique @map("paystack_reference")
+  kind              OrderFulfillmentKind
+  fulfilledAt       DateTime             @default(now()) @map("fulfilled_at")
+  fulfilledByUserId String               @map("fulfilled_by_user_id")
+
+  venue       Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  user        User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fulfilledBy User  @relation("OrderFulfilledBy", fields: [fulfilledByUserId], references: [id], onDelete: Cascade)
+
+  @@index([venueId])
+  @@index([userId])
+  @@index([fulfilledByUserId])
+  @@map("order_fulfillments")
 }
 
 model Ticket {

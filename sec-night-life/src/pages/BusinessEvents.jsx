@@ -88,7 +88,15 @@ function parseTierSlotsTotal(tiers = []) {
   return tiers.reduce((acc, t) => acc + (parseInt(String(t?.tier_table_slots || ''), 10) || 0), 0);
 }
 
-const EMPTY_TICKET_TIER = { name: '', price: '', quantity: '', max_per_user: '', description: '', sold: 0 };
+const EMPTY_TICKET_TIER = {
+  name: '',
+  price: '',
+  quantity: '',
+  max_per_user: '',
+  description: '',
+  sold: 0,
+  allows_menu_addons: false,
+};
 
 const EMPTY_EVENT = {
   title: '', description: '', date: '', city: '', location_address: '', location_city: '', location_suburb: '', location_province: '', status: 'draft',
@@ -346,7 +354,15 @@ export default function BusinessEvents() {
       location_province: evt.location_province || '',
       status: evt.status || 'draft',
       cover_image_url: evt.cover_image_url || '',
-      ticket_tiers: evt.ticket_tiers || [],
+      ticket_tiers: (evt.ticket_tiers || []).map((t) => ({
+        ...t,
+        allows_menu_addons:
+          t.allows_menu_addons === true || t.allowsMenuAddons === true
+            ? true
+            : t.allows_menu_addons === false || t.allowsMenuAddons === false
+              ? false
+              : Boolean(evt.allows_ticket_menu_addons),
+      })),
       start_time: evt.start_time || '',
       ends_at: isoToDatetimeLocal(evt.ends_at),
       has_entrance_fee: !!evt.has_entrance_fee,
@@ -447,6 +463,7 @@ export default function BusinessEvents() {
           quantity: parseInt(String(t.quantity), 10) || 0,
           description: String(t.description || '').trim(),
           sold: Number(t.sold) || 0,
+          allows_menu_addons: Boolean(t.allows_menu_addons),
         };
         const capRaw = String(t.max_per_user ?? '').trim();
         if (capRaw) {
@@ -482,7 +499,7 @@ export default function BusinessEvents() {
       payload.ticket_tiers = tiers;
       payload.has_entrance_fee = false;
       payload.entrance_fee_amount = null;
-      payload.allows_ticket_menu_addons = false;
+      payload.allows_ticket_menu_addons = tiers.some((t) => t.allows_menu_addons);
     } else {
       payload.allows_ticket_menu_addons = false;
     }
@@ -1041,7 +1058,7 @@ export default function BusinessEvents() {
               >
                 <h3 className="text-sm font-semibold">Ticket tiers</h3>
                 <p className="text-xs text-gray-500">
-                  Guests buy tickets only — no table hosting or entrance fee. Each ticket gets its own QR with tier details.
+                  Guests buy tickets — no table hosting or entrance fee. Each ticket gets its own QR. Optionally let guests add paid items from your venue menu on a tier.
                 </p>
                 {(form.ticket_tiers || []).map((tier, idx) => (
                   <div
@@ -1111,6 +1128,34 @@ export default function BusinessEvents() {
                       }}
                       className="rounded-xl text-sm"
                     />
+                    <div className="flex items-start gap-2 pt-1">
+                      <Checkbox
+                        id={`ticket-tier-menu-${idx}`}
+                        checked={Boolean(tier.allows_menu_addons)}
+                        onCheckedChange={(v) => {
+                          const next = [...(form.ticket_tiers || [])];
+                          next[idx] = { ...next[idx], allows_menu_addons: v === true };
+                          setForm((p) => ({ ...p, ticket_tiers: next }));
+                        }}
+                      />
+                      <Label htmlFor={`ticket-tier-menu-${idx}`} className="text-gray-300 text-sm cursor-pointer leading-snug">
+                        Guests can add items from this venue’s menu (optional)
+                      </Label>
+                    </div>
+                    {tier.allows_menu_addons && !(venueMenuItems || []).length ? (
+                      <p className="text-[11px]" style={{ color: 'var(--sec-text-muted)' }}>
+                        No menu items yet.{' '}
+                        <button
+                          type="button"
+                          className="underline"
+                          style={{ color: 'var(--sec-accent)' }}
+                          onClick={() => navigate(createPageUrl('BusinessMenu'))}
+                        >
+                          Add a menu
+                        </button>{' '}
+                        so guests can pick food and drinks when they buy this ticket.
+                      </p>
+                    ) : null}
                     <Button
                       type="button"
                       variant="ghost"

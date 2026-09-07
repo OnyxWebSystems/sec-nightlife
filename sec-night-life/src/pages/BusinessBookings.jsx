@@ -11,10 +11,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
 import {
-  Users, Search, Loader2, ChevronRight, Ticket, Armchair, CalendarDays,
+  Users, Search, Loader2, ChevronRight, Ticket, Armchair, CalendarDays, Utensils,
 } from 'lucide-react';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import VenueSwitcher from '@/components/business/VenueSwitcher';
+import OrderFulfillControls, { OrderStatusBadge } from '@/components/business/OrderFulfillControls';
 import { useActiveVenue } from '@/context/ActiveVenueContext';
 import { useBusinessVenueScope } from '@/hooks/useBusinessVenueScope';
 import { format, parseISO } from 'date-fns';
@@ -225,12 +226,12 @@ export default function BusinessBookings() {
   const venueScope = useBusinessVenueScope();
   const scopeKey = venueScope.staffContextToken || activeVenueId;
   const [user, setUser] = useState(null);
-  const [mainTab, setMainTab] = useState('tables');
+  const [mainTab, setMainTab] = useState('orders');
   const [tableSubTab, setTableSubTab] = useState('event');
   const [ticketSubTab, setTicketSubTab] = useState('tickets');
   const [dayVenueScope, setDayVenueScope] = useState('active');
   const [search, setSearch] = useState('');
-  const [ticketSearch, setTicketSearch] = useState('');
+  const [orderStatus, setOrderStatus] = useState('pending');
   const [statusFilter, setStatusFilter] = useState('all');
   const [eventTimeScope, setEventTimeScope] = useState('active');
   const [ticketEventTimeScope, setTicketEventTimeScope] = useState('active');
@@ -250,10 +251,11 @@ export default function BusinessBookings() {
   }, []);
 
   const { data: bookingsData, isLoading: eventTablesLoading, isError: eventTablesError, error: eventTablesQueryError } = useQuery({
-    queryKey: ['biz-event-table-bookings', user?.id, selectedEventId, eventTimeScope, scopeKey],
+    queryKey: ['biz-event-table-bookings', user?.id, selectedEventId, eventTimeScope, scopeKey, search],
     queryFn: () => {
       const params = new URLSearchParams({ event_scope: eventTimeScope });
       if (selectedEventId !== 'all') params.set('event_id', selectedEventId);
+      if (search.trim()) params.set('q', search.trim());
       if (venueScope.venueQuery) {
         const extra = new URLSearchParams(venueScope.venueQuery);
         extra.forEach((v, k) => params.set(k, v));
@@ -265,9 +267,10 @@ export default function BusinessBookings() {
   });
 
   const { data: venueTableBookingsData, isLoading: venueBookingsLoading } = useQuery({
-    queryKey: ['biz-venue-table-bookings', user?.id, scopeKey, dayVenueScope],
+    queryKey: ['biz-venue-table-bookings', user?.id, scopeKey, dayVenueScope, search],
     queryFn: () => {
       const params = new URLSearchParams({ session_scope: dayVenueScope });
+      if (search.trim()) params.set('q', search.trim());
       if (venueScope.venueQuery) {
         const extra = new URLSearchParams(venueScope.venueQuery);
         extra.forEach((v, k) => params.set(k, v));
@@ -279,10 +282,11 @@ export default function BusinessBookings() {
   });
 
   const { data: ticketBookingsData, isLoading: ticketsLoading } = useQuery({
-    queryKey: ['biz-ticket-bookings', user?.id, ticketEventId, ticketEventTimeScope, scopeKey],
+    queryKey: ['biz-ticket-bookings', user?.id, ticketEventId, ticketEventTimeScope, scopeKey, search],
     queryFn: () => {
       const params = new URLSearchParams({ event_scope: ticketEventTimeScope });
       if (ticketEventId !== 'all') params.set('event_id', ticketEventId);
+      if (search.trim()) params.set('q', search.trim());
       if (venueScope.venueQuery) {
         const extra = new URLSearchParams(venueScope.venueQuery);
         extra.forEach((v, k) => params.set(k, v));
@@ -290,6 +294,21 @@ export default function BusinessBookings() {
       return apiGet(`/api/business/ticket-bookings?${params.toString()}`);
     },
     enabled: !!user && mainTab === 'tickets',
+    refetchOnWindowFocus: true,
+  });
+
+  const { data: ordersData, isLoading: ordersLoading } = useQuery({
+    queryKey: ['biz-orders', user?.id, scopeKey, orderStatus, search],
+    queryFn: () => {
+      const params = new URLSearchParams({ status: orderStatus });
+      if (search.trim()) params.set('q', search.trim());
+      if (venueScope.venueQuery) {
+        const extra = new URLSearchParams(venueScope.venueQuery);
+        extra.forEach((v, k) => params.set(k, v));
+      }
+      return apiGet(`/api/business/orders?${params.toString()}`);
+    },
+    enabled: !!user && mainTab === 'orders',
     refetchOnWindowFocus: true,
   });
 
@@ -396,8 +415,8 @@ export default function BusinessBookings() {
   });
 
   const filteredTickets = ticketOrders.filter((order) => {
-    if (!ticketSearch) return true;
-    const q = ticketSearch.toLowerCase();
+    if (!search) return true;
+    const q = search.toLowerCase();
     return (
       (order.event?.title || '').toLowerCase().includes(q) ||
       (order.tierName || '').toLowerCase().includes(q) ||
@@ -407,8 +426,8 @@ export default function BusinessBookings() {
   });
 
   const filteredTicketTableGroups = ticketTableGroups.filter((group) => {
-    if (!ticketSearch) return true;
-    const q = ticketSearch.toLowerCase();
+    if (!search) return true;
+    const q = search.toLowerCase();
     const matchesTable =
       (group?.event?.title || '').toLowerCase().includes(q) ||
       (group?.hostedTable?.tableName || '').toLowerCase().includes(q);
@@ -481,7 +500,7 @@ export default function BusinessBookings() {
     <div style={{ maxWidth: 960, margin: '0 auto' }}>
       <PageBackHeader
         title="Bookings"
-        subtitle="Tables, venue reservations, and ticket sales in one place"
+        subtitle="Find guests by username, then mark menu and min-spend orders as fulfilled"
         pageName="BusinessBookings"
       />
 
@@ -490,11 +509,30 @@ export default function BusinessBookings() {
           <VenueSwitcher />
         </div>
 
+        <div style={{ position: 'relative', marginBottom: 16 }}>
+          <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
+          <Input
+            placeholder="Search @username, full name, event, or table…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-11 rounded-xl pl-10"
+            style={selectTriggerStyle}
+          />
+        </div>
+
         <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
           <TabsList
             className="w-full sec-tabs-scroll justify-start gap-1 mb-6 rounded-xl p-1"
             style={{ background: 'var(--sec-bg-card)', border: '1px solid var(--sec-border)', height: 'auto' }}
           >
+            <TabsTrigger
+              value="orders"
+              className="flex-shrink-0 min-w-max rounded-lg data-[state=active]:bg-[var(--sec-bg-elevated)] data-[state=active]:shadow-sm"
+              style={{ gap: 8, padding: '10px 16px', border: 'none', marginBottom: 0 }}
+            >
+              <Utensils size={16} />
+              Orders
+            </TabsTrigger>
             <TabsTrigger
               value="tables"
               className="flex-shrink-0 min-w-max rounded-lg data-[state=active]:bg-[var(--sec-bg-elevated)] data-[state=active]:shadow-sm"
@@ -512,6 +550,76 @@ export default function BusinessBookings() {
               Ticket bookings
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="orders" className="mt-0">
+            <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
+              Prepaid menu items and minimum spend — tick a guest when they have received their order so the QR cannot be reused for free items.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
+              <StatTile label="Needs serving" value={ordersData?.summary?.pending ?? 0} accent />
+              <StatTile label="Fulfilled" value={ordersData?.summary?.fulfilled ?? 0} />
+              <StatTile label="Total orders" value={ordersData?.summary?.total ?? 0} />
+            </div>
+            <FilterBar>
+              <Select value={orderStatus} onValueChange={setOrderStatus}>
+                <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
+                  <SelectItem value="pending">Needs serving</SelectItem>
+                  <SelectItem value="fulfilled">Fulfilled</SelectItem>
+                  <SelectItem value="all">All orders</SelectItem>
+                </SelectContent>
+              </Select>
+            </FilterBar>
+            {ordersLoading ? (
+              <div className="flex justify-center py-16"><Loader2 className="animate-spin" style={{ color: 'var(--sec-accent)' }} /></div>
+            ) : !(ordersData?.items || []).length ? (
+              <EmptyState
+                icon={Utensils}
+                title={orderStatus === 'fulfilled' ? 'No fulfilled orders' : 'No orders waiting'}
+                description={search ? 'Try a different username or name.' : 'Prepaid menu and min-spend orders appear here so staff can tick them as served.'}
+              />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(ordersData.items || []).map((order) => (
+                  <div
+                    key={order.id}
+                    className="sec-card"
+                    style={{ padding: '14px 16px', border: '1px solid var(--sec-border)' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--sec-text-primary)' }}>
+                          @{order.username || 'guest'}
+                          {order.fullName ? ` · ${order.fullName}` : ''}
+                        </p>
+                        <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
+                          {[order.eventTitle, order.tableName].filter(Boolean).join(' · ') || 'Booking'}
+                          {order.source === 'day' ? ' · Day booking' : ''}
+                          {order.source === 'ticket' ? ' · Ticket' : ''}
+                        </p>
+                        <MenuItemsBlock items={order.menuItems} />
+                        {Number(order.minimumSpendZar) > 0 && !(order.menuItems || []).length ? (
+                          <p style={{ fontSize: 11, color: 'var(--sec-text-secondary)', marginTop: 8 }}>
+                            Minimum spend R{Number(order.minimumSpendZar).toFixed(0)}
+                          </p>
+                        ) : null}
+                      </div>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)', flexShrink: 0 }}>
+                        R{Number(order.amountPaidZar || 0).toFixed(0)}
+                      </p>
+                    </div>
+                    <OrderFulfillControls
+                      paystackReference={order.paystackReference}
+                      hasServeableOrder
+                      orderFulfilled={order.fulfilled}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
 
           <TabsContent value="tables" className="mt-0">
             <Tabs value={tableSubTab} onValueChange={setTableSubTab}>
@@ -547,16 +655,6 @@ export default function BusinessBookings() {
                 </div>
 
                 <FilterBar>
-                  <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-                    <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
-                    <Input
-                      placeholder="Search event, table, or guest…"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      className="h-10 rounded-xl pl-9"
-                      style={selectTriggerStyle}
-                    />
-                  </div>
                   <Select value={eventTimeScope} onValueChange={setEventTimeScope}>
                     <SelectTrigger className="w-full sm:w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
                       <SelectValue />
@@ -688,19 +786,6 @@ export default function BusinessBookings() {
                   </TabsList>
                 </Tabs>
 
-                <FilterBar>
-                  <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-                    <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
-                    <Input
-                      placeholder="Search table, venue, or guest…"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      className="h-10 rounded-xl pl-9"
-                      style={selectTriggerStyle}
-                    />
-                  </div>
-                </FilterBar>
-
                 {venueBookingsLoading ? (
                   <div className="flex justify-center py-16"><Loader2 className="animate-spin" style={{ color: 'var(--sec-accent)' }} /></div>
                 ) : filteredVenueTables.length === 0 ? (
@@ -747,6 +832,12 @@ export default function BusinessBookings() {
                               <p style={{ fontSize: 12, color: 'var(--sec-text-muted)', marginTop: 4 }}>
                                 @{row.user?.username || row.user?.fullName || 'Guest'}
                               </p>
+                              <div style={{ marginTop: 8 }}>
+                                <OrderStatusBadge
+                                  hasServeableOrder={row.hasServeableOrder}
+                                  orderFulfilled={row.orderFulfilled}
+                                />
+                              </div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
                               <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--sec-accent)' }}>
@@ -837,16 +928,6 @@ export default function BusinessBookings() {
                 </div>
 
                 <FilterBar>
-                  <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-                    <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
-                    <Input
-                      placeholder="Search event, tier, buyer, or reference…"
-                      value={ticketSearch}
-                      onChange={(e) => setTicketSearch(e.target.value)}
-                      className="h-10 rounded-xl pl-9"
-                      style={selectTriggerStyle}
-                    />
-                  </div>
                   <Select value={ticketEventTimeScope} onValueChange={setTicketEventTimeScope}>
                     <SelectTrigger className="w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
                       <SelectValue />
@@ -914,6 +995,12 @@ export default function BusinessBookings() {
                               {order.refundStatus === 'APPROVED' ? ' · Refunded' : ''}
                               {order.refundStatus === 'PENDING' ? ' · Refund pending' : ''}
                             </div>
+                            <div style={{ marginTop: 6 }}>
+                              <OrderStatusBadge
+                                hasServeableOrder={order.hasServeableOrder}
+                                orderFulfilled={order.orderFulfilled}
+                              />
+                            </div>
                           </div>
                           <div style={{ textAlign: 'right', flexShrink: 0 }}>
                             <div style={{ fontSize: 15, fontWeight: 700, color: order.refundStatus === 'APPROVED' ? 'var(--sec-text-muted)' : 'var(--sec-accent)' }}>
@@ -943,16 +1030,6 @@ export default function BusinessBookings() {
                 </div>
 
                 <FilterBar>
-                  <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-                    <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sec-text-muted)' }} />
-                    <Input
-                      placeholder="Search event, table, or guest…"
-                      value={ticketSearch}
-                      onChange={(e) => setTicketSearch(e.target.value)}
-                      className="h-10 rounded-xl pl-9"
-                      style={selectTriggerStyle}
-                    />
-                  </div>
                   <Select value={ticketEventTimeScope} onValueChange={setTicketEventTimeScope}>
                     <SelectTrigger className="w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
                       <SelectValue />
@@ -1154,6 +1231,12 @@ export default function BusinessBookings() {
                       </div>
                       <MenuItemsBlock items={sessionDetail.host.menuItems} />
                       <PaymentBreakdown participant={sessionDetail.host} />
+                      <OrderFulfillControls
+                        paystackReference={sessionDetail.host.paystackReference}
+                        hasServeableOrder={sessionDetail.host.hasServeableOrder}
+                        orderFulfilled={sessionDetail.host.orderFulfilled}
+                        compact
+                      />
                     </div>
                   </div>
                 ) : null}
@@ -1178,6 +1261,12 @@ export default function BusinessBookings() {
                           </div>
                           <MenuItemsBlock items={member.menuItems} />
                           <PaymentBreakdown participant={member} />
+                          <OrderFulfillControls
+                            paystackReference={member.paystackReference}
+                            hasServeableOrder={member.hasServeableOrder}
+                            orderFulfilled={member.orderFulfilled}
+                            compact
+                          />
                         </div>
                       ))}
                     </div>
@@ -1217,6 +1306,17 @@ export default function BusinessBookings() {
                               {Number(tx.joinFeeZar) > 0 && Number(tx.menuZar) > 0 ? ' · ' : ''}
                               {Number(tx.menuZar) > 0 ? `Menu R${Number(tx.menuZar).toFixed(0)}` : ''}
                             </p>
+                          ) : null}
+                          {tx.hasServeableOrder &&
+                          tx.paystackReference &&
+                          tx.paystackReference !== sessionDetail?.host?.paystackReference &&
+                          !(sessionDetail?.members || []).some((m) => m.paystackReference === tx.paystackReference) ? (
+                            <OrderFulfillControls
+                              paystackReference={tx.paystackReference}
+                              hasServeableOrder={tx.hasServeableOrder}
+                              orderFulfilled={tx.orderFulfilled}
+                              compact
+                            />
                           ) : null}
                         </div>
                         <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--sec-accent)', flexShrink: 0 }}>
@@ -1303,6 +1403,12 @@ export default function BusinessBookings() {
                     </p>
                   </div>
                 </div>
+                <MenuItemsBlock items={detailTicket.menuAddons} />
+                <OrderFulfillControls
+                  paystackReference={detailTicket.paystackReference}
+                  hasServeableOrder={detailTicket.hasServeableOrder}
+                  orderFulfilled={detailTicket.orderFulfilled}
+                />
                 {detailTicket.fulfillmentPending ? (
                   <p
                     style={{

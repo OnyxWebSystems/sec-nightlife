@@ -1,6 +1,20 @@
 import { splitTicketCheckoutAmounts } from './platformSplit.js';
 import { line, sumCheckoutLines } from './checkoutLines.js';
 
+/** Per-tier paid menu add-ons. Legacy events with only the event flag still allow add-ons. */
+export function ticketTierAllowsMenuAddons(tier, event = null) {
+  if (tier && typeof tier === 'object') {
+    if (tier.allows_menu_addons === true || tier.allowsMenuAddons === true) return true;
+    if (tier.allows_menu_addons === false || tier.allowsMenuAddons === false) return false;
+  }
+  return Boolean(event?.allowsTicketMenuAddons || event?.allows_ticket_menu_addons);
+}
+
+export function ticketTiersAllowMenuAddons(tiers) {
+  const list = Array.isArray(tiers) ? tiers : [];
+  return list.some((t) => t?.allows_menu_addons === true || t?.allowsMenuAddons === true);
+}
+
 /** Integer >= 1, or null when the venue left the cap blank / unlimited. */
 export function parseMaxPerUser(tierOrRaw) {
   const raw = tierOrRaw && typeof tierOrRaw === 'object' ? tierOrRaw.max_per_user : tierOrRaw;
@@ -110,8 +124,8 @@ export async function computeTicketCheckout(prisma, {
 
   const menuPayload = Array.isArray(selectedMenuItems) ? selectedMenuItems : [];
   if (menuPayload.length > 0) {
-    if (!event.allowsTicketMenuAddons) {
-      return { ok: false, error: 'Menu add-ons are not available for this event' };
+    if (!ticketTierAllowsMenuAddons(tier, event)) {
+      return { ok: false, error: 'Menu add-ons are not available for this ticket' };
     }
     const ids = menuPayload.map((m) => m.menuItemId).filter(Boolean);
     const rows = await prisma.venueMenuItem.findMany({
@@ -165,6 +179,8 @@ export function buildTicketPaymentMetadata(base, computed) {
   return {
     ...base,
     type: 'ticket',
+    event_id: computed.event?.id || base.event_id,
+    venue_id: computed.event?.venueId || base.venue_id,
     ticket_subtotal_zar: computed.ticketSubtotal,
     menu_zar: computed.menuTotal,
     menu_total_zar: computed.menuTotal,

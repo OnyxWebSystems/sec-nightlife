@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
 import { maxTicketQuantity, ownedCountForTier, parseMaxPerUser } from '@/lib/ticketTierLimits';
+import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import { ticketTierAllowsMenuAddons } from '@/lib/ticketMenuAddons';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -28,6 +30,7 @@ export default function TicketCheckout() {
   const [selectedTier, setSelectedTier] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [holderNames, setHolderNames] = useState(['']);
+  const [menuSelected, setMenuSelected] = useState({});
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { data: event, isLoading: eventLoading } = useQuery({
@@ -58,7 +61,21 @@ export default function TicketCheckout() {
     : 1;
   const atPerUserCap = Boolean(selectedTierData && maxPerUser != null && maxQuantity < 1);
   const ticketSubtotal = selectedTierData ? selectedTierData.price * quantity : 0;
-  const totalPrice = Math.round(ticketSubtotal * 100) / 100;
+  const menuEnabled = ticketTierAllowsMenuAddons(selectedTierData, event);
+  const venueId = event?.venue_id;
+
+  const { data: venueMenu = [], isLoading: menuLoading } = useQuery({
+    queryKey: ['venue-menu-public', venueId],
+    queryFn: () => apiGet(`/api/business/venues/${venueId}/menu-items/public`),
+    enabled: menuEnabled && !!venueId,
+  });
+
+  const menuSubtotal = menuEnabled ? menuSelectionTotal(venueMenu, menuSelected) : 0;
+  const totalPrice = Math.round((ticketSubtotal + menuSubtotal) * 100) / 100;
+
+  useEffect(() => {
+    setMenuSelected({});
+  }, [selectedTier]);
 
   useEffect(() => {
     if (maxQuantity >= 1 && quantity > maxQuantity) setQuantity(maxQuantity);
@@ -102,6 +119,7 @@ export default function TicketCheckout() {
           ? holderNames.map((n) => String(n).trim())
           : [holderDisplayNameFromUser(user)];
       const promoterRef = getStoredPromoterRef(eventId);
+      const menuPayload = menuEnabled ? menuSelectionToPayload(venueMenu, menuSelected) : [];
 
       if (totalPrice <= 0) {
         const body = {
@@ -109,6 +127,7 @@ export default function TicketCheckout() {
           quantity,
           holder_names: names,
         };
+        if (menuPayload.length > 0) body.selected_menu_items = menuPayload;
         if (promoterRef) body.promoter_user_id = promoterRef;
         const res = await apiPost(`/api/events/${eventId}/claim-free-ticket`, body);
         if (!res?.confirmed) throw new Error(res?.error || 'Could not claim free ticket');
@@ -130,6 +149,7 @@ export default function TicketCheckout() {
         quantity: String(quantity),
         holder_names: JSON.stringify(names),
       };
+      if (menuPayload.length > 0) metadata.selected_menu_items = menuPayload;
       if (promoterRef) metadata.promoter_user_id = promoterRef;
 
       const res = await apiPost('/api/payments/initialize', {
@@ -280,6 +300,31 @@ export default function TicketCheckout() {
             </div>
           ))}
 
+        {menuEnabled && selectedTierData ? (
+          <div
+            style={{
+              marginBottom: 20,
+              padding: 16,
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--sec-bg-card)',
+              border: '1px solid var(--sec-border)',
+            }}
+          >
+            <Label style={{ marginBottom: 8, display: 'block' }}>Add from the venue menu (optional)</Label>
+            {menuLoading ? (
+              <p style={{ fontSize: 13, color: 'var(--sec-text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Loader2 className="animate-spin" size={14} /> Loading menu…
+              </p>
+            ) : (
+              <MenuPicker
+                items={venueMenu}
+                selected={menuSelected}
+                onChange={(id, qty) => setMenuSelected((s) => ({ ...s, [id]: qty }))}
+              />
+            )}
+          </div>
+        ) : null}
+
         <div
           style={{
             background: 'var(--sec-bg-card)',
@@ -295,6 +340,14 @@ export default function TicketCheckout() {
               R{ticketSubtotal.toFixed(0)}
             </span>
           </div>
+          {menuSubtotal > 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ color: 'var(--sec-text-secondary)' }}>Menu</span>
+              <span style={{ fontWeight: 700, color: 'var(--sec-text-primary)' }}>
+                R{menuSubtotal.toFixed(0)}
+              </span>
+            </div>
+          ) : null}
           <div
             style={{
               display: 'flex',

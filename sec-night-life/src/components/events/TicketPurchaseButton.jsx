@@ -15,6 +15,7 @@ import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { getStoredPromoterRef } from '@/utils';
 import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
 import { maxTicketQuantity, ownedCountForTier, parseMaxPerUser } from '@/lib/ticketTierLimits';
+import { ticketTierAllowsMenuAddons } from '@/lib/ticketMenuAddons';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -32,8 +33,12 @@ export default function TicketPurchaseButton({ event }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentComplete, setPaymentComplete] = useState(false);
 
-  const menuEnabled = Boolean(event.allows_ticket_menu_addons);
   const venueId = event.venue_id;
+  const availableTickets = event.ticket_tiers?.filter(t =>
+    (t.quantity - (t.sold || 0)) > 0
+  ) || [];
+  const selectedTierData = event.ticket_tiers?.find(t => t.name === selectedTier);
+  const menuEnabled = ticketTierAllowsMenuAddons(selectedTierData, event);
 
   const { data: venueMenu = [], isLoading: menuLoading } = useQuery({
     queryKey: ['venue-menu-public', venueId],
@@ -57,11 +62,10 @@ export default function TicketPurchaseButton({ event }) {
     if (!isOpen) setMenuSelected({});
   }, [isOpen]);
 
-  const availableTickets = event.ticket_tiers?.filter(t =>
-    (t.quantity - (t.sold || 0)) > 0
-  ) || [];
+  useEffect(() => {
+    setMenuSelected({});
+  }, [selectedTier]);
 
-  const selectedTierData = event.ticket_tiers?.find(t => t.name === selectedTier);
   const ownedCount = ownedCountForTier(event, selectedTier);
   const maxPerUser = parseMaxPerUser(selectedTierData);
   const maxQuantity = selectedTierData

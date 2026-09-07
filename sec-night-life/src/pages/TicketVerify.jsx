@@ -8,7 +8,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { apiGet, apiPost } from '@/api/client';
 import { createPageUrl } from '@/utils';
 import { format, parseISO } from 'date-fns';
-import { CheckCircle2, XCircle, Loader2, Copy, MapPin, Building2, Users, CalendarDays, UserCheck } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Copy, MapPin, Building2, Users, CalendarDays, UserCheck, Utensils } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,7 @@ export default function TicketVerify() {
   const [loading, setLoading] = useState(true);
   const { isAuthenticated } = useAuth();
   const [admitting, setAdmitting] = useState(false);
+  const [fulfilling, setFulfilling] = useState(false);
   const [onlineNonce, setOnlineNonce] = useState(0);
 
   useEffect(() => {
@@ -53,8 +54,11 @@ export default function TicketVerify() {
     if (ec) qs.set('ec', ec);
     if (vn) qs.set('vn', vn);
     if (at) qs.set('at', at);
-    return apiGet(`/api/tickets/qr?${qs.toString()}`, { skipAuth: true, timeoutMs: 15000 });
-  }, [token, queryKey]);
+    return apiGet(`/api/tickets/qr?${qs.toString()}`, {
+      skipAuth: !isAuthenticated,
+      timeoutMs: 15000,
+    });
+  }, [token, queryKey, isAuthenticated]);
 
   useEffect(() => {
     if (!token) {
@@ -154,6 +158,28 @@ export default function TicketVerify() {
       toast.error(e?.message || 'Could not record entry');
     } finally {
       setAdmitting(false);
+    }
+  };
+
+  const submitFulfill = async (undo = false) => {
+    if (!token) return;
+    if (isLikelyOffline()) {
+      toast.error('Marking an order fulfilled requires an internet connection.');
+      return;
+    }
+    setFulfilling(true);
+    try {
+      await apiPost(undo ? '/api/tickets/unfulfill-order' : '/api/tickets/fulfill-order', { qr_token: token });
+      toast.success(undo ? 'Order marked as still needs serving' : 'Order fulfilled');
+      const res = await fetchVerify();
+      if (res) {
+        setPayload(res);
+        saveTicketVerifySnapshot(token, res);
+      }
+    } catch (e) {
+      toast.error(e?.data?.error || e?.message || 'Could not update order');
+    } finally {
+      setFulfilling(false);
     }
   };
 
@@ -396,6 +422,69 @@ export default function TicketVerify() {
                 <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{payload.table_specs_summary}</p>
               </div>
             )}
+
+            {payload.has_serveable_order ? (
+              <div
+                className="rounded-xl border p-4 mb-4"
+                style={{
+                  borderColor: payload.order_fulfilled ? 'rgba(34,197,94,0.45)' : 'rgba(232,197,71,0.35)',
+                  backgroundColor: payload.order_fulfilled ? 'rgba(34,197,94,0.08)' : 'rgba(232,197,71,0.08)',
+                }}
+              >
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: payload.order_fulfilled ? '#86efac' : '#fcd34d' }}>
+                  <Utensils className="w-4 h-4" />
+                  Menu / minimum spend
+                </div>
+                <p className="text-lg font-bold leading-snug mb-2">
+                  {payload.order_fulfilled ? 'Order fulfilled' : 'Needs serving'}
+                </p>
+                {(payload.menu_items || []).length > 0 ? (
+                  <ul className="text-sm text-gray-300 space-y-1 mb-2">
+                    {payload.menu_items.map((item, i) => (
+                      <li key={i}>
+                        {item.quantity}× {item.name}
+                        {item.lineTotal != null ? ` · R${Number(item.lineTotal).toFixed(0)}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                ) : Number(payload.minimum_spend_zar) > 0 ? (
+                  <p className="text-sm text-gray-300 mb-2">
+                    Prepaid minimum spend R{Number(payload.minimum_spend_zar).toFixed(0)}
+                  </p>
+                ) : null}
+                {payload.order_fulfilled_at ? (
+                  <p className="text-xs text-emerald-200/80 mb-2">
+                    Served {formatWhen(payload.order_fulfilled_at) || payload.order_fulfilled_at}
+                  </p>
+                ) : null}
+                {payload.can_fulfill_here ? (
+                  <Button
+                    type="button"
+                    className="w-full sm:w-auto gap-2 bg-amber-500 hover:bg-amber-400 text-black"
+                    onClick={() => submitFulfill(false)}
+                    disabled={fulfilling || isLikelyOffline() || !!payload._offline_cached}
+                  >
+                    {fulfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Utensils className="w-4 h-4" />}
+                    Mark order fulfilled
+                  </Button>
+                ) : null}
+                {payload.can_unfulfill_here ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full sm:w-auto gap-2 mt-2"
+                    onClick={() => submitFulfill(true)}
+                    disabled={fulfilling || isLikelyOffline() || !!payload._offline_cached}
+                  >
+                    {fulfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Undo fulfilled
+                  </Button>
+                ) : null}
+                {!payload.can_fulfill_here && !payload.can_unfulfill_here && !payload.order_fulfilled && payload.viewer_authenticated ? (
+                  <p className="text-xs text-gray-500 mt-1">{payload.fulfill_denied_reason || 'Sign in with a venue bookings account to mark this order served.'}</p>
+                ) : null}
+              </div>
+            ) : null}
 
             {(payload.quantity != null && payload.quantity > 1) && valid && (
               <p className="text-base text-amber-200/90 mb-3">
