@@ -3557,14 +3557,25 @@ router.get('/orders', authenticateToken, async (req, res, next) => {
     const venueIds = await resolveAccessibleVenueIds(req.userId, bookingsVenueScope(req));
     if (!venueIds.length) {
       if (venueIdFromQuery(req.query)) return res.status(404).json({ error: 'Venue not found' });
-      return res.json({ items: [], summary: { pending: 0, fulfilled: 0, total: 0 } });
+      return res.json({ items: [], summary: { pending: 0, fulfilled: 0, total: 0 }, filters: { events: [] } });
     }
     const status = String(req.query.status || 'pending').toLowerCase();
     const q = typeof req.query.q === 'string' ? req.query.q : '';
-    const result = await listVenueServeableOrders(prisma, { venueIds, q, status });
+    const dateYmd = typeof req.query.date === 'string' ? req.query.date : '';
+    const eventId = typeof req.query.event_id === 'string' ? req.query.event_id : '';
+    const source = typeof req.query.source === 'string' ? req.query.source : 'all';
+    const result = await listVenueServeableOrders(prisma, {
+      venueIds,
+      q,
+      status,
+      dateYmd,
+      eventId,
+      source,
+    });
     res.json({
       items: result.items.map(serializeOrderForClient),
       summary: result.summary,
+      filters: result.filters || { events: [] },
     });
   } catch (e) {
     next(e);

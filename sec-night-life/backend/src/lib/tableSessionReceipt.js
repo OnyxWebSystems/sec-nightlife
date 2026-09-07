@@ -1,12 +1,15 @@
 import { prisma } from './prisma.js';
 import { formatYmdSast, windowEndInstant, isDaySessionStillActive } from './dayBookingWindows.js';
 import { flattenPaymentMetadata, basePaymentReference } from './paymentMetadata.js';
-import { resolveVenueMenuSelections } from './menuHelpers.js';
 import { resolveVenueContextForHostedTable } from './venueTableHostAfterPayment.js';
 import { resolveDailySessionNumber } from './dailyTableSession.js';
 import {
   applyFulfillmentToParticipant,
   fulfillmentMapForReferences,
+  hydrateMenuLines,
+  mergeMenuLineSources,
+  menuSourcesFromPaymentMeta,
+  parseMenuItemLines,
 } from './orderFulfillment.js';
 
 const userSelect = {
@@ -101,15 +104,9 @@ export function mapUserBrief(u) {
 }
 
 async function resolveMenuLines(selectedMenuItems, venueId) {
-  if (!Array.isArray(selectedMenuItems) || !selectedMenuItems.length || !venueId) return [];
-  const resolved = await resolveVenueMenuSelections(selectedMenuItems, venueId);
-  return (resolved.items || []).map((item) => ({
-    name: item.name || 'Item',
-    quantity: Number(item.quantity) || 1,
-    lineTotal:
-      Number(item.lineTotalZar) ||
-      (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
-  }));
+  const parsed = parseMenuItemLines(selectedMenuItems);
+  if (!parsed.length) return [];
+  return hydrateMenuLines(prisma, parsed, venueId);
 }
 
 async function loadPaymentBreakdown(paystackReference, venueId) {
@@ -129,8 +126,8 @@ async function loadPaymentBreakdown(paystackReference, venueId) {
   const menuZar = Number(meta.menu_zar ?? meta.menuZar ?? 0) || 0;
   const entranceZar = Number(meta.entrance_zar ?? meta.entranceZar ?? 0) || 0;
   const lineTotalZar = Number(pay?.amount ?? 0) || joinFeeZar + menuZar + entranceZar;
-  const rawMenu = meta.selected_menu_items ?? meta.selectedMenuItems;
-  const menuItems = await resolveMenuLines(Array.isArray(rawMenu) ? rawMenu : null, venueId);
+  const rawMenu = mergeMenuLineSources(...menuSourcesFromPaymentMeta(meta));
+  const menuItems = await resolveMenuLines(rawMenu, venueId);
   return {
     joinFeeZar,
     menuZar,

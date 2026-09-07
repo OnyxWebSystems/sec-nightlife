@@ -440,12 +440,18 @@ export default function TicketVerify() {
                 </p>
                 {(payload.menu_items || []).length > 0 ? (
                   <ul className="text-sm text-gray-300 space-y-1 mb-2">
-                    {payload.menu_items.map((item, i) => (
-                      <li key={i}>
-                        {item.quantity}× {item.name}
-                        {item.lineTotal != null ? ` · R${Number(item.lineTotal).toFixed(0)}` : ''}
-                      </li>
-                    ))}
+                    {payload.menu_items.map((item, i) => {
+                      const amount =
+                        Number(item.lineTotal) > 0
+                          ? Number(item.lineTotal)
+                          : (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1);
+                      return (
+                        <li key={item.menuItemId || i}>
+                          {item.quantity}× {item.name || 'Item'}
+                          {amount > 0 ? ` · R${amount.toFixed(0)}` : ''}
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : Number(payload.minimum_spend_zar) > 0 ? (
                   <p className="text-sm text-gray-300 mb-2">

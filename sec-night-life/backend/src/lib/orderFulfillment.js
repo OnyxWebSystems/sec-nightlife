@@ -1,5 +1,6 @@
 import { flattenPaymentMetadata, basePaymentReference } from './paymentMetadata.js';
 import { isStaff, staffHasVenuePermission } from './access.js';
+import { formatYmdSast } from './dayBookingWindows.js';
 
 const PREPAY_SETTLEMENTS = new Set(['PREPAY_MENU', 'PREPAY_LUMP']);
 
@@ -34,24 +35,153 @@ export function guestRecordMatchesSearch(record, q) {
   );
 }
 
+export function coerceMenuSelectionArray(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export function parseMenuItemLines(raw) {
-  if (!Array.isArray(raw)) return [];
+  const arr = coerceMenuSelectionArray(raw);
   const lines = [];
-  for (const item of raw) {
+  for (const item of arr) {
     if (!item || typeof item !== 'object') continue;
     const quantity = Math.max(0, parseInt(String(item.quantity ?? item.qty), 10) || 0);
     if (quantity <= 0) continue;
     const unit = Number(item.unitPrice ?? item.unit_price ?? item.price) || 0;
     const lineTotal =
-      Number(item.lineTotal ?? item.lineTotalZar ?? item.line_total_zar ?? unit * quantity) || 0;
+      Number(item.lineTotal ?? item.lineTotalZar ?? item.line_total_zar ?? 0) ||
+      (unit > 0 ? Math.round(unit * quantity * 100) / 100 : 0);
+    const name = String(item.name || item.label || '').trim();
     lines.push({
-      menuItemId: item.menuItemId || item.menu_item_id || item.id || null,
-      name: String(item.name || item.label || 'Item'),
+      menuItemId: item.menuItemId || item.menu_item_id || item.menuItem_id || item.id || null,
+      name,
       quantity,
+      unitPrice: unit,
       lineTotal,
     });
   }
   return lines;
+}
+
+export function mergeMenuLineSources(...raws) {
+  const byKey = new Map();
+  for (const raw of raws) {
+    for (const line of parseMenuItemLines(raw)) {
+      const key = line.menuItemId || `${line.name}:${line.quantity}`;
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, line);
+        continue;
+      }
+      const prevScore = (prev.name ? 2 : 0) + (Number(prev.lineTotal) > 0 ? 1 : 0);
+      const nextScore = (line.name ? 2 : 0) + (Number(line.lineTotal) > 0 ? 1 : 0);
+      byKey.set(key, nextScore > prevScore ? { ...prev, ...line } : { ...line, ...prev });
+    }
+  }
+  return [...byKey.values()];
+}
+
+export function menuSourcesFromPaymentMeta(meta = {}) {
+  return [
+    meta.selected_menu_items ?? meta.selectedMenuItems,
+    meta.included_items,
+    meta.tier_included_items ?? meta.tierIncludedItems,
+  ];
+}
+
+export function chargeBreakdownFromMeta(meta = {}, extras = {}) {
+  const joinFeeZar =
+    Number(meta.join_zar ?? meta.joinZar ?? 0) ||
+    Number(meta.booking_fee_zar ?? meta.bookingFeeZar ?? extras.bookingFeeZar ?? 0) ||
+    0;
+  const entranceZar =
+    Number(meta.entrance_zar ?? meta.entranceZar ?? extras.entranceZar ?? 0) || 0;
+  const ticketZar =
+    Number(meta.ticket_zar ?? meta.ticketZar ?? meta.tickets_zar ?? extras.ticketZar ?? 0) || 0;
+  return { joinFeeZar, entranceZar, ticketZar };
+}
+
+export function summedMenuZar(lines, fallback = 0) {
+  const sum = (lines || []).reduce((s, l) => s + (Number(l.lineTotal) || 0), 0);
+  return Number(fallback) > 0 ? Number(fallback) : sum;
+}
+
+function catalogNameIsMissing(name) {
+  const n = String(name || '').trim();
+  return !n || n.toLowerCase() === 'item';
+}
+
+export async function loadMenuCatalogByIds(db, ids) {
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  if (!unique.length) return new Map();
+  const rows = await db.venueMenuItem.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, name: true, price: true, venueId: true },
+  });
+  return new Map(rows.map((r) => [r.id, r]));
+}
+
+export function applyCatalogToMenuLines(lines, catalogById, venueId) {
+  const catalog = catalogById instanceof Map ? catalogById : new Map();
+  return (Array.isArray(lines) ? lines : []).map((line) => {
+    const cat = line.menuItemId ? catalog.get(line.menuItemId) : null;
+    const match = cat && (!venueId || !cat.venueId || cat.venueId === venueId) ? cat : null;
+    const name = catalogNameIsMissing(line.name) ? (match?.name || line.name || 'Item') : line.name;
+    const unit = Number(line.unitPrice) > 0 ? Number(line.unitPrice) : Number(match?.price) || 0;
+    const qty = Number(line.quantity) || 1;
+    const lineTotal =
+      Number(line.lineTotal) > 0 ? Number(line.lineTotal) : Math.round(unit * qty * 100) / 100;
+    return {
+      menuItemId: line.menuItemId || null,
+      name,
+      quantity: qty,
+      unitPrice: unit,
+      lineTotal,
+    };
+  });
+}
+
+/** Fill names/prices from the venue catalog when snapshots only stored IDs. */
+export async function hydrateMenuLines(db, lines, venueId) {
+  const list = Array.isArray(lines) ? lines : [];
+  if (!list.length) return [];
+  const catalog = await loadMenuCatalogByIds(
+    db,
+    list.map((l) => l.menuItemId),
+  );
+  return applyCatalogToMenuLines(list, catalog, venueId);
+}
+
+export function orderDateYmd(order) {
+  const d = order?.bookingDate || order?.eventDate || order?.createdAt;
+  if (!d) return '';
+  try {
+    return formatYmdSast(d);
+  } catch {
+    return '';
+  }
+}
+
+export function orderMatchesListFilters(order, { dateYmd = '', eventId = '', source = 'all' } = {}) {
+  const date = String(dateYmd || '').trim();
+  if (date && orderDateYmd(order) !== date) return false;
+  const ev = String(eventId || '').trim();
+  if (ev && ev !== 'all' && String(order.eventId || '') !== ev) return false;
+  const src = String(source || 'all').toLowerCase();
+  if (src && src !== 'all') {
+    if (src === 'day' && order.source !== 'day') return false;
+    if (src === 'event' && order.source !== 'event_table') return false;
+    if (src === 'ticket' && order.source !== 'ticket') return false;
+  }
+  return true;
 }
 
 export function isServeableOrder({
@@ -133,7 +263,7 @@ async function loadRelatedForReference(db, reference) {
       where: { paystackReference: { in: orRefs } },
       include: {
         user: { select: userBriefSelect },
-        event: { select: { id: true, title: true, venueId: true } },
+        event: { select: { id: true, title: true, venueId: true, date: true } },
         hostedTable: { select: { id: true, tableName: true } },
         venueTable: { select: { id: true, tableName: true, venueId: true } },
       },
@@ -149,7 +279,7 @@ async function loadRelatedForReference(db, reference) {
             tableName: true,
             venueId: true,
             eventId: true,
-            event: { select: { id: true, title: true } },
+            event: { select: { id: true, title: true, date: true } },
             minimumSpend: true,
             hostMinimumSpend: true,
           },
@@ -205,15 +335,23 @@ export async function resolveOrderContext(db, rawReference) {
     if (ht?.event?.venueId) venueId = ht.event.venueId;
   }
 
-  const menuItems =
-    parseMenuItemLines(meta.selected_menu_items ?? meta.selectedMenuItems).length
-      ? parseMenuItemLines(meta.selected_menu_items ?? meta.selectedMenuItems)
-      : parseMenuItemLines(booking?.selectedMenuItems || member?.selectedMenuItems);
+  let menuItems = mergeMenuLineSources(
+    ...menuSourcesFromPaymentMeta(meta),
+    booking?.selectedMenuItems,
+    member?.selectedMenuItems,
+  );
+  if (venueId) {
+    menuItems = await hydrateMenuLines(db, menuItems, venueId);
+  }
 
+  const charges = chargeBreakdownFromMeta(meta, {
+    bookingFeeZar: booking?.bookingFeeZar,
+    entranceZar: booking?.entranceZar,
+  });
   const menuZar =
     Number(meta.menu_zar ?? meta.menuZar ?? meta.menu_total_zar ?? 0) ||
     Number(booking?.menuTotalZar || 0) ||
-    0;
+    summedMenuZar(menuItems);
   const settlementMode =
     meta.settlement_mode ?? meta.settlementMode ?? booking?.settlementMode ?? member?.settlementMode ?? null;
   const minimumSpendZar =
@@ -285,9 +423,14 @@ export async function resolveOrderContext(db, rawReference) {
     menuZar,
     minimumSpendZar,
     settlementMode,
+    joinFeeZar: charges.joinFeeZar,
+    entranceZar: charges.entranceZar,
+    ticketZar: charges.ticketZar,
     amountPaidZar: Number(payment?.amount || booking?.amountTotal || member?.amountPaid || 0),
     eventId,
     eventTitle,
+    bookingDate: member?.bookingDate || null,
+    eventDate: booking?.event?.date || member?.venueTable?.event?.date || null,
     tableName,
     ticketId: ticket?.id || null,
     createdAt: payment?.createdAt || booking?.createdAt || member?.paidAt || ticket?.createdAt || null,
@@ -348,23 +491,38 @@ function pushCandidate(map, candidate) {
     map.set(ref, { ...candidate, paystackReference: ref });
     return;
   }
-  if ((candidate.menuItems || []).length > (existing.menuItems || []).length) {
-    existing.menuItems = candidate.menuItems;
-  }
+  existing.menuItems = mergeMenuLineSources(existing.menuItems, candidate.menuItems);
   if (Number(candidate.menuZar) > Number(existing.menuZar || 0)) existing.menuZar = candidate.menuZar;
   if (Number(candidate.minimumSpendZar) > Number(existing.minimumSpendZar || 0)) {
     existing.minimumSpendZar = candidate.minimumSpendZar;
   }
+  if (Number(candidate.joinFeeZar) > Number(existing.joinFeeZar || 0)) existing.joinFeeZar = candidate.joinFeeZar;
+  if (Number(candidate.entranceZar) > Number(existing.entranceZar || 0)) existing.entranceZar = candidate.entranceZar;
+  if (Number(candidate.ticketZar) > Number(existing.ticketZar || 0)) existing.ticketZar = candidate.ticketZar;
   if (!existing.settlementMode && candidate.settlementMode) existing.settlementMode = candidate.settlementMode;
   if (!existing.tableName && candidate.tableName) existing.tableName = candidate.tableName;
   if (!existing.eventTitle && candidate.eventTitle) existing.eventTitle = candidate.eventTitle;
+  if (!existing.eventId && candidate.eventId) existing.eventId = candidate.eventId;
+  if (!existing.bookingDate && candidate.bookingDate) existing.bookingDate = candidate.bookingDate;
+  if (!existing.eventDate && candidate.eventDate) existing.eventDate = candidate.eventDate;
+  if (candidate.source === 'day') existing.source = 'day';
 }
 
-export async function listVenueServeableOrders(db, { venueIds, q = '', status = 'pending', take = 300 }) {
+export async function listVenueServeableOrders(db, {
+  venueIds,
+  q = '',
+  status = 'pending',
+  take = 300,
+  dateYmd = '',
+  eventId = '',
+  source = 'all',
+} = {}) {
   const query = normalizeGuestSearch(q);
   const statusFilter = ['pending', 'fulfilled', 'all'].includes(String(status)) ? String(status) : 'pending';
   const ids = (venueIds || []).filter(Boolean);
-  if (!ids.length) return { items: [], summary: { pending: 0, fulfilled: 0, total: 0 } };
+  if (!ids.length) {
+    return { items: [], summary: { pending: 0, fulfilled: 0, total: 0 }, filters: { events: [] } };
+  }
 
   const userSearch = query
     ? {
@@ -378,7 +536,7 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
 
   const events = await db.event.findMany({
     where: { venueId: { in: ids }, deletedAt: null },
-    select: { id: true, title: true, venueId: true },
+    select: { id: true, title: true, venueId: true, date: true },
   });
   const eventIds = events.map((e) => e.id);
   const eventById = new Map(events.map((e) => [e.id, e]));
@@ -412,7 +570,7 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
       },
       include: {
         user: { select: userBriefSelect },
-        event: { select: { id: true, title: true } },
+        event: { select: { id: true, title: true, date: true } },
         hostedTable: { select: { tableName: true } },
         venueTable: { select: { tableName: true } },
       },
@@ -434,7 +592,7 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
             tableName: true,
             venueId: true,
             eventId: true,
-            event: { select: { title: true } },
+            event: { select: { title: true, date: true } },
             minimumSpend: true,
             hostMinimumSpend: true,
           },
@@ -478,10 +636,12 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
   for (const row of bookings) {
     const pay = paymentByRef.get(canonicalOrderReference(row.paystackReference));
     const meta = flattenPaymentMetadata(pay?.metadata);
-    const menuItems =
-      parseMenuItemLines(row.selectedMenuItems).length
-        ? parseMenuItemLines(row.selectedMenuItems)
-        : parseMenuItemLines(meta.selected_menu_items ?? meta.selectedMenuItems);
+    const menuItems = mergeMenuLineSources(row.selectedMenuItems, ...menuSourcesFromPaymentMeta(meta));
+    const charges = chargeBreakdownFromMeta(meta, {
+      bookingFeeZar: row.bookingFeeZar,
+      entranceZar: row.entranceZar,
+    });
+    const menuZar = Number(row.menuTotalZar || meta.menu_zar || 0);
     pushCandidate(candidates, {
       paystackReference: row.paystackReference,
       venueId: row.venueId,
@@ -490,18 +650,22 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
       fullName: row.user?.fullName || null,
       eventId: row.eventId,
       eventTitle: row.event?.title || null,
+      eventDate: row.event?.date || null,
       tableName: row.hostedTable?.tableName || row.venueTable?.tableName || null,
-      source: row.eventId ? 'event_table' : 'table',
+      source: 'event_table',
       menuItems,
-      menuZar: Number(row.menuTotalZar || meta.menu_zar || 0),
+      menuZar,
       minimumSpendZar: Number(row.minimumSpendZar || 0),
       settlementMode: row.settlementMode || meta.settlement_mode || null,
+      joinFeeZar: charges.joinFeeZar,
+      entranceZar: charges.entranceZar,
+      ticketZar: charges.ticketZar,
       amountPaidZar: Number(pay?.amount || row.amountTotal || 0),
       kind: inferOrderKind({
         paymentType: meta.type || pay?.type,
         settlementMode: row.settlementMode,
         menuItems,
-        menuZar: Number(row.menuTotalZar || 0),
+        menuZar,
       }),
       createdAt: row.createdAt,
     });
@@ -510,14 +674,13 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
   for (const row of members) {
     const pay = paymentByRef.get(canonicalOrderReference(row.paystackReference));
     const meta = flattenPaymentMetadata(pay?.metadata);
-    const menuItems =
-      parseMenuItemLines(row.selectedMenuItems).length
-        ? parseMenuItemLines(row.selectedMenuItems)
-        : parseMenuItemLines(meta.selected_menu_items ?? meta.selectedMenuItems);
+    const menuItems = mergeMenuLineSources(row.selectedMenuItems, ...menuSourcesFromPaymentMeta(meta));
+    const charges = chargeBreakdownFromMeta(meta);
     const minSpend =
       row.memberRole === 'HOST'
         ? Number(row.venueTable?.hostMinimumSpend || 0)
         : Number(row.venueTable?.minimumSpend || 0);
+    const menuZar = Number(meta.menu_zar || 0);
     pushCandidate(candidates, {
       paystackReference: row.paystackReference,
       venueId: row.venueTable?.venueId,
@@ -526,18 +689,23 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
       fullName: row.user?.fullName || null,
       eventId: row.venueTable?.eventId || null,
       eventTitle: row.venueTable?.event?.title || null,
+      eventDate: row.venueTable?.event?.date || null,
+      bookingDate: row.bookingDate || null,
       tableName: row.venueTable?.tableName || null,
       source: row.venueTable?.eventId ? 'event_table' : 'day',
       menuItems,
-      menuZar: Number(meta.menu_zar || 0),
+      menuZar,
       minimumSpendZar: minSpend,
       settlementMode: row.settlementMode || meta.settlement_mode || null,
+      joinFeeZar: charges.joinFeeZar,
+      entranceZar: charges.entranceZar,
+      ticketZar: charges.ticketZar,
       amountPaidZar: Number(pay?.amount || row.amountPaid || 0),
       kind: inferOrderKind({
         paymentType: meta.type || pay?.type,
         settlementMode: row.settlementMode,
         menuItems,
-        menuZar: Number(meta.menu_zar || 0),
+        menuZar,
       }),
       createdAt: row.paidAt || row.joinedAt,
     });
@@ -546,9 +714,11 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
   for (const row of tickets) {
     const pay = paymentByRef.get(canonicalOrderReference(row.paystackReference));
     const meta = flattenPaymentMetadata(pay?.metadata);
-    const menuItems = parseMenuItemLines(meta.selected_menu_items ?? meta.selectedMenuItems);
+    const menuItems = mergeMenuLineSources(...menuSourcesFromPaymentMeta(meta));
+    const charges = chargeBreakdownFromMeta(meta);
     const ev = row.eventId ? eventById.get(row.eventId) : null;
     const vt = row.venueTableId ? vtById.get(row.venueTableId) : null;
+    const menuZar = Number(meta.menu_zar || meta.menu_total_zar || 0);
     pushCandidate(candidates, {
       paystackReference: row.paystackReference,
       venueId: ev?.venueId || vt?.venueId || null,
@@ -557,18 +727,22 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
       fullName: row.user?.fullName || null,
       eventId: row.eventId,
       eventTitle: ev?.title || row.title,
+      eventDate: ev?.date || null,
       tableName: vt?.tableName || null,
       source: row.kind === 'EVENT_TICKET' || row.kind === 'EVENT_ENTRANCE' ? 'ticket' : 'table',
       menuItems,
-      menuZar: Number(meta.menu_zar || meta.menu_total_zar || 0),
+      menuZar,
       minimumSpendZar: Number(meta.minimum_spend_zar || 0),
       settlementMode: meta.settlement_mode || null,
+      joinFeeZar: charges.joinFeeZar,
+      entranceZar: charges.entranceZar,
+      ticketZar: charges.ticketZar,
       amountPaidZar: Number(pay?.amount || 0),
       kind: inferOrderKind({
         paymentType: meta.type || pay?.type,
         settlementMode: meta.settlement_mode,
         menuItems,
-        menuZar: Number(meta.menu_zar || 0),
+        menuZar,
         ticketKind: row.kind,
       }),
       createdAt: pay?.createdAt || row.createdAt,
@@ -583,6 +757,18 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
       minimumSpendZar: c.minimumSpendZar,
     }),
   );
+
+  const menuIds = [];
+  for (const c of serveable) {
+    for (const line of c.menuItems || []) {
+      if (line.menuItemId) menuIds.push(line.menuItemId);
+    }
+  }
+  const catalog = await loadMenuCatalogByIds(db, menuIds);
+  for (const c of serveable) {
+    c.menuItems = applyCatalogToMenuLines(c.menuItems, catalog, c.venueId);
+    c.menuZar = summedMenuZar(c.menuItems, c.menuZar);
+  }
 
   const fulfillMap = await fulfillmentMapForReferences(
     db,
@@ -600,6 +786,9 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
   });
 
   if (query) items = items.filter((row) => guestRecordMatchesSearch(row, query));
+  items = items.filter((row) =>
+    orderMatchesListFilters(row, { dateYmd, eventId, source }),
+  );
 
   const pending = items.filter((i) => !i.fulfilled).length;
   const fulfilled = items.filter((i) => i.fulfilled).length;
@@ -609,9 +798,14 @@ export async function listVenueServeableOrders(db, { venueIds, q = '', status = 
   items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   items = items.slice(0, take);
 
+  const filterEvents = [...events]
+    .map((e) => ({ id: e.id, title: e.title, date: e.date }))
+    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
   return {
     items,
     summary: { pending, fulfilled, total: pending + fulfilled },
+    filters: { events: filterEvents },
   };
 }
 
@@ -650,12 +844,16 @@ export function serializeOrderForClient(order) {
     tableName: order.tableName || null,
     menuItems: order.menuItems || [],
     menuZar: Number(order.menuZar || 0),
+    joinFeeZar: Number(order.joinFeeZar || 0),
+    entranceZar: Number(order.entranceZar || 0),
+    ticketZar: Number(order.ticketZar || 0),
     minimumSpendZar: Number(order.minimumSpendZar || 0),
     settlementMode: order.settlementMode || null,
     amountPaidZar: Number(order.amountPaidZar || 0),
     fulfilled: Boolean(order.fulfilled),
     fulfilledAt: order.fulfilledAt || null,
     createdAt: order.createdAt || null,
+    bookingDate: order.bookingDate ? orderDateYmd({ bookingDate: order.bookingDate }) : orderDateYmd(order) || null,
   };
 }
 

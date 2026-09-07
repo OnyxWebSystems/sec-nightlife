@@ -161,8 +161,9 @@ function PaymentBreakdown({ participant }) {
   if (!participant) return null;
   const lines = [];
   if (Number(participant.joinFeeZar) > 0) lines.push(`Join fee R${Number(participant.joinFeeZar).toFixed(0)}`);
-  if (Number(participant.menuZar) > 0) lines.push(`Menu R${Number(participant.menuZar).toFixed(0)}`);
+  if (Number(participant.ticketZar) > 0) lines.push(`Tickets R${Number(participant.ticketZar).toFixed(0)}`);
   if (Number(participant.entranceZar) > 0) lines.push(`Entrance R${Number(participant.entranceZar).toFixed(0)}`);
+  if (Number(participant.menuZar) > 0) lines.push(`Menu R${Number(participant.menuZar).toFixed(0)}`);
   if (participant.settlementMode) lines.push(participant.settlementMode.replace(/_/g, ' '));
   if (!lines.length) return null;
   return (
@@ -172,16 +173,28 @@ function PaymentBreakdown({ participant }) {
   );
 }
 
+function menuLineAmount(item) {
+  const total = Number(item?.lineTotal ?? item?.lineTotalZar);
+  if (Number.isFinite(total) && total > 0) return total;
+  const unit = Number(item?.unitPrice ?? item?.price) || 0;
+  const qty = Number(item?.qty || item?.quantity) || 1;
+  return unit * qty;
+}
+
 function MenuItemsBlock({ items }) {
   if (!Array.isArray(items) || !items.length) return null;
   return (
     <ul style={{ margin: '8px 0 0', padding: 0, listStyle: 'none', fontSize: 11, color: 'var(--sec-text-secondary)' }}>
-      {items.map((item, i) => (
-        <li key={i} style={{ marginTop: i ? 4 : 0 }}>
-          {item.qty || item.quantity}× {item.name || item.label}
-          {item.lineTotal != null ? ` · R${Number(item.lineTotal).toFixed(0)}` : ''}
-        </li>
-      ))}
+      {items.map((item, i) => {
+        const amount = menuLineAmount(item);
+        const name = item.name || item.label || 'Item';
+        return (
+          <li key={item.menuItemId || i} style={{ marginTop: i ? 4 : 0 }}>
+            {item.qty || item.quantity}× {name}
+            {amount > 0 ? ` · R${amount.toFixed(0)}` : ''}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -232,6 +245,9 @@ export default function BusinessBookings() {
   const [dayVenueScope, setDayVenueScope] = useState('active');
   const [search, setSearch] = useState('');
   const [orderStatus, setOrderStatus] = useState('pending');
+  const [orderDate, setOrderDate] = useState('');
+  const [orderEventId, setOrderEventId] = useState('all');
+  const [orderSource, setOrderSource] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [eventTimeScope, setEventTimeScope] = useState('active');
   const [ticketEventTimeScope, setTicketEventTimeScope] = useState('active');
@@ -298,10 +314,13 @@ export default function BusinessBookings() {
   });
 
   const { data: ordersData, isLoading: ordersLoading } = useQuery({
-    queryKey: ['biz-orders', user?.id, scopeKey, orderStatus, search],
+    queryKey: ['biz-orders', user?.id, scopeKey, orderStatus, orderDate, orderEventId, orderSource, search],
     queryFn: () => {
       const params = new URLSearchParams({ status: orderStatus });
       if (search.trim()) params.set('q', search.trim());
+      if (orderDate) params.set('date', orderDate);
+      if (orderEventId && orderEventId !== 'all') params.set('event_id', orderEventId);
+      if (orderSource && orderSource !== 'all') params.set('source', orderSource);
       if (venueScope.venueQuery) {
         const extra = new URLSearchParams(venueScope.venueQuery);
         extra.forEach((v, k) => params.set(k, v));
@@ -365,6 +384,15 @@ export default function BusinessBookings() {
     return [];
   }, [bookingsData?.eventSummaries]);
 
+  const orderEventOptions = useMemo(() => {
+    const fromApi = ordersData?.filters?.events;
+    if (!Array.isArray(fromApi) || !fromApi.length) return [];
+    return fromApi.map((e) => ({
+      id: e.id,
+      label: e.title?.trim() || (e.date ? `Untitled event (${e.date})` : 'Untitled event'),
+    }));
+  }, [ordersData?.filters?.events]);
+
   useEffect(() => {
     setSelectedEventId('all');
   }, [eventTimeScope, scopeKey]);
@@ -386,6 +414,20 @@ export default function BusinessBookings() {
   useEffect(() => {
     setTicketEventId('all');
   }, [ticketEventTimeScope, scopeKey]);
+
+  useEffect(() => {
+    setOrderEventId('all');
+    setOrderDate('');
+    setOrderSource('all');
+  }, [scopeKey]);
+
+  useEffect(() => {
+    if (orderEventId === 'all') return;
+    const ids = orderEventOptions.map((o) => o.id);
+    if (ids.length && !ids.includes(orderEventId)) {
+      setOrderEventId('all');
+    }
+  }, [orderEventOptions, orderEventId]);
 
   const filteredEventTables = eventTables
     .filter((group) => {
@@ -562,13 +604,43 @@ export default function BusinessBookings() {
             </div>
             <FilterBar>
               <Select value={orderStatus} onValueChange={setOrderStatus}>
-                <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
+                <SelectTrigger className="w-full sm:w-[180px] h-10 rounded-xl" style={selectTriggerStyle}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
                   <SelectItem value="pending">Needs serving</SelectItem>
                   <SelectItem value="fulfilled">Fulfilled</SelectItem>
                   <SelectItem value="all">All orders</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                type="date"
+                value={orderDate}
+                onChange={(e) => setOrderDate(e.target.value)}
+                className="w-full sm:w-[180px] h-10 rounded-xl"
+                style={selectTriggerStyle}
+                aria-label="Filter by date"
+              />
+              <Select value={orderEventId} onValueChange={setOrderEventId}>
+                <SelectTrigger className="w-full sm:w-[220px] h-10 rounded-xl" style={selectTriggerStyle}>
+                  <SelectValue placeholder="Event" />
+                </SelectTrigger>
+                <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
+                  <SelectItem value="all">All events</SelectItem>
+                  {orderEventOptions.map((opt) => (
+                    <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={orderSource} onValueChange={setOrderSource}>
+                <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl" style={selectTriggerStyle}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)]">
+                  <SelectItem value="all">All bookings</SelectItem>
+                  <SelectItem value="event">Event bookings</SelectItem>
+                  <SelectItem value="day">Day bookings</SelectItem>
+                  <SelectItem value="ticket">Tickets</SelectItem>
                 </SelectContent>
               </Select>
             </FilterBar>
@@ -578,7 +650,11 @@ export default function BusinessBookings() {
               <EmptyState
                 icon={Utensils}
                 title={orderStatus === 'fulfilled' ? 'No fulfilled orders' : 'No orders waiting'}
-                description={search ? 'Try a different username or name.' : 'Prepaid menu and min-spend orders appear here so staff can tick them as served.'}
+                description={
+                  search || orderDate || orderEventId !== 'all' || orderSource !== 'all'
+                    ? 'Try a different username, date, event, or booking type.'
+                    : 'Prepaid menu and min-spend orders appear here so staff can tick them as served.'
+                }
               />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -600,6 +676,7 @@ export default function BusinessBookings() {
                           {order.source === 'ticket' ? ' · Ticket' : ''}
                         </p>
                         <MenuItemsBlock items={order.menuItems} />
+                        <PaymentBreakdown participant={order} />
                         {Number(order.minimumSpendZar) > 0 && !(order.menuItems || []).length ? (
                           <p style={{ fontSize: 11, color: 'var(--sec-text-secondary)', marginTop: 8 }}>
                             Minimum spend R{Number(order.minimumSpendZar).toFixed(0)}
