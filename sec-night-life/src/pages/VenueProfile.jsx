@@ -32,6 +32,7 @@ import { getDirectionsActions } from '@/lib/openDirections';
 import ReportDialog from '@/components/moderation/ReportDialog';
 import { useActiveVenueOptional } from '@/context/ActiveVenueContext';
 import { instagramHandle, instagramProfileUrl, openExternalUrl, websiteHref } from '@/lib/externalLinks';
+import { isEventEnded } from '@/lib/eventLifecycle';
 
 function spotsLeft(job) {
   return Math.max((job.totalSpots || 0) - (job.filledSpots || 0), 0);
@@ -60,7 +61,7 @@ function eventDateLabel(date) {
   return format(d, 'EEE, MMM d');
 }
 
-function VenueEventList({ events }) {
+function VenueEventList({ events, showAttendance = false }) {
   return (
     <div className="space-y-4">
       {events.map((event, index) => (
@@ -91,6 +92,11 @@ function VenueEventList({ events }) {
                 {event.has_entrance_fee && event.entrance_fee_amount != null && (
                   <span>• Entrance R{event.entrance_fee_amount}</span>
                 )}
+                {showAttendance ? (
+                  <span>
+                    • {Number(event.attendee_count || 0)} attended
+                  </span>
+                ) : null}
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-600" />
@@ -211,25 +217,19 @@ export default function VenueProfile() {
 
   const { data: events = [] } = useQuery({
     queryKey: ['venue-events', resolvedVenueId],
-    queryFn: () => dataService.Event.filter({ venue_id: resolvedVenueId, status: 'published' }, 'date'),
+    queryFn: () =>
+      dataService.Event.filter(
+        { venue_id: resolvedVenueId, status: 'published', include_ended: '1' },
+        '-date',
+      ),
     enabled: !!resolvedVenueId,
   });
 
   const { upcomingEvents, pastEvents } = useMemo(() => {
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
     const upcoming = [];
     const past = [];
     for (const event of events) {
-      const endsAtRaw = event.ends_at || event.endsAt;
-      let isPast = false;
-      if (endsAtRaw) {
-        const end = new Date(endsAtRaw);
-        if (!Number.isNaN(end.getTime())) isPast = end < now;
-      } else if (event.date) {
-        isPast = event.date < today;
-      }
-      if (isPast) past.push(event);
+      if (isEventEnded(event)) past.push(event);
       else upcoming.push(event);
     }
     return { upcomingEvents: upcoming, pastEvents: past };
@@ -579,7 +579,7 @@ export default function VenueProfile() {
               </TabsContent>
               <TabsContent value="past" className="mt-4">
                 {pastEvents.length > 0 ? (
-                  <VenueEventList events={pastEvents} />
+                  <VenueEventList events={pastEvents} showAttendance />
                 ) : (
                   <div className="text-center py-12">
                     <Calendar className="w-10 h-10 text-gray-600 mx-auto mb-2" />

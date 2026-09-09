@@ -5,6 +5,9 @@ import { sendPushToUser } from './pushDelivery.js';
 const NOTIFICATION_BATCH_SIZE = 500;
 
 function pushPathForNotification(data) {
+  if (data.type === 'VENUE_FOLLOW') {
+    return data.referenceId ? `/UserProfile?id=${encodeURIComponent(data.referenceId)}` : '/Notifications';
+  }
   if (data.type === 'PLATFORM_ANNOUNCEMENT' || data.type === 'VENDOR_LISTING_REMINDER') {
     return typeof data.referenceId === 'string' && data.referenceId.startsWith('/')
       ? data.referenceId

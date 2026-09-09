@@ -13,7 +13,9 @@ import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { getStoredPromoterRef } from '@/utils';
-import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import VenueMenuBrowser from '@/components/menu/VenueMenuBrowser';
+import MenuCheckoutLines from '@/components/checkout/MenuCheckoutLines';
 import { maxTicketQuantity, ownedCountForTier, parseMaxPerUser } from '@/lib/ticketTierLimits';
 import { ticketTierAllowsMenuAddons } from '@/lib/ticketMenuAddons';
 
@@ -354,10 +356,11 @@ export default function TicketPurchaseButton({ event }) {
                         ) : venueMenu.length === 0 ? (
                           <p className="text-xs" style={{ color: 'var(--sec-text-muted)' }}>No menu items available right now.</p>
                         ) : (
-                          <MenuPicker
+                          <VenueMenuBrowser
                             items={venueMenu}
                             selected={menuSelected}
                             onChange={(id, qty) => setMenuSelected((s) => ({ ...s, [id]: qty }))}
+                            hideStickyFooter
                           />
                         )}
                       </div>
@@ -382,10 +385,7 @@ export default function TicketPurchaseButton({ event }) {
                     <span style={{ color: 'var(--sec-text-muted)' }}>Tickets</span>
                     <span style={{ color: 'var(--sec-text-primary)' }}>R{ticketSubtotal.toLocaleString()}</span>
                   </div>
-                  <div className="flex items-center justify-between text-sm mb-3">
-                    <span style={{ color: 'var(--sec-text-muted)' }}>Menu</span>
-                    <span style={{ color: 'var(--sec-text-primary)' }}>R{menuSubtotal.toLocaleString()}</span>
-                  </div>
+                  <MenuCheckoutLines items={venueMenu} selected={menuSelected} />
                 </>
               ) : null}
               <div className="flex items-center justify-between mb-3">

@@ -14,8 +14,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
 import { maxTicketQuantity, ownedCountForTier, parseMaxPerUser } from '@/lib/ticketTierLimits';
-import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import VenueMenuBrowser from '@/components/menu/VenueMenuBrowser';
+import MenuCheckoutLines from '@/components/checkout/MenuCheckoutLines';
 import { ticketTierAllowsMenuAddons } from '@/lib/ticketMenuAddons';
+import { isEventEnded } from '@/lib/eventLifecycle';
 
 const selectContentClass =
   'bg-[var(--sec-bg-card)] border-[var(--sec-border)] text-[var(--sec-text-primary)] w-[var(--radix-select-trigger-width)]';
@@ -202,6 +205,15 @@ export default function TicketCheckout() {
     );
   }
 
+  if (event?.ended || isEventEnded(event)) {
+    return (
+      <div className="sec-page">
+        <PageBackHeader title="Buy tickets" backTo={createPageUrl(`EventDetails?id=${eventId}`)} />
+        <p style={{ padding: 16, color: 'var(--sec-text-muted)' }}>This event has ended. Tickets are no longer available.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="sec-page" style={{ paddingBottom: 120 }}>
       <PageBackHeader title="Buy tickets" backTo={createPageUrl(`EventDetails?id=${eventId}`)} />
@@ -316,10 +328,11 @@ export default function TicketCheckout() {
                 <Loader2 className="animate-spin" size={14} /> Loading menu…
               </p>
             ) : (
-              <MenuPicker
+              <VenueMenuBrowser
                 items={venueMenu}
                 selected={menuSelected}
                 onChange={(id, qty) => setMenuSelected((s) => ({ ...s, [id]: qty }))}
+                hideStickyFooter
               />
             )}
           </div>
@@ -340,14 +353,7 @@ export default function TicketCheckout() {
               R{ticketSubtotal.toFixed(0)}
             </span>
           </div>
-          {menuSubtotal > 0 ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ color: 'var(--sec-text-secondary)' }}>Menu</span>
-              <span style={{ fontWeight: 700, color: 'var(--sec-text-primary)' }}>
-                R{menuSubtotal.toFixed(0)}
-              </span>
-            </div>
-          ) : null}
+          <MenuCheckoutLines items={venueMenu} selected={menuSelected} />
           <div
             style={{
               display: 'flex',
@@ -368,7 +374,19 @@ export default function TicketCheckout() {
       <div className="sec-bottom-bar sec-bottom-bar--responsive">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 560, margin: '0 auto' }}>
           <div className="sec-bottom-bar__price">
-            <div className="sec-bottom-bar__price-label">Total</div>
+            {menuSubtotal > 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 2, lineHeight: 1.35, maxHeight: 72, overflow: 'auto' }}>
+                Tickets R{ticketSubtotal.toFixed(0)}
+                {menuSelectionToPayload(venueMenu, menuSelected).map((line) => (
+                  <div key={line.menuItemId}>
+                    {line.name || 'Item'} ×{line.quantity} · R
+                    {(Number(line.unitPrice || 0) * Number(line.quantity || 0)).toFixed(0)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="sec-bottom-bar__price-label">Total</div>
+            )}
             <div className="sec-bottom-bar__price-value">R{totalPrice.toFixed(0)}</div>
           </div>
           <div className="sec-bottom-bar__cta">

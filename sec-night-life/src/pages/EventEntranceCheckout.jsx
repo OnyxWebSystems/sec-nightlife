@@ -5,12 +5,15 @@ import { apiGet, apiPost } from '@/api/client';
 import * as authService from '@/services/authService';
 import { createPageUrl, getStoredPromoterRef } from '@/utils';
 import PageBackHeader from '@/components/layout/PageBackHeader';
-import MenuPicker, { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import { menuSelectionTotal, menuSelectionToPayload } from '@/components/menu/MenuPicker';
+import VenueMenuBrowser from '@/components/menu/VenueMenuBrowser';
+import MenuCheckoutLines from '@/components/checkout/MenuCheckoutLines';
 import RefundPolicyNote from '@/components/legal/RefundPolicyNote';
 import { launchPaystackInline, loadPaystackScript } from '@/lib/paystackInline';
 import { completePaystackCheckout } from '@/lib/completePaystackCheckout';
 import { Loader2, Ticket } from 'lucide-react';
 import { toast } from 'sonner';
+import { isEventEnded } from '@/lib/eventLifecycle';
 
 export default function EventEntranceCheckout() {
   const [params] = useSearchParams();
@@ -131,6 +134,15 @@ export default function EventEntranceCheckout() {
     );
   }
 
+  if (event?.ended || isEventEnded(event)) {
+    return (
+      <div className="sec-page">
+        <PageBackHeader title="Pay to enter" backTo={createPageUrl(`EventDetails?id=${eventId}`)} />
+        <p style={{ padding: 16, color: 'var(--sec-text-muted)' }}>This event has ended. Entrance is no longer available.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="sec-page" style={{ paddingBottom: 120 }}>
       <PageBackHeader
@@ -147,12 +159,27 @@ export default function EventEntranceCheckout() {
             : 'Pay the entrance fee to attend. You can still host or join a table later — entrance already paid will be credited.'}
         </p>
 
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
+          Add from the menu (optional)
+        </h2>
+        {menuLoading ? (
+          <Loader2 className="animate-spin" style={{ marginBottom: 16 }} />
+        ) : (
+          <VenueMenuBrowser
+            items={venueMenu}
+            selected={menuSelected}
+            onChange={(id, qty) => setMenuSelected((s) => ({ ...s, [id]: qty }))}
+            hideStickyFooter
+          />
+        )}
+
         <div
           style={{
             background: 'var(--sec-bg-card)',
             border: '1px solid var(--sec-border)',
             borderRadius: 'var(--radius-lg)',
             padding: 16,
+            marginTop: 20,
             marginBottom: 20,
           }}
         >
@@ -162,12 +189,7 @@ export default function EventEntranceCheckout() {
               {entranceZar <= 0 ? 'Free' : `R${entranceZar.toFixed(0)}`}
             </span>
           </div>
-          {menuSubtotal > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ color: 'var(--sec-text-secondary)' }}>Menu</span>
-              <span style={{ fontWeight: 600, color: 'var(--sec-text-primary)' }}>R{menuSubtotal.toFixed(0)}</span>
-            </div>
-          )}
+          <MenuCheckoutLines items={venueMenu} selected={menuSelected} />
           <div
             style={{
               display: 'flex',
@@ -184,22 +206,25 @@ export default function EventEntranceCheckout() {
           </div>
         </div>
 
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: 'var(--sec-text-primary)' }}>
-          Add from the menu (optional)
-        </h2>
-        {menuLoading ? (
-          <Loader2 className="animate-spin" style={{ marginBottom: 16 }} />
-        ) : (
-          <MenuPicker menuItems={venueMenu} selected={menuSelected} onChange={setMenuSelected} />
-        )}
-
         <RefundPolicyNote style={{ marginTop: 16 }} />
       </div>
 
       <div className="sec-bottom-bar sec-bottom-bar--responsive">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 560, margin: '0 auto' }}>
           <div className="sec-bottom-bar__price">
-            <div className="sec-bottom-bar__price-label">Total</div>
+            {menuSubtotal > 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--sec-text-muted)', marginBottom: 2, lineHeight: 1.35, maxHeight: 72, overflow: 'auto' }}>
+                Entrance {entranceZar <= 0 ? 'Free' : `R${entranceZar.toFixed(0)}`}
+                {menuSelectionToPayload(venueMenu, menuSelected).map((line) => (
+                  <div key={line.menuItemId}>
+                    {line.name || 'Item'} ×{line.quantity} · R
+                    {(Number(line.unitPrice || 0) * Number(line.quantity || 0)).toFixed(0)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="sec-bottom-bar__price-label">Total</div>
+            )}
             <div className="sec-bottom-bar__price-value">R{totalPrice.toFixed(0)}</div>
           </div>
           <div className="sec-bottom-bar__cta">

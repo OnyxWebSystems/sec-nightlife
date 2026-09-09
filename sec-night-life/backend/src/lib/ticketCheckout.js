@@ -1,5 +1,6 @@
 import { splitTicketCheckoutAmounts } from './platformSplit.js';
 import { line, sumCheckoutLines } from './checkoutLines.js';
+import { eventHasEnded } from './ticketHelpers.js';
 
 /** Per-tier paid menu add-ons. Legacy events with only the event flag still allow add-ons. */
 export function ticketTierAllowsMenuAddons(tier, event = null) {
@@ -82,9 +83,19 @@ export async function computeTicketCheckout(prisma, {
       ticketTiers: true,
       allowsTicketMenuAddons: true,
       venueId: true,
+      date: true,
+      startTime: true,
+      endsAt: true,
+      status: true,
     },
   });
   if (!event) return { ok: false, error: 'Event not found' };
+  if (event.status && event.status !== 'published') {
+    return { ok: false, error: 'Event is not available' };
+  }
+  if (eventHasEnded(event)) {
+    return { ok: false, error: 'This event has ended. Tickets are no longer available.' };
+  }
 
   const tiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
   const tier = tiers.find((t) => t.name === ticketTierName);

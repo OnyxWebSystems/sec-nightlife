@@ -67,6 +67,7 @@ import {
   dayStartsAtFromVenueTable,
   dayEndsAtFromVenueTable,
   holderDisplayNameFromUser,
+  eventHasEnded,
 } from '../lib/ticketHelpers.js';
 
 import {
@@ -2160,9 +2161,20 @@ router.post('/tables/:tableId/join/checkout', authenticateToken, requireVerified
     const joinEvent = t.eventId
       ? await prisma.event.findFirst({
           where: { id: t.eventId, deletedAt: null },
-          select: { id: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true },
+          select: {
+            id: true,
+            venueId: true,
+            hasEntranceFee: true,
+            entranceFeeAmount: true,
+            date: true,
+            startTime: true,
+            endsAt: true,
+          },
         })
       : null;
+    if (joinEvent && eventHasEnded(joinEvent)) {
+      return res.status(400).json({ error: 'This event has ended. Tables are no longer available.' });
+    }
     const joinLinkedVt = !joinEvent ? await resolveLinkedVenueTableForHostedTable(prisma, t.id) : null;
     const joinVenueId = joinEvent?.venueId || joinLinkedVt?.venueId || null;
     const entranceZar = await resolveHostedJoinEntranceZar({
@@ -2243,6 +2255,9 @@ router.post('/tables/:tableId/join', authenticateToken, requireVerified, async (
           select: { id: true, title: true, venueId: true, hasEntranceFee: true, entranceFeeAmount: true, date: true, startTime: true, endsAt: true },
         })
       : null;
+    if (joinEvent && eventHasEnded(joinEvent)) {
+      return res.status(400).json({ error: 'This event has ended. Tables are no longer available.' });
+    }
     const joinLinkedVt = !joinEvent ? await resolveLinkedVenueTableForHostedTable(prisma, t.id) : null;
     const joinVenueId = joinEvent?.venueId || joinLinkedVt?.venueId || null;
 

@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
+import { createInAppNotification } from '../lib/inAppNotifications.js';
+import { normalizeUsername } from '../lib/username.js';
 
 /** Keep legacy user_profiles.followed_venues in sync for older clients. */
 async function syncProfileFollowedVenues(userId, venueId, following) {
@@ -245,7 +247,7 @@ router.post('/:id/follow', authenticateToken, async (req, res, next) => {
     const venueId = req.params.id;
     const venue = await prisma.venue.findFirst({
       where: { id: venueId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, name: true, ownerUserId: true },
     });
     if (!venue) return res.status(404).json({ error: 'Venue not found' });
 
@@ -263,6 +265,32 @@ router.post('/:id/follow', authenticateToken, async (req, res, next) => {
       data: { userId: req.userId, venueId },
     });
     await syncProfileFollowedVenues(req.userId, venueId, true);
+
+    if (venue.ownerUserId && venue.ownerUserId !== req.userId) {
+      const follower = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: {
+          username: true,
+          fullName: true,
+          userProfile: { select: { username: true } },
+        },
+      });
+      const uname =
+        normalizeUsername(follower?.userProfile?.username || follower?.username || '') ||
+        follower?.fullName ||
+        'someone';
+      const handle = String(uname).startsWith('@') ? String(uname) : `@${uname}`;
+      await createInAppNotification({
+        userId: venue.ownerUserId,
+        venueId: venue.id,
+        type: 'VENUE_FOLLOW',
+        title: 'New follower',
+        body: `${handle} started following ${venue.name}`,
+        referenceId: req.userId,
+        referenceType: 'USER',
+      });
+    }
+
     return res.json({ following: true });
   } catch (err) {
     next(err);

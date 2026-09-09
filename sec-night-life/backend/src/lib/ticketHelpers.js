@@ -262,6 +262,12 @@ export function eventEndsAtFromEvent(event) {
   return null;
 }
 
+/** True when the event's canonical end is in the past. */
+export function eventHasEnded(event, now = new Date()) {
+  const endAt = eventEndsAtFromEvent(event);
+  return Boolean(endAt && endAt.getTime() < (now instanceof Date ? now : new Date(now)).getTime());
+}
+
 /** Expiry for API + UI (legacy rows use visible_until only). */
 export function ticketExpiresAtFromRow(row) {
   const visRaw = row.visibleUntil ?? row.visible_until;

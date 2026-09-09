@@ -14,7 +14,7 @@ import {
 import { ensureGroupChatForEvent } from '../lib/groupChatHelpers.js';
 import { logger } from '../lib/logger.js';
 import { normalizeHostingConfig, mergeHostingConfigPatch } from '../lib/hostingConfig.js';
-import { eventEndsAtFromEvent, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
+import { eventEndsAtFromEvent, eventHasEnded, eventStartsAtFromEvent } from '../lib/ticketHelpers.js';
 import { syncEventVenueTables } from '../lib/syncEventVenueTables.js';
 import { buildEventTableTiers, statsFromEventTableTiers } from '../lib/eventTableTiers.js';
 import { resolveEventSeatingPlans, getVenueDefaultSeatingPlan, attachGuestSeatingPlans } from '../lib/seatingPlanHelpers.js';
@@ -569,11 +569,82 @@ function mapEventDetail(event, stats = null) {
   };
 }
 
-function mergePublishedNotEnded(where, now) {
+function mergePublishedNotEnded(where, now, { includeEnded = false } = {}) {
+  if (includeEnded) return where;
   if (where.status === 'published') {
     return { ...where, endsAt: { gte: now } };
   }
   return where;
+}
+
+function includeEndedFromQuery(query = {}) {
+  const raw = String(query.include_ended ?? query.includeEnded ?? '').toLowerCase();
+  const eventScope = String(query.event_scope || 'all').toLowerCase();
+  return raw === '1' || raw === 'true' || eventScope === 'past';
+}
+
+async function loadAttendanceCountsByEventIds(eventIds) {
+  const ids = [...new Set((eventIds || []).filter(Boolean))];
+  const map = new Map();
+  if (!ids.length) return map;
+  const [going, tickets, admitted] = await Promise.all([
+    prisma.eventAttendance.groupBy({
+      by: ['eventId'],
+      where: { eventId: { in: ids }, confirmed: true },
+      _count: { _all: true },
+    }),
+    prisma.ticket.groupBy({
+      by: ['eventId'],
+      where: {
+        eventId: { in: ids },
+        refundedAt: null,
+        hiddenFromHistoryAt: null,
+      },
+      _count: { _all: true },
+    }),
+    prisma.ticket.groupBy({
+      by: ['eventId'],
+      where: {
+        eventId: { in: ids },
+        refundedAt: null,
+        hiddenFromHistoryAt: null,
+        admittedAt: { not: null },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+  const goingMap = new Map(going.map((r) => [r.eventId, r._count._all]));
+  const ticketMap = new Map(tickets.map((r) => [r.eventId, r._count._all]));
+  const admittedMap = new Map(admitted.map((r) => [r.eventId, r._count._all]));
+  for (const id of ids) {
+    const goingCount = goingMap.get(id) || 0;
+    const ticketsSold = ticketMap.get(id) || 0;
+    const admittedCount = admittedMap.get(id) || 0;
+    map.set(id, {
+      going_count: goingCount,
+      tickets_sold: ticketsSold,
+      admitted_count: admittedCount,
+      attendee_count: admittedCount > 0 ? admittedCount : Math.max(goingCount, ticketsSold),
+    });
+  }
+  return map;
+}
+
+function withListAttendance(mapped, counts) {
+  const c = counts.get(mapped.id) || {
+    going_count: 0,
+    tickets_sold: 0,
+    admitted_count: 0,
+    attendee_count: 0,
+  };
+  return { ...mapped, ...c };
+}
+
+async function mapEventRowsWithOptionalAttendance(events, { withAttendance = false } = {}) {
+  const mapped = (events || []).map(mapEventRow);
+  if (!withAttendance || !mapped.length) return mapped;
+  const counts = await loadAttendanceCountsByEventIds(mapped.map((e) => e.id));
+  return mapped.map((e) => withListAttendance(e, counts));
 }
 
 async function applyOwnedOrStaffEventIsolation(req, where) {
@@ -646,7 +717,8 @@ router.get('/', optionalAuth, async (req, res, next) => {
     const sortDesc = req.query.sort === '-date';
     const paginated = String(req.query.paginated || '') === '1' || req.query.skip != null;
     const followedSet = await followedVenueIdSet(req.userId);
-    const whereMerged = mergePublishedNotEnded(where, now);
+    const includeEnded = includeEndedFromQuery(req.query);
+    const whereMerged = mergePublishedNotEnded(where, now, { includeEnded });
 
     if (paginated) {
       const [total, events] = await Promise.all([
@@ -658,8 +730,9 @@ router.get('/', optionalAuth, async (req, res, next) => {
           take,
         }),
       ]);
+      const items = await mapEventRowsWithOptionalAttendance(events, { withAttendance: includeEnded });
       return res.json({
-        items: events.map(mapEventRow),
+        items,
         total,
         hasMore: skip + events.length < total,
         skip,
@@ -677,7 +750,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
       req.userId && followedSet.size > 0
         ? sortEventsByFollowThenDate(events, followedSet, sortDesc).slice(0, take)
         : events;
-    res.json(ordered.map(mapEventRow));
+    res.json(await mapEventRowsWithOptionalAttendance(ordered, { withAttendance: includeEnded }));
   } catch (err) {
     next(err);
   }
@@ -688,8 +761,16 @@ router.get('/:id/table-tiers', optionalAuth, async (req, res, next) => {
   try {
     const result = await buildEventTableTiers(req.params.id);
     if (!result) return res.status(404).json({ error: 'Event not found' });
+    const eventRow = await prisma.event.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { date: true, startTime: true, endsAt: true, status: true },
+    });
+    const ended = eventHasEnded(eventRow);
     const seatingPlans = await resolveEventSeatingPlans(req.params.id);
-    res.json(attachGuestSeatingPlans(result, seatingPlans));
+    res.json({
+      ...attachGuestSeatingPlans(result, seatingPlans),
+      ended,
+    });
   } catch (err) {
     next(err);
   }
@@ -930,7 +1011,8 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
     const paginated = String(req.query.paginated || '') === '1' || req.query.skip != null;
     const followedSet = await followedVenueIdSet(req.userId);
-    const whereMerged = mergePublishedNotEnded(where, now);
+    const includeEnded = includeEndedFromQuery(req.query);
+    const whereMerged = mergePublishedNotEnded(where, now, { includeEnded });
 
     if (paginated) {
       const [total, events] = await Promise.all([
@@ -942,8 +1024,9 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
           take,
         }),
       ]);
+      const items = await mapEventRowsWithOptionalAttendance(events, { withAttendance: includeEnded });
       return res.json({
-        items: events.map(mapEventRow),
+        items,
         total,
         hasMore: skip + events.length < total,
         skip,
@@ -961,7 +1044,7 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
       req.userId && followedSet.size > 0
         ? sortEventsByFollowThenDate(events, followedSet, sortDesc).slice(0, take)
         : events;
-    res.json(ordered.map(mapEventRow));
+    res.json(await mapEventRowsWithOptionalAttendance(ordered, { withAttendance: includeEnded }));
   } catch (err) {
     next(err);
   }
@@ -1266,20 +1349,27 @@ router.get('/:id', optionalAuth, async (req, res, next) => {
       include: { venue: true },
     });
     if (!event) return res.status(404).json({ error: 'Event not found' });
-    const endAt = eventEndsAtFromEvent(event);
-    const now = new Date();
     const canManageEvents =
       req.userId &&
       (isStaff(req.userRole) ||
         (await staffHasVenuePermission(req.userId, event.venue.id, 'events')));
-    if (event.status === 'published' && endAt && endAt < now && !canManageEvents) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
     if (event.status === 'draft' && req.userId && !canManageEvents) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    const stats = await computeEventStats(event.id, event.hostingConfig);
+    const ended = eventHasEnded(event);
+    if (ended && event.status !== 'published' && !canManageEvents) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    const [stats, attendance] = await Promise.all([
+      computeEventStats(event.id, event.hostingConfig),
+      loadAttendanceCountsByEventIds([event.id]),
+    ]);
     const payload = mapEventDetail(event, stats);
+    const counts = attendance.get(event.id) || {};
+    payload.ended = ended;
+    payload.attendee_count = counts.attendee_count ?? stats?.going_count ?? 0;
+    payload.tickets_sold = counts.tickets_sold ?? 0;
+    payload.admitted_count = counts.admitted_count ?? 0;
     if (req.userId) {
       try {
         payload.my_ticket_counts = await countUserEventTicketsByTier(prisma, {

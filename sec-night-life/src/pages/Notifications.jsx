@@ -166,6 +166,10 @@ export default function Notifications() {
       return createPageUrl('StaffDashboard');
     }
 
+    if (t === 'VENUE_FOLLOW' && n.referenceId) {
+      return `${createPageUrl('UserProfile')}?id=${encodeURIComponent(n.referenceId)}`;
+    }
+
     if (t === 'DIRECT_MESSAGE' && n.referenceId) {
       return `${createPageUrl('Messages')}?dm=${n.referenceId}`;
     }

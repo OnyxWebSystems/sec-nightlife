@@ -26,6 +26,7 @@ import HostedTableExperience from '@/components/tables/HostedTableExperience';
 import { isHostedEventListing } from '@/lib/hostedListingUrl';
 import { parseMaxPerUser } from '@/lib/ticketTierLimits';
 import { getDirectionsActions } from '@/lib/openDirections';
+import { isEventEnded } from '@/lib/eventLifecycle';
 
 export default function EventDetails() {
   const navigate = useNavigate();
@@ -137,6 +138,8 @@ export default function EventDetails() {
     refetchOnWindowFocus: true,
   });
 
+  const eventEnded = Boolean(event?.ended) || isEventEnded(event);
+
   useEffect(() => {
     if (!eventId || !refPromoterId) return;
     (async () => {
@@ -169,7 +172,7 @@ export default function EventDetails() {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
-  const tableTiers = tableTiersData?.tiers ?? [];
+  const tableTiers = eventEnded ? [] : (tableTiersData?.tiers ?? []);
   const customListingId = tableTiersData?.customListingId ?? null;
   const allowsCustomRequests = tableTiersData?.allowsCustomRequests ?? false;
   const seatingPlans = normalizeGuestSeatingPlans(tableTiersData);
@@ -467,8 +470,8 @@ export default function EventDetails() {
               { icon: MapPin, label: 'Location', value: venueLine },
               {
                 icon: Users,
-                label: 'Going',
-                value: `${event.stats?.going_count ?? event.total_attending ?? 0} people`,
+                label: eventEnded ? 'Attended' : 'Going',
+                value: `${event.attendee_count ?? event.stats?.going_count ?? event.total_attending ?? 0} people`,
               },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -542,7 +545,7 @@ export default function EventDetails() {
           </div>
         )}
 
-        {event.event_format !== 'TICKETING_ONLY' && event.has_entrance_fee && event.entrance_fee_amount != null && (
+        {!eventEnded && event.event_format !== 'TICKETING_ONLY' && event.has_entrance_fee && event.entrance_fee_amount != null && (
           <div className="sec-card" style={{
             padding: '12px 16px', marginBottom: 20,
             display: 'flex', alignItems: 'center', gap: 10,
@@ -568,7 +571,7 @@ export default function EventDetails() {
           </div>
         )}
 
-        {event.event_format !== 'TICKETING_ONLY' && event.has_entrance_fee && (
+        {!eventEnded && event.event_format !== 'TICKETING_ONLY' && event.has_entrance_fee && (
           <div
             style={{
               display: 'grid',
@@ -713,7 +716,7 @@ export default function EventDetails() {
           </div>
         )}
 
-        {(event.event_format !== 'TICKETING_ONLY' || tableTiers.length > 0) ? (
+        {(!eventEnded && (event.event_format !== 'TICKETING_ONLY' || tableTiers.length > 0)) ? (
         <div data-tables-section style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -808,7 +811,7 @@ export default function EventDetails() {
         </div>
         ) : null}
 
-        {(event.event_format !== 'TICKETING_ONLY' || tableTiers.length > 0) ? (
+        {(!eventEnded && (event.event_format !== 'TICKETING_ONLY' || tableTiers.length > 0)) ? (
         <EventTableTierSheet
           tier={selectedTier}
           open={Boolean(selectedTier)}
@@ -862,7 +865,21 @@ export default function EventDetails() {
       {/* ── Sticky bottom bar — price left / CTA right ── */}
       <div className="sec-bottom-bar sec-bottom-bar--responsive">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', maxWidth: 960, margin: '0 auto' }}>
-          {event.event_format === 'TICKETING_ONLY' && event.ticket_tiers?.length > 0 ? (
+          {eventEnded ? (
+            <>
+              <div className="sec-bottom-bar__price">
+                <div className="sec-bottom-bar__price-label">Attended</div>
+                <div className="sec-bottom-bar__price-value">
+                  {event.attendee_count ?? event.stats?.going_count ?? event.total_attending ?? 0}
+                </div>
+              </div>
+              <div className="sec-bottom-bar__cta">
+                <button type="button" className="sec-btn sec-btn-full" disabled>
+                  This event has ended
+                </button>
+              </div>
+            </>
+          ) : event.event_format === 'TICKETING_ONLY' && event.ticket_tiers?.length > 0 ? (
             <>
               <div className="sec-bottom-bar__price">
                 <div className="sec-bottom-bar__price-label">From</div>

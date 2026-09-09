@@ -5,6 +5,7 @@ import { recordEventVenueTableBooking } from './eventVenueBooking.js';
 import {
   eventStartsAtFromEvent,
   eventEndsAtFromEvent,
+  eventHasEnded,
   visibleUntilAfterEventDate,
   holderDisplayNameFromUser,
 } from './ticketHelpers.js';
@@ -43,6 +44,9 @@ export async function computeEventEntranceCheckout(
   }
   if (event.status !== 'published') {
     return { ok: false, error: 'Event is not available' };
+  }
+  if (eventHasEnded(event)) {
+    return { ok: false, error: 'This event has ended. Entrance is no longer available.' };
   }
   if (!event.hasEntranceFee) {
     return { ok: false, error: 'This event does not have an entrance fee' };

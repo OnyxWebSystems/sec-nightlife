@@ -25,6 +25,7 @@ import {
   dayEventStartsAtFromMember,
   holderDisplayNameFromUser,
   venueTableTicketTitle,
+  eventHasEnded,
 } from '../lib/ticketHelpers.js';
 import { resolveVenueTableSeatingPlans, attachGuestSeatingPlans } from '../lib/seatingPlanHelpers.js';
 import { resolveVenueMenuSelections } from '../lib/menuHelpers.js';
@@ -579,6 +580,9 @@ async function hostFulfillmentIncomplete(table, member) {
 }
 
 async function buildVenueCheckoutForTable(table, venue, menuItems, payload, existing) {
+  if (table.event && eventHasEnded(table.event)) {
+    return { error: 'This event has ended. Tables are no longer available.' };
+  }
   const specs = existing?.userSpecs || {};
   const bookingMode = resolveBookingMode(payload.bookingMode, table, specs);
   const isDay = isDayVenueTable(table);
@@ -696,6 +700,8 @@ router.post('/:tableId/checkout-preview', optionalAuth, async (req, res, next) =
             id: true,
             title: true,
             date: true,
+            startTime: true,
+            endsAt: true,
             hasEntranceFee: true,
             entranceFeeAmount: true,
           },
@@ -804,9 +810,15 @@ router.post('/:tableId/request', authenticateToken, async (req, res, next) => {
       .parse(req.body || {});
     const table = await prisma.venueTable.findUnique({
       where: { id: req.params.tableId },
-      include: { venue: { include: { owner: { select: { id: true, email: true } } } } },
+      include: {
+        venue: { include: { owner: { select: { id: true, email: true } } } },
+        event: { select: { id: true, date: true, startTime: true, endsAt: true } },
+      },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
+    if (table.event && eventHasEnded(table.event)) {
+      return res.status(400).json({ error: 'This event has ended. Tables are no longer available.' });
+    }
     if (!table.isActive) return res.status(400).json({ error: 'Table not available' });
     if (payload.isCustom && !table.allowsCustomRequests && !table.isCustomListing) {
       return res.status(400).json({ error: 'Custom requests are not enabled for this listing' });
@@ -1022,7 +1034,17 @@ router.post('/:tableId/join', authenticateToken, async (req, res, next) => {
       include: {
         venue: true,
         menuItems: true,
-        event: { select: { id: true, title: true, date: true, hasEntranceFee: true, entranceFeeAmount: true } },
+        event: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            startTime: true,
+            endsAt: true,
+            hasEntranceFee: true,
+            entranceFeeAmount: true,
+          },
+        },
       },
     });
     if (!table) return res.status(404).json({ error: 'Table not found' });
