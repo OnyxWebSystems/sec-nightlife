@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { Fragment, useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/api/client';
 import { asArray } from '@/utils';
@@ -13,7 +13,9 @@ import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
+import ChatDaySeparator from '@/components/messaging/ChatDaySeparator';
 import ChatComposer from '@/components/messaging/ChatComposer';
+import { chatDayLabel, messageDayKey } from '@/lib/chatDayLabel';
 import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 import {
   Sheet,
@@ -506,11 +508,14 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
                   No messages yet.
                 </p>
               ) : (
-                messages.map((m) => {
+                messages.map((m, i) => {
                   const own = !!m.isMine;
+                  const dayKey = messageDayKey(m.createdAt);
+                  const showDay = i === 0 || messageDayKey(messages[i - 1]?.createdAt) !== dayKey;
                   return (
+                    <Fragment key={m.id}>
+                      {showDay ? <ChatDaySeparator label={chatDayLabel(m.createdAt)} /> : null}
                     <div
-                      key={m.id}
                       className={`flex w-full min-w-0 ${own ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
@@ -551,6 +556,7 @@ export default function BusinessVenueGroupPanel({ venueId, staffContextToken = n
                         </span>
                       </div>
                     </div>
+                    </Fragment>
                   );
                 })
               )}

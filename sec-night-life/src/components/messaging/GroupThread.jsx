@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Fragment, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Users, Trash2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiGet, apiPost, apiDelete } from '@/api/client';
@@ -10,7 +10,9 @@ import { markConversationReadInCaches } from '@/lib/messagesRefresh';
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
+import ChatDaySeparator from '@/components/messaging/ChatDaySeparator';
 import ChatComposer from '@/components/messaging/ChatComposer';
+import { chatDayLabel, messageDayKey } from '@/lib/chatDayLabel';
 import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 
@@ -224,10 +226,14 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
             New messages ↓
           </button>
         )}
-        {messages.map((m) => {
+        {messages.map((m, i) => {
           const own = m.senderUserId === me?.id;
+          const dayKey = messageDayKey(m.sentAt);
+          const showDay = i === 0 || messageDayKey(messages[i - 1]?.sentAt) !== dayKey;
           return (
-            <div key={m.id} className={`flex w-full min-w-0 ${own ? 'justify-end' : 'justify-start gap-2'}`}>
+            <Fragment key={m.id}>
+              {showDay ? <ChatDaySeparator label={chatDayLabel(m.sentAt)} /> : null}
+            <div className={`flex w-full min-w-0 ${own ? 'justify-end' : 'justify-start gap-2'}`}>
               {!own && (
                 <div className="w-8 h-8 rounded-full bg-[#262629] overflow-hidden flex-shrink-0">
                   {m.sender?.avatarUrl ? (
@@ -253,6 +259,7 @@ export default function GroupThread({ groupChatId, chatKind = 'EVENT', onBack })
                 <span className="text-[10px] text-gray-600 mt-0.5">{format(new Date(m.sentAt), 'HH:mm')}</span>
               </div>
             </div>
+            </Fragment>
           );
         })}
         <div ref={bottomRef} />

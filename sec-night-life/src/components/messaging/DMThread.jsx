@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Fragment, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, MessageSquareX } from 'lucide-react';
 import { apiDelete, apiGet, apiPost } from '@/api/client';
 import { toast } from 'sonner';
@@ -8,7 +8,9 @@ import { dispatchMessagesRefresh, markConversationReadInCaches } from '@/lib/mes
 import { useMessageReply } from '@/hooks/useMessageReply';
 import MessageReplyPreview from '@/components/messaging/MessageReplyPreview';
 import MessageBubble from '@/components/messaging/MessageBubble';
+import ChatDaySeparator from '@/components/messaging/ChatDaySeparator';
 import ChatComposer from '@/components/messaging/ChatComposer';
+import { chatDayLabel, messageDayKey } from '@/lib/chatDayLabel';
 import { linkifyMessageBody } from '@/lib/linkifyMessageBody';
 import { useIsMobile } from '@/hooks/useIsDesktop';
 
@@ -151,10 +153,14 @@ export default function DMThread({ conversationId, onBack }) {
         className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0"
         onClick={() => {}}
       >
-        {messages.map((m) => {
+        {messages.map((m, i) => {
           const own = m.senderUserId === me?.id;
+          const dayKey = messageDayKey(m.sentAt);
+          const showDay = i === 0 || messageDayKey(messages[i - 1]?.sentAt) !== dayKey;
           return (
-            <div key={m.id} className={`flex w-full min-w-0 ${own ? 'justify-end' : 'justify-start gap-2'}`}>
+            <Fragment key={m.id}>
+              {showDay ? <ChatDaySeparator label={chatDayLabel(m.sentAt)} /> : null}
+            <div className={`flex w-full min-w-0 ${own ? 'justify-end' : 'justify-start gap-2'}`}>
               {!own && (
                 <div className="w-8 h-8 rounded-full bg-[#262629] overflow-hidden flex-shrink-0">
                   {other?.avatarUrl ? (
@@ -182,6 +188,7 @@ export default function DMThread({ conversationId, onBack }) {
                 )}
               </div>
             </div>
+            </Fragment>
           );
         })}
         <div ref={bottomRef} />

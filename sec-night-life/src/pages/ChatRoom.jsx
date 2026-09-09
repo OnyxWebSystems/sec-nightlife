@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { Fragment, useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import * as authService from '@/services/authService';
@@ -12,9 +12,11 @@ import {
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import ChatComposer from '@/components/messaging/ChatComposer';
+import ChatDaySeparator from '@/components/messaging/ChatDaySeparator';
 import PageBackHeader from '@/components/layout/PageBackHeader';
 import ReportDialog from '@/components/moderation/ReportDialog';
 import { format, parseISO } from 'date-fns';
+import { chatDayLabel, messageDayKey } from '@/lib/chatDayLabel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useIsMobile } from '@/hooks/useIsDesktop';
@@ -340,6 +342,8 @@ export default function ChatRoom() {
           const isOwn = msg.sender_id === user?.id;
           const sender = participants.find(p => p.id === msg.sender_id);
           const showAvatar = !isOwn && (index === 0 || messages[index - 1]?.sender_id !== msg.sender_id);
+          const dayKey = messageDayKey(msg.created_date);
+          const showDay = index === 0 || messageDayKey(messages[index - 1]?.created_date) !== dayKey;
           const allReactions = msg.reactions || {};
           const reactionCounts = {};
           Object.values(allReactions).forEach(userReacts => {
@@ -349,8 +353,9 @@ export default function ChatRoom() {
           });
           
           return (
+            <Fragment key={msg.id}>
+              {showDay ? <ChatDaySeparator label={chatDayLabel(msg.created_date)} /> : null}
             <motion.div
-              key={msg.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className={`flex gap-2 w-full min-w-0 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}
@@ -455,6 +460,7 @@ export default function ChatRoom() {
                 </span>
               </div>
             </motion.div>
+            </Fragment>
           );
         })}
         
