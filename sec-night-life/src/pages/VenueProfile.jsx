@@ -217,23 +217,31 @@ export default function VenueProfile() {
 
   const { data: events = [] } = useQuery({
     queryKey: ['venue-events', resolvedVenueId],
-    queryFn: () =>
-      dataService.Event.filter(
-        { venue_id: resolvedVenueId, status: 'published', include_ended: '1' },
-        '-date',
-      ),
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        venue_id: resolvedVenueId,
+        status: 'published',
+        include_ended: '1',
+        sort: '-date',
+        limit: '100',
+      });
+      const rows = await apiGet(`/api/events/filter?${params.toString()}`);
+      return Array.isArray(rows) ? rows : rows?.items || [];
+    },
     enabled: !!resolvedVenueId,
   });
 
   const { upcomingEvents, pastEvents } = useMemo(() => {
+    const list = Array.isArray(events) ? events : [];
     const upcoming = [];
     const past = [];
-    for (const event of events) {
+    for (const event of list) {
       if (isEventEnded(event)) past.push(event);
       else upcoming.push(event);
     }
     return { upcomingEvents: upcoming, pastEvents: past };
   }, [events]);
+  const eventCount = upcomingEvents.length + pastEvents.length;
 
   const { data: jobs = [] } = useQuery({
     queryKey: ['venue-jobs', resolvedVenueId],
@@ -552,7 +560,7 @@ export default function VenueProfile() {
             listClassName="bg-[#141416] p-1 rounded-xl"
             triggerClassName="rounded-lg data-[state=active]:bg-[#262629]"
             tabs={[
-              { value: 'events', label: `Events (${events.length})` },
+              { value: 'events', label: `Events (${eventCount})` },
               { value: 'jobs', label: `Jobs (${jobs.length})` },
             ]}
           />

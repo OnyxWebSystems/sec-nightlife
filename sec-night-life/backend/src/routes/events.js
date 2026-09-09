@@ -577,10 +577,34 @@ function mergePublishedNotEnded(where, now, { includeEnded = false } = {}) {
   return where;
 }
 
+function venueIdFromEventQuery(query = {}) {
+  return (
+    venueIdFromQuery(query) ||
+    (typeof query.venue_id === 'string' && query.venue_id.trim()) ||
+    (Array.isArray(query.venue_id) ? String(query.venue_id[0] || '').trim() : '') ||
+    ''
+  );
+}
+
 function includeEndedFromQuery(query = {}) {
   const raw = String(query.include_ended ?? query.includeEnded ?? '').toLowerCase();
+  if (raw === '0' || raw === 'false') return false;
+  if (raw === '1' || raw === 'true') return true;
   const eventScope = String(query.event_scope || 'all').toLowerCase();
-  return raw === '1' || raw === 'true' || eventScope === 'past';
+  if (eventScope === 'past') return true;
+  // Venue Profile (and older clients) list published events by venue without include_ended.
+  const status = String(query.status || '');
+  return Boolean(venueIdFromEventQuery(query)) && status === 'published';
+}
+
+/** Public venue catalogs must not use business isolation — owners viewing another venue were getting 404. */
+function shouldIsolateEventList(req) {
+  if (!req?.userId) return false;
+  if (staffCtxFromQuery(req.query)) return true;
+  const status = String(req.query?.status || '');
+  const venueId = venueIdFromEventQuery(req.query);
+  if (venueId && status === 'published') return false;
+  return true;
 }
 
 async function loadAttendanceCountsByEventIds(eventIds) {
@@ -643,8 +667,13 @@ function withListAttendance(mapped, counts) {
 async function mapEventRowsWithOptionalAttendance(events, { withAttendance = false } = {}) {
   const mapped = (events || []).map(mapEventRow);
   if (!withAttendance || !mapped.length) return mapped;
-  const counts = await loadAttendanceCountsByEventIds(mapped.map((e) => e.id));
-  return mapped.map((e) => withListAttendance(e, counts));
+  try {
+    const counts = await loadAttendanceCountsByEventIds(mapped.map((e) => e.id));
+    return mapped.map((e) => withListAttendance(e, counts));
+  } catch (err) {
+    logger.warn('event attendance counts failed', { err: err?.message });
+    return mapped;
+  }
 }
 
 async function applyOwnedOrStaffEventIsolation(req, where) {
@@ -709,7 +738,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
     } else if (eventScope === 'past') {
       where.date = { lt: todayStart };
     }
-    if (req.userId) {
+    if (shouldIsolateEventList(req)) {
       await applyOwnedOrStaffEventIsolation(req, where);
     }
     const take = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
@@ -1002,7 +1031,7 @@ router.get('/filter', optionalAuth, async (req, res, next) => {
     } else if (eventScope === 'past') {
       where.date = { lt: todayStart };
     }
-    if (req.userId) {
+    if (shouldIsolateEventList(req)) {
       await applyOwnedOrStaffEventIsolation(req, where);
     }
     const sort = String(req.query.sort || 'date');
